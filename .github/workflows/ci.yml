@@ -1,0 +1,44 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - run: python3 -B -m unittest discover -s scripts/tests -v
+
+  test:
+    strategy:
+      fail-fast: false          # one platform failing must not hide the others
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CGO_ENABLED: '0'          # pure Go; fail loudly if cgo ever creeps in
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'    # not 'stable'/'oldstable': this code needs
+          cache: true           # uuid, encoding/json/v2 and strings.CutLast
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go test -cover ./...
+      - run: go build ./...
+
+  race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          cache: true
+      - run: go test ./... -race

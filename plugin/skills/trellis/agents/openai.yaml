@@ -1,0 +1,4 @@
+interface:
+  display_name: "Trellis"
+  short_description: "Track work and preserve project knowledge"
+  default_prompt: "Use $trellis to show my current work, blockers, and relevant project knowledge."

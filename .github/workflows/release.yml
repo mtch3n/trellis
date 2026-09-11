@@ -1,0 +1,26 @@
+name: release
+on:
+  push:
+    tags: ['v*.*.*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.27'}
+      - name: Build release archives
+        run: |
+          mkdir -p dist
+          pkg=github.com/mtch3n/trellis/internal/version
+          LDFLAGS="-s -w -X $pkg.Version=${GITHUB_REF_NAME} -X $pkg.Commit=${GITHUB_SHA} -X $pkg.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            os=${target%/*}; arch=${target#*/}; ext=""; [ "$os" = windows ] && ext=.exe
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "$LDFLAGS" -o trellis$ext ./cmd/trellis
+            tar -czf "dist/trellis_${os}_${arch}.tar.gz" trellis$ext
+            rm trellis$ext
+          done
+      - uses: softprops/action-gh-release@v2
+        with: {generate_release_notes: true, files: dist/*}

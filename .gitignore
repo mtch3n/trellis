@@ -1,0 +1,11 @@
+/trellis
+/dist/
+/bin/
+*.db
+*.db-wal
+*.db-shm
+
+# Per-checkout project pin written by `trellis init --pin`; it is local state.
+/.trellis
+# Local editor/agent tooling configuration.
+/.serena/

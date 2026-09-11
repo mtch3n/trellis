@@ -1,0 +1,8 @@
+node_modules/
+dist/*
+!dist/index.html
+!dist/assets/
+!dist/assets/**
+!dist/favicon.svg
+!dist/icons.svg
+package-lock.json

@@ -1,0 +1,546 @@
+package core
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/jmoiron/sqlx"
+)
+
+type Card struct {
+	ID         string   `db:"id" json:"id"`
+	ProjectID  string   `db:"project_id" json:"-"`
+	BoardID    string   `db:"board_id" json:"-"`
+	Seq        int64    `db:"seq" json:"-"`
+	ColumnID   string   `db:"column_id" json:"-"`
+	Rank       string   `db:"rank" json:"-"`
+	Title      string   `db:"title" json:"title"`
+	BodyMD     string   `db:"body_md" json:"body"`
+	Priority   Priority `db:"priority" json:"-"`
+	Owner      *string  `db:"owner" json:"owner,omitempty"`
+	LeaseUntil *int64   `db:"lease_until" json:"lease_until,omitempty"`
+	Version    int64    `db:"version" json:"version"`
+	CreatedAt  int64    `db:"created_at" json:"created_at"`
+	UpdatedAt  int64    `db:"updated_at" json:"updated_at"`
+	ArchivedAt *int64   `db:"archived_at" json:"archived_at,omitzero"`
+
+	// Computed for display; never read from the database.
+	Ref          string   `db:"-" json:"ref"`
+	ColumnName   string   `db:"-" json:"column"`
+	PriorityName string   `db:"-" json:"priority"`
+	Labels       []string `db:"-" json:"labels,omitempty"`
+	Tags         []string `db:"-" json:"tags,omitempty"`
+}
+
+type NewCard struct {
+	Title    string
+	Body     string
+	Column   string    // empty means the first column
+	Priority *Priority // nil means PriorityNormal
+	Labels   []string
+	Tags     []string
+}
+
+type CardFilter struct {
+	Column          string
+	Priority        *Priority
+	IncludeArchived bool
+	Label           string // filter by label name
+	Limit           int    // 0 = DefaultCardLimit, negative = no cap
+}
+
+type CardEdit struct {
+	Title        *string
+	Body         *string
+	Priority     *Priority
+	IfVersion    *int64
+	AddLabels    []string
+	RemoveLabels []string
+	AddTags      []string
+	RemoveTags   []string
+}
+
+func (c *Core) checkCardOwner(card Card) error {
+	if card.Owner == nil || *card.Owner == c.actor || card.LeaseUntil == nil || *card.LeaseUntil < c.clock.NowMS() {
+		return nil
+	}
+	return ErrConflict("not_owned", fmt.Sprintf("card %s is held by %s", card.Ref, *card.Owner),
+		"trellis card show "+card.Ref)
+}
+
+// cardView fills the computed fields.
+func (c *Core) cardView(tx *sqlx.Tx, card *Card) error {
+	var key, colName string
+	if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, card.ProjectID); err != nil {
+		return err
+	}
+	if err := tx.Get(&colName, `SELECT name FROM column_ WHERE id = ?`, card.ColumnID); err != nil {
+		return err
+	}
+	card.Ref = key + "-" + itoa(card.Seq)
+	card.ColumnName = colName
+	card.PriorityName = card.Priority.String()
+
+	card.Labels = []string{}
+	if err := tx.Select(&card.Labels,
+		`SELECT l.name FROM label l JOIN card_label cl ON cl.label_id = l.id WHERE cl.card_id = ? ORDER BY l.name`,
+		card.ID); err != nil {
+		return err
+	}
+	card.Tags = []string{}
+	if err := tx.Select(&card.Tags,
+		`SELECT t.name FROM tag t JOIN card_tag ct ON ct.tag_id = t.id WHERE ct.card_id = ? ORDER BY t.name`,
+		card.ID); err != nil {
+		return err
+	}
+	return nil
+}
+
+// loadCard fetches a card inside an existing transaction and fills computed fields.
+func (c *Core) loadCard(tx *sqlx.Tx, projectID string, ref CardRef, out *Card) error {
+	var err error
+	switch {
+	case ref.UUID != "":
+		err = tx.Get(out, `SELECT * FROM card WHERE id = ? AND project_id = ?`, ref.UUID, projectID)
+	case ref.Seq > 0:
+		err = tx.Get(out, `SELECT * FROM card WHERE seq = ? AND project_id = ?`, ref.Seq, projectID)
+	default:
+		return ErrUsage("bad_card_ref", "card reference is empty", "trellis card ls")
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound("card_not_found", "no card "+ref.String()+" in this project", "trellis card ls")
+	}
+	if err != nil {
+		return err
+	}
+	return c.cardView(tx, out)
+}
+
+// CreateCard adds a card to a board. seq is allocated per PROJECT, not per
+// board, so XPSCTL-12 stays unambiguous and a card keeps its reference if it
+// later moves to another board.
+func (c *Core) CreateCard(ctx context.Context, projectID, boardID string, in NewCard) (Card, error) {
+	var card Card
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		var err error
+		card, err = c.createCard(ctx, tx, projectID, boardID, in)
+		return err
+	})
+	return card, err
+}
+
+// createCard is the transaction-level form. card import needs many cards in one
+// transaction, and Tx cannot nest: store.Open caps the pool at one connection.
+func (c *Core) createCard(ctx context.Context, tx *sqlx.Tx, projectID, boardID string, in NewCard) (Card, error) {
+	var card Card
+	err := func() error {
+		if c.requireLabels && len(in.Labels) == 0 {
+			return ErrUsage("label_required", "cards require at least one label", "trellis card new --label <name>")
+		}
+		if c.requireTags && len(in.Tags) == 0 {
+			return ErrUsage("tag_required", "cards require at least one tag", "trellis card new --tag <name>")
+		}
+		col, err := c.FirstColumn(tx, boardID)
+		if err != nil {
+			return err
+		}
+		if in.Column != "" {
+			if col, err = c.ColumnByName(tx, boardID, in.Column); err != nil {
+				return err
+			}
+		}
+
+		// Safe under concurrency: the transaction is IMMEDIATE, so the write
+		// lock is already held when MAX(seq) is read.
+		var seq int64
+		if err := tx.Get(&seq,
+			`SELECT COALESCE(MAX(seq), 0) + 1 FROM card WHERE project_id = ?`, projectID); err != nil {
+			return err
+		}
+
+		if err := c.checkWrite(ctx, ProposedWrite{
+			Op: "card.create", EntityType: "card", ProjectID: projectID, BoardID: boardID,
+			Fields: map[string]string{"title": in.Title, "body": in.Body},
+		}); err != nil {
+			return err
+		}
+
+		now := c.clock.NowMS()
+		prio := PriorityNormal
+		if in.Priority != nil {
+			prio = *in.Priority
+		}
+		card = Card{
+			ID: NewCardID(), ProjectID: projectID, BoardID: boardID, Seq: seq, ColumnID: col.ID,
+			Title: in.Title, BodyMD: in.Body, Priority: prio,
+			Version: 1, CreatedAt: now, UpdatedAt: now,
+		}
+		// P0 ranks by creation: uuid v7 is time-ordered, so this sorts
+		// correctly. P3 replaces it with midpoint ranks for drag-and-drop.
+		card.Rank = card.ID
+
+		if _, err := tx.Exec(
+			`INSERT INTO card (id, project_id, board_id, seq, column_id, rank, title, body_md,
+			                   priority, version, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			card.ID, card.ProjectID, card.BoardID, card.Seq, card.ColumnID, card.Rank, card.Title,
+			card.BodyMD, int(card.Priority), card.Version, card.CreatedAt, card.UpdatedAt); err != nil {
+			return err
+		}
+
+		// Add labels (with validation - hard reject if label doesn't exist)
+		for _, labelName := range in.Labels {
+			if err := c.AddCardLabel(tx, card.ID, projectID, labelName); err != nil {
+				return err
+			}
+		}
+
+		// Add tags (auto-create if needed)
+		for _, tagName := range in.Tags {
+			if err := c.AddCardTag(tx, card.ID, projectID, tagName); err != nil {
+				return err
+			}
+		}
+
+		if err := c.recordEvent(tx, "card", card.ID, "created", "", "", card.Title); err != nil {
+			return err
+		}
+		return c.cardView(tx, &card)
+	}()
+	return card, err
+}
+
+// GetCard looks up a card by reference within a project.
+func (c *Core) GetCard(ctx context.Context, projectID string, ref CardRef) (Card, error) {
+	var card Card
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
+			return err
+		}
+		return nil
+	})
+	return card, err
+}
+
+// CardScope says which cards a listing may see: one board, one project, or
+// every project. An agent working across repositories needs the last one.
+type CardScope struct {
+	BoardID   string
+	ProjectID string // used when BoardID is empty; empty too means all projects
+}
+
+// CardPage is a bounded listing. An unbounded list on a large board dumps the
+// whole board into an agent's context, which defeats the injection budget the
+// adoption argument depends on — so Total and Truncated always travel with it.
+type CardPage struct {
+	Cards     []Card `json:"cards"`
+	Total     int    `json:"total"`
+	Truncated bool   `json:"truncated"`
+}
+
+// DefaultCardLimit is the row cap when none is given.
+const DefaultCardLimit = 50
+
+// ListCards returns every card in a board matching the filter, unbounded.
+func (c *Core) ListCards(ctx context.Context, boardID string, f CardFilter) ([]Card, error) {
+	f.Limit = -1
+	page, err := c.ListCardsPage(ctx, CardScope{BoardID: boardID}, f)
+	return page.Cards, err
+}
+
+// ListCardsPage is the bounded, scope-aware listing behind `card ls`.
+// Limit 0 means DefaultCardLimit; a negative Limit means no cap.
+func (c *Core) ListCardsPage(ctx context.Context, scope CardScope, f CardFilter) (CardPage, error) {
+	var where []string
+	var args []any
+
+	switch {
+	case scope.BoardID != "":
+		where = append(where, "c.board_id = ?")
+		args = append(args, scope.BoardID)
+	case scope.ProjectID != "":
+		where = append(where, "c.project_id = ?")
+		args = append(args, scope.ProjectID)
+	}
+
+	if !f.IncludeArchived {
+		where = append(where, "c.archived_at IS NULL")
+	}
+	if f.Column != "" {
+		where = append(where, "col.name = ?")
+		args = append(args, f.Column)
+	}
+	if f.Priority != nil {
+		where = append(where, "c.priority = ?")
+		args = append(args, int(*f.Priority))
+	}
+
+	from := `FROM card c JOIN column_ col ON col.id = c.column_id`
+	if f.Label != "" {
+		from += ` JOIN card_label cl ON cl.card_id = c.id JOIN label l ON l.id = cl.label_id`
+		where = append(where, "l.name = ?")
+		args = append(args, f.Label)
+	}
+	clause := ""
+	if len(where) > 0 {
+		clause = " WHERE " + strings.Join(where, " AND ")
+	}
+
+	limit := f.Limit
+	if limit == 0 {
+		limit = DefaultCardLimit
+	}
+
+	page := CardPage{Cards: []Card{}}
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		if err := tx.Get(&page.Total, `SELECT COUNT(*) `+from+clause, args...); err != nil {
+			return err
+		}
+		q := `SELECT c.* ` + from + clause + ` ORDER BY col.position, c.priority, c.rank`
+		if limit > 0 {
+			q += " LIMIT ?"
+			args = append(args, limit)
+		}
+		if err := tx.Select(&page.Cards, q, args...); err != nil {
+			return err
+		}
+		for i := range page.Cards {
+			if err := c.cardView(tx, &page.Cards[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	page.Truncated = len(page.Cards) < page.Total
+	return page, err
+}
+
+// MoveCard changes a card's column. It is a delta rather than a wholesale
+// replacement, so it does not require --if-version. Moving into a done column
+// releases the lease automatically.
+func (c *Core) MoveCard(ctx context.Context, projectID, boardID string, ref CardRef, column string) (Card, error) {
+	var card Card
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
+			return err
+		}
+		if err := c.checkCardOwner(card); err != nil {
+			return err
+		}
+		var targetProject string
+		if err := tx.Get(&targetProject, `SELECT project_id FROM board WHERE id = ?`, boardID); err != nil {
+			return ErrNotFound("board_not_found", "destination board not found", "trellis board ls")
+		}
+		if targetProject != projectID {
+			return ErrUsage("wrong_project", "a card can only move within its project", "trellis card move "+ref.String()+" --board <name>")
+		}
+		var from string
+		if err := tx.Get(&from, `SELECT name FROM column_ WHERE id = ?`, card.ColumnID); err != nil {
+			return err
+		}
+		to, err := c.ColumnByName(tx, boardID, column)
+		if err != nil {
+			return err
+		}
+		if to.ID == card.ColumnID {
+			return c.cardView(tx, &card)
+		}
+
+		now := c.clock.NowMS()
+		// If moving to a done column, release the lease automatically.
+		var leaseUpdate string
+		if to.IsDone {
+			leaseUpdate = ", owner = NULL, lease_until = NULL"
+		}
+		if _, err := tx.Exec(
+			`UPDATE card SET board_id = ?, column_id = ?, version = version + 1, updated_at = ?`+leaseUpdate+` WHERE id = ?`,
+			boardID, to.ID, now, card.ID); err != nil {
+			return err
+		}
+		card.BoardID, card.ColumnID, card.Version, card.UpdatedAt = boardID, to.ID, card.Version+1, now
+		if to.IsDone {
+			card.Owner = nil
+			card.LeaseUntil = nil
+		}
+
+		if err := c.recordEvent(tx, "card", card.ID, "moved", "column", from, to.Name); err != nil {
+			return err
+		}
+		return c.cardView(tx, &card)
+	})
+	return card, err
+}
+
+// EditCard applies a partial update. Wholesale replacements (title, body)
+// require the version the caller read; deltas do not. Only the fields supplied
+// are written, so a title edit cannot erase a body changed moments earlier.
+// If the caller owns the card, every write extends the lease (working on a card is the heartbeat).
+func (c *Core) EditCard(ctx context.Context, projectID string, ref CardRef, e CardEdit) (Card, error) {
+	var card Card
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
+			return err
+		}
+		if err := c.checkCardOwner(card); err != nil {
+			return err
+		}
+
+		replaces := e.Title != nil || e.Body != nil
+		if replaces && e.IfVersion == nil {
+			return ErrUsage("version_required",
+				"--title and --body replace the whole field and need the version you read",
+				fmt.Sprintf("trellis card show %s --json   # then pass --if-version %d",
+					refOrID(card), card.Version))
+		}
+		if e.IfVersion != nil && *e.IfVersion != card.Version {
+			return &Error{
+				Code: "conflict", Exit: 4,
+				Msg: fmt.Sprintf("%s changed since you read it (you: v%d, now: v%d)",
+					refOrID(card), *e.IfVersion, card.Version),
+				Fix: "trellis card show " + refOrID(card) + " --json",
+			}
+		}
+
+		w := ProposedWrite{
+			Op: "card.edit", EntityType: "card", EntityID: card.ID,
+			ProjectID: projectID, BoardID: card.BoardID, Fields: map[string]string{},
+		}
+		if e.Title != nil {
+			w.Fields["title"] = *e.Title
+		}
+		if e.Body != nil {
+			w.Fields["body"] = *e.Body
+		}
+		if err := c.checkWrite(ctx, w); err != nil {
+			return err
+		}
+
+		sets := []string{"version = version + 1", "updated_at = ?"}
+		args := []any{c.clock.NowMS()}
+
+		// If we own this card, extend the lease (working on it is the heartbeat).
+		if card.Owner != nil && *card.Owner == c.actor {
+			ttl := c.leaseTTL
+			sets = append(sets, "lease_until = ?")
+			args = append(args, c.clock.NowMS()+ttl)
+		}
+
+		record := func(field, oldV, newV string) error {
+			return c.recordEvent(tx, "card", card.ID, "edited", field, oldV, newV)
+		}
+		var pending []func() error
+
+		if e.Title != nil {
+			sets = append(sets, "title = ?")
+			args = append(args, *e.Title)
+			old := card.Title
+			card.Title = *e.Title
+			pending = append(pending, func() error { return record("title", old, *e.Title) })
+		}
+		if e.Body != nil {
+			sets = append(sets, "body_md = ?")
+			args = append(args, *e.Body)
+			card.BodyMD = *e.Body
+			pending = append(pending, func() error { return record("body", "", "") })
+		}
+		if e.Priority != nil {
+			sets = append(sets, "priority = ?")
+			args = append(args, int(*e.Priority))
+			old := card.Priority
+			card.Priority = *e.Priority
+			pending = append(pending, func() error {
+				return record("priority", old.String(), e.Priority.String())
+			})
+		}
+		// Handle labels and tags (these don't require version checks)
+		for _, labelName := range e.AddLabels {
+			if err := c.AddCardLabel(tx, card.ID, projectID, labelName); err != nil {
+				return err
+			}
+		}
+		for _, labelName := range e.RemoveLabels {
+			if err := c.RemoveCardLabel(tx, card.ID, labelName); err != nil {
+				return err
+			}
+		}
+		for _, tagName := range e.AddTags {
+			if err := c.AddCardTag(tx, card.ID, projectID, tagName); err != nil {
+				return err
+			}
+		}
+		for _, tagName := range e.RemoveTags {
+			if err := c.RemoveCardTag(tx, card.ID, tagName); err != nil {
+				return err
+			}
+		}
+		if c.requireLabels || c.requireTags {
+			var count int
+			if c.requireLabels {
+				if err := tx.Get(&count, `SELECT COUNT(*) FROM card_label WHERE card_id = ?`, card.ID); err != nil {
+					return err
+				}
+				if count == 0 {
+					return ErrUsage("label_required", "cards require at least one label", "trellis card edit "+card.Ref+" --add-label <name>")
+				}
+			}
+			if c.requireTags {
+				if err := tx.Get(&count, `SELECT COUNT(*) FROM card_tag WHERE card_id = ?`, card.ID); err != nil {
+					return err
+				}
+				if count == 0 {
+					return ErrUsage("tag_required", "cards require at least one tag", "trellis card edit "+card.Ref+" --add-tag <name>")
+				}
+			}
+		}
+
+		if len(pending) == 0 && len(e.AddLabels) == 0 && len(e.RemoveLabels) == 0 &&
+			len(e.AddTags) == 0 && len(e.RemoveTags) == 0 {
+			return c.cardView(tx, &card)
+		}
+
+		if len(pending) > 0 {
+			args = append(args, card.ID)
+			if _, err := tx.Exec(
+				"UPDATE card SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...); err != nil {
+				return err
+			}
+			card.Version++
+			for _, fn := range pending {
+				if err := fn(); err != nil {
+					return err
+				}
+			}
+		}
+		return c.cardView(tx, &card)
+	})
+	return card, err
+}
+
+// DeleteCard removes a card outright. Archiving (P1) is for finished work;
+// this is for the duplicates an agent creates by mistake. The event log is
+// never touched — it is the change feed.
+func (c *Core) DeleteCard(ctx context.Context, projectID string, ref CardRef) error {
+	return c.Tx(ctx, func(tx *sqlx.Tx) error {
+		var card Card
+		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
+			return err
+		}
+		if err := c.checkCardOwner(card); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM card WHERE id = ?`, card.ID); err != nil {
+			return err
+		}
+		return c.recordEvent(tx, "card", card.ID, "deleted", "", card.Title, "")
+	})
+}
+
+func refOrID(c Card) string {
+	if c.Ref != "" {
+		return c.Ref
+	}
+	return c.ID
+}

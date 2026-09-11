@@ -1,0 +1,14 @@
+{
+  "name": "trellis",
+  "owner": {
+    "name": "mtchen"
+  },
+  "description": "Local kanban and knowledge base for AI agents. SessionStart hook injects board state and a command cheatsheet. The skill covers claiming work, logging progress, and when to write knowledge.",
+  "plugins": [
+    {
+      "name": "trellis",
+      "source": "./plugin",
+      "description": "Work with trellis board state, cards, and knowledge. SessionStart hook for adoption."
+    }
+  ]
+}

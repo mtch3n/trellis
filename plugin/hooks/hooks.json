@@ -1,0 +1,28 @@
+{
+  "description": "trellis plugin hooks. SessionStart injects board state and agent identity; Stop reminds about held cards with no note.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/trellis_hook.py\" session-start",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/trellis_hook.py\" stop",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "trellis",
+  "version": "0.0.1",
+  "description": "Local kanban and knowledge base for AI agents: board state at session start, cards with leases, and a linked markdown knowledge base.",
+  "author": {
+    "name": "mtchen"
+  },
+  "license": "MIT",
+  "keywords": [
+    "kanban",
+    "board",
+    "knowledge",
+    "agent",
+    "work"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Trellis",
+    "shortDescription": "Local kanban and knowledge for AI agents",
+    "longDescription": "Trellis gives AI coding agents a local kanban board and linked markdown knowledge base. Use it to claim work safely, record progress, preserve discoveries, and recover context across sessions.",
+    "developerName": "mtchen",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Show my Trellis work and blockers.",
+      "Claim the next available Trellis card.",
+      "Save this session's verified findings in Trellis."
+    ]
+  }
+}
