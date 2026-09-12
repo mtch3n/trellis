@@ -30,8 +30,10 @@ func newDaemonCmd() *cobra.Command {
 	var bind string
 	cmd := &cobra.Command{
 		Use:   "daemon",
-		Short: "Run the local Trellis application daemon",
-		Long:  "Serve the embedded UI and API from one long-lived Trellis process.",
+		Short: "Run and manage the local Trellis daemon",
+		Long: "Serve the embedded UI and API from one long-lived Trellis process.\n" +
+			"Run bare, it serves in the foreground. Use the subcommands to install it\n" +
+			"as a login service and to start, stop and restart it in the background.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runApplicationServerContext(cmd.Context(), bind, port)
 		},
@@ -39,6 +41,10 @@ func newDaemonCmd() *cobra.Command {
 	}
 	cmd.Flags().IntVar(&port, "port", 7788, "HTTP port")
 	cmd.Flags().StringVar(&bind, "bind", "127.0.0.1", "HTTP bind address")
+	// Bare `trellis daemon` stays a foreground server: that is what the
+	// installed unit executes. The subcommands supervise it from outside.
+	cmd.AddCommand(newDaemonInstallCmd(), newDaemonUninstallCmd(), newDaemonStartCmd(),
+		newDaemonStopCmd(), newDaemonRestartCmd(), newDaemonStatusCmd())
 	return cmd
 }
 
@@ -101,22 +107,34 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	search := retrieval.NewService(c, db, dbPath, cfg)
 	c.SetKnowledgeChanged(search.ReconcileProject)
 	address := net.JoinHostPort(bind, fmt.Sprint(port))
-	listener, err := net.Listen("tcp", address)
-	if err != nil {
-		return err
+	// ui.enabled off means the daemon is IPC-only: agents keep the shared
+	// database, search index and lease clock, and nothing binds a TCP port.
+	var listener net.Listener
+	if cfg.UI.UIEnabled() {
+		if listener, err = net.Listen("tcp", address); err != nil {
+			return err
+		}
+		defer listener.Close()
 	}
-	defer listener.Close()
 	server := ui.NewServerWithSearch(c, db, address, search)
 	ctx, cancel := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 	errorsCh := make(chan error, 2)
 	var workers sync.WaitGroup
-	workers.Go(func() { errorsCh <- server.ServeContext(ctx, listener) })
+	if listener != nil {
+		workers.Go(func() { errorsCh <- server.ServeContext(ctx, listener) })
+	}
 	workers.Go(func() {
 		errorsCh <- localdaemon.ServeContext(ctx, ipc, func(ctx context.Context, req localdaemon.Request) (localdaemon.Response, error) {
 			switch req.Method {
 			case "health":
-				return localdaemon.Response{OK: true, Data: map[string]any{"url": server.URL(address)}}, nil
+				// An IPC-only daemon reports an empty url, which is how the
+				// CLI tells "no daemon" from "daemon without a web UI".
+				url := ""
+				if listener != nil {
+					url = server.URL(address)
+				}
+				return localdaemon.Response{OK: true, Data: map[string]any{"url": url, "ui_enabled": listener != nil}}, nil
 			case "search":
 				hits, err := search.Search(ctx, req.ProjectID, req.Query, core.SearchOpts{Method: req.SearchMethod, Limit: req.Limit, AllProjects: req.AllProjects, Label: req.Label})
 				if err != nil {
@@ -154,14 +172,20 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 			}
 		}
 	})
-	fmt.Fprintf(os.Stdout, "trellis daemon listening on %s\n", server.URL(address))
+	if listener != nil {
+		fmt.Fprintf(os.Stdout, "trellis daemon listening on %s\n", server.URL(address))
+	} else {
+		fmt.Fprintln(os.Stdout, "trellis daemon listening on local IPC only (ui.enabled is false)")
+	}
 	select {
 	case <-ctx.Done():
 	case err = <-errorsCh:
 	}
 	cancel()
 	_ = ipc.Close()
-	_ = listener.Close()
+	if listener != nil {
+		_ = listener.Close()
+	}
 	workers.Wait()
 	if errors.Is(err, net.ErrClosed) {
 		return nil

@@ -124,14 +124,41 @@ event consumers have advanced beyond the selected cutoff.
 **UI and daemon**
 
 ```bash
-trellis ui                         # start the UI, or report that it is running
-trellis daemon                     # serve UI, API, and local CLI IPC
-trellis config set ui.auto_start true  # daemon starts the UI with its service
+trellis ui                 # print where the UI is, or serve it here
+trellis daemon             # serve UI, API, and local CLI IPC in the foreground
+trellis daemon install     # start it automatically at login
+trellis daemon start       # start it in the background
+trellis daemon stop
+trellis daemon restart
+trellis daemon status      # running? on what? supervised by what?
+trellis daemon uninstall   # stop it and remove the service
 ```
 
+`install` writes a systemd user unit on Linux or a LaunchAgent on macOS; it is
+not supported on Windows, where `daemon start` still runs the daemon as a
+background process. Add `--linger` on Linux to keep the daemon running while
+you are logged out. `start`, `stop` and `restart` detect which of the two is in
+play, so the same commands work whether or not you have installed the service.
+
+The web UI is on unless you turn it off. Set `ui.enabled: false` in the config
+file to run an IPC-only daemon that binds no TCP port: agents still share one
+database, search index and lease clock, and nothing is reachable over HTTP.
+
 The default UI address is `http://127.0.0.1:7788`. Set `ui.port` and `ui.bind`
-in the project config to change it. The UI command checks the daemon endpoint
-before starting a server, so it does not create a second instance.
+to change it, then run `trellis daemon install` again so the service picks up
+the new address. `trellis ui` never starts a second server: when a daemon is
+already serving the UI -- the normal case once the service is installed -- it
+prints that address and exits.
+
+**Diagnostics**
+
+```bash
+trellis doctor        # check binary, storage, database, config, daemon, search
+trellis doctor --json # same report as structured checks with fix commands
+```
+
+`doctor` exits 1 when a check fails and 0 when everything is `ok` or `warn`.
+Each finding carries the command that resolves it.
 
 ## Agent plugins
 
@@ -247,6 +274,10 @@ The daemon is explicit; ordinary CLI commands do not start it or require it:
 trellis daemon
 trellis search "deployment failure" --daemon
 ```
+
+Installing it as a login service (`trellis daemon install`) makes it implicit
+for the user without making it implicit for the CLI: commands still work when
+it is down.
 
 The browser UI uses localhost HTTP. CLI, plugin, and agent clients use the
 versioned local JSON protocol instead: a permissioned Unix socket on macOS and

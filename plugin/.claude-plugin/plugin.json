@@ -1,6 +1,6 @@
 {
   "name": "trellis",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Local kanban and knowledge base for AI agents: board state at session start, cards with leases, and a linked markdown knowledge base.",
   "author": {
     "name": "mtchen"

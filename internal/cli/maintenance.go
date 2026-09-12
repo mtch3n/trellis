@@ -11,7 +11,7 @@ import (
 )
 
 func newMaintenanceCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "maintenance", Short: "Prune history and compact storage", Hidden: true}
+	cmd := &cobra.Command{Use: "maintenance", Short: "Prune history and compact storage"}
 	cmd.AddCommand(newMaintenancePruneCmd(), newMaintenanceCompactCmd())
 	return cmd
 }

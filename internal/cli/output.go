@@ -28,10 +28,10 @@ func Emit(cmd *cobra.Command, v any, table func() string) error {
 func isTTY() bool { return term.IsTerminal(int(os.Stdout.Fd())) }
 
 // agentUsageTemplate is cobra's default with the trailing
-// `Use "x [command] --help" ...` footer removed. Help is capped at 25 lines
-// (§12) and that footer is two lines of boilerplate an agent already knows;
-// spending them on actual commands is the better trade. Set on the root
-// command, it is inherited by every subcommand.
+// `Use "x [command] --help" ...` footer removed: it is two lines of
+// boilerplate an agent already knows, and the command listing above it is
+// what actually teaches one the vocabulary. Set on the root command, it is
+// inherited by every subcommand.
 const agentUsageTemplate = `Usage:{{if .Runnable}}
   {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
   {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}

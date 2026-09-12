@@ -13,8 +13,8 @@ import (
 )
 
 func newKnowledgeCmd() *cobra.Command {
-	// No "kb" alias: cobra spends three help lines listing aliases, and the
-	// 25-line cap buys more with a command than with a nickname.
+	// No "kb" alias: cobra spends three help lines listing aliases, and a
+	// command earns those lines more than a nickname does.
 	cmd := &cobra.Command{
 		Use:   "knowledge",
 		Short: "Work with knowledge entries",

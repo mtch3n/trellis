@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/home"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,10 +30,18 @@ type Config struct {
 }
 
 type UIConfig struct {
-	Port      int    `yaml:"port"`
-	Bind      string `yaml:"bind"`
-	AutoStart bool   `yaml:"auto_start"`
+	Port int    `yaml:"port"`
+	Bind string `yaml:"bind"`
+	// Enabled is a pointer because it is the one setting whose default is
+	// true: a plain bool cannot tell "absent from the file" from "set to
+	// false", and every other field here relies on the zero value meaning
+	// unset. Read it through UIEnabled rather than dereferencing.
+	Enabled *bool `yaml:"enabled"`
 }
+
+// UIEnabled reports whether the daemon should serve the web UI. An unset key
+// means yes.
+func (u UIConfig) UIEnabled() bool { return u.Enabled == nil || *u.Enabled }
 
 type DBConfig struct {
 	BusyTimeoutMs int `yaml:"busy_timeout_ms"`
@@ -90,9 +99,9 @@ type VectorSearchConfig struct {
 func Defaults() Config {
 	return Config{
 		UI: UIConfig{
-			Port:      7788,
-			Bind:      "127.0.0.1",
-			AutoStart: false,
+			Port:    7788,
+			Bind:    "127.0.0.1",
+			Enabled: ptr(true),
 		},
 		DB: DBConfig{
 			BusyTimeoutMs: 10000,
@@ -126,14 +135,19 @@ func Defaults() Config {
 	}
 }
 
-// configPath returns the path to ~/.trellis/config.yaml.
+// configPath returns config.yaml inside the storage root. It goes through
+// home.Root so TRELLIS_HOME moves the settings along with the database; a
+// pinned root whose config still came from ~/.trellis would serve the wrong
+// port for the daemon installed against it.
 func configPath() (string, error) {
-	h, err := os.UserHomeDir()
+	root, err := home.Root()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(h, ".trellis", "config.yaml"), nil
+	return filepath.Join(root, "config.yaml"), nil
 }
+
+func ptr[T any](v T) *T { return &v }
 
 // Load reads and parses the global config file. Returns Defaults() if the file
 // does not exist. Returns an error if the file exists but is malformed.
@@ -174,6 +188,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.UI.Bind == "" {
 		cfg.UI.Bind = defaults.UI.Bind
+	}
+	if cfg.UI.Enabled == nil {
+		cfg.UI.Enabled = defaults.UI.Enabled
 	}
 	if cfg.DB.BusyTimeoutMs == 0 {
 		cfg.DB.BusyTimeoutMs = defaults.DB.BusyTimeoutMs
@@ -222,8 +239,8 @@ func GetValue(cfg Config, key string) (string, bool) {
 		return fmt.Sprintf("%d", cfg.UI.Port), true
 	case "ui.bind":
 		return cfg.UI.Bind, true
-	case "ui.auto_start":
-		return fmt.Sprintf("%v", cfg.UI.AutoStart), true
+	case "ui.enabled":
+		return fmt.Sprintf("%v", cfg.UI.UIEnabled()), true
 	case "db.busy_timeout_ms":
 		return fmt.Sprintf("%d", cfg.DB.BusyTimeoutMs), true
 	case "git.timeout":

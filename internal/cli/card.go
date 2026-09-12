@@ -373,13 +373,11 @@ func newCardReleaseCmd() *cobra.Command {
 func newCardRenewCmd() *cobra.Command {
 	var ttl int64
 	cmd := &cobra.Command{
-		// Hidden, not removed: editing a card already extends its lease
-		// (§8.4), so renew is a rare explicit escape hatch, and the card help
-		// has a hard 25-line cap. The skill documents it.
-		Hidden: true,
-		Use:    "renew <card>",
-		Short:  "Extend the lease on a card you own",
-		Args:   cobra.ExactArgs(1),
+		// Editing a card already extends its lease (§8.4); renew is the
+		// explicit escape hatch for holding one without changing it.
+		Use:   "renew <card>",
+		Short: "Extend the lease on a card you own",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withBoard(func(app *appCtx) error {
 				id, err := cardID(cmd, app, args[0])

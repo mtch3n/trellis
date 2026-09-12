@@ -12,10 +12,9 @@ import (
 // cover doc-to-doc; this is how a card says which entry documents it.
 func newLinkCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:    "link <card> <slug[#anchor]>",
-		Short:  "Link a card to a knowledge entry",
-		Hidden: true,
-		Args:   cobra.ExactArgs(2),
+		Use:   "link <card> <slug[#anchor]>",
+		Short: "Link a card to a knowledge entry",
+		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withBoard(func(app *appCtx) error {
 				if err := app.Core.LinkCardToDoc(cmd.Context(), app.Project.ID,
@@ -37,10 +36,9 @@ func newGraphCmd() *cobra.Command {
 	var reverse bool
 
 	cmd := &cobra.Command{
-		Use:    "graph <card|slug>",
-		Hidden: true,
-		Short:  "Walk links from a card or entry",
-		Args:   cobra.ExactArgs(1),
+		Use:   "graph <card|slug>",
+		Short: "Walk links from a card or entry",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withBoard(func(app *appCtx) error {
 				startID, err := resolveEntity(cmd, app, args[0])

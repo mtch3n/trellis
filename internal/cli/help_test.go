@@ -8,8 +8,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// The spec caps help at 25 lines per command. Enforced here or it rots.
-func TestHelpIsUnder25Lines(t *testing.T) {
+// Help is the only way an agent discovers what Trellis can do, so every
+// command must appear in its parent's listing. The spec's old 25-line cap
+// bought brevity by hiding commands, which cost more than it saved; what is
+// enforced now is that nothing is hidden and every entry carries a summary.
+func TestHelpListsEveryCommand(t *testing.T) {
 	var walk func(*cobra.Command)
 	walk = func(cmd *cobra.Command) {
 		t.Run(cmd.CommandPath(), func(t *testing.T) {
@@ -19,8 +22,23 @@ func TestHelpIsUnder25Lines(t *testing.T) {
 			if err := cmd.Help(); err != nil {
 				t.Fatalf("Help(): %v", err)
 			}
-			if n := strings.Count(strings.TrimRight(buf.String(), "\n"), "\n") + 1; n > 25 {
-				t.Errorf("%s help is %d lines, cap is 25:\n%s", cmd.CommandPath(), n, buf.String())
+			help := buf.String()
+			for _, sub := range cmd.Commands() {
+				// `completion` is cobra-generated shell plumbing, not a
+				// Trellis command, and is deliberately not advertised.
+				if sub.Name() == "completion" {
+					continue
+				}
+				if sub.Hidden {
+					t.Errorf("%s is hidden; agents only find what help lists", sub.CommandPath())
+					continue
+				}
+				if sub.Short == "" {
+					t.Errorf("%s has no Short summary", sub.CommandPath())
+				}
+				if !strings.Contains(help, sub.Name()) {
+					t.Errorf("%s is missing from its parent's help:\n%s", sub.CommandPath(), help)
+				}
 			}
 		})
 		for _, sub := range cmd.Commands() {

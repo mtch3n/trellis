@@ -232,7 +232,7 @@ func newConfigLsCmd() *cobra.Command {
 
 			// All known keys.
 			allKeys := []string{
-				"ui.port", "ui.bind", "ui.auto_start",
+				"ui.port", "ui.bind", "ui.enabled",
 				"db.busy_timeout_ms",
 				"git.timeout",
 				"lease.ttl",

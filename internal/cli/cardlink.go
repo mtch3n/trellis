@@ -9,8 +9,8 @@ import (
 
 func newCardArchiveCmd() *cobra.Command {
 	var restore bool
-	// Archiving and restoring are one command with a flag, not two: the card
-	// help stays inside its 25-line cap (§12) and the pair reads as one idea.
+	// Archiving and restoring are one command with a flag, not two: the pair
+	// reads as one idea.
 	cmd := &cobra.Command{
 		Use:   "archive <card> [--restore]",
 		Short: "Archive a card, releasing any lease",

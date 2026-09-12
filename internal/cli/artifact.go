@@ -9,7 +9,7 @@ import (
 )
 
 func newArtifactCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "artifact", Short: "Store and link filesystem artifacts", Hidden: true}
+	cmd := &cobra.Command{Use: "artifact", Short: "Store and link filesystem artifacts"}
 	cmd.AddCommand(newArtifactAddCmd(), newArtifactLsCmd(), newArtifactLinkCmd(), newArtifactRmCmd())
 	return cmd
 }

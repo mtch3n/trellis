@@ -34,8 +34,8 @@ var boardFlag string
 
 // actorSuffix holds --as, distinguishing parallel subagents that share a
 // session id. It is not a persistent flag: it is registered on the commands
-// where ownership is at stake, and `trellis <cmd> --help` has a 25-line cap to
-// respect.
+// where ownership is at stake, so it does not crowd every unrelated command's
+// help with a flag that has no effect there.
 var actorSuffix string
 
 // projectFlagKey holds --project; empty means "resolve from the working
@@ -137,13 +137,17 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.SetUsageTemplate(agentUsageTemplate)
+	// `completion` is shell plumbing cobra generates, not a Trellis capability;
+	// it still works when invoked. Every actual command stays listed: an agent
+	// only discovers what `--help` shows it.
+	root.CompletionOptions.HiddenDefaultCmd = true
 	root.PersistentFlags().BoolVar(&forceJSON, "json", false, "force JSON output")
 	root.PersistentFlags().StringVar(&boardFlag, "board", "", "board to act on")
 	root.PersistentFlags().StringVar(&projectFlagKey, "project", "", "project key to act on, instead of the working directory")
 	// All commands registered here once; each lives in its own file so later
 	// parallel tasks never edit root.go.
 	root.AddCommand(newInitCmd(), newCardCmd(), newBoardCmd(), newColumnCmd(), newLabelCmd(), newUICmd(), newSearchCmd(), newConfigCmd(), newAgentCmd(), newBackupCmd(), newVersionCmd(), newUpdateCmd(),
-		newKnowledgeCmd(), newArtifactCmd(), newLinkCmd(), newGraphCmd(), newVectorCmd(), newDaemonCmd(), newMaintenanceCmd(), newTUICmd())
+		newKnowledgeCmd(), newArtifactCmd(), newLinkCmd(), newGraphCmd(), newVectorCmd(), newDaemonCmd(), newDoctorCmd(), newMaintenanceCmd(), newTUICmd())
 	return root
 }
 
@@ -171,6 +175,11 @@ func run() int {
 			msg += fmt.Sprintf(" (did you mean: %s?)", suggestions[0])
 		}
 		err = core.ErrUsage("unknown_command", msg, "trellis --help")
+	}
+
+	// doctor already printed its report; it only needs the exit code.
+	if ee, ok := errors.AsType[errExit](err); ok {
+		return ee.code
 	}
 
 	if te, ok := errors.AsType[*core.Error](err); ok {

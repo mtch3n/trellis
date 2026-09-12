@@ -278,3 +278,39 @@ func openTestDB(t *testing.T) *sqlx.DB {
 
 	return db
 }
+
+func TestUIEnabledDefaultsToTrue(t *testing.T) {
+	if !Defaults().UI.UIEnabled() {
+		t.Error("the web UI must be on unless the config turns it off")
+	}
+	// An unset key is not the same as false: a config file that says nothing
+	// about the UI must still serve it.
+	var unset UIConfig
+	if !unset.UIEnabled() {
+		t.Error("an absent ui.enabled must mean enabled")
+	}
+	off := false
+	if (UIConfig{Enabled: &off}).UIEnabled() {
+		t.Error("ui.enabled: false must disable the UI")
+	}
+}
+
+func TestLoadKeepsUIDisabled(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("TRELLIS_HOME", root)
+	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte("ui:\n  enabled: false\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	// applyDefaults must not resurrect the default here, which is the whole
+	// reason Enabled is a pointer.
+	if cfg.UI.UIEnabled() {
+		t.Error("applyDefaults overwrote an explicit ui.enabled: false")
+	}
+	if value, found := GetValue(cfg, "ui.enabled"); !found || value != "false" {
+		t.Errorf("config ls should report false, got %q found=%v", value, found)
+	}
+}
