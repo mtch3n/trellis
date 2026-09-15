@@ -1,6 +1,17 @@
 {
-  "description": "trellis plugin hooks. SessionStart injects board state and agent identity; Stop reminds about held cards with no note.",
+  "description": "trellis plugin hooks. SessionStart injects board state and agent identity; UserPromptSubmit recalls identifiers bearing on the prompt; Stop reminds about held cards with no note. Hook code lives in integrations/, one directory per harness.",
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/integrations/claude_code/recall.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "matcher": "startup|resume|clear|compact|fork",
