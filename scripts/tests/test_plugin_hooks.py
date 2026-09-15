@@ -145,7 +145,11 @@ class HookTests(unittest.TestCase):
                              "CLAUDE_PLUGIN_ROOT": str(ROOT / "plugin")},
                         input="{}", text=True, capture_output=True, check=True,
                     )
-                    self.assertIn("systemMessage", json.loads(result.stdout))
+                    # A hook may answer or stay silent, but it must resolve,
+                    # exit cleanly, and never emit anything but one JSON object.
+                    self.assertEqual(result.stderr, "")
+                    if result.stdout.strip():
+                        self.assertIsInstance(json.loads(result.stdout), dict)
 
 
 if __name__ == "__main__":

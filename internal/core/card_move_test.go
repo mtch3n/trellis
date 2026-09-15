@@ -37,7 +37,6 @@ func TestMoveCardRecordsBeforeAndAfter(t *testing.T) {
 		t.Errorf("event recorded %q -> %q, want backlog -> review", oldV, newV)
 	}
 }
-
 func TestMoveCardUnknownColumn(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
@@ -50,7 +49,6 @@ func TestMoveCardUnknownColumn(t *testing.T) {
 		t.Fatalf("error = %v, want exit 3", err)
 	}
 }
-
 func TestMoveCardBeforeReordersWithinColumn(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
@@ -74,5 +72,26 @@ func TestMoveCardBeforeReordersWithinColumn(t *testing.T) {
 		if card.Ref != want[i] {
 			t.Errorf("cards[%d] = %s, want %s", i, card.Ref, want[i])
 		}
+	}
+}
+
+func TestMoveCardAcrossBoardsPreservesReference(t *testing.T) {
+	c := testCore(t)
+	p := seededProject(t, c)
+	source := seededBoard(t, c, p)
+	target, err := c.CreateBoard(t.Context(), p.ID, "target", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card, err := c.CreateCard(t.Context(), p.ID, source.ID, NewCard{Title: "move"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved, err := c.MoveCard(t.Context(), p.ID, target.ID, CardRef{Seq: card.Seq}, "done")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.BoardID != target.ID || moved.Ref != card.Ref {
+		t.Fatalf("moved card = %+v, board/ref not preserved", moved)
 	}
 }

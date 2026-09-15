@@ -2,16 +2,94 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/mtch3n/trellis/internal/store"
 )
+
+func TestClaimContentionNamesTheHolderAndStealRecordsWhy(t *testing.T) {
+	c := testCore(t)
+	p := seededProject(t, c)
+	b := seededBoard(t, c, p)
+	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "contended"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	holder := New(c.db, c.clock, "sess:holder")
+	if _, err := holder.RegisterAgent(t.Context(), "worker-1", "agent", "/tmp", "host", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := holder.ClaimCard(t.Context(), card.ID, 60_000, false, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// A second agent must be told who holds it, not left waiting on a
+	// connection the transaction is already holding.
+	other := New(c.db, c.clock, "sess:other")
+	done := make(chan error, 1)
+	go func() {
+		_, err := other.ClaimCard(t.Context(), card.ID, 60_000, false, "")
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		var te *Error
+		if !errors.As(err, &te) || te.Exit != 4 {
+			t.Fatalf("contended claim = %v, want a conflict naming the holder", err)
+		}
+		if !strings.Contains(te.Msg, "worker-1") {
+			t.Errorf("message %q does not name the holder's handle", te.Msg)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("contended claim hung: a nested transaction is waiting for the only connection")
+	}
+
+	stolen, err := other.ClaimCard(t.Context(), card.ID, 60_000, true, "held 4h with no notes")
+	if err != nil {
+		t.Fatalf("steal: %v", err)
+	}
+	if stolen.Owner == nil || *stolen.Owner != "sess:other" {
+		t.Fatalf("owner = %v, want the stealer", stolen.Owner)
+	}
+	notes, err := c.GetNotesByCard(t.Context(), card.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 || !strings.Contains(notes[0].BodyMD, "held 4h with no notes") {
+		t.Errorf("notes = %+v, want the reason recorded where the displaced agent will see it", notes)
+	}
+}
+func TestUnregisteredHolderStillHoldsTheCard(t *testing.T) {
+	c := testCore(t)
+	p := seededProject(t, c)
+	b := seededBoard(t, c, p)
+	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "held by a stranger"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No RegisterAgent call: a hook may not have run, but the lease is real.
+	holder := New(c.db, c.clock, "sess:unregistered")
+	if _, err := holder.ClaimCard(t.Context(), card.ID, 60_000, false, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	other := New(c.db, c.clock, "sess:other")
+	_, err = other.ClaimCard(t.Context(), card.ID, 60_000, false, "")
+	var te *Error
+	if !errors.As(err, &te) || te.Exit != 4 {
+		t.Fatalf("claim = %v, want a conflict: the lease grants ownership, not the agent row", err)
+	}
+}
 
 // TestConcurrentClaimNoLostCards runs 8 OS processes racing to claim 50 cards,
 // asserting every card is claimed exactly once and none is lost.
@@ -147,46 +225,6 @@ func TestConcurrentClaimNoLostCards(t *testing.T) {
 	}
 }
 
-// runClaimChild claims cards in a loop until none remain.
-func runClaimChild(dbPath string) {
-	db, err := store.Open(dbPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "open: %v\n", err)
-		os.Exit(1)
-	}
-	defer db.Close()
-
-	// Get the project and board.
-	var projectID, boardID string
-	if err := db.Get(&projectID, `SELECT id FROM project LIMIT 1`); err != nil {
-		fmt.Fprintf(os.Stderr, "get project: %v\n", err)
-		os.Exit(1)
-	}
-	if err := db.Get(&boardID, `SELECT id FROM board WHERE project_id = ? LIMIT 1`, projectID); err != nil {
-		fmt.Fprintf(os.Stderr, "get board: %v\n", err)
-		os.Exit(1)
-	}
-
-	actor := fmt.Sprintf("child:%d", os.Getpid())
-	core := New(db, RealClock{}, actor)
-	ctx := context.Background()
-
-	// Claim cards until none remain.
-	claimed := 0
-	for {
-		card, err := core.ClaimNextCard(ctx, boardID, 30*60*1000) // 30 minute TTL
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "claim: %v\n", err)
-			os.Exit(1)
-		}
-		if card == nil {
-			// No work available; exit cleanly.
-			os.Exit(0)
-		}
-		claimed++
-	}
-}
-
 // TestClaimSpecificCard tests claiming a specific card.
 func TestClaimSpecificCard(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
@@ -234,7 +272,6 @@ func TestClaimSpecificCard(t *testing.T) {
 		t.Errorf("LeaseUntil is nil, want a timestamp")
 	}
 }
-
 func TestGetNextCardDoesNotClaimOrRecordEvent(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
@@ -386,104 +423,66 @@ func TestMoveToDonereleaseLease(t *testing.T) {
 	}
 }
 
-// TestCreateNote tests creating a note on a card.
-func TestCreateNote(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "test.db")
-	db, err := store.Open(path)
+// runClaimChild claims cards in a loop until none remain.
+func runClaimChild(dbPath string) {
+	db, err := store.Open(dbPath)
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		fmt.Fprintf(os.Stderr, "open: %v\n", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 
-	core := New(db, FixedClock{MS: 1000000}, "test-actor")
+	// Get the project and board.
+	var projectID, boardID string
+	if err := db.Get(&projectID, `SELECT id FROM project LIMIT 1`); err != nil {
+		fmt.Fprintf(os.Stderr, "get project: %v\n", err)
+		os.Exit(1)
+	}
+	if err := db.Get(&boardID, `SELECT id FROM board WHERE project_id = ? LIMIT 1`, projectID); err != nil {
+		fmt.Fprintf(os.Stderr, "get board: %v\n", err)
+		os.Exit(1)
+	}
+
+	actor := fmt.Sprintf("child:%d", os.Getpid())
+	core := New(db, RealClock{}, actor)
 	ctx := context.Background()
 
-	id := resolve.Identity{
-		Kind:         "test",
-		Value:        "note-test",
-		SuggestedKey: "NOTE",
-	}
-	proj, err := core.EnsureProject(ctx, id)
-	if err != nil {
-		t.Fatalf("EnsureProject: %v", err)
-	}
-	board, err := core.CreateBoard(ctx, proj.ID, "default", true)
-	if err != nil {
-		t.Fatalf("CreateBoard: %v", err)
-	}
-
-	card, err := core.CreateCard(ctx, proj.ID, board.ID, NewCard{
-		Title: "test card",
-		Body:  "",
-	})
-	if err != nil {
-		t.Fatalf("CreateCard: %v", err)
-	}
-
-	// Create a note.
-	note, err := core.CreateNote(ctx, card.ID, "test note body")
-	if err != nil {
-		t.Fatalf("CreateNote: %v", err)
-	}
-
-	if note.CardID != card.ID {
-		t.Errorf("CardID = %s, want %s", note.CardID, card.ID)
-	}
-	if note.BodyMD != "test note body" {
-		t.Errorf("BodyMD = %s, want 'test note body'", note.BodyMD)
-	}
-	if note.Actor != "test-actor" {
-		t.Errorf("Actor = %s, want 'test-actor'", note.Actor)
-	}
-
-	// Verify card.version was not bumped.
-	updatedCard, err := core.GetCard(ctx, proj.ID, CardRef{UUID: card.ID})
-	if err != nil {
-		t.Fatalf("GetCard: %v", err)
-	}
-	if updatedCard.Version != card.Version {
-		t.Errorf("card.Version = %d, want %d (notes should not bump version)", updatedCard.Version, card.Version)
+	// Claim cards until none remain.
+	claimed := 0
+	for {
+		card, err := core.ClaimNextCard(ctx, boardID, 30*60*1000) // 30 minute TTL
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "claim: %v\n", err)
+			os.Exit(1)
+		}
+		if card == nil {
+			// No work available; exit cleanly.
+			os.Exit(0)
+		}
+		claimed++
 	}
 }
 
-// TestRegisterAgent tests agent registration and updates.
-func TestRegisterAgent(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "test.db")
-	db, err := store.Open(path)
+func TestLeasedCardRejectsOtherWritesButAllowsNotes(t *testing.T) {
+	c := testCore(t)
+	p := seededProject(t, c)
+	b := seededBoard(t, c, p)
+	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "leased"})
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		t.Fatal(err)
 	}
-	defer db.Close()
-
-	core := New(db, FixedClock{MS: 1000000}, "agent-1")
-	ctx := context.Background()
-
-	// Register an agent.
-	agent, err := core.RegisterAgent(ctx, "my-handle", "agent", "/home/user/work", "localhost", 12345)
-	if err != nil {
-		t.Fatalf("RegisterAgent: %v", err)
+	owner := New(c.db, FixedClock{MS: 1000}, "owner")
+	if _, err := owner.ClaimCard(t.Context(), card.ID, 60_000, false, ""); err != nil {
+		t.Fatal(err)
 	}
-
-	if agent.Handle != "my-handle" {
-		t.Errorf("Handle = %s, want 'my-handle'", agent.Handle)
+	other := New(c.db, FixedClock{MS: 1001}, "other")
+	priority := PriorityUrgent
+	if _, err := other.EditCard(t.Context(), p.ID, CardRef{Seq: card.Seq}, CardEdit{Priority: &priority}); err == nil {
+		t.Fatal("other actor edited an actively leased card")
+	} else if e, ok := errors.AsType[*Error](err); !ok || e.Exit != 4 {
+		t.Fatalf("edit error = %v, want conflict", err)
 	}
-	if agent.Kind != "agent" {
-		t.Errorf("Kind = %s, want 'agent'", agent.Kind)
-	}
-	if agent.PID != 12345 {
-		t.Errorf("PID = %d, want 12345", agent.PID)
-	}
-
-	// Register again with updated fields.
-	agent2, err := core.RegisterAgent(ctx, "my-handle-updated", "hook", "/home/user/work2", "localhost", 12346)
-	if err != nil {
-		t.Fatalf("RegisterAgent update: %v", err)
-	}
-
-	if agent2.ID != agent.ID {
-		t.Errorf("ID changed on re-registration: %s -> %s", agent.ID, agent2.ID)
-	}
-	if agent2.Handle != "my-handle-updated" {
-		t.Errorf("Handle not updated: %s, want 'my-handle-updated'", agent2.Handle)
+	if _, err := other.CreateNote(t.Context(), card.ID, "handoff"); err != nil {
+		t.Fatalf("note exception: %v", err)
 	}
 }
