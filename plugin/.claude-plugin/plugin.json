@@ -5,12 +5,12 @@
   "author": {
     "name": "mtchen"
   },
+  "license": "MIT",
   "keywords": [
     "kanban",
     "board",
     "knowledge",
     "agent",
     "work"
-  ],
-  "license": "MIT"
+  ]
 }
