@@ -65,7 +65,11 @@ def run_cli(args, cwd):
 def recall(prompt, cwd, seen):
     # The prompt is handed over whole. Lifting terms out of it is the CLI's
     # job, so no two harnesses can drift into recalling different things.
-    args = ["recall", prompt, "--json", "--limit", str(LIMIT)]
+    #
+    # --record notes each hit as injected. This is the only caller that knows
+    # an injection actually reached a model, which is what makes
+    # `trellis knowledge uptake` able to say whether it was worth sending.
+    args = ["recall", prompt, "--json", "--limit", str(LIMIT), "--record"]
     if seen:
         args += ["--exclude", ",".join(seen)]
     done = run_cli(args, cwd)

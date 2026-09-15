@@ -36,6 +36,12 @@ type RecallOpts struct {
 	// filtered recall answer a question nobody asked.
 	DocTypes    []string
 	Provenances []string
+
+	// Record writes an `injected` event per returned hit. Off by default so
+	// that running recall to look around does not enter the measurement; the
+	// integration turns it on, being the only caller that knows an injection
+	// actually reached a model.
+	Record bool
 }
 
 func inClause(column string, values []string) (string, []any) {
@@ -193,13 +199,24 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 
 		// Knowledge outranks cards: recall exists to surface what was written
 		// down, and open cards already reach the agent through the brief.
+		// A labelled break, not a return: returning here skipped everything
+		// below, which is how recording silently stopped whenever the limit
+		// was actually reached.
+	fill:
 		for _, group := range [][]RecallHit{docs, cards} {
 			for _, h := range group {
 				if len(hits) == o.Limit {
-					return nil
+					break fill
 				}
 				if !slices.Contains(o.Exclude, h.Ref) {
 					hits = append(hits, h)
+				}
+			}
+		}
+		if o.Record {
+			for _, h := range hits {
+				if err := c.recordEvent(tx, h.Kind, h.ID, "injected", "", "", ""); err != nil {
+					return err
 				}
 			}
 		}

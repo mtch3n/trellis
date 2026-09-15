@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"strings"
@@ -23,7 +24,8 @@ func newKnowledgeCmd() *cobra.Command {
 		newKnowledgeNewCmd(), newKnowledgeShowCmd(), newKnowledgeLsCmd(), newKnowledgeEditCmd(),
 		newKnowledgeRmCmd(), newKnowledgePinCmd(), newKnowledgePinsCmd(), newKnowledgeLintCmd(),
 		newKnowledgeNominateCmd(), newKnowledgeNominationsCmd(), newKnowledgeEscalateCmd(),
-		newKnowledgeDemoteCmd(), newKnowledgeVerifyCmd(), newKnowledgeHealthCmd())
+		newKnowledgeDemoteCmd(), newKnowledgeVerifyCmd(), newKnowledgeHealthCmd(),
+		newKnowledgeUptakeCmd())
 	return cmd
 }
 
@@ -495,3 +497,44 @@ func requireHuman(slug string) error {
 }
 
 func msDate(ms int64) string { return time.UnixMilli(ms).UTC().Format("2006-01-02") }
+
+func newKnowledgeUptakeCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "uptake",
+		Short: "How often a recalled identifier was then opened, by ingestion path",
+		Long: `How often a recalled identifier was then opened, by ingestion path.
+
+Injected and never opened is noise, and it was paid for on cache write plus
+every later read in that session. Injected and then opened is a hit. Only
+recalls run with --record appear here.
+
+This measures association, not causation, and says nothing about whether the
+entry that was opened was any good.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return withBoard(func(app *appCtx) error {
+				rows, err := app.Core.RecallUptake(cmd.Context(), app.Project.ID)
+				if err != nil {
+					return err
+				}
+				return Emit(cmd, map[string]any{"uptake": rows}, func() string {
+					if len(rows) == 0 {
+						return "nothing recorded yet; recall with --record"
+					}
+					var b strings.Builder
+					w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+					fmt.Fprintf(w, "provenance\tinjected\topened\trate\n")
+					for _, r := range rows {
+						rate := "-"
+						if r.Injected > 0 {
+							rate = fmt.Sprintf("%d%%", r.Opened*100/r.Injected)
+						}
+						fmt.Fprintf(w, "%s\t%d\t%d\t%s\n",
+							cmp.Or(r.Provenance, "(unrecorded)"), r.Injected, r.Opened, rate)
+					}
+					w.Flush()
+					return strings.TrimRight(b.String(), "\n")
+				})
+			})
+		},
+	}
+}

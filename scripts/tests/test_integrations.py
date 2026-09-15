@@ -63,6 +63,9 @@ class ClaudeRecallTests(unittest.TestCase):
         # two harnesses cannot drift into recalling different things.
         self.assertEqual(self.calls[0][:2], ["recall", "why did the lease expire"])
         self.assertIn("--json", self.calls[0])
+        # Only this caller knows an injection actually reached a model, so only
+        # it may enter the measurement.
+        self.assertIn("--record", self.calls[0])
 
     def test_a_session_is_not_shown_the_same_ref_twice(self):
         self.assertIsNotNone(self.invoke())
