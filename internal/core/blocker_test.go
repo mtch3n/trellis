@@ -68,3 +68,17 @@ func TestBlockCardRejectsSelf(t *testing.T) {
 		t.Fatal("BlockCard(self) succeeded, want a usage error")
 	}
 }
+
+func TestBlockedByCycleRejected(t *testing.T) {
+	c := testCore(t)
+	p := seededProject(t, c)
+	b := seededBoard(t, c, p)
+	a, _ := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"})
+	d, _ := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "b"})
+	if err := c.BlockCard(t.Context(), p.ID, CardRef{Seq: a.Seq}, CardRef{Seq: d.Seq}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.BlockCard(t.Context(), p.ID, CardRef{Seq: d.Seq}, CardRef{Seq: a.Seq}); err == nil {
+		t.Fatal("blocked_by cycle accepted")
+	}
+}

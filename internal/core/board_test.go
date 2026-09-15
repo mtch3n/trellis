@@ -51,7 +51,6 @@ func TestCreateBoardSlugifiesAndSeedsColumns(t *testing.T) {
 		t.Errorf("last board event = %q, want created", action)
 	}
 }
-
 func TestSlugifyCollapsesAndTrims(t *testing.T) {
 	tests := []struct {
 		in   string
@@ -132,7 +131,6 @@ func TestCreateBoardAllSymbolNamesGetDistinctSlugs(t *testing.T) {
 		t.Fatalf("Tx: %v", err)
 	}
 }
-
 func TestCreateBoardSlugCollisionAppendsSuffix(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
@@ -167,7 +165,6 @@ func TestCreateBoardSlugCollisionAppendsSuffix(t *testing.T) {
 		t.Fatalf("Tx: %v", err)
 	}
 }
-
 func TestListBoards(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
@@ -191,7 +188,6 @@ func TestListBoards(t *testing.T) {
 		t.Fatalf("got %d boards, want 2", len(boards))
 	}
 }
-
 func TestSelectBoardByRequestedName(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
@@ -215,7 +211,6 @@ func TestSelectBoardByRequestedName(t *testing.T) {
 		t.Errorf("Name = %q, want beta", b.Name)
 	}
 }
-
 func TestSelectBoardUnknownNameListsAvailable(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
@@ -243,7 +238,6 @@ func TestSelectBoardUnknownNameListsAvailable(t *testing.T) {
 		t.Errorf("message %q should list the available boards", te.Msg)
 	}
 }
-
 func TestSelectBoardSingleBoardIsImplicitDefault(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
@@ -264,7 +258,6 @@ func TestSelectBoardSingleBoardIsImplicitDefault(t *testing.T) {
 		t.Errorf("Name = %q, want solo", b.Name)
 	}
 }
-
 func TestSelectBoardReturnsDefaultAmongSeveral(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
@@ -398,4 +391,38 @@ func TestSetDefaultBoardUnknownNameIsNotFound(t *testing.T) {
 	if !strings.Contains(te.Msg, "alpha") || !strings.Contains(te.Msg, "beta") {
 		t.Errorf("message %q should list available boards", te.Msg)
 	}
+}
+
+func TestBoardDeletePromotesOldestAndColumnLifecycle(t *testing.T) {
+	c := testCore(t)
+	p := seededProject(t, c)
+	first := seededBoard(t, c, p)
+	second, err := c.CreateBoard(t.Context(), p.ID, "second", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.DeleteBoard(t.Context(), p.ID, first.Name, false); err != nil {
+		t.Fatal(err)
+	}
+	boards, err := c.ListBoards(t.Context(), p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(boards) != 1 || !boards[0].IsDefault || boards[0].ID != second.ID {
+		t.Fatalf("boards after delete = %+v", boards)
+	}
+	col, err := c.AddColumn(t.Context(), second.ID, "qa", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RenameColumn(t.Context(), second.ID, "qa", "verify"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.MoveColumn(t.Context(), second.ID, "verify", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.DeleteColumn(t.Context(), second.ID, "verify", ""); err != nil {
+		t.Fatal(err)
+	}
+	_ = col
 }
