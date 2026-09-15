@@ -106,16 +106,17 @@ func newKnowledgeShowCmd() *cobra.Command {
 
 func newKnowledgeLsCmd() *cobra.Command {
 	var thisBoard, cold bool
+	var docTypes, provenances []string
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List entries",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withBoard(func(app *appCtx) error {
-				boardID := ""
+				filter := core.KnowledgeFilter{DocTypes: docTypes, Provenances: provenances}
 				if thisBoard {
-					boardID = app.Board.ID
+					filter.BoardID = app.Board.ID
 				}
-				docs, err := app.Core.ListKnowledge(cmd.Context(), app.Project.ID, boardID)
+				docs, err := app.Core.ListKnowledge(cmd.Context(), app.Project.ID, filter)
 				if cold {
 					docs, err = app.Core.ColdKnowledge(cmd.Context(), app.Project.ID)
 				}
@@ -126,7 +127,7 @@ func newKnowledgeLsCmd() *cobra.Command {
 					var b strings.Builder
 					w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 					for _, d := range docs {
-						fmt.Fprintf(w, "%s\t%s\t%s\n", d.Slug, d.DocType, d.Title)
+						fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", d.Slug, d.DocType, d.Provenance, d.Title)
 					}
 					w.Flush()
 					return strings.TrimRight(b.String(), "\n")
@@ -136,6 +137,8 @@ func newKnowledgeLsCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&thisBoard, "board-only", false, "this board's entries plus the unscoped ones")
 	cmd.Flags().BoolVar(&cold, "cold", false, "entries nothing has read in 30 days")
+	cmd.Flags().StringSliceVar(&docTypes, "type", nil, "only these doc types: "+strings.Join(core.Templates(), "|"))
+	cmd.Flags().StringSliceVar(&provenances, "provenance", nil, "only these ingestion paths: "+strings.Join(core.Provenances(), "|"))
 	return cmd
 }
 

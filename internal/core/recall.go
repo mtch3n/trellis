@@ -30,6 +30,23 @@ type RecallOpts struct {
 	Limit   int      // hits returned; default 5
 	Terms   int      // terms lifted from the text; default 4
 	Exclude []string // refs the caller already holds, so they are not resent
+
+	// Narrowing to a knowledge dimension drops cards from the result, because
+	// a card carries neither of these and silently keeping them would make a
+	// filtered recall answer a question nobody asked.
+	DocTypes    []string
+	Provenances []string
+}
+
+func inClause(column string, values []string) (string, []any) {
+	if len(values) == 0 {
+		return "", nil
+	}
+	args := make([]any, 0, len(values))
+	for _, v := range values {
+		args = append(args, v)
+	}
+	return " AND " + column + " IN (?" + strings.Repeat(", ?", len(values)-1) + ")", args
 }
 
 const (
@@ -128,6 +145,14 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 
 		// summary is the recap fallback: an entry that was never pinned still
 		// has the line its author wrote to describe it.
+		typeClause, typeArgs := inClause("k.doc_type", o.DocTypes)
+		provClause, provArgs := inClause("k.provenance", o.Provenances)
+		narrowed := typeClause != "" || provClause != ""
+
+		docArgs := append([]any{projectID}, typeArgs...)
+		docArgs = append(docArgs, provArgs...)
+		docArgs = append(docArgs, match, fetch)
+
 		var docs []RecallHit
 		if err := tx.Select(&docs, `
 			SELECT 'knowledge' AS kind, k.id,
@@ -139,12 +164,14 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 			FROM knowledge k
 			JOIN knowledge_fts ON knowledge_fts.rowid = k.rowid
 			JOIN project p ON p.id = k.project_id
-			WHERE (k.project_id = ? OR k.global = 1) AND knowledge_fts MATCH ?
-			ORDER BY knowledge_fts.rank LIMIT ?`, projectID, match, fetch); err != nil {
+			WHERE (k.project_id = ? OR k.global = 1)`+typeClause+provClause+`
+			  AND knowledge_fts MATCH ?
+			ORDER BY knowledge_fts.rank LIMIT ?`, docArgs...); err != nil {
 			return err
 		}
 		var cards []RecallHit
-		if err := tx.Select(&cards, `
+		if !narrowed {
+			if err := tx.Select(&cards, `
 			SELECT 'card' AS kind, c.id, p.key || '-' || c.seq AS ref, c.title, p.key AS project,
 			       col.name AS detail, '' AS recap
 			FROM card c
@@ -152,8 +179,9 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 			JOIN project p ON p.id = c.project_id
 			JOIN column_ col ON col.id = c.column_id
 			WHERE c.project_id = ? AND c.archived_at IS NULL AND card_fts MATCH ?
-			ORDER BY card_fts.rank LIMIT ?`, projectID, match, fetch); err != nil {
-			return err
+				ORDER BY card_fts.rank LIMIT ?`, projectID, match, fetch); err != nil {
+				return err
+			}
 		}
 
 		boost, err := recallLinkBoosts(tx, docs, cards)

@@ -16,7 +16,7 @@ type DupeCluster struct {
 // embeddings are deliberately not here — they are added when this layer is
 // measured to miss, not before.
 func (c *Core) Dupes(ctx context.Context, projectID string) ([]DupeCluster, error) {
-	docs, err := c.ListKnowledge(ctx, projectID, "")
+	docs, err := c.ListKnowledge(ctx, projectID, KnowledgeFilter{})
 	if err != nil {
 		return nil, err
 	}

@@ -12,7 +12,7 @@ import (
 
 func newRecallCmd() *cobra.Command {
 	var limit, terms int
-	var exclude []string
+	var exclude, docTypes, provenances []string
 
 	cmd := &cobra.Command{
 		Use:   "recall <text>",
@@ -31,6 +31,7 @@ stops when it is empty. Pass --exclude the refs it already holds.`,
 			return withBoard(func(app *appCtx) error {
 				hits, err := app.Core.Recall(cmd.Context(), app.Project.ID, args[0], core.RecallOpts{
 					Limit: limit, Terms: terms, Exclude: exclude,
+					DocTypes: docTypes, Provenances: provenances,
 				})
 				if err != nil {
 					return err
@@ -42,6 +43,8 @@ stops when it is empty. Pass --exclude the refs it already holds.`,
 	cmd.Flags().IntVar(&limit, "limit", 5, "maximum number of results")
 	cmd.Flags().IntVar(&terms, "terms", 4, "maximum terms lifted from the text")
 	cmd.Flags().StringSliceVar(&exclude, "exclude", nil, "refs to omit, for a caller that already holds them")
+	cmd.Flags().StringSliceVar(&docTypes, "type", nil, "only these doc types; drops cards from the result")
+	cmd.Flags().StringSliceVar(&provenances, "provenance", nil, "only these ingestion paths; drops cards from the result")
 	return cmd
 }
 

@@ -398,17 +398,41 @@ func (c *Core) docView(tx *sqlx.Tx, doc *Knowledge) error {
 // ListKnowledge returns the selected board's entries plus the unscoped ones
 // (§10.1): a board is a lens, so narrowing by one never hides project-wide
 // knowledge. An empty boardID lists the whole project.
-func (c *Core) ListKnowledge(ctx context.Context, projectID, boardID string) ([]Knowledge, error) {
+// KnowledgeFilter narrows a listing. A zero value lists everything the project
+// can see, which is what almost every caller wants.
+type KnowledgeFilter struct {
+	BoardID     string   // association only; entries with no board always match
+	DocTypes    []string // doc_type values to keep; empty keeps all
+	Provenances []string // ingestion paths to keep; empty keeps all
+}
+
+func (f KnowledgeFilter) where() (string, []any) {
+	clauses, args := []string{"project_id = ?"}, []any{}
+	if f.BoardID != "" {
+		clauses = append(clauses, "(board_id IS NULL OR board_id = ?)")
+		args = append(args, f.BoardID)
+	}
+	// An IN list is built from a closed vocabulary, never from user text, so
+	// the placeholders are generated here rather than interpolated.
+	for column, values := range map[string][]string{"doc_type": f.DocTypes, "provenance": f.Provenances} {
+		if len(values) == 0 {
+			continue
+		}
+		clauses = append(clauses, column+" IN (?"+strings.Repeat(", ?", len(values)-1)+")")
+		for _, v := range values {
+			args = append(args, v)
+		}
+	}
+	slices.Sort(clauses[1:]) // map iteration must not reach the query
+	return strings.Join(clauses, " AND "), args
+}
+
+func (c *Core) ListKnowledge(ctx context.Context, projectID string, f KnowledgeFilter) ([]Knowledge, error) {
 	docs := []Knowledge{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		q := `SELECT * FROM knowledge WHERE project_id = ? ORDER BY updated_at DESC`
-		args := []any{projectID}
-		if boardID != "" {
-			q = `SELECT * FROM knowledge WHERE project_id = ? AND (board_id IS NULL OR board_id = ?)
-			     ORDER BY updated_at DESC`
-			args = append(args, boardID)
-		}
-		if err := tx.Select(&docs, q, args...); err != nil {
+		where, args := f.where()
+		if err := tx.Select(&docs, `SELECT * FROM knowledge WHERE `+where+
+			` ORDER BY updated_at DESC`, append([]any{projectID}, args...)...); err != nil {
 			return err
 		}
 		for i := range docs {

@@ -609,7 +609,7 @@ func (s *Server) handleKnowledgeList(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusNotFound, err.Error())
 		return
 	}
-	docs, err := s.core.ListKnowledge(ctx, p.ID, b.ID)
+	docs, err := s.core.ListKnowledge(ctx, p.ID, core.KnowledgeFilter{BoardID: b.ID})
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -625,7 +625,7 @@ func (s *Server) handleProjectKnowledgeList(w http.ResponseWriter, r *http.Reque
 		s.error(w, http.StatusNotFound, "project not found")
 		return
 	}
-	docs, err := s.core.ListKnowledge(ctx, p.ID, "")
+	docs, err := s.core.ListKnowledge(ctx, p.ID, core.KnowledgeFilter{})
 	if err != nil {
 		s.coreError(w, err)
 		return

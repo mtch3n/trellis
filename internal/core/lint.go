@@ -23,7 +23,7 @@ type LintFinding struct {
 // is full of all three.
 func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error) {
 	out := []LintFinding{}
-	docs, err := c.ListKnowledge(ctx, projectID, "")
+	docs, err := c.ListKnowledge(ctx, projectID, KnowledgeFilter{})
 	if err != nil {
 		return nil, err
 	}

@@ -244,7 +244,7 @@ func (s *Service) VectorRebuild(ctx context.Context, projectID string) (int, err
 		return 0, err
 	}
 	defer idx.Close()
-	docs, err := s.core.ListKnowledge(ctx, projectID, "")
+	docs, err := s.core.ListKnowledge(ctx, projectID, core.KnowledgeFilter{})
 	if err != nil {
 		return 0, err
 	}
@@ -264,7 +264,7 @@ func (s *Service) VectorPrune(ctx context.Context, projectID string) (int, error
 		return 0, err
 	}
 	defer idx.Close()
-	docs, err := s.core.ListKnowledge(ctx, projectID, "")
+	docs, err := s.core.ListKnowledge(ctx, projectID, core.KnowledgeFilter{})
 	if err != nil {
 		return 0, err
 	}

@@ -272,7 +272,7 @@ func (w *terminalWorkspace) renderKnowledge() {
 	root := tview.NewTreeNode("Documents").SetColor(tuiAccent)
 	w.tree = tview.NewTreeView().SetRoot(root).SetCurrentNode(root).SetGraphicsColor(tuiMuted)
 	tuiBox(w.tree.Box, "Knowledge")
-	docs, err := w.session.app.Core.ListKnowledge(w.ctx, w.session.app.Project.ID, "")
+	docs, err := w.session.app.Core.ListKnowledge(w.ctx, w.session.app.Project.ID, core.KnowledgeFilter{})
 	if err != nil {
 		w.preview.SetText(tuiText(err.Error()))
 		return

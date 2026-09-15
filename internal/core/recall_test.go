@@ -288,3 +288,56 @@ func TestRecallWithoutLinksKeepsFTSOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestRecallNarrowedToAKnowledgeDimensionDropsCards(t *testing.T) {
+	c, p, b := kbCore(t)
+	ctx := t.Context()
+
+	if _, err := c.CreateCard(ctx, p.ID, b.ID, NewCard{Title: "Fix retry budget"}); err != nil {
+		t.Fatalf("CreateCard: %v", err)
+	}
+	if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+		Title: "Retry budget decision", Summary: "retry budget", Provenance: "extracted",
+	}); err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+
+	wide, err := c.Recall(ctx, p.ID, "retry budget", RecallOpts{})
+	if err != nil {
+		t.Fatalf("Recall: %v", err)
+	}
+	if len(wide) != 2 {
+		t.Fatalf("unfiltered recall returned %d, want the card and the entry", len(wide))
+	}
+
+	// A card carries neither doc_type nor provenance, so keeping it in a
+	// narrowed result would answer a question nobody asked.
+	narrow, err := c.Recall(ctx, p.ID, "retry budget", RecallOpts{Provenances: []string{"extracted"}})
+	if err != nil {
+		t.Fatalf("Recall: %v", err)
+	}
+	if len(narrow) != 1 || narrow[0].Kind != "knowledge" {
+		t.Errorf("narrowed recall = %+v, want the entry alone", narrow)
+	}
+}
+
+func TestRecallHoldsOutAnIngestionPath(t *testing.T) {
+	c, p, _ := kbCore(t)
+	ctx := t.Context()
+
+	for _, prov := range []string{"authored", "extracted"} {
+		if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+			Title: "Retry budget " + prov, Summary: "retry budget", Provenance: prov,
+		}); err != nil {
+			t.Fatalf("CreateKnowledge: %v", err)
+		}
+	}
+	// Holding one path out is what makes a comparison possible at all.
+	hits, err := c.Recall(ctx, p.ID, "retry budget", RecallOpts{Provenances: []string{"authored"}})
+	if err != nil {
+		t.Fatalf("Recall: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Ref != "XPSCTL/retry-budget-authored" {
+		t.Errorf("hits = %+v, want only the authored entry", hits)
+	}
+}

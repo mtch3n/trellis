@@ -433,3 +433,58 @@ func TestProvenanceIsReadBackFromTheFile(t *testing.T) {
 		t.Errorf("provenance = %q, want the file's value", got.Provenance)
 	}
 }
+
+func TestListKnowledgeFiltersByTypeAndProvenance(t *testing.T) {
+	c, p, _ := kbCore(t)
+	ctx := t.Context()
+
+	mk := func(title, template, prov string) {
+		t.Helper()
+		if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+			Title: title, Template: template, Provenance: prov,
+		}); err != nil {
+			t.Fatalf("CreateKnowledge %s: %v", title, err)
+		}
+	}
+	mk("Chosen storage", "decision", "authored")
+	mk("Measured latency", "finding", "authored")
+	mk("Overheard preference", "note", "extracted")
+
+	cases := []struct {
+		name string
+		f    KnowledgeFilter
+		want int
+	}{
+		{"zero value lists everything", KnowledgeFilter{}, 3},
+		{"one type", KnowledgeFilter{DocTypes: []string{"decision"}}, 1},
+		{"two types", KnowledgeFilter{DocTypes: []string{"decision", "finding"}}, 2},
+		{"one provenance", KnowledgeFilter{Provenances: []string{"extracted"}}, 1},
+		{"both dimensions", KnowledgeFilter{
+			DocTypes: []string{"note"}, Provenances: []string{"extracted"}}, 1},
+		{"both dimensions, no overlap", KnowledgeFilter{
+			DocTypes: []string{"decision"}, Provenances: []string{"extracted"}}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			docs, err := c.ListKnowledge(ctx, p.ID, tc.f)
+			if err != nil {
+				t.Fatalf("ListKnowledge: %v", err)
+			}
+			if len(docs) != tc.want {
+				t.Errorf("got %d entries, want %d", len(docs), tc.want)
+			}
+		})
+	}
+}
+
+func TestKnowledgeFilterBuildsTheSameQueryEveryTime(t *testing.T) {
+	// The clauses come out of a map, and map order reaching the query would
+	// make the same filter produce different SQL between runs.
+	f := KnowledgeFilter{DocTypes: []string{"note"}, Provenances: []string{"extracted"}}
+	first, _ := f.where()
+	for range 20 {
+		if got, _ := f.where(); got != first {
+			t.Fatalf("where() = %q then %q", first, got)
+		}
+	}
+}
