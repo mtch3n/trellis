@@ -13,15 +13,18 @@ import (
 // doc — which project, which links, when it was read — lives in the database;
 // these are the fields a human editing the file in Obsidian would expect to own.
 type Frontmatter struct {
-	Title   string   `yaml:"title"`
-	Type    string   `yaml:"type,omitempty"`
-	Status  string   `yaml:"status,omitempty"`
-	Summary string   `yaml:"summary,omitempty"`
-	Board   string   `yaml:"board,omitempty"` // association, never ownership (§10.1)
-	Tags    []string `yaml:"tags,omitempty"`
-	Labels  []string `yaml:"labels,omitempty"`
-	Created string   `yaml:"created,omitempty"`
-	Updated string   `yaml:"updated,omitempty"`
+	Title   string `yaml:"title"`
+	Type    string `yaml:"type,omitempty"`
+	Status  string `yaml:"status,omitempty"`
+	Summary string `yaml:"summary,omitempty"`
+	// Provenance names the ingestion path, not the author:
+	// authored, prompted or extracted. Empty means unrecorded.
+	Provenance string   `yaml:"provenance,omitempty"`
+	Board      string   `yaml:"board,omitempty"` // association, never ownership (§10.1)
+	Tags       []string `yaml:"tags,omitempty"`
+	Labels     []string `yaml:"labels,omitempty"`
+	Created    string   `yaml:"created,omitempty"`
+	Updated    string   `yaml:"updated,omitempty"`
 }
 
 // SplitFrontmatter separates the YAML header from the body. A file without one

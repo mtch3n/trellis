@@ -29,7 +29,7 @@ func newKnowledgeCmd() *cobra.Command {
 
 func newKnowledgeNewCmd() *cobra.Command {
 	var title, body, summary TextValue
-	var template, board string
+	var template, board, provenance string
 	var tags, labels []string
 
 	cmd := &cobra.Command{
@@ -43,7 +43,8 @@ func newKnowledgeNewCmd() *cobra.Command {
 			return withBoard(func(app *appCtx) error {
 				doc, err := app.Core.CreateKnowledge(cmd.Context(), app.Project.ID, core.NewKnowledge{
 					Title: title.String(), Body: body.String(), Template: template,
-					Summary: summary.String(), Board: board, Tags: tags, Labels: labels,
+					Provenance: provenance,
+					Summary:    summary.String(), Board: board, Tags: tags, Labels: labels,
 				})
 				if err != nil {
 					return err
@@ -56,6 +57,7 @@ func newKnowledgeNewCmd() *cobra.Command {
 	cmd.Flags().Var(&body, "body", "markdown body (default: the template)")
 	cmd.Flags().Var(&summary, "summary", "one line, used as the pinned recap when none is written")
 	cmd.Flags().StringVar(&template, "template", "note", strings.Join(core.Templates(), "|"))
+	cmd.Flags().StringVar(&provenance, "provenance", "", "ingestion path: "+strings.Join(core.Provenances(), "|")+" (default authored)")
 	cmd.Flags().StringVar(&board, "board", "", "associate with a board (association, never ownership)")
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "free-form tags")
 	cmd.Flags().StringSliceVar(&labels, "label", nil, "labels from the project vocabulary")

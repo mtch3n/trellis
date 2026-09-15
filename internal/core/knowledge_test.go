@@ -328,3 +328,108 @@ func TestRecreatingEntryReclaimsStubbedLinks(t *testing.T) {
 		t.Errorf("Backlinks = %+v, want the stubbed reference reclaimed", back)
 	}
 }
+
+func TestProvenanceDefaultsToAuthored(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Lease renewal"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if doc.Provenance != "authored" {
+		t.Errorf("provenance = %q, want authored", doc.Provenance)
+	}
+}
+
+func TestProvenanceReachesBothTheFileAndTheRow(t *testing.T) {
+	c, p, _ := kbCore(t)
+	ctx := t.Context()
+
+	doc, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+		Title: "Lease renewal", Provenance: "extracted",
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if doc.Provenance != "extracted" {
+		t.Errorf("row provenance = %q", doc.Provenance)
+	}
+	// The file is the source of truth, so the mark has to be in it.
+	raw, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "provenance: extracted") {
+		t.Errorf("frontmatter is missing provenance:\n%s", raw)
+	}
+}
+
+func TestProvenanceSurvivesAnEdit(t *testing.T) {
+	c, p, _ := kbCore(t)
+	ctx := t.Context()
+
+	doc, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+		Title: "Lease renewal", Provenance: "prompted",
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	// A mark that does not survive an edit cannot anchor an experiment.
+	edited, err := c.EditKnowledge(ctx, p.ID, doc.Slug, "rewritten body\n", &doc.Version)
+	if err != nil {
+		t.Fatalf("EditKnowledge: %v", err)
+	}
+	if edited.Provenance != "prompted" {
+		t.Errorf("provenance after edit = %q, want prompted", edited.Provenance)
+	}
+	raw, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "provenance: prompted") {
+		t.Errorf("edit dropped provenance from the file:\n%s", raw)
+	}
+}
+
+func TestUnknownProvenanceIsRejectedWithTheAllowedSet(t *testing.T) {
+	c, p, _ := kbCore(t)
+	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Lease renewal", Provenance: "vibes",
+	})
+	if err == nil {
+		t.Fatal("an invented provenance was accepted")
+	}
+	for _, want := range []string{"authored", "prompted", "extracted"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not name %q: %v", want, err)
+		}
+	}
+}
+
+func TestProvenanceIsReadBackFromTheFile(t *testing.T) {
+	c, p, _ := kbCore(t)
+	ctx := t.Context()
+
+	doc, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Lease renewal"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	raw, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := strings.Replace(string(raw), "provenance: authored", "provenance: extracted", 1)
+	if edited == string(raw) {
+		t.Fatal("expected a provenance line to rewrite")
+	}
+	if err := os.WriteFile(doc.Path, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The file is the record; editing it out of band must win.
+	got, err := c.ReadKnowledge(ctx, p.ID, doc.Slug)
+	if err != nil {
+		t.Fatalf("ReadKnowledge: %v", err)
+	}
+	if got.Provenance != "extracted" {
+		t.Errorf("provenance = %q, want the file's value", got.Provenance)
+	}
+}

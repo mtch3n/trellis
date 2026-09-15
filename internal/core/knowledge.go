@@ -26,16 +26,17 @@ const GlobalKey = "GLOBAL"
 // Knowledge is the cached row for one markdown file. The file always wins: every
 // read compares mtime and size and re-reads when they moved (§5).
 type Knowledge struct {
-	ID        string  `db:"id" json:"id"`
-	ProjectID string  `db:"project_id" json:"-"`
-	BoardID   *string `db:"board_id" json:"-"`
-	Slug      string  `db:"slug" json:"slug"`
-	Title     string  `db:"title" json:"title"`
-	Path      string  `db:"path" json:"path"`
-	DocType   string  `db:"doc_type" json:"type"`
-	Summary   string  `db:"summary" json:"summary,omitempty"`
-	Recap     *string `db:"recap" json:"recap,omitempty"`
-	RecapHash *string `db:"recap_hash" json:"-"`
+	ID         string  `db:"id" json:"id"`
+	ProjectID  string  `db:"project_id" json:"-"`
+	BoardID    *string `db:"board_id" json:"-"`
+	Slug       string  `db:"slug" json:"slug"`
+	Title      string  `db:"title" json:"title"`
+	Path       string  `db:"path" json:"path"`
+	DocType    string  `db:"doc_type" json:"type"`
+	Summary    string  `db:"summary" json:"summary,omitempty"`
+	Provenance string  `db:"provenance" json:"provenance,omitempty"`
+	Recap      *string `db:"recap" json:"recap,omitempty"`
+	RecapHash  *string `db:"recap_hash" json:"-"`
 	// BodyMD is loaded from Path and is deliberately not persisted in SQLite.
 	BodyMD      string `db:"-" json:"body,omitempty"`
 	ContentHash string `db:"content_hash" json:"-"`
@@ -57,13 +58,14 @@ type Knowledge struct {
 
 // NewKnowledge is what `knowledge new` supplies.
 type NewKnowledge struct {
-	Title    string
-	Body     string // empty means the template
-	Template string
-	Summary  string
-	Board    string // board name, association only
-	Tags     []string
-	Labels   []string
+	Title      string
+	Provenance string // authored | prompted | extracted; defaults to authored
+	Body       string // empty means the template
+	Template   string
+	Summary    string
+	Board      string // board name, association only
+	Tags       []string
+	Labels     []string
 }
 
 // KnowledgeEdit is a whole-document replacement. Nil fields retain their
@@ -134,9 +136,12 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		return Knowledge{}, ErrUsage("missing_title", "a knowledge entry needs a title",
 			`trellis knowledge new --title "Concurrency model"`)
 	}
+	provenance, err := checkProvenance(in.Provenance)
+	if err != nil {
+		return Knowledge{}, err
+	}
 	body := in.Body
 	if body == "" {
-		var err error
 		if body, err = templateBody(in.Template, in.Title); err != nil {
 			return Knowledge{}, err
 		}
@@ -150,7 +155,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 
 	var doc Knowledge
 	var writtenPath string
-	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+	err = c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var key string
 		if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, projectID); err != nil {
 			return err
@@ -177,7 +182,8 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		now := c.clock.NowMS()
 		fm := Frontmatter{
 			Title: in.Title, Type: cmpOr(in.Template, "note"), Summary: in.Summary,
-			Board: boardName, Tags: in.Tags, Labels: in.Labels,
+			Provenance: provenance,
+			Board:      boardName, Tags: in.Tags, Labels: in.Labels,
 			Created: msToRFC3339(now), Updated: msToRFC3339(now),
 		}
 		raw := RenderDoc(fm, body)
@@ -194,7 +200,8 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		doc = Knowledge{
 			ID: NewCardID(), ProjectID: projectID, BoardID: boardID, Slug: slug,
 			Title: in.Title, Path: path, DocType: fm.Type, Summary: in.Summary,
-			BodyMD: body, ContentHash: ContentHash(raw), MTime: st.ModTime().UnixMilli(),
+			Provenance: provenance,
+			BodyMD:     body, ContentHash: ContentHash(raw), MTime: st.ModTime().UnixMilli(),
 			Size: st.Size(), Version: 1, CreatedAt: now, UpdatedAt: now,
 		}
 		if err := insertKnowledge(tx, doc); err != nil {
@@ -232,10 +239,12 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 func insertKnowledge(tx *sqlx.Tx, d Knowledge) error {
 	_, err := tx.Exec(
 		`INSERT INTO knowledge (id, project_id, board_id, slug, title, path, doc_type, summary,
-		                        content_hash, mtime, size, global, version, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                        provenance, content_hash, mtime, size, global, version,
+		                        created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		d.ID, d.ProjectID, d.BoardID, d.Slug, d.Title, d.Path, d.DocType, d.Summary,
-		d.ContentHash, d.MTime, d.Size, d.Global, d.Version, d.CreatedAt, d.UpdatedAt)
+		d.Provenance, d.ContentHash, d.MTime, d.Size, d.Global, d.Version,
+		d.CreatedAt, d.UpdatedAt)
 	return err
 }
 
@@ -328,6 +337,7 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 	doc.Title = cmpOr(fm.Title, doc.Title)
 	doc.DocType = cmpOr(fm.Type, doc.DocType)
 	doc.Summary = fm.Summary
+	doc.Provenance = fm.Provenance
 	doc.BodyMD = body
 	oldHash := doc.ContentHash
 	doc.ContentHash = ContentHash(string(raw))
@@ -342,9 +352,10 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 	doc.Version++
 
 	if _, err := tx.Exec(
-		`UPDATE knowledge SET title = ?, doc_type = ?, summary = ?, content_hash = ?,
-		                      mtime = ?, size = ?, version = ?, updated_at = ? WHERE id = ?`,
-		doc.Title, doc.DocType, doc.Summary, doc.ContentHash,
+		`UPDATE knowledge SET title = ?, doc_type = ?, summary = ?, provenance = ?,
+		                      content_hash = ?, mtime = ?, size = ?, version = ?,
+		                      updated_at = ? WHERE id = ?`,
+		doc.Title, doc.DocType, doc.Summary, doc.Provenance, doc.ContentHash,
 		doc.MTime, doc.Size, doc.Version, doc.UpdatedAt, doc.ID); err != nil {
 		return err
 	}
@@ -652,4 +663,30 @@ func cmpOr(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// Provenances are the ingestion paths an entry can arrive by. The set is closed
+// for the same reason the label vocabulary is: a value invented mid-sentence is
+// a value nothing can be compared against, and comparing them is the whole
+// point of recording it.
+//
+//	authored   an agent wrote it under the writing-knowledge gate
+//	prompted   a hook insisted; an agent still wrote it
+//	extracted  a model produced it from conversation
+func Provenances() []string { return []string{"authored", "prompted", "extracted"} }
+
+// checkProvenance defaults to authored, which is what the ordinary path is.
+// It does not reject an unrecognised value read back from a file: the file is
+// the source of truth, and `knowledge lint` is where vault problems are
+// reported rather than raised mid-write.
+func checkProvenance(v string) (string, error) {
+	if v == "" {
+		return "authored", nil
+	}
+	if slices.Contains(Provenances(), v) {
+		return v, nil
+	}
+	return "", ErrUsage("unknown_provenance",
+		"provenance must be one of "+strings.Join(Provenances(), ", "),
+		`trellis knowledge new --title "..." --provenance extracted`)
 }
