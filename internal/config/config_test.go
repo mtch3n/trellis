@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/jmoiron/sqlx"
@@ -169,7 +171,7 @@ func TestProjectOverrideTakesPrecedence(t *testing.T) {
 	cfg := Defaults()
 
 	// Without override, should get default.
-	value, source, err := EffectiveValue(ctx, cfg, db, projectID, "card.ls_limit")
+	value, source, err := EffectiveValue(ctx, cfg, map[string]bool{}, RepoDoc{}, db, projectID, "card.ls_limit")
 	if err != nil {
 		t.Fatalf("EffectiveValue: %v", err)
 	}
@@ -187,7 +189,7 @@ func TestProjectOverrideTakesPrecedence(t *testing.T) {
 	}
 
 	// Now should get the override.
-	value, source, err = EffectiveValue(ctx, cfg, db, projectID, "card.ls_limit")
+	value, source, err = EffectiveValue(ctx, cfg, map[string]bool{}, RepoDoc{}, db, projectID, "card.ls_limit")
 	if err != nil {
 		t.Fatalf("EffectiveValue after override: %v", err)
 	}
@@ -371,5 +373,306 @@ func TestValidateValueRejectsNegativeHistoryKeep(t *testing.T) {
 	}
 	if err := ValidateValue("ui.port", "-1"); err != nil {
 		t.Errorf("ValidateValue(ui.port, -1): %v, want nil: only history.keep is constrained so far", err)
+	}
+}
+
+func writeRepoFile(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
+}
+
+func TestRepoSafeKeys(t *testing.T) {
+	safe := []string{
+		"card.ls_limit", "card.duplicate_check", "card.duplicate_threshold",
+		"lease.ttl", "board.default_columns",
+		"labels.preset", "labels.require_on_card", "tags.require_on_card",
+		"search.limit", "search.method",
+	}
+	for _, k := range safe {
+		if !RepoSafe(k) {
+			t.Errorf("RepoSafe(%q) = false, want true", k)
+		}
+	}
+	refused := []string{"ui.port", "ui.bind", "ui.enabled", "db.busy_timeout_ms", "git.timeout",
+		"search.vector.enabled", "search.vector.embed_command", "search.vector.endpoint"}
+	for _, k := range refused {
+		if RepoSafe(k) {
+			t.Errorf("RepoSafe(%q) = true, want false", k)
+		}
+	}
+}
+
+func TestRepoConfigPathBothPresentIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", "config:\n  lease.ttl: 45m\n")
+	writeRepoFile(t, dir, ".trellis.yml", "config:\n  lease.ttl: 45m\n")
+
+	if _, err := RepoConfigPath(dir); err == nil {
+		t.Fatal("want an error naming both files")
+	}
+}
+
+func TestRepoConfigPathAcceptsEitherExtension(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yml", "config:\n  lease.ttl: 45m\n")
+	path, err := RepoConfigPath(dir)
+	if err != nil {
+		t.Fatalf("RepoConfigPath: %v", err)
+	}
+	if filepath.Base(path) != ".trellis.yml" {
+		t.Errorf("path = %q, want .trellis.yml", path)
+	}
+}
+
+func TestRepoConfigPathWithNeitherFileIsNotAnError(t *testing.T) {
+	path, err := RepoConfigPath(t.TempDir())
+	if err != nil || path != "" {
+		t.Fatalf("path=%q err=%v, want (\"\", nil)", path, err)
+	}
+}
+
+func TestLoadRepoWithNoFileReturnsNotOK(t *testing.T) {
+	doc, path, ok, err := LoadRepo(t.TempDir())
+	if err != nil || ok || path != "" || len(doc.Present) != 0 {
+		t.Fatalf("doc=%+v path=%q ok=%v err=%v, want a not-ok zero result", doc, path, ok, err)
+	}
+}
+
+func TestLoadRepoAppliesAllowedKeys(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", `config:
+  card.ls_limit: 25
+  lease.ttl: 45m
+  labels.require_on_card: true
+  board.default_columns: [todo, doing, done]
+`)
+	doc, path, ok, err := LoadRepo(dir)
+	if err != nil {
+		t.Fatalf("LoadRepo: %v", err)
+	}
+	if !ok || path == "" {
+		t.Fatalf("ok=%v path=%q, want a loaded repo config", ok, path)
+	}
+	if doc.Config.Card.LsLimit != 25 {
+		t.Errorf("Card.LsLimit = %d, want 25", doc.Config.Card.LsLimit)
+	}
+	if doc.Config.Lease.TTL != "45m" {
+		t.Errorf("Lease.TTL = %q, want 45m", doc.Config.Lease.TTL)
+	}
+	if !doc.Config.Labels.RequireOnCard {
+		t.Error("Labels.RequireOnCard = false, want true")
+	}
+	if len(doc.Config.Board.DefaultColumns) != 3 || doc.Config.Board.DefaultColumns[0] != "todo" {
+		t.Errorf("Board.DefaultColumns = %v", doc.Config.Board.DefaultColumns)
+	}
+	for _, k := range []string{"card.ls_limit", "lease.ttl", "labels.require_on_card", "board.default_columns"} {
+		if !doc.Present[k] {
+			t.Errorf("Present[%q] = false, want true", k)
+		}
+	}
+	if doc.Present["search.limit"] {
+		t.Error("Present[\"search.limit\"] = true, but the file never set it")
+	}
+}
+
+func TestLoadRepoRefusesADisallowedKey(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", "config:\n  ui.port: 9999\n")
+	_, path, _, err := LoadRepo(dir)
+	if err == nil {
+		t.Fatal("want an error: ui.port is not repository-safe")
+	}
+	if !strings.Contains(err.Error(), "ui.port") {
+		t.Errorf("error %q does not name the refused key", err)
+	}
+	_ = path
+}
+
+func TestLoadRepoRefusesAnUnknownKey(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", "config:\n  nonexistent.key: 1\n")
+	_, _, _, err := LoadRepo(dir)
+	if err == nil || !strings.Contains(err.Error(), "nonexistent.key") {
+		t.Fatalf("err = %v, want an error naming nonexistent.key", err)
+	}
+}
+
+func TestLoadRepoRejectsABadValue(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", "config:\n  card.ls_limit: not-a-number\n")
+	_, _, _, err := LoadRepo(dir)
+	if err == nil || !strings.Contains(err.Error(), "card.ls_limit") {
+		t.Fatalf("err = %v, want an error naming card.ls_limit", err)
+	}
+}
+
+func TestLoadRepoRejectsAnUnknownTopLevelKey(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", "storage:\n  path: /tmp\n")
+	_, _, _, err := LoadRepo(dir)
+	if err == nil || !strings.Contains(err.Error(), "storage") {
+		t.Fatalf("err = %v, want an error naming the unknown top-level key storage", err)
+	}
+}
+
+func TestLoadRepoPassesExtensionsThroughUntouched(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", `config:
+  lease.ttl: 45m
+
+extensions:
+  actions:
+    - on: knowledge.created
+      type: finding
+      run: ./scripts/review-finding.sh
+`)
+	doc, _, ok, err := LoadRepo(dir)
+	if err != nil || !ok {
+		t.Fatalf("LoadRepo: ok=%v err=%v", ok, err)
+	}
+	m, isMap := doc.Extensions.(map[string]any)
+	if !isMap {
+		t.Fatalf("Extensions = %#v (%T), want a map", doc.Extensions, doc.Extensions)
+	}
+	actions, isSlice := m["actions"].([]any)
+	if !isSlice || len(actions) != 1 {
+		t.Fatalf("Extensions[actions] = %#v, want a one-item list", m["actions"])
+	}
+}
+
+func TestLoadRepoWithEmptyDirReadsNothing(t *testing.T) {
+	doc, path, ok, err := LoadRepo("")
+	if err != nil || ok || path != "" || doc.Extensions != nil {
+		t.Fatalf("doc=%+v path=%q ok=%v err=%v, want a not-ok zero result for an empty dir", doc, path, ok, err)
+	}
+}
+
+func TestAllKeysIncludesEveryKeyGetValueKnows(t *testing.T) {
+	for _, k := range AllKeys() {
+		if _, found := GetValue(Defaults(), k); !found {
+			t.Errorf("AllKeys lists %q, but GetValue does not recognize it", k)
+		}
+	}
+	if !slices.Contains(AllKeys(), "lease.ttl") {
+		t.Error("AllKeys is missing lease.ttl")
+	}
+}
+
+func TestLoadWithPresenceDistinguishesFileFromDefault(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("TRELLIS_HOME", root)
+	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte("lease:\n  ttl: 10m\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, present, err := LoadWithPresence()
+	if err != nil {
+		t.Fatalf("LoadWithPresence: %v", err)
+	}
+	if cfg.Lease.TTL != "10m" {
+		t.Fatalf("Lease.TTL = %q, want 10m", cfg.Lease.TTL)
+	}
+	if !present["lease.ttl"] {
+		t.Error(`present["lease.ttl"] = false, want true: the file set it`)
+	}
+	if present["card.ls_limit"] {
+		t.Error(`present["card.ls_limit"] = true, but the file never mentioned it`)
+	}
+}
+
+func TestLoadWithPresenceOnAnEmptyHomeMarksNothingPresent(t *testing.T) {
+	t.Setenv("TRELLIS_HOME", t.TempDir())
+	_, present, err := LoadWithPresence()
+	if err != nil {
+		t.Fatalf("LoadWithPresence: %v", err)
+	}
+	if len(present) != 0 {
+		t.Errorf("present = %v, want empty: there is no config.yaml", present)
+	}
+}
+
+func TestEffectiveValueReportsDefaultThenConfigThenRepoThenProject(t *testing.T) {
+	// openTestDB (config_test.go:248) already exists and sets up both
+	// `project` and `project_config`; reuse it rather than declaring a
+	// second, duplicate in-memory schema helper.
+	db := openTestDB(t)
+	defer db.Close()
+	ctx := context.Background()
+
+	// 1. Nothing set anywhere: default.
+	value, source, err := EffectiveValue(ctx, Defaults(), map[string]bool{}, RepoDoc{}, db, "p1", "lease.ttl")
+	if err != nil {
+		t.Fatalf("EffectiveValue: %v", err)
+	}
+	if source != "default" || value != "30m" {
+		t.Fatalf("value=%q source=%q, want 30m/default", value, source)
+	}
+
+	// 2. The global file set it: config.
+	globalCfg := Defaults()
+	globalCfg.Lease.TTL = "20m"
+	value, source, err = EffectiveValue(ctx, globalCfg, map[string]bool{"lease.ttl": true}, RepoDoc{}, db, "p1", "lease.ttl")
+	if err != nil {
+		t.Fatalf("EffectiveValue: %v", err)
+	}
+	if source != "config" || value != "20m" {
+		t.Fatalf("value=%q source=%q, want 20m/config", value, source)
+	}
+
+	// 3. The repository file also set it: repo wins over the global file.
+	repo := RepoDoc{Config: Config{Lease: LeaseConfig{TTL: "45m"}}, Present: map[string]bool{"lease.ttl": true}}
+	value, source, err = EffectiveValue(ctx, globalCfg, map[string]bool{"lease.ttl": true}, repo, db, "p1", "lease.ttl")
+	if err != nil {
+		t.Fatalf("EffectiveValue: %v", err)
+	}
+	if source != "repo" || value != "45m" {
+		t.Fatalf("value=%q source=%q, want 45m/repo", value, source)
+	}
+
+	// 4. A project override wins over everything.
+	if err := SetProjectConfig(ctx, db, "p1", "lease.ttl", "5m"); err != nil {
+		t.Fatalf("SetProjectConfig: %v", err)
+	}
+	value, source, err = EffectiveValue(ctx, globalCfg, map[string]bool{"lease.ttl": true}, repo, db, "p1", "lease.ttl")
+	if err != nil {
+		t.Fatalf("EffectiveValue: %v", err)
+	}
+	if source != "project" || value != "5m" {
+		t.Fatalf("value=%q source=%q, want 5m/project", value, source)
+	}
+}
+
+func TestEffectiveValueUnknownKey(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+	if _, _, err := EffectiveValue(context.Background(), Defaults(), map[string]bool{}, RepoDoc{}, db, "p1", "no.such.key"); err == nil {
+		t.Fatal("want an error for an unknown key")
+	}
+}
+
+func TestApplyRepoOverridesCopiesEveryPresentKey(t *testing.T) {
+	cfg := Defaults()
+	repo := RepoDoc{
+		Config: Config{
+			Card:   CardConfig{LsLimit: 5},
+			Lease:  LeaseConfig{TTL: "5m"},
+			Search: SearchConfig{Limit: 3, Method: "vector"},
+		},
+		Present: map[string]bool{"card.ls_limit": true, "lease.ttl": true, "search.limit": true, "search.method": true},
+	}
+	merged := ApplyRepoOverrides(cfg, repo)
+	if merged.Card.LsLimit != 5 {
+		t.Errorf("Card.LsLimit = %d, want 5", merged.Card.LsLimit)
+	}
+	if merged.Lease.TTL != "5m" {
+		t.Errorf("Lease.TTL = %q, want 5m", merged.Lease.TTL)
+	}
+	if merged.Search.Limit != 3 || merged.Search.Method != "vector" {
+		t.Errorf("Search = %+v, want Limit=3 Method=vector", merged.Search)
+	}
+	// board.default_columns was never present: the default must survive.
+	if len(merged.Board.DefaultColumns) != len(Defaults().Board.DefaultColumns) {
+		t.Errorf("Board.DefaultColumns = %v, want the untouched default", merged.Board.DefaultColumns)
 	}
 }

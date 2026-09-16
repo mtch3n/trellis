@@ -27,6 +27,7 @@ type appCtx struct {
 	Project core.Project
 	Board   core.Board
 	db      *sqlx.DB
+	cfg     config.Config
 }
 
 // boardFlag holds --board; empty means "apply the selection rules".
@@ -93,6 +94,7 @@ func currentBoard() (*appCtx, error) {
 
 	key := projectKey()
 	var p core.Project
+	var repoDir string
 	if key != "" {
 		// Naming a project skips cwd resolution entirely: --project must work
 		// from outside any repository.
@@ -113,11 +115,36 @@ func currentBoard() (*appCtx, error) {
 			db.Close()
 			return nil, core.ErrUsage("unresolved", err.Error(), "trellis init --pin")
 		}
+		repoDir = id.RootPath
 		if p, err = c.EnsureProject(context.Background(), id); err != nil {
 			db.Close()
 			return nil, err
 		}
 	}
+
+	// openCore already primed the Core's lease TTL, default columns and
+	// label/tag requirements from the global file alone. Now that the
+	// project's directory (if any) is known, re-derive those same settings
+	// with the repository file layered in (ApplyRepoOverrides) and re-apply
+	// them: a repo-safe key wins over the global file, and a project
+	// override — which these three Core setters have never consulted — still
+	// does not apply here, unchanged from today.
+	cfg, present, cfgErr := config.LoadWithPresence()
+	if cfgErr != nil {
+		cfg, present = config.Defaults(), map[string]bool{}
+	}
+	_ = present
+	repo, _, _, repoErr := config.LoadRepo(repoDir)
+	if repoErr != nil {
+		db.Close()
+		return nil, core.ErrUsage("bad_repo_config", repoErr.Error(), "fix the file .trellis.yaml/.trellis.yml names")
+	}
+	effective := config.ApplyRepoOverrides(cfg, repo)
+	if ttl, err := time.ParseDuration(effective.Lease.TTL); err == nil {
+		c.SetLeaseTTL(ttl.Milliseconds())
+	}
+	c.SetDefaultColumns(effective.Board.DefaultColumns)
+	c.SetCardRequirements(effective.Labels.RequireOnCard, effective.Tags.RequireOnCard)
 
 	// --board wins; otherwise TRELLIS_BOARD; otherwise the selection rules in
 	// core.SelectBoard (sole board, then the default, else exit 2).
@@ -127,7 +154,7 @@ func currentBoard() (*appCtx, error) {
 		db.Close()
 		return nil, err
 	}
-	return &appCtx{Core: c, Project: p, Board: b, db: db}, nil
+	return &appCtx{Core: c, Project: p, Board: b, db: db, cfg: effective}, nil
 }
 
 func newRootCmd() *cobra.Command {
@@ -148,7 +175,7 @@ func newRootCmd() *cobra.Command {
 	// All commands registered here once; each lives in its own file so later
 	// parallel tasks never edit root.go.
 	root.AddCommand(newInitCmd(), newCardCmd(), newBoardCmd(), newColumnCmd(), newLabelCmd(), newUICmd(), newSearchCmd(), newRecallCmd(), newConfigCmd(), newAgentCmd(), newBackupCmd(), newVersionCmd(), newUpdateCmd(),
-		newKnowledgeCmd(), newArtifactCmd(), newLinkCmd(), newGraphCmd(), newVectorCmd(), newDaemonCmd(), newDoctorCmd(), newMaintenanceCmd(), newTUICmd())
+		newKnowledgeCmd(), newArtifactCmd(), newLinkCmd(), newGraphCmd(), newVectorCmd(), newDaemonCmd(), newDoctorCmd(), newMaintenanceCmd(), newTUICmd(), newEventsCmd(), newExtensionCmd())
 	return root
 }
 
@@ -234,11 +261,7 @@ func extractCommandAndSuggestions(root *cobra.Command, err error) (string, []str
 // configInt reads a project-effective integer setting, falling back to def when
 // the value is missing or unparseable: a bad setting must not break a listing.
 func configInt(ctx context.Context, app *appCtx, key string, def int) int {
-	cfg, err := config.Load()
-	if err != nil {
-		cfg = config.Defaults()
-	}
-	raw, _, err := config.EffectiveValue(ctx, cfg, app.db, app.Project.ID, key)
+	raw, _, err := config.EffectiveValue(ctx, app.cfg, map[string]bool{}, config.RepoDoc{}, app.db, app.Project.ID, key)
 	if err != nil {
 		return def
 	}
