@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -193,15 +194,38 @@ func newKnowledgeDiffCmd() *cobra.Command {
 // renderKnowledgeList is the text form of `knowledge ls`. It is a function
 // rather than a closure so it can be tested directly: Emit selects JSON
 // whenever stdout is captured.
+// renderKnowledgeList is the text form of `knowledge ls`: a tree grouped by
+// directory, since a knowledge slug may now be path-shaped. A root-level
+// entry — the majority of any small vault — renders exactly as it always
+// has; an entry under a directory gets a header line for that directory the
+// first time it appears. JSON output (Emit's other branch) stays a flat
+// array; a client can group it the same way from the slug.
 func renderKnowledgeList(docs []core.Knowledge) string {
+	sorted := slices.Clone(docs)
+	slices.SortFunc(sorted, func(a, b core.Knowledge) int { return cmp.Compare(a.Slug, b.Slug) })
 	var b strings.Builder
 	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-	for _, d := range docs {
+	lastDir := ""
+	for _, d := range sorted {
+		dir, leaf := "", d.Slug
+		if i := strings.LastIndex(d.Slug, "/"); i >= 0 {
+			dir, leaf = d.Slug[:i], d.Slug[i+1:]
+		}
+		if dir != lastDir {
+			if dir != "" {
+				fmt.Fprintf(w, "%s/\n", dir)
+			}
+			lastDir = dir
+		}
+		indent := ""
+		if dir != "" {
+			indent = "  "
+		}
 		mark := ""
 		if d.Private {
 			mark = "private"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", d.Slug, d.DocType, d.Provenance, mark, d.Title)
+		fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\n", indent, leaf, d.DocType, d.Provenance, mark, d.Title)
 	}
 	w.Flush()
 	return strings.TrimRight(b.String(), "\n")
@@ -209,15 +233,23 @@ func renderKnowledgeList(docs []core.Knowledge) string {
 
 func newKnowledgeLsCmd() *cobra.Command {
 	var thisBoard, cold bool
-	var docTypes, provenances []string
+	var docTypes, provenances, tags []string
 	cmd := &cobra.Command{
-		Use:   "ls",
-		Short: "List entries",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Use:   "ls [dir]",
+		Short: "List entries, as a tree grouped by directory",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
 			return withBoard(func(app *appCtx) error {
-				filter := core.KnowledgeFilter{DocTypes: docTypes, Provenances: provenances}
+				filter := core.KnowledgeFilter{DocTypes: docTypes, Provenances: provenances, Tags: tags}
 				if thisBoard {
 					filter.BoardID = app.Board.ID
+				}
+				if len(args) == 1 {
+					dir, err := core.SlugifyPath(args[0])
+					if err != nil {
+						return err
+					}
+					filter.Dir = dir
 				}
 				var docs []core.Knowledge
 				var err error
@@ -240,6 +272,7 @@ func newKnowledgeLsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&cold, "cold", false, "entries nothing has read in 30 days")
 	cmd.Flags().StringSliceVar(&docTypes, "type", nil, "only these doc types: "+strings.Join(core.Templates(), "|"))
 	cmd.Flags().StringSliceVar(&provenances, "provenance", nil, "only these ingestion paths: "+strings.Join(core.Provenances(), "|"))
+	cmd.Flags().StringSliceVar(&tags, "tag", nil, "only entries with every one of these tags")
 	return cmd
 }
 

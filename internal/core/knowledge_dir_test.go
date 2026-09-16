@@ -485,3 +485,47 @@ func TestVerifyKnowledgeResolvesADirectoryShapedSlug(t *testing.T) {
 		t.Fatalf("VerifyKnowledge by full path: %v", err)
 	}
 }
+
+func TestListKnowledgeFiltersByTagsRequiringAll(t *testing.T) {
+	c, p, _ := kbCore(t)
+	both, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Both", Tags: []string{"a", "b"}})
+	if err != nil {
+		t.Fatalf("CreateKnowledge both: %v", err)
+	}
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "OnlyA", Tags: []string{"a"}}); err != nil {
+		t.Fatalf("CreateKnowledge onlyA: %v", err)
+	}
+	docs, err := c.ListKnowledge(t.Context(), p.ID, KnowledgeFilter{Tags: []string{"a", "b"}})
+	if err != nil {
+		t.Fatalf("ListKnowledge: %v", err)
+	}
+	if len(docs) != 1 || docs[0].ID != both.ID {
+		t.Fatalf("docs = %+v, want only %q", docs, both.Slug)
+	}
+}
+
+func TestListKnowledgeScopesToADirectoryAndItsSubtree(t *testing.T) {
+	c, p, _ := kbCore(t)
+	root, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge root: %v", err)
+	}
+	nested, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Setup", Dir: "deployment/aws", NewDir: true})
+	if err != nil {
+		t.Fatalf("CreateKnowledge nested: %v", err)
+	}
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Elsewhere", Dir: "docs"}); err != nil {
+		t.Fatalf("CreateKnowledge elsewhere: %v", err)
+	}
+	docs, err := c.ListKnowledge(t.Context(), p.ID, KnowledgeFilter{Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("ListKnowledge: %v", err)
+	}
+	if len(docs) != 2 {
+		t.Fatalf("docs = %+v, want the 2 entries under deployment/", docs)
+	}
+	ids := map[string]bool{docs[0].ID: true, docs[1].ID: true}
+	if !ids[root.ID] || !ids[nested.ID] {
+		t.Errorf("docs = %+v, want %q and %q", docs, root.Slug, nested.Slug)
+	}
+}
