@@ -129,13 +129,16 @@ func (c *Core) DeleteProject(ctx context.Context, key string) error {
 			return err
 		}
 
+		if err := c.recordEvent(tx, "project", p.ID, "deleted", "key", p.Key, ""); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(`DELETE FROM project WHERE id = ?`, p.ID); err != nil {
 			return err
 		}
 		if err := c.rebuildKnowledgeFTS(tx); err != nil {
 			return err
 		}
-		return c.recordEvent(tx, "project", p.ID, "deleted", "key", p.Key, "")
+		return nil
 	})
 	if err != nil {
 		if restoreErr := staged.restore(); restoreErr != nil {

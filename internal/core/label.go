@@ -103,10 +103,13 @@ func (c *Core) DeleteLabel(ctx context.Context, projectID, name string) error {
 				fmt.Sprintf("trellis card ls --label %s", name))
 		}
 
+		if err := c.recordEvent(tx, "label", label.ID, "deleted", "", label.Name, ""); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(`DELETE FROM label WHERE id = ?`, label.ID); err != nil {
 			return err
 		}
-		return c.recordEvent(tx, "label", label.ID, "deleted", "", label.Name, "")
+		return nil
 	})
 }
 

@@ -141,7 +141,7 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64
 	var projectClause string
 	var projectArgs []any
 	if q.ProjectID != "" {
-		projectClause = " AND COALESCE(c.project_id, k.project_id, b.project_id, l.project_id, nc.project_id) = ?"
+		projectClause = " AND e.project_id = ?"
 		projectArgs = []any{q.ProjectID}
 	}
 

@@ -555,10 +555,13 @@ func (c *Core) DeleteCard(ctx context.Context, projectID string, ref CardRef) er
 		if err := c.checkCardOwner(card); err != nil {
 			return err
 		}
+		if err := c.recordEvent(tx, "card", card.ID, "deleted", "", card.Title, ""); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(`DELETE FROM card WHERE id = ?`, card.ID); err != nil {
 			return err
 		}
-		return c.recordEvent(tx, "card", card.ID, "deleted", "", card.Title, "")
+		return nil
 	})
 }
 
