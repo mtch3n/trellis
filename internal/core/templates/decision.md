@@ -1,4 +1,7 @@
-# {{TITLE}}
+---
+enforce: warn
+---
+# {{title}}
 
 ## Context
 

@@ -185,3 +185,41 @@ func loadTemplate(dir, name string) (Template, error) {
 		Required: rules.Required, Choices: rules.Choices, Body: body,
 	}, nil
 }
+
+// templatesDir returns <root>/templates, seeding it from the built-in
+// templates the first time it is needed. Templates are global: one
+// directory serves every project, and seeding never touches a directory
+// that already exists — a built-in the user deleted stays deleted.
+func (c *Core) templatesDir() (string, error) {
+	root, err := c.root()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(root, "templates")
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		if err := seedTemplates(dir); err != nil {
+			return "", err
+		}
+	} else if err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// seedTemplates writes the six built-ins into dir, which must not yet
+// exist.
+func seedTemplates(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	for _, name := range Templates() {
+		raw, err := templateFS.ReadFile("templates/" + name + ".md")
+		if err != nil {
+			return err
+		}
+		if err := writeAtomic(filepath.Join(dir, name+".md"), raw, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}

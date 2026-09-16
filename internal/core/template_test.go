@@ -122,3 +122,52 @@ func TestLoadTemplateWithNoFrontmatterDefaultsToWarnAndNoRules(t *testing.T) {
 		t.Errorf("tmpl = %+v, want warn with no rules", tmpl)
 	}
 }
+
+func TestSeedingWritesBuiltinsOnceAndNeverAgain(t *testing.T) {
+	c := testCore(t)
+	c.WithKBRoot(t.TempDir())
+
+	dir, err := c.templatesDir()
+	if err != nil {
+		t.Fatalf("templatesDir: %v", err)
+	}
+	for _, name := range Templates() {
+		if _, err := os.Stat(filepath.Join(dir, name+".md")); err != nil {
+			t.Errorf("%s was not seeded: %v", name, err)
+		}
+	}
+
+	// Deleting a built-in and asking for the directory again must not
+	// bring it back: seeding runs only when the directory itself is
+	// absent.
+	if err := os.Remove(filepath.Join(dir, "note.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.templatesDir(); err != nil {
+		t.Fatalf("templatesDir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "note.md")); !os.IsNotExist(err) {
+		t.Error("note.md was reseeded after being deleted")
+	}
+}
+
+func TestSeededTemplatesAllParse(t *testing.T) {
+	c := testCore(t)
+	c.WithKBRoot(t.TempDir())
+	dir, err := c.templatesDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range Templates() {
+		tmpl, err := loadTemplate(dir, name)
+		if err != nil {
+			t.Fatalf("loadTemplate(%s): %v", name, err)
+		}
+		if tmpl.Enforce != "warn" {
+			t.Errorf("%s: enforce = %q, want warn", name, tmpl.Enforce)
+		}
+		if len(tmpl.Required) != 0 || len(tmpl.Choices) != 0 {
+			t.Errorf("%s: has rules, want none", name)
+		}
+	}
+}
