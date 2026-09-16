@@ -3,6 +3,7 @@ package core
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"regexp"
 	"strings"
 
@@ -51,6 +52,20 @@ func SplitFrontmatter(raw string) (Frontmatter, string, error) {
 		return fm, body, ErrUsage("bad_frontmatter", "the YAML frontmatter does not parse: "+err.Error(), "")
 	}
 	return fm, body, nil
+}
+
+// splitDocFile is SplitFrontmatter for a file read from path, and names that
+// file when the header does not parse. SplitFrontmatter sees only the text, but
+// its callers sweep the whole vault, and one bad value in any file fails every
+// command; an error that does not say which file is one nobody can act on.
+func splitDocFile(path string, raw []byte) (Frontmatter, string, error) {
+	fm, body, err := SplitFrontmatter(string(raw))
+	if e, ok := errors.AsType[*Error](err); ok {
+		named := *e
+		named.Msg = path + ": " + e.Msg
+		return fm, body, &named
+	}
+	return fm, body, err
 }
 
 // RenderDoc writes frontmatter and body back to file form.

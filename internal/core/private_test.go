@@ -133,6 +133,45 @@ func TestPrivateWithANonBooleanValueFailsTheParse(t *testing.T) {
 	}
 }
 
+// A non-boolean still fails the parse, and the error names the file. The
+// failure surfaces from sweeps over the whole vault (the CLI runs one before
+// every command), so without the path nobody can tell which file to fix.
+// Msg is checked rather than Error() because Msg is what --json reports.
+func TestABadPrivateValueNamesTheFile(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Staging credentials"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	raw, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	bad := strings.Replace(string(raw), "title:", "private: maybe\ntitle:", 1)
+	if err := os.WriteFile(doc.Path, []byte(bad), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	for name, call := range map[string]func() error{
+		"search sync": func() error { return c.SyncKnowledgeSearch(t.Context()) },
+		"load": func() error {
+			_, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+			return err
+		},
+	} {
+		err := call()
+		coreErr, ok := errors.AsType[*Error](err)
+		if !ok || coreErr.Code != "bad_frontmatter" {
+			t.Errorf("%s: err = %v, want bad_frontmatter", name, err)
+			continue
+		}
+		if !strings.Contains(coreErr.Msg, doc.Path) {
+			t.Errorf("%s: message %q does not name %s", name, coreErr.Msg, doc.Path)
+		}
+	}
+}
+
 // The corpus that feeds the vector index is the one place a body is shipped to
 // something that may not be on this machine.
 func TestVectorCorpusExcludesPrivate(t *testing.T) {

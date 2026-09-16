@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -62,15 +63,21 @@ func projectEnv(t *testing.T) {
 
 func runCmd(t *testing.T, args ...string) string {
 	t.Helper()
+	out, err := execCmd(args...)
+	if err != nil {
+		t.Fatalf("%v: %v\n%s", args, err, out)
+	}
+	return out
+}
+
+func execCmd(args ...string) (string, error) {
 	var out bytes.Buffer
 	root := newRootCmd()
 	root.SetArgs(args)
 	root.SetOut(&out)
 	root.SetErr(&out)
-	if err := root.Execute(); err != nil {
-		t.Fatalf("%v: %v\n%s", args, err, out.String())
-	}
-	return out.String()
+	err := root.Execute()
+	return out.String(), err
 }
 
 func TestKnowledgeNewPrivateFlag(t *testing.T) {
@@ -273,5 +280,32 @@ func TestKnowledgeLsDisclosesNoContent(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// One malformed flag in any vault file fails every command, because the CLI
+// sweeps the vault before running one. The failure is deliberate; not saying
+// which file caused it is not. `card ls` never touches knowledge, which is
+// what makes the missing path so hard to act on.
+func TestABadPrivateValueNamesTheFileInEveryCommand(t *testing.T) {
+	projectEnv(t)
+
+	path := newEntry(t, "--title", "Staging credentials")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	bad := strings.Replace(string(raw), "title:", "private: \"true\"\ntitle:", 1)
+	if err := os.WriteFile(path, []byte(bad), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	_, err = execCmd("card", "ls")
+	coreErr, ok := errors.AsType[*core.Error](err)
+	if !ok || coreErr.Code != "bad_frontmatter" {
+		t.Fatalf("card ls = %v, want bad_frontmatter", err)
+	}
+	if !strings.Contains(coreErr.Msg, path) {
+		t.Errorf("message %q does not name %s", coreErr.Msg, path)
 	}
 }

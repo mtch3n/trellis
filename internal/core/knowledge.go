@@ -334,7 +334,7 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 	if err != nil {
 		return err
 	}
-	fm, body, err := SplitFrontmatter(string(raw))
+	fm, body, err := splitDocFile(doc.Path, raw)
 	if err != nil {
 		return err
 	}
@@ -511,7 +511,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 			return err
 		}
 		oldRaw = append(oldRaw[:0], raw...)
-		fm, _, err := SplitFrontmatter(string(raw))
+		fm, _, err := splitDocFile(doc.Path, raw)
 		if err != nil {
 			return err
 		}
@@ -688,7 +688,7 @@ func (c *Core) rebuildKnowledgeFTS(tx *sqlx.Tx) error {
 		if err != nil {
 			return err
 		}
-		fm, body, err := SplitFrontmatter(string(raw))
+		fm, body, err := splitDocFile(d.Path, raw)
 		if err != nil {
 			return err
 		}
