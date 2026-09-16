@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jmoiron/sqlx"
@@ -312,5 +313,178 @@ func TestLoadKeepsUIDisabled(t *testing.T) {
 	}
 	if value, found := GetValue(cfg, "ui.enabled"); !found || value != "false" {
 		t.Errorf("config ls should report false, got %q found=%v", value, found)
+	}
+}
+
+func writeRepoFile(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
+}
+
+func TestRepoSafeKeys(t *testing.T) {
+	safe := []string{
+		"card.ls_limit", "card.duplicate_check", "card.duplicate_threshold",
+		"lease.ttl", "board.default_columns",
+		"labels.preset", "labels.require_on_card", "tags.require_on_card",
+		"search.limit", "search.method",
+	}
+	for _, k := range safe {
+		if !RepoSafe(k) {
+			t.Errorf("RepoSafe(%q) = false, want true", k)
+		}
+	}
+	refused := []string{"ui.port", "ui.bind", "ui.enabled", "db.busy_timeout_ms", "git.timeout",
+		"search.vector.enabled", "search.vector.embed_command", "search.vector.endpoint"}
+	for _, k := range refused {
+		if RepoSafe(k) {
+			t.Errorf("RepoSafe(%q) = true, want false", k)
+		}
+	}
+}
+
+func TestRepoConfigPathBothPresentIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", "config:\n  lease.ttl: 45m\n")
+	writeRepoFile(t, dir, ".trellis.yml", "config:\n  lease.ttl: 45m\n")
+
+	if _, err := RepoConfigPath(dir); err == nil {
+		t.Fatal("want an error naming both files")
+	}
+}
+
+func TestRepoConfigPathAcceptsEitherExtension(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yml", "config:\n  lease.ttl: 45m\n")
+	path, err := RepoConfigPath(dir)
+	if err != nil {
+		t.Fatalf("RepoConfigPath: %v", err)
+	}
+	if filepath.Base(path) != ".trellis.yml" {
+		t.Errorf("path = %q, want .trellis.yml", path)
+	}
+}
+
+func TestRepoConfigPathWithNeitherFileIsNotAnError(t *testing.T) {
+	path, err := RepoConfigPath(t.TempDir())
+	if err != nil || path != "" {
+		t.Fatalf("path=%q err=%v, want (\"\", nil)", path, err)
+	}
+}
+
+func TestLoadRepoWithNoFileReturnsNotOK(t *testing.T) {
+	doc, path, ok, err := LoadRepo(t.TempDir())
+	if err != nil || ok || path != "" || len(doc.Present) != 0 {
+		t.Fatalf("doc=%+v path=%q ok=%v err=%v, want a not-ok zero result", doc, path, ok, err)
+	}
+}
+
+func TestLoadRepoAppliesAllowedKeys(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", `config:
+  card.ls_limit: 25
+  lease.ttl: 45m
+  labels.require_on_card: true
+  board.default_columns: [todo, doing, done]
+`)
+	doc, path, ok, err := LoadRepo(dir)
+	if err != nil {
+		t.Fatalf("LoadRepo: %v", err)
+	}
+	if !ok || path == "" {
+		t.Fatalf("ok=%v path=%q, want a loaded repo config", ok, path)
+	}
+	if doc.Config.Card.LsLimit != 25 {
+		t.Errorf("Card.LsLimit = %d, want 25", doc.Config.Card.LsLimit)
+	}
+	if doc.Config.Lease.TTL != "45m" {
+		t.Errorf("Lease.TTL = %q, want 45m", doc.Config.Lease.TTL)
+	}
+	if !doc.Config.Labels.RequireOnCard {
+		t.Error("Labels.RequireOnCard = false, want true")
+	}
+	if len(doc.Config.Board.DefaultColumns) != 3 || doc.Config.Board.DefaultColumns[0] != "todo" {
+		t.Errorf("Board.DefaultColumns = %v", doc.Config.Board.DefaultColumns)
+	}
+	for _, k := range []string{"card.ls_limit", "lease.ttl", "labels.require_on_card", "board.default_columns"} {
+		if !doc.Present[k] {
+			t.Errorf("Present[%q] = false, want true", k)
+		}
+	}
+	if doc.Present["search.limit"] {
+		t.Error("Present[\"search.limit\"] = true, but the file never set it")
+	}
+}
+
+func TestLoadRepoRefusesADisallowedKey(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", "config:\n  ui.port: 9999\n")
+	_, path, _, err := LoadRepo(dir)
+	if err == nil {
+		t.Fatal("want an error: ui.port is not repository-safe")
+	}
+	if !strings.Contains(err.Error(), "ui.port") {
+		t.Errorf("error %q does not name the refused key", err)
+	}
+	_ = path
+}
+
+func TestLoadRepoRefusesAnUnknownKey(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", "config:\n  nonexistent.key: 1\n")
+	_, _, _, err := LoadRepo(dir)
+	if err == nil || !strings.Contains(err.Error(), "nonexistent.key") {
+		t.Fatalf("err = %v, want an error naming nonexistent.key", err)
+	}
+}
+
+func TestLoadRepoRejectsABadValue(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", "config:\n  card.ls_limit: not-a-number\n")
+	_, _, _, err := LoadRepo(dir)
+	if err == nil || !strings.Contains(err.Error(), "card.ls_limit") {
+		t.Fatalf("err = %v, want an error naming card.ls_limit", err)
+	}
+}
+
+func TestLoadRepoRejectsAnUnknownTopLevelKey(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", "storage:\n  path: /tmp\n")
+	_, _, _, err := LoadRepo(dir)
+	if err == nil || !strings.Contains(err.Error(), "storage") {
+		t.Fatalf("err = %v, want an error naming the unknown top-level key storage", err)
+	}
+}
+
+func TestLoadRepoPassesExtensionsThroughUntouched(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", `config:
+  lease.ttl: 45m
+
+extensions:
+  actions:
+    - on: knowledge.created
+      type: finding
+      run: ./scripts/review-finding.sh
+`)
+	doc, _, ok, err := LoadRepo(dir)
+	if err != nil || !ok {
+		t.Fatalf("LoadRepo: ok=%v err=%v", ok, err)
+	}
+	m, isMap := doc.Extensions.(map[string]any)
+	if !isMap {
+		t.Fatalf("Extensions = %#v (%T), want a map", doc.Extensions, doc.Extensions)
+	}
+	actions, isSlice := m["actions"].([]any)
+	if !isSlice || len(actions) != 1 {
+		t.Fatalf("Extensions[actions] = %#v, want a one-item list", m["actions"])
+	}
+}
+
+func TestLoadRepoWithEmptyDirReadsNothing(t *testing.T) {
+	doc, path, ok, err := LoadRepo("")
+	if err != nil || ok || path != "" || doc.Extensions != nil {
+		t.Fatalf("doc=%+v path=%q ok=%v err=%v, want a not-ok zero result for an empty dir", doc, path, ok, err)
 	}
 }

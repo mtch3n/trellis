@@ -366,3 +366,156 @@ func ListProjectConfigs(ctx context.Context, db *sqlx.DB, projectID string) (map
 	}
 	return rows, nil
 }
+
+// RepoSafe reports whether a repository's .trellis.yaml may set key. Every
+// key is refused until listed here: the daemon, the web UI, storage and
+// anything else that belongs to the machine are never listed, because a
+// repository file is committed and arrives with every clone — it must not be
+// able to redirect storage, open a port, or run a program.
+func RepoSafe(key string) bool {
+	switch key {
+	case "card.ls_limit", "card.duplicate_check", "card.duplicate_threshold",
+		"lease.ttl",
+		"board.default_columns",
+		"labels.preset", "labels.require_on_card",
+		"tags.require_on_card",
+		"search.limit", "search.method":
+		return true
+	default:
+		return false
+	}
+}
+
+// RepoConfigPath returns the repository config file under dir: ".trellis.yaml"
+// or ".trellis.yml". Both present is an error naming both. Neither present
+// returns ("", nil): dir simply has no repository config.
+func RepoConfigPath(dir string) (string, error) {
+	if dir == "" {
+		return "", nil
+	}
+	yamlPath := filepath.Join(dir, ".trellis.yaml")
+	ymlPath := filepath.Join(dir, ".trellis.yml")
+	_, err1 := os.Stat(yamlPath)
+	_, err2 := os.Stat(ymlPath)
+	if err1 != nil && !errors.Is(err1, os.ErrNotExist) {
+		return "", err1
+	}
+	if err2 != nil && !errors.Is(err2, os.ErrNotExist) {
+		return "", err2
+	}
+	has1, has2 := err1 == nil, err2 == nil
+	switch {
+	case has1 && has2:
+		return "", fmt.Errorf("%s and %s are both present; keep only one", yamlPath, ymlPath)
+	case has1:
+		return yamlPath, nil
+	case has2:
+		return ymlPath, nil
+	default:
+		return "", nil
+	}
+}
+
+// RepoDoc is a parsed, validated .trellis.yaml. Config holds only the keys
+// RepoSafe allows, decoded onto a zero Config so GetValue can read them back
+// with its existing per-key formatting. Present marks exactly which dotted
+// keys the file set, distinguishing an explicit value from one that happens
+// to share Config's zero value. Extensions is the "extensions" subtree
+// exactly as written, decoded to a generic value: core parses it as YAML and
+// never interprets it.
+type RepoDoc struct {
+	Config     Config
+	Present    map[string]bool
+	Extensions any
+}
+
+// LoadRepo reads and validates the repository config file in dir. ok is
+// false with a zero RepoDoc when dir has no ".trellis.yaml"/".trellis.yml"
+// (including dir == ""); err is non-nil when one exists but is invalid —
+// both files present, an unknown top-level key, a key a repository may not
+// set, or a value that does not parse for its key — and always names the
+// file and, where applicable, the key.
+func LoadRepo(dir string) (doc RepoDoc, path string, ok bool, err error) {
+	path, err = RepoConfigPath(dir)
+	if err != nil || path == "" {
+		return RepoDoc{}, path, false, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return RepoDoc{}, path, false, fmt.Errorf("read %s: %w", path, err)
+	}
+
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return RepoDoc{}, path, false, fmt.Errorf("parse %s: %w", path, err)
+	}
+	doc = RepoDoc{Config: Config{}, Present: map[string]bool{}}
+	if len(root.Content) == 0 {
+		// An empty file: a valid, empty document.
+		return doc, path, true, nil
+	}
+	body := root.Content[0]
+	if body.Kind != yaml.MappingNode {
+		return RepoDoc{}, path, false, fmt.Errorf("%s: the document must be a mapping", path)
+	}
+
+	for i := 0; i+1 < len(body.Content); i += 2 {
+		topKey := body.Content[i].Value
+		topVal := body.Content[i+1]
+		switch topKey {
+		case "config":
+			if topVal.Kind != yaml.MappingNode {
+				return RepoDoc{}, path, false, fmt.Errorf("%s: config must be a mapping of dotted keys to values", path)
+			}
+			for j := 0; j+1 < len(topVal.Content); j += 2 {
+				key := topVal.Content[j].Value
+				valueNode := topVal.Content[j+1]
+				if !RepoSafe(key) {
+					return RepoDoc{}, path, false, fmt.Errorf("%s: %q may not be set by a repository", path, key)
+				}
+				if err := setConfigField(&doc.Config, key, valueNode); err != nil {
+					return RepoDoc{}, path, false, fmt.Errorf("%s: %q: %w", path, key, err)
+				}
+				doc.Present[key] = true
+			}
+		case "extensions":
+			var ext any
+			if err := topVal.Decode(&ext); err != nil {
+				return RepoDoc{}, path, false, fmt.Errorf("%s: extensions: %w", path, err)
+			}
+			doc.Extensions = ext
+		default:
+			return RepoDoc{}, path, false, fmt.Errorf("%s: unknown top-level key %q", path, topKey)
+		}
+	}
+	return doc, path, true, nil
+}
+
+// setConfigField decodes one repository-safe dotted key's YAML value into the
+// matching field of cfg. Every key RepoSafe allows is handled here.
+func setConfigField(cfg *Config, key string, node *yaml.Node) error {
+	switch key {
+	case "card.ls_limit":
+		return node.Decode(&cfg.Card.LsLimit)
+	case "card.duplicate_check":
+		return node.Decode(&cfg.Card.DuplicateCheck)
+	case "card.duplicate_threshold":
+		return node.Decode(&cfg.Card.DuplicateThreshold)
+	case "lease.ttl":
+		return node.Decode(&cfg.Lease.TTL)
+	case "board.default_columns":
+		return node.Decode(&cfg.Board.DefaultColumns)
+	case "labels.preset":
+		return node.Decode(&cfg.Labels.Preset)
+	case "labels.require_on_card":
+		return node.Decode(&cfg.Labels.RequireOnCard)
+	case "tags.require_on_card":
+		return node.Decode(&cfg.Tags.RequireOnCard)
+	case "search.limit":
+		return node.Decode(&cfg.Search.Limit)
+	case "search.method":
+		return node.Decode(&cfg.Search.Method)
+	default:
+		return fmt.Errorf("not a repository-safe key")
+	}
+}
