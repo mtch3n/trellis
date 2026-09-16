@@ -176,7 +176,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 	if err != nil {
 		return Knowledge{}, err
 	}
-	fields := map[string][]string{}
+	fields := map[string][]string{"sources": cleanSources(in.Sources)}
 	for k, v := range in.Set {
 		fields[k] = []string{v}
 	}
@@ -186,6 +186,11 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		body = stripOptionalMarkers(renderTemplateBody(tmpl.Body, in.Title, in.Set))
 	}
 	violations := templateViolations(tmpl, fields, body, checkSections)
+	verifyProblems, err := c.templateVerifyViolations(ctx, projectID, tmpl, fields, body)
+	if err != nil {
+		return Knowledge{}, err
+	}
+	violations = append(violations, verifyProblems...)
 	if len(violations) > 0 && tmpl.Enforce == "reject" {
 		return Knowledge{}, ErrUsage("template_violation",
 			tmpl.Name+" does not meet its template:\n  - "+strings.Join(violations, "\n  - "),
