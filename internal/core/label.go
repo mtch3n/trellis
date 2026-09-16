@@ -356,7 +356,7 @@ func (c *Core) RemoveCardTag(tx *sqlx.Tx, cardID, tagName string) error {
 }
 
 // SeedDefaultLabels creates the default preset of 8 labels for a project.
-// It will fail if labels already exist. Use EnsureDefaultLabels for an idempotent version.
+// It will fail if labels already exist.
 func (c *Core) SeedDefaultLabels(tx *sqlx.Tx, projectID string) error {
 	defaultLabels := []struct {
 		name        string
@@ -404,16 +404,4 @@ func (c *Core) seedLabelsIfNone(tx *sqlx.Tx, projectID string) (bool, error) {
 		return false, nil
 	}
 	return true, c.SeedDefaultLabels(tx, projectID)
-}
-
-// EnsureDefaultLabels idempotently creates default labels if they don't exist yet.
-// Returns true if labels were created, false if they already existed.
-func (c *Core) EnsureDefaultLabels(ctx context.Context, projectID string) (bool, error) {
-	var created bool
-	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		var err error
-		created, err = c.seedLabelsIfNone(tx, projectID)
-		return err
-	})
-	return created, err
 }

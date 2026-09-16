@@ -3,8 +3,8 @@ package cli
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -12,7 +12,6 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/spf13/cobra"
 )
 
@@ -31,29 +30,12 @@ func currentProject() (*projectContext, error) {
 		return nil, err
 	}
 
-	var p core.Project
-	if key := projectKey(); key != "" {
-		// --project XPSCTL settings a project you are not standing in.
-		if p, err = c.ProjectByKey(context.Background(), key); err != nil {
-			db.Close()
-			return nil, err
-		}
-	} else {
-		dir, err := os.Getwd()
-		if err != nil {
-			db.Close()
-			return nil, err
-		}
-		id, err := resolve.Identify(dir)
-		if err != nil {
-			db.Close()
-			return nil, core.ErrUsage("unresolved", err.Error(), "trellis init --pin")
-		}
-		if p, err = c.EnsureProject(context.Background(), id); err != nil {
-			db.Close()
-			return nil, err
-		}
+	r, err := resolveProject(context.Background(), c)
+	if err != nil {
+		db.Close()
+		return nil, err
 	}
+	p := r.Project
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -303,15 +285,12 @@ func formatConfigTable(rows []configRow) string {
 }
 
 // resolveConfigProject returns the project whose overrides apply, or nil when
-// there is none. A bad --project is an error; merely standing outside a
-// repository is not, because the global defaults are still a real answer.
+// no pin applies here: the global defaults are still a real answer. A bad
+// --project, a malformed pin, or a pin naming a missing project is an error.
 func resolveConfigProject() (*projectContext, error) {
 	pctx, err := currentProject()
-	if err != nil {
-		if projectKey() != "" {
-			return nil, err
-		}
+	if ce, ok := errors.AsType[*core.Error](err); ok && ce.Code == "unresolved" {
 		return nil, nil
 	}
-	return pctx, nil
+	return pctx, err
 }

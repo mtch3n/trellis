@@ -3,6 +3,7 @@ package cli
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -37,9 +38,9 @@ func newBoardShowCmd() *cobra.Command {
 
 			app, err := currentBoard()
 			if err != nil {
-				// Not in a repository: print nothing, not an error.
-				// The hook must be silent outside a repo.
-				if strings.Contains(err.Error(), "run: trellis init --pin") {
+				// No pin applies here, so Trellis is not in use in this
+				// directory, and the SessionStart hook must stay silent.
+				if ce, ok := errors.AsType[*core.Error](err); ok && ce.Code == "unresolved" {
 					return nil
 				}
 				return err
