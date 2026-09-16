@@ -43,6 +43,7 @@ type Knowledge struct {
 	MTime       int64  `db:"mtime" json:"-"`
 	Size        int64  `db:"size" json:"-"`
 	Global      bool   `db:"global" json:"global,omitempty"`
+	Private     bool   `db:"private" json:"private,omitempty"`
 	ReviewBy    *int64 `db:"review_by" json:"review_by,omitempty"`
 	ReviewedAt  *int64 `db:"reviewed_at" json:"reviewed_at,omitempty"`
 	Version     int64  `db:"version" json:"version"`
@@ -60,6 +61,7 @@ type Knowledge struct {
 type NewKnowledge struct {
 	Title      string
 	Provenance string // authored | prompted | extracted; defaults to authored
+	Private    bool
 	Body       string // empty means the template
 	Template   string
 	Summary    string
@@ -183,6 +185,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		fm := Frontmatter{
 			Title: in.Title, Type: cmpOr(in.Template, "note"), Summary: in.Summary,
 			Provenance: provenance,
+			Private:    in.Private,
 			Board:      boardName, Tags: in.Tags, Labels: in.Labels,
 			Created: msToRFC3339(now), Updated: msToRFC3339(now),
 		}
@@ -201,6 +204,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 			ID: NewCardID(), ProjectID: projectID, BoardID: boardID, Slug: slug,
 			Title: in.Title, Path: path, DocType: fm.Type, Summary: in.Summary,
 			Provenance: provenance,
+			Private:    in.Private,
 			BodyMD:     body, ContentHash: ContentHash(raw), MTime: st.ModTime().UnixMilli(),
 			Size: st.Size(), Version: 1, CreatedAt: now, UpdatedAt: now,
 		}
@@ -239,11 +243,11 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 func insertKnowledge(tx *sqlx.Tx, d Knowledge) error {
 	_, err := tx.Exec(
 		`INSERT INTO knowledge (id, project_id, board_id, slug, title, path, doc_type, summary,
-		                        provenance, content_hash, mtime, size, global, version,
+		                        provenance, private, content_hash, mtime, size, global, version,
 		                        created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		d.ID, d.ProjectID, d.BoardID, d.Slug, d.Title, d.Path, d.DocType, d.Summary,
-		d.Provenance, d.ContentHash, d.MTime, d.Size, d.Global, d.Version,
+		d.Provenance, d.Private, d.ContentHash, d.MTime, d.Size, d.Global, d.Version,
 		d.CreatedAt, d.UpdatedAt)
 	return err
 }
@@ -338,10 +342,16 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 	doc.DocType = cmpOr(fm.Type, doc.DocType)
 	doc.Summary = fm.Summary
 	doc.Provenance = fm.Provenance
+	// The flag is compared separately because the content hash cannot see it:
+	// a database restored from an older backup, or a file that already carried
+	// the key when the column was added, has an unchanged file and a wrong row.
+	privateDrifted := doc.Private != fm.Private
+	doc.Private = fm.Private
 	doc.BodyMD = body
 	oldHash := doc.ContentHash
 	doc.ContentHash = ContentHash(string(raw))
-	changed := st.ModTime().UnixMilli() != doc.MTime || st.Size() != doc.Size || oldHash != doc.ContentHash
+	changed := st.ModTime().UnixMilli() != doc.MTime || st.Size() != doc.Size ||
+		oldHash != doc.ContentHash || privateDrifted
 	doc.MTime = st.ModTime().UnixMilli()
 	doc.Size = st.Size()
 	doc.UpdatedAt = c.clock.NowMS()
@@ -352,10 +362,10 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 	doc.Version++
 
 	if _, err := tx.Exec(
-		`UPDATE knowledge SET title = ?, doc_type = ?, summary = ?, provenance = ?,
+		`UPDATE knowledge SET title = ?, doc_type = ?, summary = ?, provenance = ?, private = ?,
 		                      content_hash = ?, mtime = ?, size = ?, version = ?,
 		                      updated_at = ? WHERE id = ?`,
-		doc.Title, doc.DocType, doc.Summary, doc.Provenance, doc.ContentHash,
+		doc.Title, doc.DocType, doc.Summary, doc.Provenance, doc.Private, doc.ContentHash,
 		doc.MTime, doc.Size, doc.Version, doc.UpdatedAt, doc.ID); err != nil {
 		return err
 	}

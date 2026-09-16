@@ -19,12 +19,18 @@ type Frontmatter struct {
 	Summary string `yaml:"summary,omitempty"`
 	// Provenance names the ingestion path, not the author:
 	// authored, prompted or extracted. Empty means unrecorded.
-	Provenance string   `yaml:"provenance,omitempty"`
-	Board      string   `yaml:"board,omitempty"` // association, never ownership (§10.1)
-	Tags       []string `yaml:"tags,omitempty"`
-	Labels     []string `yaml:"labels,omitempty"`
-	Created    string   `yaml:"created,omitempty"`
-	Updated    string   `yaml:"updated,omitempty"`
+	Provenance string `yaml:"provenance,omitempty"`
+	// Private is the author's declaration that this body must not be
+	// transmitted automatically. Egress, not access: see
+	// docs/superpowers/specs/2026-09-16-knowledge-disclosure-policy-design.md.
+	// Typed bool on purpose — a non-boolean value is a parse failure rather
+	// than a silent false, because failing open here cannot be undone.
+	Private bool     `yaml:"private,omitempty"`
+	Board   string   `yaml:"board,omitempty"` // association, never ownership (§10.1)
+	Tags    []string `yaml:"tags,omitempty"`
+	Labels  []string `yaml:"labels,omitempty"`
+	Created string   `yaml:"created,omitempty"`
+	Updated string   `yaml:"updated,omitempty"`
 }
 
 // SplitFrontmatter separates the YAML header from the body. A file without one
