@@ -130,24 +130,8 @@ func (s *Service) vectorHits(ctx context.Context, projectID, query string, opts 
 			return nil, err
 		}
 		for _, match := range matches {
-			var hit core.SearchHit
-			query := `SELECT 'knowledge' AS kind,
-		 CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END || '/' || k.slug AS ref,
-		 k.title, CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
-		 k.doc_type AS detail, 0 AS unreviewed FROM knowledge k JOIN project p ON p.id = k.project_id
-		 WHERE k.id = ? AND (k.project_id = ? OR k.global = 1)`
-			if opts.AllProjects {
-				query = `SELECT 'knowledge' AS kind, CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END || '/' || k.slug AS ref, k.title, CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project, k.doc_type AS detail, 0 AS unreviewed FROM knowledge k JOIN project p ON p.id = k.project_id WHERE k.id = ?`
-			}
-			args := []any{match.ID}
-			if !opts.AllProjects {
-				args = append(args, projectID)
-			}
-			if opts.Label != "" {
-				query += ` AND EXISTS (SELECT 1 FROM knowledge_label kl JOIN label l ON l.id = kl.label_id WHERE kl.doc_id = k.id AND l.name = ?)`
-				args = append(args, opts.Label)
-			}
-			if err := s.db.GetContext(ctx, &hit, query, args...); err != nil {
+			hit, err := s.core.KnowledgeHit(ctx, match.ID, projectID, opts.AllProjects, opts.Label)
+			if err != nil {
 				continue
 			}
 			if !seen[hit.Ref] {

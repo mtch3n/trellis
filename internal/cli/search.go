@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"text/tabwriter"
@@ -11,7 +10,6 @@ import (
 	"github.com/mtch3n/trellis/internal/daemon"
 	"github.com/mtch3n/trellis/internal/home"
 	"github.com/mtch3n/trellis/internal/retrieval"
-	vecsearch "github.com/mtch3n/trellis/internal/vector"
 	"github.com/spf13/cobra"
 )
 
@@ -90,56 +88,6 @@ func searchViaDaemon(cmd *cobra.Command, query, projectID string, opts core.Sear
 		return err
 	}
 	return emitHits(cmd, resp.Results, showProject)
-}
-
-func vectorSearchHits(ctx context.Context, app *appCtx, matches []vecsearch.Hit) ([]core.SearchHit, error) {
-	out := make([]core.SearchHit, 0, len(matches))
-	for _, m := range matches {
-		var h core.SearchHit
-		err := app.db.GetContext(ctx, &h, `SELECT 'knowledge' AS kind, CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END || '/' || k.slug AS ref, k.title, CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project, k.doc_type AS detail, 0 AS unreviewed FROM knowledge k JOIN project p ON p.id = k.project_id WHERE k.id = ? AND (k.project_id = ? OR k.global = 1)`, m.ID, app.Project.ID)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, h)
-	}
-	return out, nil
-}
-
-func mergeSearchHits(fts, vector []core.SearchHit, limit int) []core.SearchHit {
-	toCandidates := func(hits []core.SearchHit, source string) []retrieval.Candidate {
-		out := make([]retrieval.Candidate, 0, len(hits))
-		for _, h := range hits {
-			out = append(out, retrieval.Candidate{ID: h.Ref, Source: source, Metadata: map[string]string{"title": h.Title}})
-		}
-		return out
-	}
-	// RRF scores only rank positions, so FTS BM25 scores and vector cosine
-	// scores never need to be calibrated against one another.
-	fused := retrieval.ReciprocalRankFusion(toCandidates(fts, "fts"), toCandidates(vector, "vector"))
-	byRef := make(map[string]core.SearchHit, len(fts)+len(vector))
-	for _, h := range fts {
-		byRef[h.Ref] = h
-	}
-	for _, h := range vector {
-		byRef[h.Ref] = h
-	}
-	out := make([]core.SearchHit, 0, min(limit, len(fused)))
-	for _, c := range fused {
-		if h, ok := byRef[c.ID]; ok {
-			out = append(out, h)
-			if len(out) == limit {
-				break
-			}
-		}
-	}
-	return out
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func emitHits(cmd *cobra.Command, hits []core.SearchHit, showProject bool) error {

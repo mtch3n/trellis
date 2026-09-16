@@ -386,7 +386,7 @@ func TestServerProjectEventsPageThroughCardAndKnowledgeHistory(t *testing.T) {
 		case event.Kind == "card" && event.Action == "claimed":
 			claimed = event.Ref == "EVT-1" && event.Actor == "ui-events-test"
 		case event.Kind == "knowledge" && event.Action == "edited":
-			edited = event.Ref == "EVT/"+doc.Slug
+			edited = event.Ref == "/EVT/knowledge/"+doc.Slug
 		}
 	}
 	if !moved || !claimed || !edited {

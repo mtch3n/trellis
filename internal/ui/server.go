@@ -353,13 +353,7 @@ func (s *Server) handleProjectEvents(w http.ResponseWriter, r *http.Request) {
 		case row.CardSeq != nil:
 			event.Ref = fmt.Sprintf("%s-%d", p.Key, *row.CardSeq)
 		case row.Slug != nil:
-			// The same form as Knowledge.Ref: a project entry and a global
-			// one may share a slug.
-			scope := p.Key
-			if row.Global != nil && *row.Global {
-				scope = core.GlobalKey
-			}
-			event.Ref = scope + "/" + *row.Slug
+			event.Ref = core.DocAddress(p.Key, row.Global != nil && *row.Global, *row.Slug)
 		}
 		events = append(events, event)
 	}
@@ -850,6 +844,9 @@ func (s *Server) handleGlobalKnowledgeList(w http.ResponseWriter, r *http.Reques
 	if err := s.db.SelectContext(ctx, &docs, `SELECT * FROM knowledge WHERE global = 1 ORDER BY updated_at DESC`); err != nil {
 		s.error(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	for i := range docs {
+		docs[i].Ref = core.DocAddress("", true, docs[i].Slug)
 	}
 	writeJSON(w, http.StatusOK, docs)
 }

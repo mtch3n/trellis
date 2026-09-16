@@ -28,7 +28,7 @@ func TestCreateKnowledgeWritesFileAndRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if doc.Slug != "concurrency-model" || doc.Ref != "XPSCTL/concurrency-model" {
+	if doc.Slug != "concurrency-model" || doc.Ref != "/XPSCTL/knowledge/concurrency-model" {
 		t.Errorf("slug/ref = %q/%q", doc.Slug, doc.Ref)
 	}
 	raw, err := os.ReadFile(doc.Path)

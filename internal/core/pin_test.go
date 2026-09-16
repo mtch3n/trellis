@@ -71,7 +71,7 @@ func TestEscalateMovesTheEntryAndKeepsReferences(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EscalateKnowledge: %v", err)
 	}
-	if !moved.Global || moved.Ref != "GLOBAL/postgres-conventions" {
+	if !moved.Global || moved.Ref != "/GLOBAL/knowledge/postgres-conventions" {
 		t.Errorf("escalated doc = %+v, want a global ref", moved)
 	}
 	if moved.Path == target.Path {

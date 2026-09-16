@@ -98,7 +98,7 @@ func (c *Core) Traverse(ctx context.Context, startID string, depth int, rels []s
 							return err
 						}
 					}
-					node.Type, node.Ref, node.Title = "doc", key+"/"+doc.Slug, doc.Title
+					node.Type, node.Ref, node.Title = "doc", DocAddress(key, doc.Global, doc.Slug), doc.Title
 				} else {
 					var artifact Artifact
 					if err := tx.Get(&artifact, `SELECT * FROM artifact WHERE id = ?`, r.ID); err != nil {

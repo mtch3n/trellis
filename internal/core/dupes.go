@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"strings"
+
+	"github.com/mtch3n/trellis/internal/vpath"
 )
 
 // dupeCluster groups entries that share enough terminology to be worth a look.
@@ -42,7 +44,11 @@ func (c *Core) Dupes(ctx context.Context, projectID string) ([]DupeCluster, erro
 		}
 		cluster := []string{d.Slug}
 		for _, h := range hits {
-			slug := h.Ref[strings.Index(h.Ref, "/")+1:]
+			addr, err := vpath.Parse(h.Ref)
+			if err != nil {
+				return nil, err
+			}
+			slug := addr.Name
 			if slug == d.Slug || seen[slug] {
 				continue
 			}
