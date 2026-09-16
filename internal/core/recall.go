@@ -175,6 +175,24 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 			ORDER BY knowledge_fts.rank LIMIT ?`, docArgs...); err != nil {
 			return err
 		}
+
+		ids := make([]string, 0, len(docs))
+		for _, d := range docs {
+			ids = append(ids, d.ID)
+		}
+		private, err := c.privateAfterRefresh(tx, ids)
+		if err != nil {
+			return err
+		}
+		for i := range docs {
+			if private[docs[i].ID] {
+				// The identifier and the title still travel. Only an
+				// explicitly written recap would have survived, and the
+				// purge has already cleared any that existed.
+				docs[i].Recap = ""
+			}
+		}
+
 		var cards []RecallHit
 		if !narrowed {
 			if err := tx.Select(&cards, `

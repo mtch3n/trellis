@@ -274,3 +274,68 @@ func TestPinOnNormalStillFallsBack(t *testing.T) {
 		t.Errorf("recap = %q, want the first paragraph", pin.Recap)
 	}
 }
+
+// Recall keeps returning private entries — an agent that cannot see that an env
+// document exists cannot ask for it — but returns the identifier, not content.
+//
+// The flag is set by editing the file and recall is the VERY NEXT call. Setting
+// it through the API, or loading the document first, refreshes the row as a side
+// effect and hides exactly the bug this guards.
+func TestRecallRedactsAPrivateEntryWithNoPriorRead(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title:   "Staging cluster access",
+		Summary: "hunter2 opens the staging cluster",
+		Body:    "The staging cluster password is hunter2.\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+
+	setPrivateInFile(t, doc.Path, true)
+
+	hits, err := c.Recall(t.Context(), p.ID, "staging cluster access", RecallOpts{})
+	if err != nil {
+		t.Fatalf("Recall: %v", err)
+	}
+
+	var found bool
+	for _, h := range hits {
+		if !strings.HasSuffix(h.Ref, doc.Slug) {
+			continue
+		}
+		found = true
+		if h.Title != "Staging cluster access" {
+			t.Errorf("Title = %q, want the title; presence is not what is protected", h.Title)
+		}
+		if h.Recap != "" {
+			t.Errorf("Recap = %q, want empty: the summary reached a model after the file said private", h.Recap)
+		}
+	}
+	if !found {
+		t.Fatalf("recall dropped the private entry %q; it must stay discoverable", doc.Slug)
+	}
+}
+
+// An ordinary entry still gets its summary as a recap.
+func TestRecallStillCarriesAnOrdinaryRecap(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Recall ranking", Summary: "ranks are fused, not scored",
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+
+	hits, err := c.Recall(t.Context(), p.ID, "recall ranking", RecallOpts{})
+	if err != nil {
+		t.Fatalf("Recall: %v", err)
+	}
+	for _, h := range hits {
+		if strings.HasSuffix(h.Ref, doc.Slug) && h.Recap == "" {
+			t.Error("an ordinary entry lost its recap")
+		}
+	}
+}
