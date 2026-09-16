@@ -2,13 +2,17 @@
 
 Date: 2026-09-16
 Status: design, not yet planned
-Revised: 2026-09-16, twice.
+Revised: 2026-09-16, three times.
 - After review 1: two exposure routes added, pointer shape corrected, one
   unimplementable test removed.
 - After review 2: one of those routes withdrawn — it was asserted from a grep
   hit without reading the query's `WHERE` clause and does not exist. The
   disclosure lag on the two surfaces that actually reach a model is added in its
   place, and the reindex mechanism is dropped as unnecessary.
+- After the final review of the implementation: a private document has no
+  recap at all, superseding "explicit recap only"; `knowledge ls` is added as a
+  sixth route and closed; the claim about when stale vectors are evicted is
+  corrected, with two new accepted limitations.
 
 ## Problem
 
@@ -223,8 +227,11 @@ mechanism to push a reindex after the transition, on the belief that
 `knowledge.go:280` is `LoadKnowledge`, which already calls
 `notifyKnowledgeChanged` unconditionally after every successful load, while
 `EscalateKnowledge` does not notify at all. The mechanism is dropped.
+`LoadKnowledge` is not every load, though: `knowledge show` reads through
+`ReadKnowledge`, which notifies nothing.
 
-What remains is a bounded lag, recorded below rather than engineered away.
+What remains is a lag, recorded under the accepted limitations rather than
+engineered away.
 
 Anything already sent to a remote embedder cannot be recalled. Reclassification
 cleans up locally and makes no wider claim.
@@ -245,10 +252,24 @@ Stated here so they are not discovered later as surprises.
 - **Already-embedded content is gone.** Reclassification purges local copies
   only.
 - **Old vectors linger until the next reconcile.** A document reclassified by a
-  hand-edit leaves the corpus immediately, so it is never re-embedded, but its
-  existing chunks are deleted only when a reconcile next runs — which any
-  subsequent knowledge load or edit in that project triggers. Local, bounded, and
-  not worth a dedicated eviction path.
+  hand-edit leaves the corpus immediately, so it is never re-embedded. Its
+  existing chunks stay in the local vector table, body text included in the
+  `content` column, until a reconcile next runs. Reconcile runs after trellis
+  creates, edits or deletes a document, after `LoadKnowledge` (used by `link`
+  and the web UI's graph), before every vector search, and every 30 seconds
+  while the daemon runs; `vector rebuild` and `vector prune` evict the same way.
+  Nothing evicts on `knowledge show`, so reading the document just marked
+  private leaves its chunks in place. The copy is local and not worth a
+  dedicated eviction path.
+- **Stale chunks cannot surface through search.** Vector search reconciles
+  before it queries, so a newly private document's chunks are pruned before any
+  query could match them. If that reconcile fails, the search falls back to FTS
+  and never queries the vector index.
+- **A missing vault file stops reconcile entirely.** `ListSearchKnowledge`
+  refreshes every row from its file and aborts on the first file that is gone.
+  While one is missing, no reconcile can run in that project, and a newly
+  private document's chunks stay in the local table until the file is restored
+  or its row is removed with `knowledge rm`.
 - **The flag is author-declared and therefore forgettable.** Nothing detects an
   unmarked document that should have been marked, by design.
 

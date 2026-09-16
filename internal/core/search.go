@@ -228,8 +228,10 @@ func (c *Core) matchKnowledge(ctx context.Context, projectID, match string, limi
 }
 
 // ListSearchKnowledge is the corpus every vector index build, count and prune
-// reads. Private entries are dropped here rather than at each call site, so a
-// second builder cannot reintroduce them by querying the table directly.
+// reads. Private entries are dropped here rather than at each call site. Nothing
+// enforces that a vector path reads its corpus from here: a new builder that
+// queried the knowledge table directly would reintroduce them. Routing every
+// one through this function is a convention, and a new one must keep it.
 //
 // The filter is applied after refreshFromFile and never in the SELECT. The
 // private column is a mirror of the file and is stale for exactly one read
