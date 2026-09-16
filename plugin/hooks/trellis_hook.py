@@ -92,7 +92,8 @@ def handle(event, mode):
             + "Commands: board show --brief; card ls; card show <ref>; card next --claim; "
             + "card new --title <text>; card move <ref> <column>; "
             + "card edit <ref> --body <text> --if-version <n>; "
-            + "card note <ref> --body <text>; search <text>; knowledge show <slug>.\n"
+            + "card note <ref> --body <text>; search <text>; recall <text>; "
+            + "knowledge show <slug>.\n"
             + "<trellis_board_data>\n" + brief_text
             + "\n</trellis_board_data>"
         )
