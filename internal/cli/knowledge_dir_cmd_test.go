@@ -31,3 +31,16 @@ func TestKnowledgeNewInFlagRefusesAResemblingDirectory(t *testing.T) {
 		t.Errorf("--new-dir did not create the directory:\n%s", out)
 	}
 }
+
+func TestKnowledgeMvCommand(t *testing.T) {
+	projectEnv(t)
+	runCmd(t, "knowledge", "new", "--title", "Rollback")
+	out := runCmd(t, "knowledge", "mv", "rollback", "deployment/rollback-runbook", "--json")
+	if !strings.Contains(out, `"slug":"deployment/rollback-runbook"`) {
+		t.Errorf("output does not carry the new slug:\n%s", out)
+	}
+	show := runCmd(t, "knowledge", "show", "deployment/rollback-runbook")
+	if !strings.Contains(show, "deployment/rollback-runbook") {
+		t.Errorf("show does not find the moved entry:\n%s", show)
+	}
+}

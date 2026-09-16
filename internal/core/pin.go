@@ -466,8 +466,26 @@ func (d Knowledge) Unreviewed(nowMS int64) bool {
 // to replace" true without a TOCTOU gap. A link across filesystems, or on a
 // filesystem without hard links, falls back to copyAtomic, which refuses the
 // same way. Either way src is only removed once dest is safely in place.
+// moveFile moves src into destDir, refusing to replace anything already
+// there. It is moveFileTo with the destination computed as "same basename,
+// new directory" -- escalate and demote never rename the leaf, only relocate
+// it between the project vault and the global one.
 func moveFile(src, destDir string) (string, error) {
-	dest := filepath.Join(destDir, baseName(src))
+	return moveFileTo(src, filepath.Join(destDir, baseName(src)))
+}
+
+// moveFileTo moves src to the exact destination path dest, refusing to
+// replace anything there. A hard link is nearly free and needs no fallback
+// for the common case (same filesystem); os.Link's O_EXCL-like semantics are
+// what make "refuses to replace" true without a TOCTOU gap. A link across
+// filesystems, or on a filesystem without hard links, falls back to
+// copyAtomic, which refuses the same way. Either way src is only removed once
+// dest is safely in place. knowledge mv calls this directly because, unlike
+// escalate and demote, it can rename the leaf as well as relocate it.
+func moveFileTo(src, dest string) (string, error) {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+		return "", err
+	}
 	if err := os.Link(src, dest); err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return "", ErrConflict("path_taken", dest+" already exists", "")
@@ -485,7 +503,7 @@ func moveFile(src, destDir string) (string, error) {
 		}
 		return "", removeErr
 	}
-	if err := syncDirectory(destDir); err != nil {
+	if err := syncDirectory(filepath.Dir(dest)); err != nil {
 		return "", err
 	}
 	if err := syncDirectory(filepath.Dir(src)); err != nil {

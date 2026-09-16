@@ -22,7 +22,7 @@ func newKnowledgeCmd() *cobra.Command {
 	}
 	cmd.AddCommand(
 		newKnowledgeNewCmd(), newKnowledgeShowCmd(), newKnowledgeLsCmd(), newKnowledgeEditCmd(),
-		newKnowledgeRmCmd(), newKnowledgePinCmd(), newKnowledgePinsCmd(), newKnowledgeLintCmd(),
+		newKnowledgeRmCmd(), newKnowledgeMvCmd(), newKnowledgePinCmd(), newKnowledgePinsCmd(), newKnowledgeLintCmd(),
 		newKnowledgeNominateCmd(), newKnowledgeNominationsCmd(), newKnowledgeEscalateCmd(),
 		newKnowledgeDemoteCmd(), newKnowledgeVerifyCmd(), newKnowledgeHealthCmd(),
 		newKnowledgeUptakeCmd(), newKnowledgeTemplateCmd(),
@@ -345,6 +345,26 @@ func newKnowledgeRmCmd() *cobra.Command {
 			})
 		},
 	}
+}
+
+func newKnowledgeMvCmd() *cobra.Command {
+	var newDir bool
+	cmd := &cobra.Command{
+		Use:   "mv <ref> <new-path>",
+		Short: "Move or rename an entry within its project's vault",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withBoard(func(app *appCtx) error {
+				doc, err := app.Core.MoveKnowledge(cmd.Context(), app.Project.ID, args[0], args[1], newDir)
+				if err != nil {
+					return err
+				}
+				return Emit(cmd, doc, func() string { return "moved to " + doc.Slug })
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&newDir, "new-dir", false, "create the destination directory even if it resembles an existing one")
+	return cmd
 }
 
 func newKnowledgePinCmd() *cobra.Command {
