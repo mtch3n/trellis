@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -626,4 +627,161 @@ func ApplyRepoOverrides(cfg Config, repo RepoDoc) Config {
 		}
 	}
 	return cfg
+}
+
+// SetRepoValue writes key = value into dir's repository config file under
+// "config:", creating .trellis.yaml if neither file exists yet, and
+// preserving every other key and the "extensions" section untouched. key
+// must be RepoSafe.
+func SetRepoValue(dir, key, value string) (string, error) {
+	if !RepoSafe(key) {
+		return "", fmt.Errorf("%q may not be set by a repository", key)
+	}
+	path, err := RepoConfigPath(dir)
+	if err != nil {
+		return "", err
+	}
+	root, err := readOrNewRepoRoot(path)
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		path = filepath.Join(dir, ".trellis.yaml")
+	}
+
+	body := root.Content[0]
+	configNode := mapValue(body, "config")
+	if configNode == nil {
+		configNode = &yaml.Node{Kind: yaml.MappingNode}
+		body.Content = append(body.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: "config"}, configNode)
+	}
+
+	var valueNode *yaml.Node
+	if key == "board.default_columns" {
+		seq := &yaml.Node{Kind: yaml.SequenceNode}
+		for _, item := range strings.Split(value, ",") {
+			seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: strings.TrimSpace(item)})
+		}
+		valueNode = seq
+	} else {
+		valueNode = &yaml.Node{Kind: yaml.ScalarNode, Value: value}
+	}
+	setMapValueNode(configNode, key, valueNode)
+
+	return path, writeRepoRoot(path, root)
+}
+
+// UnsetRepoValue removes key from dir's repository config file, leaving
+// every other key and "extensions" untouched. Removing a key that is not
+// present, or from a file that does not exist, is not an error.
+func UnsetRepoValue(dir, key string) (string, error) {
+	path, err := RepoConfigPath(dir)
+	if err != nil || path == "" {
+		return path, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return path, err
+	}
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return path, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if len(root.Content) == 0 {
+		return path, nil
+	}
+	body := root.Content[0]
+	if configNode := mapValue(body, "config"); configNode != nil {
+		deleteMapValue(configNode, key)
+	}
+	return path, writeRepoRoot(path, &root)
+}
+
+// readOrNewRepoRoot reads path's YAML document tree, or builds an empty one
+// when path is "" (neither .trellis.yaml nor .trellis.yml exists yet).
+func readOrNewRepoRoot(path string) (*yaml.Node, error) {
+	if path == "" {
+		return &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode}}}, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if len(root.Content) == 0 {
+		root = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode}}}
+	}
+	return &root, nil
+}
+
+// mapValue returns the value node for key in a mapping node, or nil.
+func mapValue(m *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return m.Content[i+1]
+		}
+	}
+	return nil
+}
+
+// setMapValueNode sets key's value node in a mapping node, adding the pair
+// if key is not already present.
+func setMapValueNode(m *yaml.Node, key string, value *yaml.Node) {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			m.Content[i+1] = value
+			return
+		}
+	}
+	m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: key}, value)
+}
+
+// deleteMapValue removes key's pair from a mapping node, if present.
+func deleteMapValue(m *yaml.Node, key string) {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			m.Content = append(m.Content[:i], m.Content[i+2:]...)
+			return
+		}
+	}
+}
+
+func writeRepoRoot(path string, root *yaml.Node) error {
+	out, err := yaml.Marshal(root)
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(path, out)
+}
+
+// writeFileAtomic writes data to path via a temp file and rename, so a
+// process killed mid-write never leaves a torn .trellis.yaml. This is
+// separate from internal/core's writeAtomic: a repository config file is not
+// knowledge content, has no database row to keep in sync with, and is
+// deliberately overwritten on every set/unset rather than written
+// no-clobber-once.
+func writeFileAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".tmp-trellis-config-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return nil
 }

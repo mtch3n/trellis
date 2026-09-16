@@ -102,23 +102,42 @@ func newConfigCmd() *cobra.Command {
 }
 
 func newConfigUnsetCmd() *cobra.Command {
-	return &cobra.Command{
-		Use: "unset <key>", Short: "Remove a project override", Args: cobra.ExactArgs(1),
+	var repoFlag bool
+	cmd := &cobra.Command{
+		Use: "unset <key>", Short: "Remove a project override, or a repository config value with --repo", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			key := args[0]
+			if repoFlag {
+				if !config.RepoSafe(key) {
+					return core.ErrUsage("not_repo_safe", fmt.Sprintf("%q may not be set by a repository", key), "trellis config ls")
+				}
+				dir, err := os.Getwd()
+				if err != nil {
+					return err
+				}
+				path, err := config.UnsetRepoValue(dir, key)
+				if err != nil {
+					return err
+				}
+				return Emit(cmd, map[string]string{"unset": key, "file": path}, func() string { return "unset " + key + " in " + path })
+			}
+
 			pctx, err := currentProject()
 			if err != nil {
 				return err
 			}
 			defer pctx.db.Close()
-			if _, ok := config.GetValue(pctx.cfg, args[0]); !ok {
-				return core.ErrUsage("unknown_key", fmt.Sprintf("unknown config key: %q", args[0]), "trellis config ls")
+			if _, ok := config.GetValue(pctx.cfg, key); !ok {
+				return core.ErrUsage("unknown_key", fmt.Sprintf("unknown config key: %q", key), "trellis config ls")
 			}
-			if err := config.UnsetProjectConfig(cmd.Context(), pctx.db, pctx.Project.ID, args[0]); err != nil {
+			if err := config.UnsetProjectConfig(cmd.Context(), pctx.db, pctx.Project.ID, key); err != nil {
 				return err
 			}
-			return Emit(cmd, map[string]string{"unset": args[0]}, func() string { return "unset " + args[0] })
+			return Emit(cmd, map[string]string{"unset": key}, func() string { return "unset " + key })
 		},
 	}
+	cmd.Flags().BoolVar(&repoFlag, "repo", false, "unset in the repository's .trellis.yaml instead of a project override")
+	return cmd
 }
 
 func newConfigGetCmd() *cobra.Command {
@@ -185,6 +204,7 @@ func newConfigGetCmd() *cobra.Command {
 }
 
 func newConfigSetCmd() *cobra.Command {
+	var repoFlag bool
 
 	cmd := &cobra.Command{
 		Use:   "set <key> <value>",
@@ -194,14 +214,32 @@ func newConfigSetCmd() *cobra.Command {
 			key := args[0]
 			value := args[1]
 
-			// config set only ever writes a project override: the global file
-			// is hand-edited YAML (§5.4), so there is no scope to choose.
+			if repoFlag {
+				if !config.RepoSafe(key) {
+					return core.ErrUsage("not_repo_safe", fmt.Sprintf("%q may not be set by a repository", key), "trellis config ls")
+				}
+				dir, err := os.Getwd()
+				if err != nil {
+					return err
+				}
+				path, err := config.SetRepoValue(dir, key, value)
+				if err != nil {
+					return err
+				}
+				return Emit(cmd, map[string]string{
+					"key": key, "value": value, "scope": "repo", "file": path,
+				}, func() string {
+					return fmt.Sprintf("%s = %s (%s)", key, value, path)
+				})
+			}
 
+			// config set (without --repo) only ever writes a project
+			// override: the global file is hand-edited YAML (§5.4), so there
+			// is no scope to choose.
 			globalCfg, err := config.Load()
 			if err != nil {
 				globalCfg = config.Defaults()
 			}
-
 			_, found := config.GetValue(globalCfg, key)
 			if !found {
 				return core.ErrUsage("unknown_key",
@@ -229,6 +267,7 @@ func newConfigSetCmd() *cobra.Command {
 		},
 	}
 
+	cmd.Flags().BoolVar(&repoFlag, "repo", false, "write to the repository's .trellis.yaml instead of a project override")
 	return cmd
 }
 
