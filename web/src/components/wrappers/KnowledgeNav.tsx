@@ -1,0 +1,386 @@
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react'
+import { NavLink } from 'react-router-dom'
+import { ArrowUpDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Lock, Network, Search } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { IconButton } from '@/components/wrappers/IconButton'
+import { cn } from '@/lib/utils'
+import {
+  GLOBAL_SCOPE,
+  ancestorsOf,
+  buildVaultTree,
+  folderPaths,
+  type TreeFolder,
+  type TreeNode,
+  type TreeSort,
+} from '@/lib/vault-tree'
+import type { KnowledgeEntry } from '@/pages/KnowledgePage'
+
+const CLOSED_KEY = 'trellis.vault-tree.closed'
+const SORT_KEY = 'trellis.vault-tree.sort'
+
+const SORTS: ReadonlyArray<{ value: TreeSort; label: string }> = [
+  { value: 'title', label: 'Title, A to Z' },
+  { value: 'title-desc', label: 'Title, Z to A' },
+  { value: 'updated', label: 'Recently edited' },
+  { value: 'created', label: 'Recently created' },
+]
+
+function stored<T>(key: string, fallback: T, parse: (raw: string) => T): T {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw === null ? fallback : parse(raw)
+  } catch {
+    return fallback
+  }
+}
+
+/**
+ * The navigator, as a file explorer. Knowledge is markdown files and the
+ * scopes are directories, so the sidebar shows that tree rather than inventing
+ * one: the global vault and this project as top folders, subfolders where a
+ * slug has them, one line per file. Folders remember whether they were open,
+ * and the folders around the open entry open themselves when it changes. The
+ * arrow keys walk the tree. The graph docks at its foot, passed in as `dock`.
+ *
+ * The selection is one surface that slides to the open row, so moving
+ * between entries reads as moving, not as one row blinking off and another on.
+ */
+export function KnowledgeNav({
+  entries,
+  vaultCount,
+  projectKey = 'Project',
+  activeId,
+  dock,
+  onOpenGraph,
+}: {
+  entries: KnowledgeEntry[]
+  vaultCount: number
+  projectKey?: string
+  activeId?: string
+  dock: ReactNode
+  /** Below the dock's breakpoint the graph is reached from the toolbar. */
+  onOpenGraph: () => void
+}) {
+  const [filter, setFilter] = useState('')
+  const [sort, setSort] = useState<TreeSort>(() =>
+    stored(SORT_KEY, 'title', (raw) => (SORTS.some((option) => option.value === raw) ? (raw as TreeSort) : 'title')),
+  )
+  const [closed, setClosed] = useState<Set<string>>(() =>
+    stored(CLOSED_KEY, new Set<string>(), (raw) => new Set(JSON.parse(raw) as string[])),
+  )
+  const list = useRef<HTMLDivElement>(null)
+  const selection = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    try { localStorage.setItem(CLOSED_KEY, JSON.stringify([...closed])) } catch { /* private mode */ }
+  }, [closed])
+  useEffect(() => {
+    try { localStorage.setItem(SORT_KEY, sort) } catch { /* private mode */ }
+  }, [sort])
+
+  const tree = useMemo(() => {
+    const needle = filter.trim().toLowerCase()
+    const matching = needle
+      ? entries.filter(
+          (entry) =>
+            entry.title.toLowerCase().includes(needle) ||
+            entry.slug.toLowerCase().includes(needle) ||
+            (entry.type ?? '').toLowerCase().includes(needle),
+        )
+      : entries
+    return buildVaultTree(matching, { projectKey, sort })
+  }, [entries, filter, projectKey, sort])
+  const folders = useMemo(() => folderPaths(tree), [tree])
+  const allClosed = folders.length > 0 && folders.every((path) => closed.has(path))
+
+  // Opening an entry reveals it: the folders around it open, once. Adjusted
+  // while rendering, so the row is on screen when the selection moves to it.
+  const [revealed, setRevealed] = useState<string | undefined>(undefined)
+  if (activeId !== revealed) {
+    setRevealed(activeId)
+    const trail = activeId ? ancestorsOf(tree, activeId) : null
+    if (trail?.some((path) => closed.has(path))) {
+      setClosed(new Set([...closed].filter((path) => !trail.includes(path))))
+    }
+  }
+
+  const setOpen = useCallback((path: string, open: boolean) => {
+    setClosed((current) => {
+      const next = new Set(current)
+      if (open) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }, [])
+
+  const place = useCallback(() => {
+    const surface = selection.current
+    const container = list.current
+    const row = container?.querySelector<HTMLElement>('[aria-current="page"]')
+    if (!surface || !container) return
+    if (!row) {
+      surface.setAttribute('data-shown', 'false')
+      return
+    }
+    const box = container.getBoundingClientRect()
+    const rect = row.getBoundingClientRect()
+    surface.style.translate = `${rect.left - box.left}px ${rect.top - box.top}px`
+    surface.style.width = `${rect.width}px`
+    surface.style.height = `${rect.height}px`
+    // The first placement is instant; only later moves slide.
+    requestAnimationFrame(() => surface.setAttribute('data-shown', 'true'))
+  }, [])
+
+  // After every render the open row can have moved: the route, the filter, the
+  // sort. While a folder opens or closes the rows move without a render, so
+  // the list's size is watched too.
+  useLayoutEffect(place)
+  useEffect(() => {
+    const node = list.current
+    if (!node) return
+    const observer = new ResizeObserver(place)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [place])
+
+  const base = `/p/${projectKey}/knowledge`
+  const filtering = filter.trim() !== ''
+
+  return (
+    <nav aria-label="Vault" className="flex flex-col border-border max-lg:border-b lg:h-full lg:border-t">
+      <div className="flex shrink-0 items-center gap-1 px-3 pt-4 pb-2">
+        <InputGroup className="min-w-0 flex-1">
+          <InputGroupAddon>
+            <Search />
+          </InputGroupAddon>
+          <InputGroupInput
+            aria-label="Filter entries"
+            placeholder="Filter"
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+          />
+        </InputGroup>
+        <SortMenu sort={sort} onSort={setSort} />
+        <IconButton
+          label={allClosed ? 'Expand all' : 'Collapse all'}
+          disabled={folders.length === 0}
+          onClick={() => setClosed(allClosed ? new Set() : new Set(folders))}
+        >
+          {allClosed ? <ChevronsUpDown /> : <ChevronsDownUp />}
+        </IconButton>
+        <IconButton label="Open the graph" className="lg:hidden" onClick={onOpenGraph}>
+          <Network />
+        </IconButton>
+      </div>
+
+      <div className="min-h-0 flex-1 scroll-fade-y overflow-y-auto px-2 pb-6 max-lg:max-h-80">
+        <div ref={list} className="relative pt-1" onKeyDown={walk}>
+          <div
+            ref={selection}
+            aria-hidden="true"
+            data-shown="false"
+            className="pointer-events-none absolute top-0 left-0 bg-accent opacity-0 data-[shown=true]:opacity-100 data-[shown=true]:transition-all data-[shown=true]:duration-200 data-[shown=true]:ease-settle"
+          />
+          <ul className="flex flex-col gap-1">
+            {tree.map((root) => (
+              <Folder
+                key={root.path}
+                folder={root}
+                depth={0}
+                base={base}
+                activeId={activeId}
+                isOpen={(path) => filtering || !closed.has(path)}
+                onOpenChange={setOpen}
+                empty={
+                  filtering
+                    ? 'No match'
+                    : root.path === GLOBAL_SCOPE && vaultCount === 0
+                      ? 'Empty. Agents nominate entries, and escalating one moves it here.'
+                      : 'Nothing written yet'
+                }
+              />
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className="hidden lg:contents">{dock}</div>
+    </nav>
+  )
+}
+
+/**
+ * The arrow keys walk the rows on screen: up and down move, right opens a
+ * folder or steps into it, left closes it or steps out to its folder.
+ */
+function walk(event: KeyboardEvent<HTMLElement>) {
+  const rows = [...event.currentTarget.querySelectorAll<HTMLElement>('[data-tree-row]')]
+  const index = rows.indexOf(document.activeElement as HTMLElement)
+  if (index < 0) return
+  const row = rows[index]
+  const expanded = row.getAttribute('aria-expanded')
+  switch (event.key) {
+    case 'ArrowDown':
+      rows[index + 1]?.focus()
+      break
+    case 'ArrowUp':
+      rows[index - 1]?.focus()
+      break
+    case 'Home':
+      rows[0]?.focus()
+      break
+    case 'End':
+      rows[rows.length - 1]?.focus()
+      break
+    case 'ArrowRight':
+      if (expanded === 'false') row.click()
+      else if (expanded === 'true') rows[index + 1]?.focus()
+      else return
+      break
+    case 'ArrowLeft':
+      if (expanded === 'true') row.click()
+      else row.closest('li')?.parentElement?.closest('li')?.querySelector<HTMLElement>('[data-tree-row]')?.focus()
+      break
+    default:
+      return
+  }
+  event.preventDefault()
+}
+
+/** How files are ordered inside each folder. Folders always come first. */
+function SortMenu({ sort, onSort }: { sort: TreeSort; onSort: (sort: TreeSort) => void }) {
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger
+          render={<DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Sort" />} />}
+        >
+          <ArrowUpDown />
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Sort</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Sort files by</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={sort} onValueChange={(value: TreeSort) => onSort(value)}>
+            {SORTS.map((option) => (
+              <DropdownMenuRadioItem key={option.value} value={option.value}>
+                {option.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/**
+ * A folder row and, when open, what it holds. Everything inside hangs from a
+ * faint guide under the chevron, so depth reads at a glance.
+ */
+function Folder({
+  folder,
+  depth,
+  base,
+  activeId,
+  isOpen,
+  onOpenChange,
+  empty,
+}: {
+  folder: TreeFolder
+  depth: number
+  base: string
+  activeId?: string
+  isOpen: (path: string) => boolean
+  onOpenChange: (path: string, open: boolean) => void
+  empty?: string
+}) {
+  return (
+    <Collapsible
+      open={isOpen(folder.path)}
+      onOpenChange={(open) => onOpenChange(folder.path, open)}
+      render={<li />}
+    >
+      <CollapsibleTrigger
+        data-tree-row
+        render={
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-full justify-start gap-1.5 px-2 font-normal text-foreground/85 hover:text-foreground aria-expanded:bg-transparent aria-expanded:hover:bg-muted"
+          />
+        }
+      >
+        <ChevronRight
+          data-icon="inline-start"
+          className="text-muted-foreground transition-transform duration-200 ease-settle group-aria-expanded/button:rotate-90"
+        />
+        <span className={cn('min-w-0 truncate', depth === 0 && 'font-medium')}>{folder.name}</span>
+        <span className="ml-auto text-xs text-muted-foreground">{folder.count}</span>
+      </CollapsibleTrigger>
+
+      <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-all duration-200 ease-settle data-ending-style:h-0 data-starting-style:h-0">
+        {folder.children.length === 0 ? (
+          empty && <p className="py-1 pr-2 pl-7 text-xs text-pretty text-muted-foreground">{empty}</p>
+        ) : (
+          <ul className="ml-3.5 flex flex-col border-l border-border pl-1">
+            {folder.children.map((node: TreeNode) =>
+              node.kind === 'folder' ? (
+                <Folder
+                  key={node.path}
+                  folder={node}
+                  depth={depth + 1}
+                  base={base}
+                  activeId={activeId}
+                  isOpen={isOpen}
+                  onOpenChange={onOpenChange}
+                />
+              ) : (
+                <li key={node.path}>
+                  <NavLink
+                    data-tree-row
+                    to={`${base}/${encodeURIComponent(node.entry.slug)}`}
+                    aria-current={node.entry.id === activeId ? 'page' : undefined}
+                    className={cn(
+                      'relative flex h-7 items-center gap-1.5 px-2 text-sm outline-none transition-colors duration-150 focus-visible:ring-1 focus-visible:ring-ring',
+                      node.entry.id === activeId
+                        ? 'text-foreground'
+                        : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                    )}
+                  >
+                    {/* The chevron's width, so a file's name lines up with its sibling folders'. */}
+                    <span aria-hidden="true" className="size-3.5 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">{node.entry.title}</span>
+                    {node.entry.private && <Lock aria-label="Private" className="size-3 shrink-0" />}
+                  </NavLink>
+                </li>
+              ),
+            )}
+          </ul>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}

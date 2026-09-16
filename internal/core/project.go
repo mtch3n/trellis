@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
@@ -114,4 +115,105 @@ func (c *Core) ProjectByKey(ctx context.Context, key string) (Project, error) {
 		return err
 	})
 	return p, err
+}
+
+// ownedEntities selects every id a project owns that a link row can name.
+// Links carry no foreign key, so the cascade from project never reaches them.
+const ownedEntities = `SELECT id FROM card WHERE project_id = ?
+	UNION ALL SELECT id FROM knowledge WHERE project_id = ?
+	UNION ALL SELECT id FROM artifact WHERE project_id = ?`
+
+// DeleteProject removes a project and everything it owns: boards, cards,
+// notes, labels, knowledge rows, and the project's directory under the
+// Trellis home, which holds its knowledge files, artifacts and vectors. The
+// event log is kept; it is the change feed.
+//
+// Two things refuse rather than proceed. A card an agent holds right now,
+// because deleting work out from under a running session is not a cleanup.
+// And an entry this project escalated to the global vault: the vault row still
+// names its origin project, so it would be deleted with it.
+//
+// The directory is staged before the transaction and restored if it fails, so
+// a failed delete never leaves rows without their files. Running trellis in
+// the repository again creates a fresh, empty project.
+func (c *Core) DeleteProject(ctx context.Context, key string) error {
+	key = strings.ToUpper(strings.TrimSpace(key))
+	var staged *stagedRemoval
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		var p Project
+		err := tx.Get(&p, `SELECT * FROM project WHERE key = ?`, key)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound("project_not_found", "no project "+key, "trellis ui   # the Projects page lists every project")
+		}
+		if err != nil {
+			return err
+		}
+
+		var held int
+		if err := tx.Get(&held,
+			`SELECT COUNT(*) FROM card WHERE project_id = ? AND owner IS NOT NULL AND lease_until > ?`,
+			p.ID, c.clock.NowMS()); err != nil {
+			return err
+		}
+		if held > 0 {
+			return ErrConflict("project_leased",
+				fmt.Sprintf("%s has %d %s held by an agent right now", p.Key, held, plural(held, "card", "cards")),
+				"wait for the leases to expire, or take them first")
+		}
+
+		var vault int
+		if err := tx.Get(&vault, `SELECT COUNT(*) FROM knowledge WHERE project_id = ? AND global = 1`, p.ID); err != nil {
+			return err
+		}
+		if vault > 0 {
+			return ErrConflict("project_has_vault_entries",
+				fmt.Sprintf("%d global vault %s came from %s and would be deleted with it",
+					vault, plural(vault, "entry", "entries"), p.Key),
+				"trellis knowledge demote <slug>   # to delete them too; otherwise keep the project")
+		}
+
+		root, err := c.root()
+		if err != nil {
+			return err
+		}
+		if staged, err = stageRemoval(filepath.Join(root, "projects", p.Key)); err != nil {
+			return err
+		}
+
+		// A link from outside into this project survives as a stub, the same
+		// way deleting one entry leaves its inbound links (§10.4). Links from
+		// inside go with their source.
+		ids := []any{p.ID, p.ID, p.ID}
+		if _, err := tx.Exec(
+			`UPDATE link SET to_id = NULL
+			 WHERE to_id IN (`+ownedEntities+`) AND from_id NOT IN (`+ownedEntities+`)`,
+			append(ids, ids...)...); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM link WHERE from_id IN (`+ownedEntities+`)`, ids...); err != nil {
+			return err
+		}
+
+		if _, err := tx.Exec(`DELETE FROM project WHERE id = ?`, p.ID); err != nil {
+			return err
+		}
+		if err := c.rebuildKnowledgeFTS(tx); err != nil {
+			return err
+		}
+		return c.recordEvent(tx, "project", p.ID, "deleted", "key", p.Key, "")
+	})
+	if err != nil {
+		if restoreErr := staged.restore(); restoreErr != nil {
+			err = errors.Join(err, restoreErr)
+		}
+		return err
+	}
+	return staged.finalize()
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }

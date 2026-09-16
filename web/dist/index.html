@@ -1,12 +1,21 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>web</title>
-    <script type="module" crossorigin src="/assets/index-C-bI1GA5.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-CjF31ayu.css">
+    <title>Trellis</title>
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem("theme") === "light") {
+            document.documentElement.classList.remove("dark");
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-KgpcO9YB.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BBot29bs.css">
   </head>
   <body>
     <div id="root"></div>

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -73,6 +74,19 @@ func TestServerCardLifecycleAndEmbeddedSPA(t *testing.T) {
 	stale := request(http.MethodPatch, "/api/p/UITEST/b/default/cards/UITEST-1", `{"title":"stale","if_version":1}`)
 	if stale.Code != http.StatusConflict {
 		t.Fatalf("stale update status = %d, want %d, body = %s", stale.Code, http.StatusConflict, stale.Body)
+	}
+
+	if rec := request(http.MethodPost, "/api/p/UITEST/b/default/cards", `{"title":"a mistake"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("second create status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if rec := request(http.MethodDelete, "/api/p/UITEST/b/default/cards/UITEST-2", `{}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want 204, body = %s", rec.Code, rec.Body)
+	}
+	if rec := request(http.MethodGet, "/api/p/UITEST/cards/UITEST-2", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("deleted card still answers: %d", rec.Code)
+	}
+	if rec := request(http.MethodDelete, "/api/p/UITEST/b/default/cards/UITEST-2", `{}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("second delete status = %d, want 404", rec.Code)
 	}
 
 	page := request(http.MethodGet, "/", "")
@@ -179,5 +193,241 @@ func TestServerKnowledgeGraphLabelsAndStealRoutes(t *testing.T) {
 	stolen := request(http.MethodPost, "/api/p/P5TEST/b/default/cards/"+card.Ref+"/steal", `{"reason":"owner is inactive"}`)
 	if stolen.Code != http.StatusOK {
 		t.Fatalf("steal status = %d, body = %s", stolen.Code, stolen.Body)
+	}
+}
+
+func TestServerDeletesAProjectOnlyWhenTheKeyIsRetyped(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	c := core.New(db, core.FixedClock{MS: 3_000_000}, "ui-delete-test").WithKBRoot(t.TempDir())
+	for _, key := range []string{"GONE", "KEPT"} {
+		p, err := c.EnsureProject(context.Background(), resolve.Identity{Kind: "test", Value: key, RootPath: "/tmp/" + key, SuggestedKey: key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.CreateBoard(context.Background(), p.ID, "default", true); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s := NewServer(c, db, "127.0.0.1:0")
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	if rec := request(http.MethodPost, "/api/p/GONE/b/default/cards", `{"title":"on the doomed board"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if rec := request(http.MethodPost, "/api/p/KEPT/b/default/cards", `{"title":"on the kept board"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", rec.Code, rec.Body)
+	}
+
+	scoped := request(http.MethodGet, "/api/activity?project=KEPT", "")
+	if scoped.Code != http.StatusOK || bytes.Contains(scoped.Body.Bytes(), []byte("doomed")) ||
+		!bytes.Contains(scoped.Body.Bytes(), []byte("kept board")) {
+		t.Fatalf("activity scoped to KEPT = %d, body = %s", scoped.Code, scoped.Body)
+	}
+
+	if rec := request(http.MethodDelete, "/api/p/GONE", `{"confirm":"gone-ish"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("mistyped confirmation status = %d, want 400, body = %s", rec.Code, rec.Body)
+	}
+	if rec := request(http.MethodGet, "/api/p/GONE/boards", ""); rec.Code != http.StatusOK {
+		t.Fatalf("a refused delete must leave the project: %d", rec.Code)
+	}
+
+	if rec := request(http.MethodDelete, "/api/p/GONE", `{"confirm":"GONE"}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want 204, body = %s", rec.Code, rec.Body)
+	}
+	if rec := request(http.MethodGet, "/api/p/GONE/boards", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("deleted project still answers: %d", rec.Code)
+	}
+	if rec := request(http.MethodDelete, "/api/p/GONE", `{"confirm":"GONE"}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("second delete status = %d, want 404", rec.Code)
+	}
+	projects := request(http.MethodGet, "/api/projects", "")
+	if bytes.Contains(projects.Body.Bytes(), []byte(`"GONE"`)) || !bytes.Contains(projects.Body.Bytes(), []byte(`"KEPT"`)) {
+		t.Fatalf("projects after delete = %s", projects.Body)
+	}
+}
+
+func TestServerBoardListsCardsByPriorityThenRank(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	c := core.New(db, core.FixedClock{MS: 4_000_000}, "ui-order-test")
+	p, err := c.EnsureProject(context.Background(), resolve.Identity{Kind: "test", Value: "order", SuggestedKey: "ORDER"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateBoard(context.Background(), p.ID, "default", true); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(c, db, "127.0.0.1:0")
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, req)
+		return rec
+	}
+	// Created low, normal, urgent, normal: rank order is creation order.
+	for _, card := range []string{`{"title":"low","priority":3}`, `{"title":"first normal","priority":2}`,
+		`{"title":"urgent","priority":0}`, `{"title":"second normal","priority":2}`} {
+		if rec := request(http.MethodPost, "/api/p/ORDER/b/default/cards", card); rec.Code != http.StatusCreated {
+			t.Fatalf("create = %d: %s", rec.Code, rec.Body)
+		}
+	}
+
+	rec := request(http.MethodGet, "/api/p/ORDER/b/default/cards", "")
+	var columns []struct {
+		Cards []struct {
+			Title     string `json:"title"`
+			CreatedAt int64  `json:"created_at"`
+			UpdatedAt int64  `json:"updated_at"`
+		} `json:"cards"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &columns); err != nil {
+		t.Fatal(err)
+	}
+	var titles []string
+	for _, card := range columns[0].Cards {
+		titles = append(titles, card.Title)
+		if card.CreatedAt <= 0 || card.UpdatedAt < card.CreatedAt {
+			t.Errorf("%s: created_at %d, updated_at %d; the list must carry both times", card.Title, card.CreatedAt, card.UpdatedAt)
+		}
+	}
+	want := []string{"urgent", "first normal", "second normal", "low"}
+	if strings.Join(titles, "|") != strings.Join(want, "|") {
+		t.Fatalf("order = %v, want %v: priority first, the manual rank within it", titles, want)
+	}
+}
+
+func TestServerProjectEventsPageThroughCardAndKnowledgeHistory(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	c := core.New(db, core.FixedClock{MS: 5_000_000}, "ui-events-test")
+	c.WithKBRoot(t.TempDir())
+	p, err := c.EnsureProject(ctx, resolve.Identity{Kind: "test", Value: "events", SuggestedKey: "EVT"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := c.CreateBoard(ctx, p.ID, "default", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card, err := c.CreateCard(ctx, p.ID, b.ID, core.NewCard{Title: "tracked"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.MoveCard(ctx, p.ID, b.ID, core.CardRef{Seq: card.Seq}, "in-progress"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ClaimCard(ctx, card.ID, 60_000, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := c.CreateKnowledge(ctx, p.ID, core.NewKnowledge{Title: "Findings", Body: "first secret\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := "second secret\n"
+	if _, err := c.EditKnowledgeFields(ctx, p.ID, doc.Slug, core.KnowledgeEdit{Body: &body, IfVersion: &doc.Version}); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(c, db, "127.0.0.1:0")
+	type page struct {
+		Events []projectEvent `json:"events"`
+		Next   *int64         `json:"next"`
+	}
+	get := func(path string) (page, []byte) {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d: %s", path, rec.Code, rec.Body)
+		}
+		var got page
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got, rec.Body.Bytes()
+	}
+
+	all, raw := get("/api/p/EVT/events")
+	if bytes.Contains(raw, []byte("secret")) {
+		t.Fatalf("events leak entry text: %s", raw)
+	}
+	var moved, claimed, edited bool
+	for i, event := range all.Events {
+		if i > 0 && event.Seq <= all.Events[i-1].Seq {
+			t.Fatalf("events out of order: %v", all.Events)
+		}
+		if event.Field != "column" && (event.Old != "" || event.New != "") {
+			t.Errorf("%s %s %s carries values %q -> %q; only column moves may", event.Kind, event.Action, event.Field, event.Old, event.New)
+		}
+		switch {
+		case event.Kind == "card" && event.Action == "moved":
+			moved = event.Ref == "EVT-1" && event.Old == "backlog" && event.New == "in-progress"
+		case event.Kind == "card" && event.Action == "claimed":
+			claimed = event.Ref == "EVT-1" && event.Actor == "ui-events-test"
+		case event.Kind == "knowledge" && event.Action == "edited":
+			edited = event.Ref == "EVT/"+doc.Slug
+		}
+	}
+	if !moved || !claimed || !edited {
+		t.Fatalf("moved=%v claimed=%v edited=%v in %+v", moved, claimed, edited, all.Events)
+	}
+	if all.Next == nil || *all.Next != all.Events[len(all.Events)-1].Seq {
+		t.Fatalf("next = %v, want the last seq", all.Next)
+	}
+
+	// Two at a time, following next, walks the same history.
+	var walked []int64
+	after := int64(0)
+	for range len(all.Events) + 1 {
+		got, _ := get("/api/p/EVT/events?limit=2&after=" + strconv.FormatInt(after, 10))
+		if len(got.Events) > 2 {
+			t.Fatalf("limit=2 returned %d events", len(got.Events))
+		}
+		if len(got.Events) == 0 {
+			if got.Next != nil {
+				t.Fatalf("an empty page has next = %d", *got.Next)
+			}
+			break
+		}
+		for _, event := range got.Events {
+			walked = append(walked, event.Seq)
+		}
+		after = *got.Next
+	}
+	if len(walked) != len(all.Events) {
+		t.Fatalf("paged through %d events, want %d", len(walked), len(all.Events))
+	}
+	for i, seq := range walked {
+		if seq != all.Events[i].Seq {
+			t.Fatalf("page order %v differs from %v", walked, all.Events)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/p/NOPE/events", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown project = %d", rec.Code)
 	}
 }
