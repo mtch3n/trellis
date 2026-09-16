@@ -226,6 +226,9 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		if err := insertKnowledge(tx, doc); err != nil {
 			return err
 		}
+		if err := c.captureKnowledgeRevision(doc.Path, doc.Version, []byte(raw)); err != nil {
+			return err
+		}
 		if err := c.syncDocRelations(tx, &doc, fm, body); err != nil {
 			return err
 		}
@@ -247,6 +250,8 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		if raw, readErr := os.ReadFile(writtenPath); readErr == nil && ContentHash(string(raw)) == doc.ContentHash {
 			_ = os.Remove(writtenPath)
 			_ = syncDirectory(filepath.Dir(writtenPath))
+			_ = os.Remove(revisionFilePath(writtenPath, 1))
+			_ = removeRevisionDirIfEmpty(writtenPath)
 		}
 	}
 	if err == nil {
@@ -366,8 +371,8 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 	doc.BodyMD = body
 	oldHash := doc.ContentHash
 	doc.ContentHash = ContentHash(string(raw))
-	changed := st.ModTime().UnixMilli() != doc.MTime || st.Size() != doc.Size ||
-		oldHash != doc.ContentHash || privateDrifted
+	contentChanged := st.ModTime().UnixMilli() != doc.MTime || st.Size() != doc.Size || oldHash != doc.ContentHash
+	changed := contentChanged || privateDrifted
 	doc.MTime = st.ModTime().UnixMilli()
 	doc.Size = st.Size()
 	doc.UpdatedAt = c.clock.NowMS()
@@ -384,6 +389,11 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 		doc.Title, doc.DocType, doc.Summary, doc.Provenance, doc.Private, doc.ContentHash,
 		doc.MTime, doc.Size, doc.Version, doc.UpdatedAt, doc.ID); err != nil {
 		return err
+	}
+	if contentChanged {
+		if err := c.captureKnowledgeRevision(doc.Path, doc.Version, raw); err != nil {
+			return err
+		}
 	}
 	if becamePrivate {
 		if err := c.purgeDisclosedCopies(tx, doc); err != nil {
@@ -601,6 +611,9 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		}
 		base := doc.ContentHash // the hash this write is based on
 		oldRaw = raw
+		if err := c.captureKnowledgeRevision(doc.Path, doc.Version, oldRaw); err != nil {
+			return err
+		}
 		fm, body, err := splitDocFile(doc.Path, raw)
 		if err != nil {
 			return err
@@ -693,6 +706,9 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 					return err
 				}
 			}
+		}
+		if err := c.captureKnowledgeRevision(doc.Path, doc.Version, []byte(out)); err != nil {
+			return err
 		}
 		if err := c.docView(tx, &doc); err != nil {
 			return err
