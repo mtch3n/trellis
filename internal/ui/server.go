@@ -105,6 +105,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/claim", s.handleClaimCard)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/release", s.handleReleaseCard)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/notes", s.handleCreateNote)
+	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/relations", s.handleCreateCardRelation)
+	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/cards/{card}/relations/{rel}/{ref}", s.handleDeleteCardRelation)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/knowledge", s.handleKnowledgeList)
 	s.mux.HandleFunc("GET /api/p/{key}/knowledge", s.handleProjectKnowledgeList)
 	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}/history", s.handleKnowledgeHistory)
@@ -743,9 +745,10 @@ type cardEvent struct {
 }
 
 type cardDetail struct {
-	Card     core.Card   `json:"card"`
-	Notes    []core.Note `json:"notes"`
-	Activity []cardEvent `json:"activity"`
+	Card      core.Card           `json:"card"`
+	Notes     []core.Note         `json:"notes"`
+	Activity  []cardEvent         `json:"activity"`
+	Relations []core.CardRelation `json:"relations,omitempty"`
 }
 
 func (s *Server) handleCardDetail(w http.ResponseWriter, r *http.Request) {
@@ -779,6 +782,11 @@ func (s *Server) handleCardDetail(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
+	relations, err := s.core.CardRelations(ctx, card.ID)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
 	activity := []cardEvent{}
 	if err := s.db.SelectContext(ctx, &activity, `
 		SELECT seq, ts, actor, action, COALESCE(field, '') AS field,
@@ -787,7 +795,7 @@ func (s *Server) handleCardDetail(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, cardDetail{Card: card, Notes: notes, Activity: activity})
+	writeJSON(w, http.StatusOK, cardDetail{Card: card, Notes: notes, Activity: activity, Relations: relations})
 }
 
 type cardPatch struct {
@@ -957,6 +965,81 @@ func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, note)
+}
+
+func (s *Server) handleCreateCardRelation(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, b, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
+	if err != nil {
+		s.error(w, http.StatusNotFound, err.Error())
+		return
+	}
+	var in struct {
+		Rel string `json:"rel"`
+		Ref string `json:"ref"`
+	}
+	if !decodeJSON(w, r, &in) || strings.TrimSpace(in.Rel) == "" || strings.TrimSpace(in.Ref) == "" {
+		s.error(w, http.StatusBadRequest, "rel and ref required")
+		return
+	}
+	// Normalize dashes to underscores
+	in.Rel = strings.ReplaceAll(in.Rel, "-", "_")
+
+	card, err := s.core.GetCard(ctx, p.ID, core.ParseCardRef(r.PathValue("card")))
+	if err != nil || card.BoardID != b.ID {
+		if err != nil {
+			s.coreError(w, err)
+		} else {
+			s.error(w, http.StatusNotFound, "card not found on this board")
+		}
+		return
+	}
+	if err := s.write.RelateCards(ctx, p.ID, core.ParseCardRef(card.Ref), in.Rel, core.ParseCardRef(in.Ref)); err != nil {
+		s.coreError(w, err)
+		return
+	}
+	// Return the card's relations
+	relations, err := s.core.CardRelations(ctx, card.ID)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, relations)
+}
+
+func (s *Server) handleDeleteCardRelation(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, b, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
+	if err != nil {
+		s.error(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	rel := strings.ReplaceAll(r.PathValue("rel"), "-", "_")
+	ref := r.PathValue("ref")
+
+	card, err := s.core.GetCard(ctx, p.ID, core.ParseCardRef(r.PathValue("card")))
+	if err != nil || card.BoardID != b.ID {
+		if err != nil {
+			s.coreError(w, err)
+		} else {
+			s.error(w, http.StatusNotFound, "card not found on this board")
+		}
+		return
+	}
+	if err := s.write.UnrelateCards(ctx, p.ID, core.ParseCardRef(card.Ref), rel, core.ParseCardRef(ref)); err != nil {
+		s.coreError(w, err)
+		return
+	}
+	// Return the card's relations
+	relations, err := s.core.CardRelations(ctx, card.ID)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, relations)
 }
 
 func (s *Server) handleKnowledgeList(w http.ResponseWriter, r *http.Request) {
