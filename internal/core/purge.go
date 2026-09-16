@@ -32,9 +32,11 @@ import "github.com/jmoiron/sqlx"
 // its transaction, including the private mirror this function does not touch
 // directly (refreshFromFile sets it just before calling in). The next
 // successful read recomputes the false-to-true transition from the file and
-// purges again. Nothing leaks in between: recall and the pin list both decide
-// from the file, not from the recap column, so a rolled-back purge is a retry,
-// not an exposure.
+// re-attempts the purge. Recall does not disclose in the meantime: it decides
+// what to redact from the file, not from the recap column. The pin list does
+// not yet have that protection — Pins reads knowledge.recap directly, with no
+// check against the file — so a rolled-back purge can leave it returning a
+// stale recap until a later read purges again.
 //
 // The vector index needs nothing here. Private entries are absent from the
 // corpus ListSearchKnowledge returns, and Reconcile builds both its upsert set
