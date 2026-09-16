@@ -162,10 +162,10 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		return Knowledge{}, err
 	}
 	for name := range in.Set {
-		if reservedFrontmatterFields[name] {
+		if flag, reserved := reservedFrontmatterFields[name]; reserved {
 			return Knowledge{}, ErrUsage("reserved_field",
 				`"`+name+`" is a built-in frontmatter field and cannot be set with --set`,
-				"trellis knowledge new --title ...   # use the matching flag instead")
+				"use "+flag+" instead")
 		}
 	}
 	templatesDirPath, err := c.templatesDir()

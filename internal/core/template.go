@@ -234,15 +234,17 @@ func seedTemplates(dir string) error {
 	return nil
 }
 
-// reservedFrontmatterFields are the Frontmatter struct's own YAML keys. A
-// --set value using one of these would collide with Extra's inline map,
-// which yaml.v3 panics on rather than returning an error, so it is refused
-// up front instead.
-var reservedFrontmatterFields = map[string]bool{
-	"title": true, "type": true, "status": true, "summary": true,
-	"provenance": true, "private": true, "board": true, "tags": true,
-	"labels": true, "artifacts": true, "created": true, "updated": true,
-	"sources": true,
+// reservedFrontmatterFields maps a Frontmatter struct field's YAML key to
+// the flag that sets it. A --set value using one of these would collide
+// with Extra's inline map, which yaml.v3 panics on rather than returning
+// an error, so it is refused up front instead — and pointed at the flag
+// that actually sets it, not just told no.
+var reservedFrontmatterFields = map[string]string{
+	"title": "--title", "type": "--template", "status": "(not yet settable)",
+	"summary": "--summary", "provenance": "--provenance", "private": "--private",
+	"board": "--board", "tags": "--tag", "labels": "--label",
+	"artifacts": "`trellis artifact link`", "created": "(set automatically)",
+	"updated": "(set automatically)", "sources": "--source",
 }
 
 // templateViolations checks supplied field values against a template's
