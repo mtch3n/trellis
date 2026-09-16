@@ -143,3 +143,68 @@ func (c *Core) captureKnowledgeRevision(entryPath string, version int64, raw []b
 	_, err = trimRevisions(entryPath, c.historyKeep)
 	return err
 }
+
+// moveDir moves the directory at src into destDir, refusing to replace
+// anything already there. Directories cannot be hard-linked the way moveFile
+// links a file to get that refusal for free, so the destination is checked
+// first — os.Rename silently replaces an empty directory it is given no
+// chance to refuse. Rename is atomic and cheap on the common case (same
+// filesystem); when it fails for any other reason, this falls back to a
+// recursive copy, removing the source only once the copy is synced. src not
+// existing is not an error: an entry created before this feature, or with
+// capture disabled, may have no revision directory to move.
+func moveDir(src, destDir string) (string, error) {
+	if _, err := os.Stat(src); errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	} else if err != nil {
+		return "", err
+	}
+	dest := filepath.Join(destDir, baseName(src))
+	if _, err := os.Stat(dest); err == nil {
+		return "", ErrConflict("path_taken", dest+" already exists", "")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if err := os.Rename(src, dest); err != nil {
+		if cerr := copyDirAtomic(dest, src); cerr != nil {
+			return "", cerr
+		}
+		if err := os.RemoveAll(src); err != nil {
+			return "", err
+		}
+	}
+	if err := syncDirectory(destDir); err != nil {
+		return "", err
+	}
+	return dest, syncDirectory(filepath.Dir(src))
+}
+
+// moveDirBack undoes a successful moveDir: dest moves back beside src. A
+// moveDir that found nothing to move returns "", so dest may be empty here;
+// that is a no-op, not an error.
+func moveDirBack(dest, src string) error {
+	if dest == "" {
+		return nil
+	}
+	_, err := moveDir(dest, filepath.Dir(src))
+	return err
+}
+
+// copyDirAtomic copies a flat directory of revision files. Revision
+// directories never nest — each holds only "<version><ext>" files — so this
+// need not recurse.
+func copyDirAtomic(dest, src string) error {
+	if err := os.MkdirAll(dest, 0o700); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if err := copyAtomic(filepath.Join(dest, e.Name()), filepath.Join(src, e.Name())); err != nil {
+			return err
+		}
+	}
+	return syncDirectory(dest)
+}

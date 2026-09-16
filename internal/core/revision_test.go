@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -281,5 +282,115 @@ func TestAFailedRevisionWriteFailsTheEdit(t *testing.T) {
 	}
 	if string(raw) != string(original) {
 		t.Errorf("file = %q, want the original bytes after the failed edit", raw)
+	}
+}
+
+func TestEscalateMovesTheRevisionDirectory(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Shared", Body: "v1\n"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "v2\n", &doc.Version); err != nil {
+		t.Fatalf("EditKnowledge: %v", err)
+	}
+	oldDir := revisionDir(doc.Path)
+
+	escalated, err := c.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "shared across projects")
+	if err != nil {
+		t.Fatalf("EscalateKnowledge: %v", err)
+	}
+	if _, err := os.Stat(oldDir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the old revision directory still exists")
+	}
+	newDir := revisionDir(escalated.Path)
+	for v := int64(1); v <= 2; v++ {
+		if _, err := os.Stat(revisionFilePath(escalated.Path, v)); err != nil {
+			t.Errorf("version %d missing after escalate: %v", v, err)
+		}
+	}
+	_ = newDir
+
+	back, err := c.DemoteKnowledge(t.Context(), escalated.Slug, "back to project")
+	if err != nil {
+		t.Fatalf("DemoteKnowledge: %v", err)
+	}
+	if _, err := os.Stat(newDir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the global revision directory still exists after demote")
+	}
+	for v := int64(1); v <= 2; v++ {
+		if _, err := os.Stat(revisionFilePath(back.Path, v)); err != nil {
+			t.Errorf("version %d missing after demote: %v", v, err)
+		}
+	}
+}
+
+func TestAFailedEscalateMovesTheRevisionDirectoryBack(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Deploy"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	oldDir := revisionDir(doc.Path)
+
+	if _, err := c.db.Exec(`CREATE TRIGGER boom BEFORE INSERT ON event BEGIN SELECT RAISE(ABORT, 'boom'); END`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+	defer func() {
+		if _, err := c.db.Exec(`DROP TRIGGER boom`); err != nil {
+			t.Fatalf("drop trigger: %v", err)
+		}
+	}()
+
+	if _, err := c.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "reason"); err == nil {
+		t.Fatal("EscalateKnowledge succeeded despite the trigger")
+	}
+	if _, err := os.Stat(revisionFilePath(doc.Path, 1)); err != nil {
+		t.Errorf("revision directory not restored at %s: %v", oldDir, err)
+	}
+	globalDir := filepath.Join(c.kbRoot, "global", "knowledge")
+	if _, err := os.Stat(filepath.Join(globalDir, "."+filepath.Base(doc.Path))); !os.IsNotExist(err) {
+		t.Errorf("revision directory should not remain in the global directory")
+	}
+}
+
+func TestDeletingAnEntryRemovesItsRevisionDirectory(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Gone", Body: "v1\n"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	dir := revisionDir(doc.Path)
+
+	if err := c.DeleteKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+		t.Fatalf("DeleteKnowledge: %v", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("revision directory still exists after delete")
+	}
+}
+
+func TestAFailedDeleteRestoresTheRevisionDirectory(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Deploy", Body: "v1\n"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	dir := revisionDir(doc.Path)
+
+	if _, err := c.db.Exec(`CREATE TRIGGER boom BEFORE INSERT ON event BEGIN SELECT RAISE(ABORT, 'boom'); END`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+	defer func() {
+		if _, err := c.db.Exec(`DROP TRIGGER boom`); err != nil {
+			t.Fatalf("drop trigger: %v", err)
+		}
+	}()
+
+	if err := c.DeleteKnowledge(t.Context(), p.ID, doc.Slug); err == nil {
+		t.Fatal("DeleteKnowledge succeeded despite the trigger")
+	}
+	if _, err := os.Stat(revisionFilePath(doc.Path, 1)); err != nil {
+		t.Errorf("revision directory not restored at %s: %v", dir, err)
 	}
 }

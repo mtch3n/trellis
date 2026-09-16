@@ -738,7 +738,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 
 // DeleteKnowledge removes the row and the file.
 func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) error {
-	var staged *stagedRemoval
+	var staged, revStaged *stagedRemoval
 	var doc Knowledge
 	var done bool
 	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
@@ -754,6 +754,13 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 		if serr != nil {
 			return serr
 		}
+		revStaged, serr = stageRemoval(revisionDir(doc.Path))
+		if serr != nil {
+			if rerr := staged.restore(); rerr != nil {
+				return errors.Join(serr, rerr)
+			}
+			return serr
+		}
 		// A failure, or a panic, below undoes the stage before this closure
 		// returns, while Core.Tx still holds SQLite's write lock. done, not
 		// err, is what the restore is keyed on: a panic unwinds through this
@@ -763,6 +770,9 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 		defer func() {
 			if !done {
 				if rerr := staged.restore(); rerr != nil {
+					err = errors.Join(err, rerr)
+				}
+				if rerr := revStaged.restore(); rerr != nil {
 					err = errors.Join(err, rerr)
 				}
 			}
@@ -796,14 +806,22 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 		qerr := c.db.Get(&gone, `SELECT COUNT(*) FROM knowledge WHERE id = ?`, doc.ID)
 		if writeLanded(gone == 0, qerr) {
 			err = nil
-		} else if rerr := staged.restore(); rerr != nil {
-			err = errors.Join(err, rerr)
+		} else {
+			if rerr := staged.restore(); rerr != nil {
+				err = errors.Join(err, rerr)
+			}
+			if rerr := revStaged.restore(); rerr != nil {
+				err = errors.Join(err, rerr)
+			}
 		}
 	}
 	if err != nil {
 		return err
 	}
 	if err := staged.finalize(); err != nil {
+		return err
+	}
+	if err := revStaged.finalize(); err != nil {
 		return err
 	}
 	c.notifyKnowledgeChanged(ctx, projectID)
