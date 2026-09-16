@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { MarkdownContent } from '@/components/wrappers/MarkdownContent'
+import { ChipEditor } from '@/components/wrappers/ChipEditor'
 import { EditForm, InPlaceText } from '@/components/wrappers/EditInPlace'
 import { Lamp } from '@/components/wrappers/Lamp'
 import { MarkdownEditor } from '@/components/wrappers/MarkdownEditor'
@@ -24,6 +25,8 @@ export interface CardInfo {
   owner?: string
   created_at?: number
   updated_at?: number
+  labels?: string[]
+  tags?: string[]
 }
 
 export interface CardNote { id: string; actor: string; body: string; created_at: number }
@@ -39,12 +42,26 @@ export interface CardDraft {
   priority: string
   /** The status (board column) the card starts in. */
   column?: string
+  labels: string[]
+  tags: string[]
+}
+
+/** Adding or removing one label or tag. */
+export interface ChipChange {
+  add?: string
+  remove?: string
 }
 
 /** What Edit changes on an existing card: its words. */
 export interface CardEdit {
   title: string
   body: string
+}
+
+/** A new card's chips live in the draft until it exists. */
+function apply(values: string[], change: ChipChange) {
+  const kept = change.remove ? values.filter((value) => value !== change.remove) : values
+  return change.add && !kept.includes(change.add) ? [...kept, change.add] : kept
 }
 
 const stamp = (ms: number) => new Date(ms).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -80,7 +97,11 @@ export function CardView({
   onCreate,
   onMove,
   onPriority,
+  labelOptions,
+  onLabel,
+  onTag,
   onSteal,
+  me,
 }: {
   card: CardInfo | null
   notes: CardNote[]
@@ -98,10 +119,16 @@ export function CardView({
   onCreate: (draft: CardDraft) => Promise<void>
   onMove: (column: string) => Promise<void>
   onPriority: (priority: string) => Promise<void>
+  /** The labels this project defines. Labels are picked, never invented. */
+  labelOptions: string[]
+  onLabel: (change: ChipChange) => Promise<void>
+  onTag: (change: ChipChange) => Promise<void>
   onSteal: (reason: string) => Promise<void>
+  /** Who the server writes as, so a lease this person holds reads as theirs. */
+  me?: string
 }) {
   // Priority and status are only drafted for a card that does not exist yet.
-  const initial = () => ({ title: card?.title ?? '', priority: 'normal', column: columns[0] ?? '' })
+  const initial = () => ({ title: card?.title ?? '', priority: 'normal', column: columns[0] ?? '', labels: [] as string[], tags: [] as string[] })
   const [draft, setDraft] = useState(initial)
   const [focus, setFocus] = useState<'title' | 'body'>('title')
   const [stealing, setStealing] = useState(false)
@@ -120,7 +147,10 @@ export function CardView({
     setReason('')
   }
 
-  const locked = Boolean(card?.owner)
+  // A lease this person holds is not a lock: they are the owner the server
+  // will check, so the card is theirs to change.
+  const mine = Boolean(card?.owner) && card?.owner === me
+  const locked = Boolean(card?.owner) && !mine
   const holder = shortActor(card?.owner)
   const changes = meaningfulEvents(history)
   const editing = mode !== 'read'
@@ -146,7 +176,14 @@ export function CardView({
     if (!draft.title.trim()) return
     const body = readBody.current()
     if (creating) {
-      await onCreate({ title: draft.title, body, priority: draft.priority, column: draft.column || undefined })
+      await onCreate({
+        title: draft.title,
+        body,
+        priority: draft.priority,
+        column: draft.column || undefined,
+        labels: draft.labels,
+        tags: draft.tags,
+      })
       return
     }
     await onSave({ title: draft.title, body })
@@ -290,6 +327,36 @@ export function CardView({
           </Select>
         </MetaGroup>
 
+        {/* Labels are the project's own vocabulary, so they are picked from
+            it; tags are free words. Both apply as they change, like status
+            and priority, and a new card carries them into its creation. */}
+        <MetaGroup label="Labels">
+          <ChipEditor
+            name="label"
+            values={creating ? draft.labels : (card?.labels ?? [])}
+            options={labelOptions}
+            placeholder="Label"
+            disabledReason={fixed ? `Held by ${holder}. Take the lease to change its labels.` : undefined}
+            onChange={(change) => {
+              if (!creating) { void onLabel(change); return }
+              setDraft({ ...draft, labels: apply(draft.labels, change) })
+            }}
+          />
+        </MetaGroup>
+
+        <MetaGroup label="Tags">
+          <ChipEditor
+            name="tag"
+            values={creating ? draft.tags : (card?.tags ?? [])}
+            placeholder="Tag"
+            disabledReason={fixed ? `Held by ${holder}. Take the lease to change its tags.` : undefined}
+            onChange={(change) => {
+              if (!creating) { void onTag(change); return }
+              setDraft({ ...draft, tags: apply(draft.tags, change) })
+            }}
+          />
+        </MetaGroup>
+
         {!creating && card && (
           <MetaGroup label="Details">
             <MetaFacts
@@ -304,7 +371,12 @@ export function CardView({
 
         {!creating && card && (
           <MetaGroup label="Lease">
-            {locked ? (
+            {mine ? (
+              <p className="flex items-center gap-2 text-sm">
+                <Lamp state="held" />
+                Held by you
+              </p>
+            ) : locked ? (
               <>
                 <p className="flex items-center gap-2 text-sm">
                   <Lamp state="held" />
