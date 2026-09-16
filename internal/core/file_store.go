@@ -218,11 +218,12 @@ func (s *stagedRemoval) finalize() error {
 	if s == nil || s.trash == "" {
 		return nil
 	}
-	// RemoveAll, because a staged project directory is not empty. It returns
-	// nil for a path that is already gone.
-	err := os.RemoveAll(s.trash)
-	if err == nil {
-		err = syncDirectory(filepath.Dir(s.path))
+	// RemoveAll, not Remove: a staged path may be a project directory or a
+	// revision directory holding several files, and Remove refuses a
+	// non-empty one. RemoveAll also treats an already-gone trash as success,
+	// matching the ErrNotExist tolerance this had before.
+	if err := os.RemoveAll(s.trash); err != nil {
+		return err
 	}
-	return err
+	return syncDirectory(filepath.Dir(s.path))
 }

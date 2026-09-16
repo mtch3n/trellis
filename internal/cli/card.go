@@ -38,7 +38,7 @@ func newCardCmd() *cobra.Command {
 	cmd.AddCommand(
 		newCardNewCmd(), newCardShowCmd(), newCardLsCmd(), newCardMoveCmd(), newCardEditCmd(), newCardRmCmd(),
 		newCardClaimCmd(), newCardReleaseCmd(), newCardRenewCmd(), newCardNextCmd(), newCardNoteCmd(),
-		newCardArchiveCmd(), newCardBlockCmd(), newCardImportCmd())
+		newCardArchiveCmd(), newCardBlockCmd(), newCardImportCmd(), newCardHistoryCmd(), newCardDiffCmd())
 	return cmd
 }
 
@@ -115,6 +115,52 @@ func newCardShowCmd() *cobra.Command {
 			})
 		},
 	}
+}
+
+func newCardHistoryCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "history <card>",
+		Short: "List a card's retained revisions",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withBoard(func(app *appCtx) error {
+				revs, err := app.Core.ListCardRevisions(cmd.Context(), app.Project.ID, core.ParseCardRef(args[0]))
+				if err != nil {
+					return err
+				}
+				return Emit(cmd, map[string]any{"revisions": revs}, func() string {
+					var b strings.Builder
+					w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+					for _, r := range revs {
+						fmt.Fprintf(w, "%d\t%s\t%s\n", r.Version, msDate(r.Timestamp), r.Actor)
+					}
+					w.Flush()
+					return strings.TrimRight(b.String(), "\n")
+				})
+			})
+		},
+	}
+}
+
+func newCardDiffCmd() *cobra.Command {
+	var from, to int64
+	cmd := &cobra.Command{
+		Use:   "diff <card>",
+		Short: "Show a unified diff between two retained revisions",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withBoard(func(app *appCtx) error {
+				d, err := app.Core.DiffCard(cmd.Context(), app.Project.ID, core.ParseCardRef(args[0]), from, to)
+				if err != nil {
+					return err
+				}
+				return Emit(cmd, d, func() string { return d.Diff })
+			})
+		},
+	}
+	cmd.Flags().Int64Var(&from, "from", 0, "earlier version (default: the one before --to)")
+	cmd.Flags().Int64Var(&to, "to", 0, "later version (default: the latest retained)")
+	return cmd
 }
 
 func newCardLsCmd() *cobra.Command {

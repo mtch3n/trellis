@@ -18,6 +18,10 @@ type Core struct {
 	defaultColumns []string
 	requireLabels  bool
 	requireTags    bool
+	// historyKeep is how many revisions each entry and card retains. Default
+	// 100; zero disables capture. Negative values are rejected before they
+	// ever reach here — see config.ValidateValue and config.Load.
+	historyKeep int
 
 	// policies is empty by default; see policy.go and §14.
 	policies []Policy
@@ -32,7 +36,7 @@ type Core struct {
 }
 
 func New(db *sqlx.DB, clock Clock, actor string) *Core {
-	return &Core{db: db, clock: clock, actor: actor, leaseTTL: 30 * 60 * 1000}
+	return &Core{db: db, clock: clock, actor: actor, leaseTTL: 30 * 60 * 1000, historyKeep: 100}
 }
 
 // SetLeaseTTL configures the default lease duration in milliseconds.
@@ -46,6 +50,16 @@ func (c *Core) SetLeaseTTL(ttl int64) {
 func (c *Core) SetDefaultColumns(names []string) { c.defaultColumns = append([]string(nil), names...) }
 
 func (c *Core) SetCardRequirements(labels, tags bool) { c.requireLabels, c.requireTags = labels, tags }
+
+// SetHistoryKeep configures how many revisions each entry and card retains.
+// A negative value is rejected by config.ValidateValue and config.Load
+// before it can reach here; this treats one defensively by leaving the
+// current value in place.
+func (c *Core) SetHistoryKeep(n int) {
+	if n >= 0 {
+		c.historyKeep = n
+	}
+}
 
 func (c *Core) SetKnowledgeChanged(fn func(context.Context, string) error) {
 	c.knowledgeChanged = fn

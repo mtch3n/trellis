@@ -248,7 +248,7 @@ const GlobalReviewDays = 180
 // for, so none exists anywhere.
 func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason string) (Knowledge, error) {
 	var doc Knowledge
-	var src, dest string
+	var src, dest, revSrc, revDest string
 	var done bool
 	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
 		// A failure, or a panic, after the move undoes it before this
@@ -258,11 +258,17 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 		// statement, so a named result would still read nil and the undo
 		// would be skipped.
 		defer func() {
-			if !done && dest != "" {
-				if merr := moveBack(dest, src); merr != nil {
+			if !done {
+				if dest != "" {
+					if merr := moveBack(dest, src); merr != nil {
+						err = errors.Join(err, merr)
+					}
+					dest = ""
+				}
+				if merr := moveDirBack(revDest, revSrc); merr != nil {
 					err = errors.Join(err, merr)
 				}
-				dest = ""
+				revDest = ""
 			}
 		}()
 
@@ -291,6 +297,12 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 			return err
 		}
 		dest = moved
+		revSrc = revisionDir(src)
+		revMoved, err := moveDir(revSrc, dir)
+		if err != nil {
+			return err
+		}
+		revDest = revMoved
 		now := c.clock.NowMS()
 		reviewBy := now + int64(GlobalReviewDays)*24*60*60*1000
 		if _, err := tx.Exec(
@@ -318,8 +330,13 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 		qerr := c.db.Get(&landed, `SELECT path FROM knowledge WHERE id = ?`, doc.ID)
 		if writeLanded(landed == dest, qerr) {
 			err = nil
-		} else if merr := moveBack(dest, src); merr != nil {
-			err = errors.Join(err, merr)
+		} else {
+			if merr := moveBack(dest, src); merr != nil {
+				err = errors.Join(err, merr)
+			}
+			if merr := moveDirBack(revDest, revSrc); merr != nil {
+				err = errors.Join(err, merr)
+			}
 		}
 	}
 	return doc, err
@@ -329,7 +346,7 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 // mistake must not be permanent.
 func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowledge, error) {
 	var doc Knowledge
-	var src, dest string
+	var src, dest, revSrc, revDest string
 	var done bool
 	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
 		// A failure, or a panic, after the move undoes it before this
@@ -339,11 +356,17 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 		// statement, so a named result would still read nil and the undo
 		// would be skipped.
 		defer func() {
-			if !done && dest != "" {
-				if merr := moveBack(dest, src); merr != nil {
+			if !done {
+				if dest != "" {
+					if merr := moveBack(dest, src); merr != nil {
+						err = errors.Join(err, merr)
+					}
+					dest = ""
+				}
+				if merr := moveDirBack(revDest, revSrc); merr != nil {
 					err = errors.Join(err, merr)
 				}
-				dest = ""
+				revDest = ""
 			}
 		}()
 
@@ -368,6 +391,12 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 			return err
 		}
 		dest = moved
+		revSrc = revisionDir(src)
+		revMoved, err := moveDir(revSrc, dir)
+		if err != nil {
+			return err
+		}
+		revDest = revMoved
 		if _, err := tx.Exec(
 			`UPDATE knowledge SET global = 0, path = ?, review_by = NULL, updated_at = ? WHERE id = ?`,
 			dest, c.clock.NowMS(), doc.ID); err != nil {
@@ -392,8 +421,13 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 		qerr := c.db.Get(&landed, `SELECT path FROM knowledge WHERE id = ?`, doc.ID)
 		if writeLanded(landed == dest, qerr) {
 			err = nil
-		} else if merr := moveBack(dest, src); merr != nil {
-			err = errors.Join(err, merr)
+		} else {
+			if merr := moveBack(dest, src); merr != nil {
+				err = errors.Join(err, merr)
+			}
+			if merr := moveDirBack(revDest, revSrc); merr != nil {
+				err = errors.Join(err, merr)
+			}
 		}
 	}
 	return doc, err

@@ -267,6 +267,9 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		if err := insertKnowledge(tx, doc); err != nil {
 			return err
 		}
+		if err := c.captureKnowledgeRevision(doc.Path, doc.Version, []byte(raw)); err != nil {
+			return err
+		}
 		if err := c.syncDocRelations(tx, &doc, fm, body); err != nil {
 			return err
 		}
@@ -288,6 +291,8 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		if raw, readErr := os.ReadFile(writtenPath); readErr == nil && ContentHash(string(raw)) == doc.ContentHash {
 			_ = os.Remove(writtenPath)
 			_ = syncDirectory(filepath.Dir(writtenPath))
+			_ = os.Remove(revisionFilePath(writtenPath, 1))
+			_ = removeRevisionDirIfEmpty(writtenPath)
 		}
 	}
 	if err == nil {
@@ -411,8 +416,8 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 	doc.BodyMD = body
 	oldHash := doc.ContentHash
 	doc.ContentHash = ContentHash(string(raw))
-	changed := st.ModTime().UnixMilli() != doc.MTime || st.Size() != doc.Size ||
-		oldHash != doc.ContentHash || privateDrifted
+	contentChanged := st.ModTime().UnixMilli() != doc.MTime || st.Size() != doc.Size || oldHash != doc.ContentHash
+	changed := contentChanged || privateDrifted
 	doc.MTime = st.ModTime().UnixMilli()
 	doc.Size = st.Size()
 	doc.UpdatedAt = c.clock.NowMS()
@@ -429,6 +434,11 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 		doc.Title, doc.DocType, doc.Summary, doc.Provenance, doc.Private, doc.ContentHash,
 		doc.MTime, doc.Size, doc.Version, doc.UpdatedAt, doc.ID); err != nil {
 		return err
+	}
+	if contentChanged {
+		if err := c.captureKnowledgeRevision(doc.Path, doc.Version, raw); err != nil {
+			return err
+		}
 	}
 	if becamePrivate {
 		if err := c.purgeDisclosedCopies(tx, doc); err != nil {
@@ -649,6 +659,9 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		}
 		base := doc.ContentHash // the hash this write is based on
 		oldRaw = raw
+		if err := c.captureKnowledgeRevision(doc.Path, doc.Version, oldRaw); err != nil {
+			return err
+		}
 		fm, body, err := splitDocFile(doc.Path, raw)
 		if err != nil {
 			return err
@@ -746,6 +759,9 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 				}
 			}
 		}
+		if err := c.captureKnowledgeRevision(doc.Path, doc.Version, []byte(out)); err != nil {
+			return err
+		}
 		if err := c.docView(tx, &doc); err != nil {
 			return err
 		}
@@ -774,7 +790,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 
 // DeleteKnowledge removes the row and the file.
 func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) error {
-	var staged *stagedRemoval
+	var staged, revStaged *stagedRemoval
 	var doc Knowledge
 	var done bool
 	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
@@ -790,6 +806,13 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 		if serr != nil {
 			return serr
 		}
+		revStaged, serr = stageRemoval(revisionDir(doc.Path))
+		if serr != nil {
+			if rerr := staged.restore(); rerr != nil {
+				return errors.Join(serr, rerr)
+			}
+			return serr
+		}
 		// A failure, or a panic, below undoes the stage before this closure
 		// returns, while Core.Tx still holds SQLite's write lock. done, not
 		// err, is what the restore is keyed on: a panic unwinds through this
@@ -799,6 +822,9 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 		defer func() {
 			if !done {
 				if rerr := staged.restore(); rerr != nil {
+					err = errors.Join(err, rerr)
+				}
+				if rerr := revStaged.restore(); rerr != nil {
 					err = errors.Join(err, rerr)
 				}
 			}
@@ -832,14 +858,22 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 		qerr := c.db.Get(&gone, `SELECT COUNT(*) FROM knowledge WHERE id = ?`, doc.ID)
 		if writeLanded(gone == 0, qerr) {
 			err = nil
-		} else if rerr := staged.restore(); rerr != nil {
-			err = errors.Join(err, rerr)
+		} else {
+			if rerr := staged.restore(); rerr != nil {
+				err = errors.Join(err, rerr)
+			}
+			if rerr := revStaged.restore(); rerr != nil {
+				err = errors.Join(err, rerr)
+			}
 		}
 	}
 	if err != nil {
 		return err
 	}
 	if err := staged.finalize(); err != nil {
+		return err
+	}
+	if err := revStaged.finalize(); err != nil {
 		return err
 	}
 	c.notifyKnowledgeChanged(ctx, projectID)

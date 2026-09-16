@@ -169,7 +169,10 @@ func newConfigSetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set <key> <value>",
 		Short: "Set a config value",
-		Args:  cobra.ExactArgs(2),
+		Long: "Set a config value.\n\n" +
+			"A value starting with - (e.g. a negative number) needs a -- separator " +
+			"so it is not read as a flag: trellis config set -- history.keep -1",
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := args[0]
 			value := args[1]
@@ -187,6 +190,9 @@ func newConfigSetCmd() *cobra.Command {
 				return core.ErrUsage("unknown_key",
 					fmt.Sprintf("unknown config key: %q", key),
 					"trellis config ls")
+			}
+			if err := config.ValidateValue(key, value); err != nil {
+				return core.ErrUsage("invalid_value", err.Error(), "trellis config set history.keep 100")
 			}
 
 			pctx, err := currentProject()
@@ -244,6 +250,7 @@ func newConfigLsCmd() *cobra.Command {
 				"search.method",
 				"search.vector.enabled", "search.vector.provider", "search.vector.embed_command", "search.vector.endpoint",
 				"search.vector.model", "search.vector.dimension", "search.vector.limit",
+				"history.keep",
 			}
 
 			var rows []configRow

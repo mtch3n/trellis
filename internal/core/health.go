@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"errors"
+	"os"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -62,6 +64,11 @@ func (c *Core) Health(ctx context.Context, projectID string) ([]HealthLine, erro
 		return nil, err
 	}
 
+	revisions, orphanedHistory, err := c.RevisionHealth(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
 	return []HealthLine{
 		{What: "entries", Count: total, Fix: "trellis knowledge ls"},
 		{What: "never read in " + itoa(ReadWindowDays) + "d", Count: cold, Fix: "trellis knowledge ls --cold"},
@@ -69,8 +76,38 @@ func (c *Core) Health(ctx context.Context, projectID string) ([]HealthLine, erro
 		{What: "orphans (no links)", Count: byKind["orphan"], Fix: "trellis knowledge lint"},
 		{What: "stubs", Count: byKind["stub"], Fix: "trellis knowledge lint"},
 		{What: "broken anchors", Count: byKind["broken_anchor"], Fix: "trellis knowledge lint"},
+		{What: "revisions", Count: revisions, Fix: "trellis maintenance prune --revisions"},
+		{What: "orphaned revision directories", Count: orphanedHistory, Fix: "trellis maintenance prune --orphan-history"},
 	}, nil
 }
+
+// RevisionHealth counts an entry's retained revisions and the revision
+// directories no entry accounts for. A row whose file is missing keeps its
+// history and is reported by lint as a missing file, not counted here.
+func (c *Core) RevisionHealth(ctx context.Context, projectID string) (revisions, orphaned int, err error) {
+	var docs []Knowledge
+	if err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		return tx.Select(&docs, `SELECT * FROM knowledge WHERE project_id = ?`, projectID)
+	}); err != nil {
+		return 0, 0, err
+	}
+	for _, d := range docs {
+		entries, derr := os.ReadDir(revisionDir(d.Path))
+		if errors.Is(derr, os.ErrNotExist) {
+			continue
+		}
+		if derr != nil {
+			return 0, 0, derr
+		}
+		revisions += len(entries)
+	}
+	orphans, err := c.orphanRevisionDirs(ctx, projectID)
+	if err != nil {
+		return 0, 0, err
+	}
+	return revisions, len(orphans), nil
+}
+
 func readWindowMS() int64 { return int64(ReadWindowDays) * 24 * 60 * 60 * 1000 }
 
 // ColdKnowledge lists entries nothing has read inside the window. Cold is a

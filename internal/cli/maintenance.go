@@ -18,30 +18,58 @@ func newMaintenanceCmd() *cobra.Command {
 
 func newMaintenancePruneCmd() *cobra.Command {
 	var retention string
-	var events, invocations bool
+	var events, invocations, revisions, orphanHistory bool
 	cmd := &cobra.Command{
-		Use: "prune", Short: "Delete old event or invocation history",
+		Use: "prune", Short: "Delete old event, invocation or revision history",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			age, err := retentionDuration(retention)
-			if err != nil {
-				return core.ErrUsage("invalid_retention", err.Error(), "trellis maintenance prune --before 90d --events")
+			if !events && !invocations && !revisions && !orphanHistory {
+				return core.ErrUsage("nothing_to_prune",
+					"select --events, --invocations, --revisions and/or --orphan-history",
+					"trellis maintenance prune --before 90d --events")
 			}
 			c, db, err := openCore()
 			if err != nil {
 				return err
 			}
 			defer db.Close()
-			n, err := c.PruneHistory(cmd.Context(), time.Now().Add(-age).UnixMilli(), events, invocations)
-			if err != nil {
-				return err
+
+			var total int64
+			var before int64
+			if events || invocations {
+				age, err := retentionDuration(retention)
+				if err != nil {
+					return core.ErrUsage("invalid_retention", err.Error(), "trellis maintenance prune --before 90d --events")
+				}
+				before = time.Now().Add(-age).UnixMilli()
+				n, err := c.PruneHistory(cmd.Context(), before, events, invocations)
+				if err != nil {
+					return err
+				}
+				total += n
 			}
-			return Emit(cmd, map[string]any{"deleted": n, "before": time.Now().Add(-age).UnixMilli()}, func() string { return fmt.Sprintf("deleted %d historical rows", n) })
+			if revisions {
+				n, err := c.PruneRevisions(cmd.Context())
+				if err != nil {
+					return err
+				}
+				total += n
+			}
+			if orphanHistory {
+				n, err := c.PruneOrphanHistory(cmd.Context())
+				if err != nil {
+					return err
+				}
+				total += n
+			}
+			return Emit(cmd, map[string]any{"deleted": total, "before": before},
+				func() string { return fmt.Sprintf("deleted %d historical rows", total) })
 		},
 	}
-	cmd.Flags().StringVar(&retention, "before", "", "retention age, for example 90d or 12h")
+	cmd.Flags().StringVar(&retention, "before", "", "retention age, for example 90d or 12h (required with --events or --invocations)")
 	cmd.Flags().BoolVar(&events, "events", false, "prune event history")
 	cmd.Flags().BoolVar(&invocations, "invocations", false, "prune invocation history")
-	_ = cmd.MarkFlagRequired("before")
+	cmd.Flags().BoolVar(&revisions, "revisions", false, "trim every entry's and card's revisions to history.keep")
+	cmd.Flags().BoolVar(&orphanHistory, "orphan-history", false, "remove revision directories whose entry file is gone")
 	return cmd
 }
 

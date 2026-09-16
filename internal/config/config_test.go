@@ -314,3 +314,62 @@ func TestLoadKeepsUIDisabled(t *testing.T) {
 		t.Errorf("config ls should report false, got %q found=%v", value, found)
 	}
 }
+
+func TestHistoryKeepDefaultsTo100(t *testing.T) {
+	if keep := Defaults().History.EffectiveKeep(); keep != 100 {
+		t.Fatalf("History.EffectiveKeep() = %d, want 100", keep)
+	}
+}
+
+func TestHistoryKeepZeroSurvivesApplyDefaults(t *testing.T) {
+	zero := 0
+	cfg := Config{History: HistoryConfig{Keep: &zero}}
+	applyDefaults(&cfg)
+	if got := cfg.History.EffectiveKeep(); got != 0 {
+		t.Errorf("History.EffectiveKeep() = %d, want 0: applyDefaults must not resurrect the default", got)
+	}
+}
+
+func TestLoadKeepsHistoryKeepZero(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("TRELLIS_HOME", root)
+	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte("history:\n  keep: 0\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := cfg.History.EffectiveKeep(); got != 0 {
+		t.Errorf("History.EffectiveKeep() = %d, want 0", got)
+	}
+	if value, found := GetValue(cfg, "history.keep"); !found || value != "0" {
+		t.Errorf("config ls should report 0, got %q found=%v", value, found)
+	}
+}
+
+func TestLoadRejectsNegativeHistoryKeep(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("TRELLIS_HOME", root)
+	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte("history:\n  keep: -1\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if _, err := Load(); err == nil {
+		t.Error("Load with history.keep: -1, want an error")
+	}
+}
+
+func TestValidateValueRejectsNegativeHistoryKeep(t *testing.T) {
+	if err := ValidateValue("history.keep", "-1"); err == nil {
+		t.Error("ValidateValue(history.keep, -1), want an error")
+	}
+	if err := ValidateValue("history.keep", "0"); err != nil {
+		t.Errorf("ValidateValue(history.keep, 0): %v, want nil", err)
+	}
+	if err := ValidateValue("history.keep", "not-a-number"); err == nil {
+		t.Error("ValidateValue(history.keep, not-a-number), want an error")
+	}
+	if err := ValidateValue("ui.port", "-1"); err != nil {
+		t.Errorf("ValidateValue(ui.port, -1): %v, want nil: only history.keep is constrained so far", err)
+	}
+}
