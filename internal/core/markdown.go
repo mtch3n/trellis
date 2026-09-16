@@ -35,22 +35,38 @@ type Frontmatter struct {
 	Artifacts []string `yaml:"artifacts,omitempty"`
 	Created   string   `yaml:"created,omitempty"`
 	Updated   string   `yaml:"updated,omitempty"`
+	// Extra keeps every frontmatter key this struct does not name. A
+	// template may ask for a field ("owner", "severity") that has no
+	// dedicated column here; without this, yaml.Unmarshal would silently
+	// drop it, and the first `knowledge edit` — which re-renders the
+	// frontmatter from this struct — would erase it from the file.
+	Extra map[string]any `yaml:",inline"`
+}
+
+// splitHeader separates a "---\n...\n---\n" YAML header from the body of any
+// file using that convention, without assuming what the header unmarshals
+// into. SplitFrontmatter and the template parser in template.go both build
+// on this, so the delimiter rule exists in exactly one place.
+func splitHeader(raw string) (header, body string, ok bool) {
+	s := strings.ReplaceAll(raw, "\r\n", "\n")
+	if !strings.HasPrefix(s, "---\n") {
+		return "", s, false
+	}
+	end := strings.Index(s[4:], "\n---")
+	if end < 0 {
+		return "", s, false
+	}
+	return s[4 : 4+end], strings.TrimPrefix(s[4+end+4:], "\n"), true
 }
 
 // SplitFrontmatter separates the YAML header from the body. A file without one
 // is not an error: a hand-written note is still a note.
 func SplitFrontmatter(raw string) (Frontmatter, string, error) {
 	var fm Frontmatter
-	s := strings.ReplaceAll(raw, "\r\n", "\n")
-	if !strings.HasPrefix(s, "---\n") {
-		return fm, s, nil
+	header, body, ok := splitHeader(raw)
+	if !ok {
+		return fm, body, nil
 	}
-	end := strings.Index(s[4:], "\n---")
-	if end < 0 {
-		return fm, s, nil
-	}
-	header := s[4 : 4+end]
-	body := strings.TrimPrefix(s[4+end+4:], "\n")
 	if err := yaml.Unmarshal([]byte(header), &fm); err != nil {
 		return fm, body, ErrUsage("bad_frontmatter", "the YAML frontmatter does not parse: "+err.Error(), "")
 	}
