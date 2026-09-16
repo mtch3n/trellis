@@ -187,3 +187,58 @@ func TestIndexesUseSeparateVirtualTablesAndDatabases(t *testing.T) {
 		t.Fatalf("b count = %d, err = %v", got, err)
 	}
 }
+
+// A deleted project's virtual tables are dropped from the shared database, and
+// a later New recreates them.
+func TestDropTablesRemovesAProjectsVirtualTables(t *testing.T) {
+	dir := t.TempDir()
+	primary, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "primary.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer primary.Close()
+	primary.SetMaxOpenConns(1)
+	cfg := config.VectorSearchConfig{Enabled: true, EmbedCommand: fakeEmbed, Dimension: 2, Limit: 5}
+	path := filepath.Join(dir, "p", "vectors.db")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := New(primary, path, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	virtual, shadow := idx.virtualTable, idx.shadowTable
+	if err := idx.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	tableCount := func() int {
+		t.Helper()
+		var n int
+		if err := primary.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name IN (?, ?)`, virtual, shadow).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if tableCount() == 0 {
+		t.Fatalf("New created neither %s nor %s", virtual, shadow)
+	}
+	if err := DropTables(t.Context(), primary, path); err != nil {
+		t.Fatal(err)
+	}
+	if n := tableCount(); n != 0 {
+		t.Fatalf("%d of the project's tables remain after DropTables", n)
+	}
+	// Dropping twice is harmless, and New brings the tables back.
+	if err := DropTables(t.Context(), primary, path); err != nil {
+		t.Fatal(err)
+	}
+	again, err := New(primary, path, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	if tableCount() == 0 {
+		t.Fatal("New did not recreate the tables")
+	}
+}
