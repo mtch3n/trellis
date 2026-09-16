@@ -38,7 +38,7 @@ func newCardCmd() *cobra.Command {
 	cmd.AddCommand(
 		newCardNewCmd(), newCardShowCmd(), newCardLsCmd(), newCardMoveCmd(), newCardEditCmd(), newCardRmCmd(),
 		newCardClaimCmd(), newCardReleaseCmd(), newCardRenewCmd(), newCardNextCmd(), newCardNoteCmd(),
-		newCardArchiveCmd(), newCardBlockCmd(), newCardImportCmd(), newCardHistoryCmd(), newCardDiffCmd())
+		newCardArchiveCmd(), newCardBlockCmd(), newCardRelateCmd(), newCardImportCmd(), newCardHistoryCmd(), newCardDiffCmd())
 	return cmd
 }
 
@@ -101,10 +101,15 @@ func newCardShowCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				relations, err := app.Core.CardRelations(cmd.Context(), card.ID)
+				if err != nil {
+					return err
+				}
 				view := struct {
 					core.Card
-					BlockedBy []core.Blocker `json:"blocked_by,omitempty"`
-				}{Card: card, BlockedBy: blockers}
+					BlockedBy []core.Blocker      `json:"blocked_by,omitempty"`
+					Relations []core.CardRelation `json:"relations,omitempty"`
+				}{Card: card, BlockedBy: blockers, Relations: relations}
 				return Emit(cmd, view, func() string {
 					head := card.Ref + "  [" + card.ColumnName + "/" + card.PriorityName + "]  " + card.Title
 					if len(blockers) > 0 {
