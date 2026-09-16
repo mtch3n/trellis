@@ -22,9 +22,16 @@ type projectContext struct {
 	Project core.Project
 	db      *sqlx.DB
 	cfg     config.Config
+	present map[string]bool
+	repo    config.RepoDoc
 }
 
-// currentProject resolves the current project without requiring a board.
+// currentProject resolves the current project without requiring a board. It
+// also resolves the directory that answered — the .trellis pin's directory,
+// or the repository root when there is no pin yet — and loads that
+// directory's .trellis.yaml, if any. A project named by --project or
+// TRELLIS_PROJECT skips directory resolution entirely, so it reads no
+// repository file, matching the design.
 func currentProject() (*projectContext, error) {
 	c, db, err := openCore()
 	if err != nil {
@@ -32,6 +39,7 @@ func currentProject() (*projectContext, error) {
 	}
 
 	var p core.Project
+	var repoDir string
 	if key := projectKey(); key != "" {
 		// --project XPSCTL settings a project you are not standing in.
 		if p, err = c.ProjectByKey(context.Background(), key); err != nil {
@@ -49,17 +57,24 @@ func currentProject() (*projectContext, error) {
 			db.Close()
 			return nil, core.ErrUsage("unresolved", err.Error(), "trellis init --pin")
 		}
+		repoDir = id.RootPath
 		if p, err = c.EnsureProject(context.Background(), id); err != nil {
 			db.Close()
 			return nil, err
 		}
 	}
 
-	cfg, err := config.Load()
+	cfg, present, err := config.LoadWithPresence()
 	if err != nil {
 		// Log but don't fail: config file issues are warnings, not hard stops.
 		// Fall back to defaults.
 		cfg = config.Defaults()
+		present = map[string]bool{}
+	}
+	repo, _, _, err := config.LoadRepo(repoDir)
+	if err != nil {
+		db.Close()
+		return nil, core.ErrUsage("bad_repo_config", err.Error(), "fix the file .trellis.yaml/.trellis.yml names")
 	}
 
 	return &projectContext{
@@ -67,6 +82,8 @@ func currentProject() (*projectContext, error) {
 		Project: p,
 		db:      db,
 		cfg:     cfg,
+		present: present,
+		repo:    repo,
 	}, nil
 }
 
@@ -113,23 +130,18 @@ func newConfigGetCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := args[0]
 
-			// Load global config.
-			globalCfg, err := config.Load()
-			if err != nil {
-				globalCfg = config.Defaults()
-			}
-
 			// A project override always wins where one resolves; outside a
 			// repository there is nothing to override with, so the global
-			// default is the answer. The source field says which happened, so
-			// no flag is needed to ask.
+			// default (or the repo file, if standing in one) is the answer.
+			// The source field says which happened, so no flag is needed to
+			// ask.
 			pctx, perr := resolveConfigProject()
 			if perr != nil {
 				return perr
 			}
 			if pctx != nil {
 				defer pctx.db.Close()
-				value, source, err := config.EffectiveValue(cmd.Context(), globalCfg, pctx.db, pctx.Project.ID, key)
+				value, source, err := config.EffectiveValue(cmd.Context(), pctx.cfg, pctx.present, pctx.repo, pctx.db, pctx.Project.ID, key)
 				if err != nil {
 					return core.ErrUsage("unknown_key", err.Error(), "trellis config ls")
 				}
@@ -144,19 +156,27 @@ func newConfigGetCmd() *cobra.Command {
 			}
 
 			// Global scope: just get the default value.
+			globalCfg, present, err := config.LoadWithPresence()
+			if err != nil {
+				globalCfg, present = config.Defaults(), map[string]bool{}
+			}
 			value, found := config.GetValue(globalCfg, key)
 			if !found {
 				return core.ErrUsage("unknown_key",
 					fmt.Sprintf("unknown config key: %q", key),
 					"trellis config ls")
 			}
+			source := "default"
+			if present[key] {
+				source = "config"
+			}
 
 			return Emit(cmd, map[string]string{
 				"key":    key,
 				"value":  value,
-				"source": "default",
+				"source": source,
 			}, func() string {
-				return fmt.Sprintf("%s = %s", key, value)
+				return fmt.Sprintf("%s = %s  (%s)", key, value, source)
 			})
 		},
 	}
@@ -225,27 +245,6 @@ func newConfigLsCmd() *cobra.Command {
 		Use:   "ls",
 		Short: "List all config values",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			globalCfg, err := config.Load()
-			if err != nil {
-				globalCfg = config.Defaults()
-			}
-
-			// All known keys.
-			allKeys := []string{
-				"ui.port", "ui.bind", "ui.enabled",
-				"db.busy_timeout_ms",
-				"git.timeout",
-				"lease.ttl",
-				"board.default_columns",
-				"labels.preset", "labels.require_on_card",
-				"tags.require_on_card",
-				"card.ls_limit", "card.duplicate_check", "card.duplicate_threshold",
-				"search.limit",
-				"search.method",
-				"search.vector.enabled", "search.vector.provider", "search.vector.embed_command", "search.vector.endpoint",
-				"search.vector.model", "search.vector.dimension", "search.vector.limit",
-			}
-
 			var rows []configRow
 
 			pctx, perr := resolveConfigProject()
@@ -255,8 +254,8 @@ func newConfigLsCmd() *cobra.Command {
 			if pctx != nil {
 				defer pctx.db.Close()
 
-				for _, key := range allKeys {
-					value, source, err := config.EffectiveValue(cmd.Context(), globalCfg, pctx.db, pctx.Project.ID, key)
+				for _, key := range config.AllKeys() {
+					value, source, err := config.EffectiveValue(cmd.Context(), pctx.cfg, pctx.present, pctx.repo, pctx.db, pctx.Project.ID, key)
 					if err != nil {
 						continue // Skip unknown keys (shouldn't happen).
 					}
@@ -268,10 +267,18 @@ func newConfigLsCmd() *cobra.Command {
 				})
 			}
 
-			// Global scope: just show defaults.
-			for _, key := range allKeys {
+			// Global scope: just show defaults, or the global file's values.
+			globalCfg, present, err := config.LoadWithPresence()
+			if err != nil {
+				globalCfg, present = config.Defaults(), map[string]bool{}
+			}
+			for _, key := range config.AllKeys() {
 				value, _ := config.GetValue(globalCfg, key)
-				rows = append(rows, configRow{Key: key, Value: value, Source: "default"})
+				source := "default"
+				if present[key] {
+					source = "config"
+				}
+				rows = append(rows, configRow{Key: key, Value: value, Source: source})
 			}
 
 			return Emit(cmd, rows, func() string {

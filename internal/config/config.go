@@ -289,17 +289,25 @@ func GetValue(cfg Config, key string) (string, bool) {
 	}
 }
 
-// EffectiveValue returns the effective value for a key, resolving defaults then
-// project overrides. source will be "default", "config", or "project".
-func EffectiveValue(ctx context.Context, cfg Config, db *sqlx.DB, projectID, key string) (value string, source string, err error) {
-	// Start with the default.
+// EffectiveValue resolves key through every precedence layer, lowest to
+// highest: built-in defaults, the global config file, a repository's
+// .trellis.yaml, then a project override in the database. source names
+// whichever layer answered: "default", "config", "repo" or "project".
+func EffectiveValue(ctx context.Context, cfg Config, present map[string]bool, repo RepoDoc, db *sqlx.DB, projectID, key string) (value, source string, err error) {
 	value, found := GetValue(cfg, key)
 	if !found {
 		return "", "", fmt.Errorf("unknown config key: %q", key)
 	}
 	source = "default"
+	if present[key] {
+		source = "config"
+	}
+	if repo.Present[key] {
+		if v, ok := GetValue(repo.Config, key); ok {
+			value, source = v, "repo"
+		}
+	}
 
-	// Check for project override.
 	override, ok, err := GetProjectConfig(ctx, db, projectID, key)
 	if err != nil {
 		return "", "", err
@@ -307,7 +315,6 @@ func EffectiveValue(ctx context.Context, cfg Config, db *sqlx.DB, projectID, key
 	if ok {
 		return override, "project", nil
 	}
-
 	return value, source, nil
 }
 
@@ -518,4 +525,105 @@ func setConfigField(cfg *Config, key string, node *yaml.Node) error {
 	default:
 		return fmt.Errorf("not a repository-safe key")
 	}
+}
+
+// AllKeys lists every dotted config key GetValue understands, in the order
+// `config ls` displays them. internal/cli/config.go's newConfigLsCmd uses
+// this instead of keeping its own copy of the list.
+func AllKeys() []string {
+	return []string{
+		"ui.port", "ui.bind", "ui.enabled",
+		"db.busy_timeout_ms",
+		"git.timeout",
+		"lease.ttl",
+		"board.default_columns",
+		"labels.preset", "labels.require_on_card",
+		"tags.require_on_card",
+		"card.ls_limit", "card.duplicate_check", "card.duplicate_threshold",
+		"search.limit",
+		"search.method",
+		"search.vector.enabled", "search.vector.provider", "search.vector.embed_command", "search.vector.endpoint",
+		"search.vector.model", "search.vector.dimension", "search.vector.limit",
+	}
+}
+
+// LoadWithPresence is Load, plus which dotted keys the global file itself
+// set. This is why it exists: EffectiveValue must report "config", not
+// "default", for a value that came from the file, and by the time Load
+// applies its defaults onto an unset field the two are indistinguishable.
+func LoadWithPresence() (Config, map[string]bool, error) {
+	cfg := Defaults()
+	path, err := configPath()
+	if err != nil {
+		return cfg, map[string]bool{}, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return cfg, map[string]bool{}, nil
+		}
+		return cfg, map[string]bool{}, fmt.Errorf("read config: %w", err)
+	}
+	var raw Config
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return cfg, map[string]bool{}, fmt.Errorf("parse config: %w", err)
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return cfg, map[string]bool{}, fmt.Errorf("parse config: %w", err)
+	}
+	applyDefaults(&cfg)
+	return cfg, presentKeys(raw), nil
+}
+
+// presentKeys reports which of AllKeys raw actually set, by comparing
+// GetValue's string form of raw against the same key read from an entirely
+// zero Config. This shares GetValue's one known blind spot: an explicit
+// value equal to the zero value (search.limit: 0, ui.enabled: true) is
+// indistinguishable from absence — the same limitation applyDefaults already
+// has no way around.
+func presentKeys(raw Config) map[string]bool {
+	present := map[string]bool{}
+	var zero Config
+	for _, key := range AllKeys() {
+		rawStr, _ := GetValue(raw, key)
+		zeroStr, _ := GetValue(zero, key)
+		if rawStr != zeroStr {
+			present[key] = true
+		}
+	}
+	return present
+}
+
+// ApplyRepoOverrides returns cfg with every repository-safe key repo.Present
+// sets copied on top, field by field. EffectiveValue answers one key at a
+// time against a database; this is for a caller — currentBoard, priming the
+// Core's lease TTL, default columns and label/tag requirements — that needs
+// a whole Config to seed something with, before any per-key project override
+// is even in the picture.
+func ApplyRepoOverrides(cfg Config, repo RepoDoc) Config {
+	for key := range repo.Present {
+		switch key {
+		case "card.ls_limit":
+			cfg.Card.LsLimit = repo.Config.Card.LsLimit
+		case "card.duplicate_check":
+			cfg.Card.DuplicateCheck = repo.Config.Card.DuplicateCheck
+		case "card.duplicate_threshold":
+			cfg.Card.DuplicateThreshold = repo.Config.Card.DuplicateThreshold
+		case "lease.ttl":
+			cfg.Lease.TTL = repo.Config.Lease.TTL
+		case "board.default_columns":
+			cfg.Board.DefaultColumns = repo.Config.Board.DefaultColumns
+		case "labels.preset":
+			cfg.Labels.Preset = repo.Config.Labels.Preset
+		case "labels.require_on_card":
+			cfg.Labels.RequireOnCard = repo.Config.Labels.RequireOnCard
+		case "tags.require_on_card":
+			cfg.Tags.RequireOnCard = repo.Config.Tags.RequireOnCard
+		case "search.limit":
+			cfg.Search.Limit = repo.Config.Search.Limit
+		case "search.method":
+			cfg.Search.Method = repo.Config.Search.Method
+		}
+	}
+	return cfg
 }
