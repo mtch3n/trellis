@@ -345,6 +345,7 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 	// The flag is compared separately because the content hash cannot see it:
 	// a database restored from an older backup, or a file that already carried
 	// the key when the column was added, has an unchanged file and a wrong row.
+	becamePrivate := fm.Private && !doc.Private
 	privateDrifted := doc.Private != fm.Private
 	doc.Private = fm.Private
 	doc.BodyMD = body
@@ -368,6 +369,11 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 		doc.Title, doc.DocType, doc.Summary, doc.Provenance, doc.Private, doc.ContentHash,
 		doc.MTime, doc.Size, doc.Version, doc.UpdatedAt, doc.ID); err != nil {
 		return err
+	}
+	if becamePrivate {
+		if err := c.purgeDisclosedCopies(tx, doc); err != nil {
+			return err
+		}
 	}
 	if err := c.syncDocRelations(tx, doc, fm, body); err != nil {
 		return err

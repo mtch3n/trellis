@@ -420,6 +420,118 @@ func TestEditOnPrivateRecordsNoContent(t *testing.T) {
 	}
 }
 
+// Marking an existing entry private has to clean up behind itself. The event
+// log is the copy that gets forgotten: PinKnowledge writes the recap into
+// new_value and EditKnowledgeFields writes the whole body there.
+func TestMarkingPrivatePurgesEveryLocalCopy(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Staging cluster access", Body: "initial\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "the password is hunter2\n", nil); err != nil {
+		t.Fatalf("EditKnowledge: %v", err)
+	}
+	if _, err := c.PinKnowledge(t.Context(), p.ID, doc.Slug, "hunter2 opens staging", ""); err != nil {
+		t.Fatalf("PinKnowledge: %v", err)
+	}
+
+	countLeaks := func() int {
+		t.Helper()
+		var n int
+		if err := c.db.Get(&n,
+			`SELECT COUNT(*) FROM event WHERE entity_id = ? AND COALESCE(new_value, '') LIKE '%hunter2%'`,
+			doc.ID); err != nil {
+			t.Fatalf("count events: %v", err)
+		}
+		return n
+	}
+	if countLeaks() == 0 {
+		t.Fatal("setup is wrong: nothing reached the event log")
+	}
+
+	setPrivateInFile(t, doc.Path, true)
+	reread, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	if err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+	if !reread.Private {
+		t.Fatal("the external edit was not picked up")
+	}
+
+	var recap string
+	if err := c.db.Get(&recap, `SELECT COALESCE(recap, '') FROM knowledge WHERE id = ?`, doc.ID); err != nil {
+		t.Fatalf("read recap: %v", err)
+	}
+	if recap != "" {
+		t.Errorf("knowledge.recap = %q, want it cleared", recap)
+	}
+	if n := countLeaks(); n != 0 {
+		t.Errorf("%d event rows still carry content, want 0", n)
+	}
+
+	// The pin itself is not content — it is (id, knowledge_id, board_id,
+	// created_at) — so the purge leaves it alone. Deleting it here would also
+	// make UnpinKnowledge fail right after a privatise (see
+	// TestUnpinningAJustPrivatisedEntrySucceeds). The pin must survive and
+	// inject only a title/ref pointer, with an empty recap.
+	pins, err := c.Pins(t.Context(), p.ID, "")
+	if err != nil {
+		t.Fatalf("Pins: %v", err)
+	}
+	var found bool
+	for _, pin := range pins {
+		if pin.Slug != doc.Slug {
+			continue
+		}
+		found = true
+		if pin.Recap != "" {
+			t.Errorf("pin.Recap = %q, want empty: the recap column was purged", pin.Recap)
+		}
+	}
+	if !found {
+		t.Error("the pin was dropped; it should survive as a pointer with no recap")
+	}
+}
+
+// The purge runs inside the caller's transaction. If it also deleted the pin,
+// UnpinKnowledge's own DELETE (which runs right after loadDoc triggers the
+// purge) would find zero rows, return not_pinned, and Core.Tx would roll back
+// the whole transaction — including the purge. An author who marks a document
+// private and immediately unpins it must not see that.
+func TestUnpinningAJustPrivatisedEntrySucceeds(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Staging cluster access", Body: "initial\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.PinKnowledge(t.Context(), p.ID, doc.Slug, "hunter2 opens staging", ""); err != nil {
+		t.Fatalf("PinKnowledge: %v", err)
+	}
+
+	setPrivateInFile(t, doc.Path, true)
+
+	if err := c.UnpinKnowledge(t.Context(), p.ID, doc.Slug, ""); err != nil {
+		t.Fatalf("UnpinKnowledge right after privatising: %v", err)
+	}
+
+	pins, err := c.Pins(t.Context(), p.ID, "")
+	if err != nil {
+		t.Fatalf("Pins: %v", err)
+	}
+	for _, pin := range pins {
+		if pin.Slug == doc.Slug {
+			t.Error("still pinned after UnpinKnowledge succeeded")
+		}
+	}
+}
+
 // Ordinary documents keep the audit fidelity they have today.
 func TestEditOnNormalStillRecordsContent(t *testing.T) {
 	c, p, _ := kbCore(t)
