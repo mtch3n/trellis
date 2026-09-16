@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -486,5 +487,107 @@ func TestKnowledgeFilterBuildsTheSameQueryEveryTime(t *testing.T) {
 		if got, _ := f.where(); got != first {
 			t.Fatalf("where() = %q then %q", first, got)
 		}
+	}
+}
+
+func TestCreateKnowledgeSetWritesExtraFields(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Rollback the API", Template: "runbook", Set: map[string]string{"owner": "alice"},
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	raw, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm, _, err := SplitFrontmatter(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fm.Extra["owner"] != "alice" {
+		t.Errorf("Extra = %+v, want owner: alice", fm.Extra)
+	}
+}
+
+func TestCreateKnowledgeSetRefusesANamedField(t *testing.T) {
+	c, p, _ := kbCore(t)
+	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "X", Set: map[string]string{"title": "Y"},
+	})
+	if e, ok := errors.AsType[*Error](err); !ok || e.Code != "reserved_field" {
+		t.Fatalf("err = %v, want reserved_field", err)
+	}
+}
+
+func TestCreateKnowledgeRejectsAMissingRequiredField(t *testing.T) {
+	c, p, _ := kbCore(t)
+	dir, err := c.templatesDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := "---\nenforce: reject\nrequired: [owner]\n---\n# {{title}}\n\nOwner: {{owner}}\n"
+	if err := os.WriteFile(filepath.Join(dir, "strict.md"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "X", Template: "strict"})
+	e, ok := errors.AsType[*Error](err)
+	if !ok || e.Code != "template_violation" || !strings.Contains(e.Msg, "owner") {
+		t.Fatalf("err = %v, want template_violation naming owner", err)
+	}
+	docs, err := c.ListKnowledge(t.Context(), p.ID, KnowledgeFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docs) != 0 {
+		t.Error("a rejected template must write nothing")
+	}
+}
+
+func TestCreateKnowledgeWarnsInsteadOfRejecting(t *testing.T) {
+	c, p, _ := kbCore(t)
+	dir, err := c.templatesDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := "---\nenforce: warn\nrequired: [owner]\n---\n# {{title}}\n"
+	if err := os.WriteFile(filepath.Join(dir, "lenient.md"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "X", Template: "lenient"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if len(doc.Warnings) != 1 || !strings.Contains(doc.Warnings[0], "owner") {
+		t.Errorf("Warnings = %v, want one naming owner", doc.Warnings)
+	}
+}
+
+func TestCreateKnowledgeChecksSectionsOnlyWhenBodyIsSupplied(t *testing.T) {
+	c, p, _ := kbCore(t)
+	dir, err := c.templatesDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := "---\nenforce: reject\n---\n# {{title}}\n\n## Steps\n"
+	if err := os.WriteFile(filepath.Join(dir, "sectioned.md"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "From skeleton", Template: "sectioned",
+	}); err != nil {
+		t.Fatalf("skeleton body: %v", err)
+	}
+
+	_, err = c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Missing a section", Template: "sectioned", Body: "# Missing a section\n\nNo headings here.\n",
+	})
+	e, ok := errors.AsType[*Error](err)
+	if !ok || e.Code != "template_violation" || !strings.Contains(e.Msg, "Steps") {
+		t.Fatalf("err = %v, want template_violation naming Steps", err)
 	}
 }

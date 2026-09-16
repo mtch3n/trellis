@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -222,4 +223,61 @@ func seedTemplates(dir string) error {
 		}
 	}
 	return nil
+}
+
+// reservedFrontmatterFields are the Frontmatter struct's own YAML keys. A
+// --set value using one of these would collide with Extra's inline map,
+// which yaml.v3 panics on rather than returning an error, so it is refused
+// up front instead.
+var reservedFrontmatterFields = map[string]bool{
+	"title": true, "type": true, "status": true, "summary": true,
+	"provenance": true, "private": true, "board": true, "tags": true,
+	"labels": true, "artifacts": true, "created": true, "updated": true,
+}
+
+// templateViolations checks supplied field values against a template's
+// rules. fields maps a field name to its values — a slice so a required
+// list field (sources, see TRELLIS-35) can mean "at least one", the same
+// rule a required scalar means "non-blank". Required fields are checked in
+// the order the template lists them; choices fields follow in sorted
+// order, so the result is deterministic regardless of Go's randomised map
+// iteration. checkSections is true only when the caller wrote the body
+// themselves: a skeleton's sections are present by construction.
+func templateViolations(t Template, fields map[string][]string, body string, checkSections bool) []string {
+	var out []string
+	for _, name := range t.Required {
+		nonBlank := 0
+		for _, v := range fields[name] {
+			if strings.TrimSpace(v) != "" {
+				nonBlank++
+			}
+		}
+		if nonBlank == 0 {
+			out = append(out, "missing required field "+name)
+		}
+	}
+	choiceFields := make([]string, 0, len(t.Choices))
+	for name := range t.Choices {
+		choiceFields = append(choiceFields, name)
+	}
+	sort.Strings(choiceFields)
+	for _, name := range choiceFields {
+		for _, v := range fields[name] {
+			if v == "" {
+				continue
+			}
+			if !slices.Contains(t.Choices[name], v) {
+				out = append(out, name+" must be one of "+strings.Join(t.Choices[name], ", ")+", not "+v)
+			}
+		}
+	}
+	if checkSections {
+		present := presentSections(body)
+		for _, heading := range requiredSections(t.Body) {
+			if !present[heading] {
+				out = append(out, "missing section "+heading)
+			}
+		}
+	}
+	return out
 }

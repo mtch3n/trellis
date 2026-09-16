@@ -56,6 +56,12 @@ type Knowledge struct {
 	Tags      []string      `db:"-" json:"tags,omitempty"`
 	Labels    []string      `db:"-" json:"labels,omitempty"`
 	Artifacts []ArtifactRef `db:"-" json:"artifacts,omitempty"`
+	// Warnings is set only by CreateKnowledge, when creating from a
+	// template under enforce: warn found a problem: a missing required
+	// field, a value outside its choices, or a missing section. It is
+	// never persisted or reloaded — the render-once model checks a
+	// document against its template once, at creation.
+	Warnings []string `db:"-" json:"warnings,omitempty"`
 }
 
 // ArtifactRef is an artifact as an entry names it. A name that does not resolve
@@ -81,6 +87,10 @@ type NewKnowledge struct {
 	Board      string // board name, association only
 	Tags       []string
 	Labels     []string
+	// Set supplies values for fields a template asks for (required or
+	// choices), and any other field the caller wants recorded. Every entry
+	// is written into the new document's frontmatter.
+	Set map[string]string
 }
 
 // KnowledgeEdit is a whole-document replacement. Nil fields retain their
@@ -104,18 +114,6 @@ func Templates() []string {
 	}
 	slices.Sort(names)
 	return names
-}
-
-func templateBody(name, title string) (string, error) {
-	if name == "" {
-		name = "note"
-	}
-	raw, err := templateFS.ReadFile("templates/" + name + ".md")
-	if err != nil {
-		return "", ErrUsage("unknown_template", "no template "+name,
-			"trellis knowledge new --template "+strings.Join(Templates(), "|"))
-	}
-	return strings.ReplaceAll(string(raw), "{{TITLE}}", title), nil
 }
 
 // WithKBRoot overrides where knowledge files live. Tests use it; the CLI does
@@ -157,11 +155,35 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 	if err != nil {
 		return Knowledge{}, err
 	}
-	body := in.Body
-	if body == "" {
-		if body, err = templateBody(in.Template, in.Title); err != nil {
-			return Knowledge{}, err
+	for name := range in.Set {
+		if reservedFrontmatterFields[name] {
+			return Knowledge{}, ErrUsage("reserved_field",
+				`"`+name+`" is a built-in frontmatter field and cannot be set with --set`,
+				"trellis knowledge new --title ...   # use the matching flag instead")
 		}
+	}
+	templatesDirPath, err := c.templatesDir()
+	if err != nil {
+		return Knowledge{}, err
+	}
+	tmpl, err := loadTemplate(templatesDirPath, cmpOr(in.Template, "note"))
+	if err != nil {
+		return Knowledge{}, err
+	}
+	fields := map[string][]string{}
+	for k, v := range in.Set {
+		fields[k] = []string{v}
+	}
+	body := in.Body
+	checkSections := body != ""
+	if body == "" {
+		body = stripOptionalMarkers(renderTemplateBody(tmpl.Body, in.Title, in.Set))
+	}
+	violations := templateViolations(tmpl, fields, body, checkSections)
+	if len(violations) > 0 && tmpl.Enforce == "reject" {
+		return Knowledge{}, ErrUsage("template_violation",
+			tmpl.Name+" does not meet its template:\n  - "+strings.Join(violations, "\n  - "),
+			"trellis knowledge template show "+tmpl.Name)
 	}
 	if err := c.checkWrite(ctx, ProposedWrite{
 		Op: "doc.write", EntityType: "knowledge", ProjectID: projectID,
@@ -203,6 +225,12 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 			Private:    in.Private,
 			Board:      boardName, Tags: in.Tags, Labels: in.Labels,
 			Created: msToRFC3339(now), Updated: msToRFC3339(now),
+		}
+		if len(in.Set) > 0 {
+			fm.Extra = make(map[string]any, len(in.Set))
+			for k, v := range in.Set {
+				fm.Extra[k] = v
+			}
 		}
 		raw := RenderDoc(fm, body)
 		path := filepath.Join(dir, slug+".md")
@@ -251,6 +279,9 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 	}
 	if err == nil {
 		c.notifyKnowledgeChanged(ctx, projectID)
+		if len(violations) > 0 {
+			doc.Warnings = violations
+		}
 	}
 	return doc, err
 }
