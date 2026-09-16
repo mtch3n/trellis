@@ -25,14 +25,14 @@ func newKnowledgeCmd() *cobra.Command {
 		newKnowledgeRmCmd(), newKnowledgePinCmd(), newKnowledgePinsCmd(), newKnowledgeLintCmd(),
 		newKnowledgeNominateCmd(), newKnowledgeNominationsCmd(), newKnowledgeEscalateCmd(),
 		newKnowledgeDemoteCmd(), newKnowledgeVerifyCmd(), newKnowledgeHealthCmd(),
-		newKnowledgeUptakeCmd())
+		newKnowledgeUptakeCmd(), newKnowledgeTemplateCmd())
 	return cmd
 }
 
 func newKnowledgeNewCmd() *cobra.Command {
 	var title, body, summary TextValue
 	var template, board, provenance string
-	var tags, labels []string
+	var tags, labels, setFlags []string
 	var private bool
 
 	cmd := &cobra.Command{
@@ -43,17 +43,27 @@ func newKnowledgeNewCmd() *cobra.Command {
 				return core.ErrUsage("missing_title", "a knowledge entry needs a title",
 					`trellis knowledge new --title "Concurrency model" --template decision`)
 			}
+			fields, err := parseSetFlags(setFlags)
+			if err != nil {
+				return err
+			}
 			return withBoard(func(app *appCtx) error {
 				doc, err := app.Core.CreateKnowledge(cmd.Context(), app.Project.ID, core.NewKnowledge{
 					Title: title.String(), Body: body.String(), Template: template,
 					Provenance: provenance,
 					Summary:    summary.String(), Board: board, Tags: tags, Labels: labels,
-					Private: private,
+					Private: private, Set: fields,
 				})
 				if err != nil {
 					return err
 				}
-				return Emit(cmd, doc, func() string { return doc.Ref + "\n" + doc.Path })
+				return Emit(cmd, doc, func() string {
+					out := doc.Ref + "\n" + doc.Path
+					for _, w := range doc.Warnings {
+						out += "\nwarning: " + w
+					}
+					return out
+				})
 			})
 		},
 	}
@@ -65,6 +75,7 @@ func newKnowledgeNewCmd() *cobra.Command {
 	cmd.Flags().StringVar(&board, "board", "", "associate with a board (association, never ownership)")
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "free-form tags")
 	cmd.Flags().StringSliceVar(&labels, "label", nil, "labels from the project vocabulary")
+	cmd.Flags().StringArrayVar(&setFlags, "set", nil, "name=value, repeatable; supplies a field the template asks for")
 	cmd.Flags().BoolVar(&private, "private", false,
 		"do not transmit this body automatically: no vector index, no recap, no content in the event log, pointer-only injection")
 	return cmd

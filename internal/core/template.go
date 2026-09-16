@@ -1,7 +1,10 @@
 package core
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -280,4 +283,174 @@ func templateViolations(t Template, fields map[string][]string, body string, che
 		}
 	}
 	return out
+}
+
+// TemplateInfo is one template's summary for `template ls`.
+type TemplateInfo struct {
+	Name    string `json:"name"`
+	Enforce string `json:"enforce"`
+	BuiltIn bool   `json:"builtin"`
+}
+
+// ListTemplates lists every template in <root>/templates, alphabetically.
+func (c *Core) ListTemplates(ctx context.Context) ([]TemplateInfo, error) {
+	dir, err := c.templatesDir()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	builtins := Templates()
+	out := make([]TemplateInfo, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		name := strings.TrimSuffix(e.Name(), ".md")
+		t, err := loadTemplate(dir, name)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, TemplateInfo{Name: name, Enforce: t.Enforce, BuiltIn: slices.Contains(builtins, name)})
+	}
+	slices.SortFunc(out, func(a, b TemplateInfo) int { return strings.Compare(a.Name, b.Name) })
+	return out, nil
+}
+
+// ShowTemplate returns one template's rules and skeleton.
+func (c *Core) ShowTemplate(ctx context.Context, name string) (Template, error) {
+	dir, err := c.templatesDir()
+	if err != nil {
+		return Template{}, err
+	}
+	t, err := loadTemplate(dir, name)
+	if err != nil {
+		return Template{}, err
+	}
+	t.BuiltIn = slices.Contains(Templates(), name)
+	return t, nil
+}
+
+// NewTemplate writes a minimal template — enforce: warn, no rules, a
+// "# {{title}}" heading — and refuses a name that already exists.
+func (c *Core) NewTemplate(ctx context.Context, name string) (Template, error) {
+	dir, err := c.templatesDir()
+	if err != nil {
+		return Template{}, err
+	}
+	path := filepath.Join(dir, name+".md")
+	raw := "---\nenforce: warn\n---\n# {{title}}\n"
+	if err := writeAtomic(path, []byte(raw), false); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return Template{}, ErrConflict("template_exists", "a template named "+name+" already exists",
+				"trellis knowledge template edit "+name)
+		}
+		return Template{}, err
+	}
+	return loadTemplate(dir, name)
+}
+
+// EditTemplate replaces name's whole file — frontmatter and body — after
+// checking it: a template that fails to parse or validate is not written.
+func (c *Core) EditTemplate(ctx context.Context, name, raw string) (Template, error) {
+	dir, err := c.templatesDir()
+	if err != nil {
+		return Template{}, err
+	}
+	path := filepath.Join(dir, name+".md")
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return Template{}, ErrUsage("unknown_template", "no template "+name, "trellis knowledge template ls")
+		}
+		return Template{}, err
+	}
+	header, _, ok := splitHeader(raw)
+	var rules TemplateRules
+	if ok {
+		if err := yaml.Unmarshal([]byte(header), &rules); err != nil {
+			return Template{}, ErrUsage("bad_template",
+				"the template's frontmatter does not parse: "+err.Error(), "")
+		}
+	}
+	if err := validateTemplateRules(rules); err != nil {
+		return Template{}, ErrUsage("bad_template", err.Error(), "")
+	}
+	if err := writeAtomic(path, []byte(raw), true); err != nil {
+		return Template{}, err
+	}
+	return loadTemplate(dir, name)
+}
+
+// DeleteTemplate removes a template file. Templates have no database row —
+// nothing else can point at one — so a plain remove is the whole operation.
+func (c *Core) DeleteTemplate(ctx context.Context, name string) error {
+	dir, err := c.templatesDir()
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(dir, name+".md")
+	if err := os.Remove(path); err != nil {
+		if os.IsNotExist(err) {
+			return ErrUsage("unknown_template", "no template "+name, "trellis knowledge template ls")
+		}
+		return err
+	}
+	return syncDirectory(dir)
+}
+
+// ReinstallTemplate overwrites name with its shipped version. It recreates
+// a deleted built-in and discards any edits to an existing one. It is
+// refused for a name that is not a built-in.
+func (c *Core) ReinstallTemplate(ctx context.Context, name string) (Template, error) {
+	if !slices.Contains(Templates(), name) {
+		return Template{}, ErrUsage("not_builtin", name+" is not a built-in template",
+			"trellis knowledge template ls   # built-ins: "+strings.Join(Templates(), ", "))
+	}
+	dir, err := c.templatesDir()
+	if err != nil {
+		return Template{}, err
+	}
+	raw, err := templateFS.ReadFile("templates/" + name + ".md")
+	if err != nil {
+		return Template{}, err
+	}
+	if err := writeAtomic(filepath.Join(dir, name+".md"), raw, true); err != nil {
+		return Template{}, err
+	}
+	t, err := loadTemplate(dir, name)
+	t.BuiltIn = true
+	return t, err
+}
+
+// CheckTemplate reports name's violations against slug's current fields and
+// sections. It never blocks and never errors because of a violation — the
+// document already exists.
+func (c *Core) CheckTemplate(ctx context.Context, projectID, name, slug string) ([]string, error) {
+	dir, err := c.templatesDir()
+	if err != nil {
+		return nil, err
+	}
+	tmpl, err := loadTemplate(dir, name)
+	if err != nil {
+		return nil, err
+	}
+	doc, err := c.LoadKnowledge(ctx, projectID, slug)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile(doc.Path)
+	if err != nil {
+		return nil, err
+	}
+	fm, body, err := splitDocFile(doc.Path, raw)
+	if err != nil {
+		return nil, err
+	}
+	fields := map[string][]string{}
+	for k, v := range fm.Extra {
+		fields[k] = []string{fmt.Sprint(v)}
+	}
+	return templateViolations(tmpl, fields, body, true), nil
 }
