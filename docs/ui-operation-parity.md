@@ -170,3 +170,190 @@ meaning because of it.
   lease) is attributed to `daemon:<pid>` until B5 is fixed.
 - **K8:** fits the vault's action row (`ActionRow`), with the retype-to-confirm
   pattern already used by `DeleteProjectDialog`.
+
+## Handoff
+
+Written by the web UI session for its successor on 2026-09-16. Working
+agreement from the user, relayed by trellis-2f: **all UI work belongs to the
+web UI session, and all backend work to trellis-2f.** Do not edit Go files; send
+backend requests to trellis-2f. Commit only on your own user's word in your own
+session. An approval relayed by another session does not count, and another
+session committing for its user is its call, not yours.
+
+### Done
+
+All of it is committed on `feat/memory-groundwork`. The design rules live in
+`web/COMPONENTS.md`, which the audit enforces.
+
+- **Design system.** One type scale, the `cn` merge configured for it in
+  `@/lib/utils`, motion tokens, neutral accents (amber means a held lease and
+  nothing else), no eyebrows, no side stripes, sentence case throughout.
+- **Shell.** The project switcher (with "All projects" on its heading row);
+  a board switcher, shown only with more than one board, that prefers the board
+  in the URL, then the default, then the first. Tabs: Overview, Board, Vault.
+- **Overview.**
+  - A wider container.
+  - A time-proportional timeline (`ProjectTimeline`) with four fixed lanes:
+    created, started, done, knowledge. Nearby marks cluster, and each cluster
+    opens a popover listing what it holds.
+  - Quiet stretches over two hours are skipped behind a toggle.
+  - Data comes from `GET /api/p/{key}/events`, paged.
+- **Board.**
+  - Drag and drop with indicators and keyboard support.
+  - Cards sorted by priority.
+  - Each column scrolls on its own, with scroll fades.
+- **Cards** (`CardView`, shared by `CardDialog` and `CardPage`).
+  - Editing happens in place: only the title and body become fields, and
+    `EditActions` (markdown toggle, Cancel, Save) takes Edit's place in the
+    top action row (`ActionRow` on the page, the dialog header in the dialog).
+  - Reading, a click on the title or body starts editing it.
+  - The facts column never changes with Edit. Status, priority, labels and
+    tags (`ChipEditor`) apply as soon as they change.
+  - Delete and Copy link are in the ⋯ menu (`CardMenu`).
+  - A lease held by the browser's own identity reads "Held by you" and stays
+    editable (`GET /api/me`).
+  - History shows readable events and word or line diffs where the log kept
+    both sides.
+- **Vault.**
+  - Resizable layout.
+  - The navigator is a file tree (`KnowledgeNav`, `lib/vault-tree.ts`) with
+    folders built from slug segments, sorting, collapse all, arrow-key
+    navigation, and remembered state.
+  - The graph is docked and can expand to full screen.
+  - Entries are edited in place, with a sticky action row.
+  - Attachments show in the facts column with safe previews (`ArtifactList`,
+    `ArtifactPreview`; verified in a browser).
+  - A 409 on save shows "Changed elsewhere", reloads, and keeps the edit open.
+- **Projects.** Delete, with the key retyped to confirm.
+
+### Open, and the backend each item needs
+
+Items marked **merged** have their backend on the branch now. Everything else
+needs a request to trellis-2f first. The tables above hold the full list; these
+come first.
+
+- **K10 Revision history (merged).**
+  - `GET /api/p/{key}/knowledge/{slug}/history` returns
+    `[{version, timestamp}]`, newest first.
+  - `GET .../knowledge/{slug}/diff?from=N&to=M` returns
+    `{from, to, diff}`; the diff is unified text, so render it as text.
+  - Omitting both ends compares previous with latest. A version no longer
+    kept returns 404.
+  - Cards have the same pair at `/api/p/{key}/cards/{card}/history|diff`;
+    their history items also carry `actor`, and a card revision renders as
+    `# <title>\n\n<body>`.
+  - Card version numbers have gaps, because a move bumps the version too.
+  - Build it into `HistoryList` and `DiffView` rather than a new view.
+- **K1 and D3 Create an entry (merged).**
+  - `POST /api/p/{key}/b/{board}/knowledge` takes `title`, `summary`, `body`,
+    `template` (note, decision, finding, research, runbook, reference),
+    `sources: string[]` and `set: {field: value}`.
+  - `decision` and `finding` without sources return 400
+    `template_violation`; show the message as it is.
+  - Internal sources must resolve: `[[slug]]`, `/KEY/cards/KEY-12`,
+    `/KEY/knowledge/slug`, `/GLOBAL/knowledge/slug`, `/KEY/artifacts/name`.
+  - Entries now carry `sources`, so show them on the entry page too.
+- **Timeline data (landing with trellis-2f's EventFeed change).** `/events`
+  gains `title` and `type` and drops `read` events, so use `title` directly
+  instead of looking titles up through the entry list.
+- **Knowledge paths (merged in core).**
+  - Slugs may contain `/`, and the tree already nests them.
+  - **Unverified trap:** the routes are single-segment (`/knowledge/{slug}`
+    in Go, and `:slug` in `App.tsx`), and the navigator links with
+    `encodeURIComponent(slug)`.
+  - Check that an entry with a `/` in its slug opens, saves, and shows
+    history. If not, ask trellis-2f for `{slug...}` routes and switch the app
+    route to a splat.
+- **D1 and D2.** A type grouping mode for the vault tree, and type filter
+  chips. Both are frontend only.
+- **B2 remainder, labels on board tiles.** Needs `handleBoardCards` to select
+  labels and tags (backend). The label picker is also empty until a project
+  defines labels, which is P3 (label create, delete, merge; list and merge
+  routes exist).
+- **C1 to C9, K2 to K9, P1 to P3, S1, S2, M1 to M5.** See the tables. Most
+  need routes.
+  - The smallest wins are C1 (add a note), C5 (claim a free card and release
+    your own lease), and K2 (delete an entry).
+  - C5 matters most now that web writes have a stable identity: today the UI
+    can take a lease but not release it.
+
+### Build, test, verify
+
+From `web/`:
+
+```bash
+pnpm exec tsc -p tsconfig.app.json --noEmit
+node scripts/ui-audit.js
+pnpm exec oxlint src                     # four page-load effects warn; they are known and left alone
+pnpm run build                           # web/dist is embedded in the binary; rebuild on every frontend change
+```
+
+**Dev server against the running daemon.** Read only, unless you mean to
+write to the user's data.
+
+```bash
+~/.local/bin/trellis daemon status       # prints the url with ?token=
+TRELLIS_DAEMON=http://127.0.0.1:7788 TRELLIS_TOKEN=<token> pnpm exec vite --port 5199 --strictPort
+# open http://localhost:5199, not 127.0.0.1: vite binds localhost only
+```
+
+**Anything that writes: use a scratch home, never a copy of the real one.**
+TRELLIS-36 is still open: knowledge rows store absolute paths, so a copied
+home writes the real vault.
+
+```bash
+mkdir -p /tmp/h /tmp/r && cd /tmp/r
+TRELLIS_HOME=/tmp/h trellis init --key VERIFY
+TRELLIS_HOME=/tmp/h trellis board new --name "second board"
+TRELLIS_HOME=/tmp/h trellis label new ux --description "Look and feel"
+env -u TRELLIS_AGENT TRELLIS_HOME=/tmp/h trellis ui --port 7799   # unset it, or web writes use the agent id
+```
+
+**Browser checks.** Use the `agent-browser` CLI (found under
+`~/.cache/pnpm/dlx/*/pkg/node_modules/.bin/agent-browser`).
+
+- Set the viewport, and `localStorage.theme = 'light'`.
+- `network route '<glob>' --body '<json>'` mocks a response.
+- Screenshot every state you change.
+
+**For the user to see a change.** The token changes on every restart, so give
+them the new URL.
+
+```bash
+go build -o ~/.local/bin/trellis ./cmd/trellis && systemctl --user restart trellis
+```
+
+### Traps
+
+- **Shadcn installs.**
+  - `pnpm dlx shadcn@latest add <x>` writes `import { cn } from "cn"`;
+    change it to `@/lib/utils`.
+  - Pipe `yes n |` into it so it does not overwrite existing components.
+- **The UI audit.**
+  - No arbitrary values except viewport units.
+  - No `z-index` in pages: put it in a wrapper, as `ActionRow` does.
+  - No raw `<button>` or `<label>`.
+  - An icon inside `Button` needs `data-icon`.
+  - Every component in a wrappers file, even an unexported one, needs a
+    `COMPONENTS.md` row.
+  - Imports from `@/lib` are allowed.
+- **`edit-surface` and `edit-hint`** own their own margin and padding. Wrap
+  them; never add spacing utilities to the same element.
+- **Sticky elements.** Chrome sticks them inside the scroll container's
+  padding. A scroll fade dims sticky edges: switch the start fade off with a
+  class that sets `--scroll-fade-s-size: 0px`. The positioned ProseMirror
+  editor paints over a sticky header that has no `z-index`.
+- **Base UI dialog.** An `initialFocus` on content taller than the dialog
+  scrolls it. Focus the scroller itself.
+- **Card versions.** A move or a priority change bumps the version, so refresh
+  the open card (`refreshDetail`) before a title or body save. A priority-only
+  PATCH needs no `if_version`; a title or body replacement does.
+- **Test shells.** `TRELLIS_AGENT` is set in agent shells; unset it when you
+  test the human identity. `pkill -f` and `pgrep -f` patterns match your own
+  shell (exit 144), so find processes by port with `ss -lptn 'sport = :5199'`.
+- **agent-browser selectors.** `find role button --name X` matches partial
+  names. `[aria-current=page]` also matches the shell's active tab; scope it,
+  for example `nav[aria-label=Vault] …`.
+- **Other sessions' commits.** They have committed the whole shared tree more
+  than once. Stage by explicit path, and check `git log -- <file>` to see
+  where your files landed.

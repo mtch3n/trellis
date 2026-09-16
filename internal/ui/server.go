@@ -283,8 +283,7 @@ const (
 // handleProjectEvents returns the events of a project's cards and knowledge,
 // oldest first, a page at a time. The event log only shrinks through
 // maintenance, so the caller pages forward with ?after=<next> and can poll the
-// same way for what is new. Events of deleted rows have nothing to join and
-// drop out.
+// same way for what is new.
 func (s *Server) handleProjectEvents(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -293,77 +292,34 @@ func (s *Server) handleProjectEvents(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusNotFound, "project not found")
 		return
 	}
-	var after int64
+
+	after := int64(0)
 	if raw := r.URL.Query().Get("after"); raw != "" {
-		parsed, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil || parsed < 0 {
-			s.error(w, http.StatusBadRequest, "after must be a non-negative event seq")
+		v, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			s.error(w, http.StatusBadRequest, "after must be an integer")
 			return
 		}
-		after = parsed
+		after = v
 	}
-	limit := projectEventsPage
+	limit := 0
 	if raw := r.URL.Query().Get("limit"); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil || parsed < 1 {
-			s.error(w, http.StatusBadRequest, "limit must be a positive number")
+		v, err := strconv.Atoi(raw)
+		if err != nil {
+			s.error(w, http.StatusBadRequest, "limit must be an integer")
 			return
 		}
-		limit = min(parsed, projectEventsPageMax)
+		limit = v
 	}
 
-	var rows []struct {
-		Seq        int64   `db:"seq"`
-		TS         int64   `db:"ts"`
-		Actor      string  `db:"actor"`
-		EntityType string  `db:"entity_type"`
-		Action     string  `db:"action"`
-		Field      string  `db:"field"`
-		Old        string  `db:"old_value"`
-		New        string  `db:"new_value"`
-		CardSeq    *int64  `db:"card_seq"`
-		Slug       *string `db:"slug"`
-		Global     *bool   `db:"global"`
-	}
-	// seq is the primary key, so the lower bound is a range scan and LIMIT
-	// stops it early, whatever the joins behind it cost per row.
-	if err := s.db.SelectContext(ctx, &rows, `
-		SELECT e.seq, e.ts, e.actor, e.entity_type, e.action,
-		       COALESCE(e.field, '') AS field,
-		       CASE WHEN e.field = 'column' THEN COALESCE(e.old_value, '') ELSE '' END AS old_value,
-		       CASE WHEN e.field = 'column' THEN COALESCE(e.new_value, '') ELSE '' END AS new_value,
-		       c.seq AS card_seq, k.slug AS slug, k.global AS global
-		FROM event e
-		LEFT JOIN card c ON e.entity_type = 'card' AND c.id = e.entity_id
-		LEFT JOIN knowledge k ON e.entity_type = 'knowledge' AND k.id = e.entity_id
-		WHERE e.seq > ? AND (c.project_id = ? OR k.project_id = ?)
-		ORDER BY e.seq
-		LIMIT ?`, after, p.ID, p.ID, limit); err != nil {
-		s.error(w, http.StatusInternalServerError, err.Error())
+	events, next, err := s.core.EventFeed(ctx, core.EventQuery{ProjectID: p.ID, After: after, Limit: limit})
+	if err != nil {
+		s.coreError(w, err)
 		return
 	}
-
-	events := make([]projectEvent, 0, len(rows))
-	for _, row := range rows {
-		event := projectEvent{
-			Seq: row.Seq, TS: row.TS, Actor: row.Actor, Kind: row.EntityType,
-			Action: row.Action, Field: row.Field, Old: row.Old, New: row.New,
-		}
-		switch {
-		case row.CardSeq != nil:
-			event.Ref = fmt.Sprintf("%s-%d", p.Key, *row.CardSeq)
-		case row.Slug != nil:
-			event.Ref = core.DocAddress(p.Key, row.Global != nil && *row.Global, *row.Slug)
-		}
-		events = append(events, event)
-	}
-	var next *int64
-	if len(events) > 0 {
-		next = &events[len(events)-1].Seq
-	}
 	writeJSON(w, http.StatusOK, struct {
-		Events []projectEvent `json:"events"`
-		Next   *int64         `json:"next"`
+		Events []core.FeedEvent `json:"events"`
+		Next   *int64           `json:"next"`
 	}{events, next})
 }
 

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ type appCtx struct {
 	Project core.Project
 	Board   core.Board
 	db      *sqlx.DB
+	cfg     config.Config
 }
 
 // boardFlag holds --board; empty means "apply the selection rules".
@@ -99,7 +101,33 @@ func currentBoard() (*appCtx, error) {
 		db.Close()
 		return nil, err
 	}
-	return &appCtx{Core: c, Project: r.Project, Board: b, db: db}, nil
+
+	// openCore already primed the Core's lease TTL, default columns and
+	// label/tag requirements from the global file alone. Now that the pin
+	// that chose the project (if any) is known, re-derive those settings with
+	// the repository file beside it layered in, and re-apply them: a
+	// repo-safe key wins over the global file. A project named by --project
+	// or TRELLIS_PROJECT has no pin and reads no repository file.
+	var repoDir string
+	if r.Pin != nil {
+		repoDir = filepath.Dir(r.Pin.Path)
+	}
+	cfg, _, cfgErr := config.LoadWithPresence()
+	if cfgErr != nil {
+		cfg = config.Defaults()
+	}
+	repo, _, _, repoErr := config.LoadRepo(repoDir)
+	if repoErr != nil {
+		db.Close()
+		return nil, core.ErrUsage("bad_repo_config", repoErr.Error(), "fix the file .trellis.yaml/.trellis.yml names")
+	}
+	effective := config.ApplyRepoOverrides(cfg, repo)
+	if ttl, err := time.ParseDuration(effective.Lease.TTL); err == nil {
+		c.SetLeaseTTL(ttl.Milliseconds())
+	}
+	c.SetDefaultColumns(effective.Board.DefaultColumns)
+	c.SetCardRequirements(effective.Labels.RequireOnCard, effective.Tags.RequireOnCard)
+	return &appCtx{Core: c, Project: r.Project, Board: b, db: db, cfg: effective}, nil
 }
 
 func newRootCmd() *cobra.Command {
@@ -120,7 +148,7 @@ func newRootCmd() *cobra.Command {
 	// All commands registered here once; each lives in its own file so later
 	// parallel tasks never edit root.go.
 	root.AddCommand(newInitCmd(), newProjectCmd(), newCardCmd(), newBoardCmd(), newColumnCmd(), newLabelCmd(), newUICmd(), newSearchCmd(), newRecallCmd(), newConfigCmd(), newAgentCmd(), newBackupCmd(), newVersionCmd(), newUpdateCmd(),
-		newKnowledgeCmd(), newArtifactCmd(), newLinkCmd(), newGraphCmd(), newVectorCmd(), newDaemonCmd(), newDoctorCmd(), newMaintenanceCmd(), newTUICmd())
+		newKnowledgeCmd(), newArtifactCmd(), newLinkCmd(), newGraphCmd(), newVectorCmd(), newDaemonCmd(), newDoctorCmd(), newMaintenanceCmd(), newTUICmd(), newEventsCmd(), newExtensionCmd())
 	return root
 }
 
@@ -206,11 +234,7 @@ func extractCommandAndSuggestions(root *cobra.Command, err error) (string, []str
 // configInt reads a project-effective integer setting, falling back to def when
 // the value is missing or unparseable: a bad setting must not break a listing.
 func configInt(ctx context.Context, app *appCtx, key string, def int) int {
-	cfg, err := config.Load()
-	if err != nil {
-		cfg = config.Defaults()
-	}
-	raw, _, err := config.EffectiveValue(ctx, cfg, app.db, app.Project.ID, key)
+	raw, _, err := config.EffectiveValue(ctx, app.cfg, map[string]bool{}, config.RepoDoc{}, app.db, app.Project.ID, key)
 	if err != nil {
 		return def
 	}

@@ -255,3 +255,348 @@ func TestDeleteKnowledgeDoesNotBareLeafIntoTheGlobalVault(t *testing.T) {
 		t.Fatalf("err = %v, want knowledge_not_found: rm must not reach into another project's escalated entry", err)
 	}
 }
+
+func TestMoveKnowledgeUpdatesSlugPathAndFile(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	oldPath := doc.Path
+	moved, err := c.MoveKnowledge(t.Context(), p.ID, doc.Slug, "deployment/rollback-runbook", false)
+	if err != nil {
+		t.Fatalf("MoveKnowledge: %v", err)
+	}
+	if moved.Slug != "deployment/rollback-runbook" {
+		t.Fatalf("slug = %q", moved.Slug)
+	}
+	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
+		t.Fatalf("the old file must be gone: %v", err)
+	}
+	if _, err := os.Stat(moved.Path); err != nil {
+		t.Fatalf("the new file must exist: %v", err)
+	}
+	if _, err := c.LoadKnowledge(t.Context(), p.ID, "deployment/rollback-runbook"); err != nil {
+		t.Fatalf("the row must resolve at the new path: %v", err)
+	}
+}
+
+func TestMoveKnowledgeRefusesToReplaceAnExistingSlug(t *testing.T) {
+	c, p, _ := kbCore(t)
+	a, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "A"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge a: %v", err)
+	}
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "B"}); err != nil {
+		t.Fatalf("CreateKnowledge b: %v", err)
+	}
+	_, err = c.MoveKnowledge(t.Context(), p.ID, a.Slug, "b", false)
+	if pathErrCode(err) != "slug_taken" {
+		t.Fatalf("err = %v, want slug_taken", err)
+	}
+	if _, err := os.Stat(a.Path); err != nil {
+		t.Fatalf("a's file must be untouched: %v", err)
+	}
+}
+
+func TestMoveKnowledgeChecksTheDestinationDirectoryForResemblance(t *testing.T) {
+	c, p, _ := kbCore(t)
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Notes", Dir: "deploy"}); err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Runbook"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.MoveKnowledge(t.Context(), p.ID, doc.Slug, "deployment/runbook", false); pathErrCode(err) != "similar_directory" {
+		t.Fatalf("err = %v, want similar_directory", err)
+	}
+	moved, err := c.MoveKnowledge(t.Context(), p.ID, doc.Slug, "deployment/runbook", true)
+	if err != nil {
+		t.Fatalf("MoveKnowledge with newDir: %v", err)
+	}
+	if moved.Slug != "deployment/runbook" {
+		t.Fatalf("slug = %q", moved.Slug)
+	}
+}
+
+func TestMoveKnowledgeRefusesAGlobalEntry(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Shared"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "reason"); err != nil {
+		t.Fatalf("EscalateKnowledge: %v", err)
+	}
+	if _, err := c.MoveKnowledge(t.Context(), p.ID, doc.Slug, "renamed", false); pathErrCode(err) != "global_entry" {
+		t.Fatalf("err = %v, want global_entry", err)
+	}
+}
+
+func TestMoveKnowledgeMovesTheRevisionDirectoryIfPresent(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Standup"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	// Simulate the revision-history feature having already captured a
+	// version: a hidden directory named ".<filename>" beside the entry.
+	oldRevDir := revisionDirFor(doc.Path)
+	if err := os.MkdirAll(oldRevDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldRevDir, "1.md"), []byte("version one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := c.MoveKnowledge(t.Context(), p.ID, doc.Slug, "deployment/standup", false)
+	if err != nil {
+		t.Fatalf("MoveKnowledge: %v", err)
+	}
+	if _, err := os.Stat(oldRevDir); !os.IsNotExist(err) {
+		t.Fatalf("old revision directory must be gone: %v", err)
+	}
+	newRevDir := revisionDirFor(moved.Path)
+	got, err := os.ReadFile(filepath.Join(newRevDir, "1.md"))
+	if err != nil {
+		t.Fatalf("revision file must have moved with the entry: %v", err)
+	}
+	if string(got) != "version one\n" {
+		t.Errorf("revision content = %q", got)
+	}
+}
+
+func TestMoveKnowledgeIsFineWithNoRevisionDirectory(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Plain"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.MoveKnowledge(t.Context(), p.ID, doc.Slug, "elsewhere", false); err != nil {
+		t.Fatalf("MoveKnowledge: %v", err)
+	}
+}
+
+func TestMoveKnowledgeByBareLeaf(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	moved, err := c.MoveKnowledge(t.Context(), p.ID, "rollback", "docs/rollback", false)
+	if err != nil {
+		t.Fatalf("MoveKnowledge by bare leaf: %v", err)
+	}
+	if moved.ID != doc.ID || moved.Slug != "docs/rollback" {
+		t.Fatalf("moved = %+v", moved)
+	}
+}
+
+func TestEscalateKnowledgePreservesTheSubpath(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	global, err := c.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "reason")
+	if err != nil {
+		t.Fatalf("EscalateKnowledge: %v", err)
+	}
+	if global.Slug != "deployment/rollback" {
+		t.Fatalf("slug = %q, want the subpath preserved", global.Slug)
+	}
+	if filepath.Base(filepath.Dir(global.Path)) != "deployment" {
+		t.Fatalf("path = %q, want the subpath preserved on disk too", global.Path)
+	}
+}
+
+func TestDemoteKnowledgePreservesTheSubpath(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "reason"); err != nil {
+		t.Fatalf("EscalateKnowledge: %v", err)
+	}
+	back, err := c.DemoteKnowledge(t.Context(), doc.Slug, "reason")
+	if err != nil {
+		t.Fatalf("DemoteKnowledge: %v", err)
+	}
+	if back.Slug != "deployment/rollback" {
+		t.Fatalf("slug = %q, want the subpath preserved", back.Slug)
+	}
+	if filepath.Base(filepath.Dir(back.Path)) != "deployment" {
+		t.Fatalf("path = %q, want the subpath preserved on disk too", back.Path)
+	}
+}
+
+func TestEscalateKnowledgeMovesTheRevisionDirectory(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	oldRevDir := revisionDirFor(doc.Path)
+	if err := os.MkdirAll(oldRevDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldRevDir, "1.md"), []byte("v1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	global, err := c.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "reason")
+	if err != nil {
+		t.Fatalf("EscalateKnowledge: %v", err)
+	}
+	if _, err := os.Stat(revisionDirFor(global.Path)); err != nil {
+		t.Fatalf("revision directory must have moved: %v", err)
+	}
+}
+
+// DemoteKnowledge and VerifyKnowledge look a global entry up by slug with a
+// direct query, not through loadDoc/resolveSlug, so they need their own fix
+// for a directory-shaped slug: today they flatten the input with a
+// whole-string Slugify, which would turn "deployment/rollback" into
+// "deployment-rollback" and never find the row.
+func TestDemoteKnowledgeResolvesADirectoryShapedSlug(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "reason"); err != nil {
+		t.Fatalf("EscalateKnowledge: %v", err)
+	}
+	if _, err := c.DemoteKnowledge(t.Context(), "deployment/rollback", "reason"); err != nil {
+		t.Fatalf("DemoteKnowledge by full path: %v", err)
+	}
+}
+
+func TestVerifyKnowledgeResolvesADirectoryShapedSlug(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "reason"); err != nil {
+		t.Fatalf("EscalateKnowledge: %v", err)
+	}
+	if err := c.VerifyKnowledge(t.Context(), "deployment/rollback"); err != nil {
+		t.Fatalf("VerifyKnowledge by full path: %v", err)
+	}
+}
+
+func TestListKnowledgeFiltersByTagsRequiringAll(t *testing.T) {
+	c, p, _ := kbCore(t)
+	both, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Both", Tags: []string{"a", "b"}})
+	if err != nil {
+		t.Fatalf("CreateKnowledge both: %v", err)
+	}
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "OnlyA", Tags: []string{"a"}}); err != nil {
+		t.Fatalf("CreateKnowledge onlyA: %v", err)
+	}
+	docs, err := c.ListKnowledge(t.Context(), p.ID, KnowledgeFilter{Tags: []string{"a", "b"}})
+	if err != nil {
+		t.Fatalf("ListKnowledge: %v", err)
+	}
+	if len(docs) != 1 || docs[0].ID != both.ID {
+		t.Fatalf("docs = %+v, want only %q", docs, both.Slug)
+	}
+}
+
+func TestListKnowledgeScopesToADirectoryAndItsSubtree(t *testing.T) {
+	c, p, _ := kbCore(t)
+	root, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge root: %v", err)
+	}
+	nested, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Setup", Dir: "deployment/aws", NewDir: true})
+	if err != nil {
+		t.Fatalf("CreateKnowledge nested: %v", err)
+	}
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Elsewhere", Dir: "docs"}); err != nil {
+		t.Fatalf("CreateKnowledge elsewhere: %v", err)
+	}
+	docs, err := c.ListKnowledge(t.Context(), p.ID, KnowledgeFilter{Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("ListKnowledge: %v", err)
+	}
+	if len(docs) != 2 {
+		t.Fatalf("docs = %+v, want the 2 entries under deployment/", docs)
+	}
+	ids := map[string]bool{docs[0].ID: true, docs[1].ID: true}
+	if !ids[root.ID] || !ids[nested.ID] {
+		t.Errorf("docs = %+v, want %q and %q", docs, root.Slug, nested.Slug)
+	}
+}
+
+func findingsOfKind(findings []LintFinding, kind string) []LintFinding {
+	var out []LintFinding
+	for _, f := range findings {
+		if f.Kind == kind {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func TestLintReportsDeepDirectories(t *testing.T) {
+	c, p, _ := kbCore(t)
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment/aws/runbooks"}); err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	findings, err := c.Lint(t.Context(), p.ID)
+	if err != nil {
+		t.Fatalf("Lint: %v", err)
+	}
+	if got := findingsOfKind(findings, "deep_directory"); len(got) != 1 {
+		t.Fatalf("findings = %+v, want one deep_directory", findings)
+	}
+}
+
+func TestLintDoesNotReportDeepDirectoryAtDepthTwo(t *testing.T) {
+	c, p, _ := kbCore(t)
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment/aws"}); err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	findings, err := c.Lint(t.Context(), p.ID)
+	if err != nil {
+		t.Fatalf("Lint: %v", err)
+	}
+	if got := findingsOfKind(findings, "deep_directory"); len(got) != 0 {
+		t.Fatalf("findings = %+v, want none", got)
+	}
+}
+
+func TestLintReportsALongDirectoryName(t *testing.T) {
+	c, p, _ := kbCore(t)
+	long := "a-directory-name-that-is-well-past-thirty-characters"
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "X", Dir: long}); err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	findings, err := c.Lint(t.Context(), p.ID)
+	if err != nil {
+		t.Fatalf("Lint: %v", err)
+	}
+	got := findingsOfKind(findings, "long_directory_name")
+	if len(got) != 1 || got[0].Ref != long {
+		t.Fatalf("findings = %+v, want one naming %q", findings, long)
+	}
+}
+
+func TestLintReportsSimilarDirectories(t *testing.T) {
+	c, p, _ := kbCore(t)
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "A", Dir: "deploy"}); err != nil {
+		t.Fatalf("CreateKnowledge a: %v", err)
+	}
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "B", Dir: "deployment", NewDir: true}); err != nil {
+		t.Fatalf("CreateKnowledge b: %v", err)
+	}
+	findings, err := c.Lint(t.Context(), p.ID)
+	if err != nil {
+		t.Fatalf("Lint: %v", err)
+	}
+	if got := findingsOfKind(findings, "similar_directory"); len(got) == 0 {
+		t.Fatalf("findings = %+v, want at least one similar_directory", findings)
+	}
+}

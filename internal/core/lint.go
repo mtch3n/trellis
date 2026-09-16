@@ -14,7 +14,7 @@ import (
 
 // LintFinding is one problem with the vault. Lint reports; it never repairs.
 type LintFinding struct {
-	Kind string `json:"kind"` // stub, broken_anchor, orphan, missing_artifact, unknown_field
+	Kind string `json:"kind"` // stub, broken_anchor, orphan, missing_artifact, unknown_field, deep_directory, long_directory_name, similar_directory
 	Doc  string `json:"doc"`
 	Ref  string `json:"ref,omitempty"`
 	Fix  string `json:"fix"`
@@ -135,7 +135,37 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 				out = append(out, LintFinding{Kind: "orphan", Doc: d.Slug,
 					Fix: "link it from a card or another entry, or remove it"})
 			}
+
+			if dirs := strings.Split(d.Slug, "/"); len(dirs) > 1 {
+				dirs = dirs[:len(dirs)-1]
+				if len(dirs) >= 3 {
+					out = append(out, LintFinding{Kind: "deep_directory", Doc: d.Slug,
+						Ref: strings.Join(dirs, "/"),
+						Fix: "trellis knowledge mv " + d.Slug + " <a shallower path>   # depth is a design smell past two levels"})
+				}
+				for _, seg := range dirs {
+					if len(seg) > 30 {
+						out = append(out, LintFinding{Kind: "long_directory_name", Doc: d.Slug, Ref: seg,
+							Fix: "trellis knowledge mv " + d.Slug + " <a shorter directory name>"})
+					}
+				}
+			}
 		}
+
+		dirs, derr := c.projectDirectories(tx, projectID)
+		if derr != nil {
+			return derr
+		}
+		slices.Sort(dirs)
+		for i, a := range dirs {
+			for _, b := range dirs[i+1:] {
+				if resembles(a, b) {
+					out = append(out, LintFinding{Kind: "similar_directory", Ref: a + ", " + b,
+						Fix: "trellis knowledge mv <an entry under one> <the other>   # or leave both if they mean different things"})
+				}
+			}
+		}
+
 		return nil
 	})
 	slices.SortStableFunc(out, func(a, b LintFinding) int { return cmp.Compare(a.Kind, b.Kind) })

@@ -551,6 +551,8 @@ type KnowledgeFilter struct {
 	BoardID     string   // association only; entries with no board always match
 	DocTypes    []string // doc_type values to keep; empty keeps all
 	Provenances []string // ingestion paths to keep; empty keeps all
+	Tags        []string // every listed tag must be present; empty keeps all
+	Dir         string   // scope to this directory and its subtree; empty keeps everything
 }
 
 func (f KnowledgeFilter) where() (string, []any) {
@@ -576,6 +578,20 @@ func (f KnowledgeFilter) where() (string, []any) {
 		for _, v := range values {
 			args = append(args, v)
 		}
+	}
+	if len(f.Tags) > 0 {
+		clauses = append(clauses,
+			`id IN (SELECT kt.doc_id FROM knowledge_tag kt JOIN tag t ON t.id = kt.tag_id
+			        WHERE t.name IN (?`+strings.Repeat(", ?", len(f.Tags)-1)+`)
+			        GROUP BY kt.doc_id HAVING COUNT(DISTINCT t.name) = ?)`)
+		for _, v := range f.Tags {
+			args = append(args, v)
+		}
+		args = append(args, len(f.Tags))
+	}
+	if f.Dir != "" {
+		clauses = append(clauses, "(slug = ? OR slug LIKE ? || '/%')")
+		args = append(args, f.Dir, f.Dir)
 	}
 	return strings.Join(clauses, " AND "), args
 }
