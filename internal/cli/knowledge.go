@@ -33,6 +33,7 @@ func newKnowledgeNewCmd() *cobra.Command {
 	var title, body, summary TextValue
 	var template, board, provenance string
 	var tags, labels []string
+	var private bool
 
 	cmd := &cobra.Command{
 		Use:   "new",
@@ -47,6 +48,7 @@ func newKnowledgeNewCmd() *cobra.Command {
 					Title: title.String(), Body: body.String(), Template: template,
 					Provenance: provenance,
 					Summary:    summary.String(), Board: board, Tags: tags, Labels: labels,
+					Private: private,
 				})
 				if err != nil {
 					return err
@@ -63,6 +65,8 @@ func newKnowledgeNewCmd() *cobra.Command {
 	cmd.Flags().StringVar(&board, "board", "", "associate with a board (association, never ownership)")
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "free-form tags")
 	cmd.Flags().StringSliceVar(&labels, "label", nil, "labels from the project vocabulary")
+	cmd.Flags().BoolVar(&private, "private", false,
+		"do not transmit this body automatically: no vector index, no recap fallback, no content in the event log, pointer-only injection")
 	return cmd
 }
 
@@ -106,6 +110,23 @@ func newKnowledgeShowCmd() *cobra.Command {
 	}
 }
 
+// renderKnowledgeList is the text form of `knowledge ls`. It is a function
+// rather than a closure so it can be tested directly: Emit selects JSON
+// whenever stdout is captured.
+func renderKnowledgeList(docs []core.Knowledge) string {
+	var b strings.Builder
+	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+	for _, d := range docs {
+		mark := ""
+		if d.Private {
+			mark = "private"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", d.Slug, d.DocType, d.Provenance, mark, d.Title)
+	}
+	w.Flush()
+	return strings.TrimRight(b.String(), "\n")
+}
+
 func newKnowledgeLsCmd() *cobra.Command {
 	var thisBoard, cold bool
 	var docTypes, provenances []string
@@ -126,13 +147,7 @@ func newKnowledgeLsCmd() *cobra.Command {
 					return err
 				}
 				return Emit(cmd, map[string]any{"knowledge": docs}, func() string {
-					var b strings.Builder
-					w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-					for _, d := range docs {
-						fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", d.Slug, d.DocType, d.Provenance, d.Title)
-					}
-					w.Flush()
-					return strings.TrimRight(b.String(), "\n")
+					return renderKnowledgeList(docs)
 				})
 			})
 		},
