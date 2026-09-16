@@ -249,11 +249,16 @@ const GlobalReviewDays = 180
 func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason string) (Knowledge, error) {
 	var doc Knowledge
 	var src, dest string
+	var done bool
 	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
-		// A failure after the move undoes it before this closure returns,
-		// while Core.Tx still holds SQLite's write lock.
+		// A failure, or a panic, after the move undoes it before this
+		// closure returns, while Core.Tx still holds SQLite's write lock.
+		// done, not err, is what the undo is keyed on: a panic unwinds
+		// through this defer without ever reaching the closure's own return
+		// statement, so a named result would still read nil and the undo
+		// would be skipped.
 		defer func() {
-			if err != nil && dest != "" {
+			if !done && dest != "" {
 				if merr := moveBack(dest, src); merr != nil {
 					err = errors.Join(err, merr)
 				}
@@ -298,17 +303,23 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 		if err := c.recordEvent(tx, "knowledge", doc.ID, "escalated", "", "", reason); err != nil {
 			return err
 		}
-		return c.docView(tx, &doc)
+		if err := c.docView(tx, &doc); err != nil {
+			return err
+		}
+		done = true
+		return nil
 	})
-	if err != nil && dest != "" {
-		// dest != "" only survives to here when the closure itself succeeded
-		// and tx.Commit failed: durable state, not a guess, decides which
-		// side of the move the file belongs on.
+	if err != nil && done {
+		// done means the closure completed and it was tx.Commit that
+		// failed: durable state, not a guess, decides which side of the
+		// move the file belongs on, and when it landed the escalate is a
+		// success no matter what Commit reported.
 		var landed string
-		if qerr := c.db.Get(&landed, `SELECT path FROM knowledge WHERE id = ?`, doc.ID); qerr != nil || landed != dest {
-			if merr := moveBack(dest, src); merr != nil {
-				err = errors.Join(err, merr)
-			}
+		qerr := c.db.Get(&landed, `SELECT path FROM knowledge WHERE id = ?`, doc.ID)
+		if writeLanded(landed == dest, qerr) {
+			err = nil
+		} else if merr := moveBack(dest, src); merr != nil {
+			err = errors.Join(err, merr)
 		}
 	}
 	return doc, err
@@ -319,9 +330,16 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowledge, error) {
 	var doc Knowledge
 	var src, dest string
+	var done bool
 	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
+		// A failure, or a panic, after the move undoes it before this
+		// closure returns, while Core.Tx still holds SQLite's write lock.
+		// done, not err, is what the undo is keyed on: a panic unwinds
+		// through this defer without ever reaching the closure's own return
+		// statement, so a named result would still read nil and the undo
+		// would be skipped.
 		defer func() {
-			if err != nil && dest != "" {
+			if !done && dest != "" {
 				if merr := moveBack(dest, src); merr != nil {
 					err = errors.Join(err, merr)
 				}
@@ -359,14 +377,23 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 		if err := c.recordEvent(tx, "knowledge", doc.ID, "demoted", "", "", reason); err != nil {
 			return err
 		}
-		return c.docView(tx, &doc)
+		if err := c.docView(tx, &doc); err != nil {
+			return err
+		}
+		done = true
+		return nil
 	})
-	if err != nil && dest != "" {
+	if err != nil && done {
+		// done means the closure completed and it was tx.Commit that
+		// failed: durable state, not a guess, decides which side of the
+		// move the file belongs on, and when it landed the demote is a
+		// success no matter what Commit reported.
 		var landed string
-		if qerr := c.db.Get(&landed, `SELECT path FROM knowledge WHERE id = ?`, doc.ID); qerr != nil || landed != dest {
-			if merr := moveBack(dest, src); merr != nil {
-				err = errors.Join(err, merr)
-			}
+		qerr := c.db.Get(&landed, `SELECT path FROM knowledge WHERE id = ?`, doc.ID)
+		if writeLanded(landed == dest, qerr) {
+			err = nil
+		} else if merr := moveBack(dest, src); merr != nil {
+			err = errors.Join(err, merr)
 		}
 	}
 	return doc, err
@@ -418,9 +445,11 @@ func moveFile(src, destDir string) (string, error) {
 			return "", err
 		}
 	}
-	if err := os.Remove(src); err != nil {
-		_ = os.Remove(dest)
-		return "", err
+	if removeErr := os.Remove(src); removeErr != nil {
+		if cleanupErr := os.Remove(dest); cleanupErr != nil {
+			return "", errors.Join(removeErr, cleanupErr)
+		}
+		return "", removeErr
 	}
 	if err := syncDirectory(destDir); err != nil {
 		return "", err

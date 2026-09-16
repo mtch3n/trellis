@@ -466,3 +466,246 @@ func TestAFailedDeletePutsTheFileBack(t *testing.T) {
 		t.Errorf("row count = %d, want 1 (still present)", count)
 	}
 }
+
+// TestWriteLanded is the direct unit test for Fix 1's factored ambiguous-
+// commit decision. A real tx.Commit failure after a successful closure is
+// not practical to trigger through SQLite -- there is no seam that fails
+// Commit itself once every statement inside the transaction has already
+// succeeded -- so the decision it makes is tested in isolation instead.
+func TestWriteLanded(t *testing.T) {
+	boom := errors.New("boom")
+	cases := []struct {
+		name     string
+		matches  bool
+		queryErr error
+		want     bool
+	}{
+		{"matches, durable read ok", true, nil, true},
+		{"mismatch, durable read ok", false, nil, false},
+		{"matches, but the durable read itself failed", true, boom, false},
+		{"mismatch, and the durable read itself failed", false, boom, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := writeLanded(tc.matches, tc.queryErr); got != tc.want {
+				t.Errorf("writeLanded(%v, %v) = %v, want %v", tc.matches, tc.queryErr, got, tc.want)
+			}
+		})
+	}
+}
+
+// panicClock panics once its call budget is spent. It simulates a panic that
+// unwinds through a Tx closure after a write has already landed on disk --
+// something a SQLite trigger cannot do, since a trigger can only fail the
+// statement, never unwind the Go stack. Clock is a real, pre-existing seam
+// (every test in this file already substitutes FixedClock for it), not a
+// hook added for this test.
+type panicClock struct{ calls int }
+
+func (c *panicClock) NowMS() int64 {
+	if c.calls == 0 {
+		panic("boom: simulated panic after the write")
+	}
+	c.calls--
+	return 1_757_000_000_000
+}
+
+// mustPanic runs fn, recovers, and fails the test if fn did not panic.
+func mustPanic(t *testing.T, fn func()) {
+	t.Helper()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("want a panic, got none")
+		}
+	}()
+	fn()
+}
+
+// TestAPanicAfterTheEditWritePutsTheFileBack is Fix 2 for EditKnowledgeFields:
+// a panic after replaceIfUnchanged has already renamed the new bytes into
+// place must still restore the old ones, even though the panic never
+// reaches the closure's own return and so never sets the named error result.
+func TestAPanicAfterTheEditWritePutsTheFileBack(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Deploy", Body: "v1\n"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	original, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// loadDoc's refresh and the pre-write "now" each spend one call; the
+	// panic lands on the third, spent recording the "edited" event -- after
+	// the write already replaced the file.
+	pc := New(c.db, &panicClock{calls: 2}, c.actor).WithKBRoot(c.kbRoot)
+	newBody := "v2\n"
+	mustPanic(t, func() {
+		pc.EditKnowledgeFields(t.Context(), p.ID, doc.Slug, KnowledgeEdit{Body: &newBody, IfVersion: &doc.Version})
+	})
+
+	raw, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(raw, original) {
+		t.Errorf("file = %q, want the original bytes restored after the panic", raw)
+	}
+	var version int64
+	if err := c.db.Get(&version, `SELECT version FROM knowledge WHERE id = ?`, doc.ID); err != nil {
+		t.Fatal(err)
+	}
+	if version != doc.Version {
+		t.Errorf("row version = %d, want unchanged at %d", version, doc.Version)
+	}
+}
+
+// TestAPanicAfterTheDeleteWritePutsTheFileBack is Fix 2 for DeleteKnowledge:
+// a panic after stageRemoval has already moved the file aside must still
+// restore it.
+func TestAPanicAfterTheDeleteWritePutsTheFileBack(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Deploy", Body: "v1\n"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	original, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Nothing in DeleteKnowledge spends a clock call before recordEvent,
+	// which runs last -- after stageRemoval has already moved the file
+	// aside -- so the very first call is the one to panic on.
+	pc := New(c.db, &panicClock{calls: 0}, c.actor).WithKBRoot(c.kbRoot)
+	mustPanic(t, func() {
+		pc.DeleteKnowledge(t.Context(), p.ID, doc.Slug)
+	})
+
+	raw, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatalf("file should be back: %v", err)
+	}
+	if !bytes.Equal(raw, original) {
+		t.Errorf("file = %q, want the original bytes restored after the panic", raw)
+	}
+	var count int
+	if err := c.db.Get(&count, `SELECT COUNT(*) FROM knowledge WHERE id = ?`, doc.ID); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("row count = %d, want 1 (still present)", count)
+	}
+}
+
+// TestAPanicAfterTheEscalateMoveMovesTheFileBack is Fix 2 for
+// EscalateKnowledge: a panic right after moveFile succeeds must still move
+// the file back.
+func TestAPanicAfterTheEscalateMoveMovesTheFileBack(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Deploy"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	original := doc.Path
+
+	// loadDoc's refresh spends the one call before the move; the panic
+	// lands on the next, which computes reviewBy right after the move.
+	pc := New(c.db, &panicClock{calls: 1}, c.actor).WithKBRoot(c.kbRoot)
+	mustPanic(t, func() {
+		pc.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "reason")
+	})
+
+	if _, err := os.Stat(original); err != nil {
+		t.Errorf("file should be back at %s: %v", original, err)
+	}
+	globalDir := filepath.Join(c.kbRoot, "global", "knowledge")
+	if _, err := os.Stat(filepath.Join(globalDir, filepath.Base(original))); !os.IsNotExist(err) {
+		t.Errorf("file should not remain in the global directory")
+	}
+	reloaded, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	if err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+	if reloaded.Global {
+		t.Error("entry became global despite the panic")
+	}
+}
+
+// TestAPanicAfterTheDemoteMoveMovesTheFileBack is Fix 2 for DemoteKnowledge:
+// a panic right after moveFile succeeds must still move the file back.
+func TestAPanicAfterTheDemoteMoveMovesTheFileBack(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Deploy"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	escalated, err := c.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "reason")
+	if err != nil {
+		t.Fatalf("EscalateKnowledge: %v", err)
+	}
+	original := escalated.Path
+
+	// DemoteKnowledge looks its row up directly, without loadDoc, so the
+	// very first clock call is the one right after the move.
+	pc := New(c.db, &panicClock{calls: 0}, c.actor).WithKBRoot(c.kbRoot)
+	mustPanic(t, func() {
+		pc.DemoteKnowledge(t.Context(), doc.Slug, "wrong call")
+	})
+
+	if _, err := os.Stat(original); err != nil {
+		t.Errorf("file should be back at %s: %v", original, err)
+	}
+	reloaded, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	if err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+	if !reloaded.Global {
+		t.Error("entry demoted despite the panic")
+	}
+}
+
+// TestPrivateArtifactEventsCarryNoName is Fix 3: a private entry's
+// artifact_linked/artifact_unlinked events must carry the field alone, the
+// same rule the body/title/summary loop in EditKnowledgeFields already
+// applies. An artifact name is content the same way a body is; it is not
+// exempt just because it lives in metadata.
+func TestPrivateArtifactEventsCarryNoName(t *testing.T) {
+	c, p, _ := kbCore(t)
+	secret := addArtifact(t, c, p.ID, "secret.mp3", "ID3 secret")
+
+	private, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Private", Private: true})
+	if err != nil {
+		t.Fatalf("CreateKnowledge (private): %v", err)
+	}
+	if _, err := c.LinkArtifactToDoc(t.Context(), p.ID, private.Slug, secret.Name); err != nil {
+		t.Fatalf("LinkArtifactToDoc (private): %v", err)
+	}
+	var value string
+	if err := c.db.Get(&value,
+		`SELECT COALESCE(new_value, '') FROM event WHERE entity_id = ? AND action = 'artifact_linked'`,
+		private.ID); err != nil {
+		t.Fatal(err)
+	}
+	if value != "" {
+		t.Errorf("new_value = %q for a private entry, want empty", value)
+	}
+
+	public := addArtifact(t, c, p.ID, "public.mp3", "ID3 public")
+	open, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Open"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge (open): %v", err)
+	}
+	if _, err := c.LinkArtifactToDoc(t.Context(), p.ID, open.Slug, public.Name); err != nil {
+		t.Fatalf("LinkArtifactToDoc (open): %v", err)
+	}
+	if err := c.db.Get(&value,
+		`SELECT COALESCE(new_value, '') FROM event WHERE entity_id = ? AND action = 'artifact_linked'`,
+		open.ID); err != nil {
+		t.Fatal(err)
+	}
+	if value != public.Name {
+		t.Errorf("new_value = %q, want the artifact name %q for a non-private entry", value, public.Name)
+	}
+}

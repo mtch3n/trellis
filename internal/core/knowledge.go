@@ -512,18 +512,33 @@ func changedOnDisk(slug string) error {
 		"trellis knowledge show "+slug)
 }
 
+// writeLanded resolves the one question a failed tx.Commit leaves open: did
+// the write the closure already made actually land? matches is whatever
+// durable state says should be true if it did (a hash, a path, a row being
+// gone); queryErr is the error from reading that durable state. A durable
+// read that itself failed cannot answer the question, so it answers no:
+// undo rather than guess.
+func writeLanded(matches bool, queryErr error) bool {
+	return queryErr == nil && matches
+}
+
 // EditKnowledgeFields atomically replaces the selected Markdown fields and
 // updates the cached row from the same rendered file.
 func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, in KnowledgeEdit) (Knowledge, error) {
 	var doc Knowledge
 	var oldRaw []byte
 	var written string
+	var done bool
 	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
-		// Any failure from here on undoes the write before this closure
-		// returns, while Core.Tx still holds SQLite's write lock -- not after
-		// it rolls back and frees the lock for another process to act in.
+		// A failure, or a panic, from here on undoes the write before this
+		// closure returns, while Core.Tx still holds SQLite's write lock --
+		// not after it rolls back and frees the lock for another process to
+		// act in. done, not err, is what the undo is keyed on: a panic
+		// unwinds through this defer without ever reaching the closure's own
+		// return statement, so a named result would still read nil and the
+		// undo would be skipped.
 		defer func() {
-			if err != nil && written != "" {
+			if !done && written != "" {
 				// errors.Join always wraps, even when the second argument is
 				// nil, which would turn this *Error into one coreError's
 				// direct type assertion no longer recognises. Join only when
@@ -656,32 +671,47 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 				return err
 			}
 		}
-		// An artifact name is metadata, not content, so it is recorded for a
-		// private entry too; presence is not what the disclosure design
-		// protects.
+		// An artifact name is content the same way a title or body is: a
+		// private entry's event records that a link changed and nothing
+		// more, the same rule the loop above applies.
 		if in.Artifacts != nil {
 			for _, name := range namesAdded(before, fm.Artifacts) {
-				if err := c.recordEvent(tx, "knowledge", doc.ID, "artifact_linked", "", "", name); err != nil {
+				value := name
+				if doc.Private {
+					value = ""
+				}
+				if err := c.recordEvent(tx, "knowledge", doc.ID, "artifact_linked", "", "", value); err != nil {
 					return err
 				}
 			}
 			for _, name := range namesAdded(fm.Artifacts, before) {
-				if err := c.recordEvent(tx, "knowledge", doc.ID, "artifact_unlinked", "", "", name); err != nil {
+				value := name
+				if doc.Private {
+					value = ""
+				}
+				if err := c.recordEvent(tx, "knowledge", doc.ID, "artifact_unlinked", "", "", value); err != nil {
 					return err
 				}
 			}
 		}
-		return c.docView(tx, &doc)
+		if err := c.docView(tx, &doc); err != nil {
+			return err
+		}
+		done = true
+		return nil
 	})
-	if err != nil && written != "" {
-		// written != "" only survives to here when the closure itself
-		// succeeded and tx.Commit failed: an ambiguous outcome the driver
-		// does not resolve for us. Durable state is the only honest answer.
+	if err != nil && done {
+		// done means the closure completed and it was tx.Commit that
+		// failed: an ambiguous outcome the driver does not resolve for us.
+		// Durable state is the only honest answer, and when it shows the
+		// write landed, the edit is a success no matter what Commit
+		// reported.
 		var landed string
-		if qerr := c.db.Get(&landed, `SELECT content_hash FROM knowledge WHERE id = ?`, doc.ID); qerr != nil || landed != written {
-			if uerr := undoWrite(doc.Path, oldRaw, written); uerr != nil {
-				err = errors.Join(err, uerr)
-			}
+		qerr := c.db.Get(&landed, `SELECT content_hash FROM knowledge WHERE id = ?`, doc.ID)
+		if writeLanded(landed == written, qerr) {
+			err = nil
+		} else if uerr := undoWrite(doc.Path, oldRaw, written); uerr != nil {
+			err = errors.Join(err, uerr)
 		}
 	}
 	if err == nil {
@@ -694,6 +724,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) error {
 	var staged *stagedRemoval
 	var doc Knowledge
+	var done bool
 	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
 		if err := tx.Get(&doc,
 			`SELECT * FROM knowledge WHERE project_id = ? AND slug = ?`, projectID, Slugify(slug)); err != nil {
@@ -707,10 +738,14 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 		if serr != nil {
 			return serr
 		}
-		// A failure below undoes the stage before this closure returns, while
-		// Core.Tx still holds SQLite's write lock.
+		// A failure, or a panic, below undoes the stage before this closure
+		// returns, while Core.Tx still holds SQLite's write lock. done, not
+		// err, is what the restore is keyed on: a panic unwinds through this
+		// defer without ever reaching the closure's own return statement, so
+		// a named result would still read nil and the restore would be
+		// skipped.
 		defer func() {
-			if err != nil {
+			if !done {
 				if rerr := staged.restore(); rerr != nil {
 					err = errors.Join(err, rerr)
 				}
@@ -728,22 +763,28 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 			`UPDATE link SET to_id = NULL WHERE to_type = 'doc' AND to_id = ?`, doc.ID); err != nil {
 			return err
 		}
-		return c.recordEvent(tx, "knowledge", doc.ID, "deleted", "", doc.Title, "")
-	})
-	if err != nil {
-		// The closure's own defer already restored a mid-transaction failure.
-		// What can still reach here is an ambiguous tx.Commit failure, which
-		// only durable state can resolve: gone means the delete landed.
-		var gone int
-		if qerr := c.db.Get(&gone, `SELECT COUNT(*) FROM knowledge WHERE id = ?`, doc.ID); qerr == nil && gone == 0 {
-			if ferr := staged.finalize(); ferr != nil {
-				err = errors.Join(err, ferr)
-			}
+		if err := c.recordEvent(tx, "knowledge", doc.ID, "deleted", "", doc.Title, ""); err != nil {
 			return err
 		}
-		if rerr := staged.restore(); rerr != nil {
+		done = true
+		return nil
+	})
+	if err != nil && done {
+		// done means the closure completed and it was tx.Commit that
+		// failed: an ambiguous outcome only durable state can resolve, and
+		// when it shows the delete landed, the delete is a success no
+		// matter what Commit reported. When done is false, the closure's
+		// own defer already restored -- there is nothing here to resolve,
+		// including the "not found" case where doc.ID is not a real row.
+		var gone int
+		qerr := c.db.Get(&gone, `SELECT COUNT(*) FROM knowledge WHERE id = ?`, doc.ID)
+		if writeLanded(gone == 0, qerr) {
+			err = nil
+		} else if rerr := staged.restore(); rerr != nil {
 			err = errors.Join(err, rerr)
 		}
+	}
+	if err != nil {
 		return err
 	}
 	if err := staged.finalize(); err != nil {
