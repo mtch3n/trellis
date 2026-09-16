@@ -402,13 +402,21 @@ func (c *Core) ReadKnowledge(ctx context.Context, projectID, slug string) (Knowl
 }
 
 func (c *Core) loadDoc(tx *sqlx.Tx, projectID, slug string, out *Knowledge) error {
-	resolved, err := c.resolveSlug(tx, projectID, slug, true)
+	key, err := projectKeyOf(tx, projectID)
 	if err != nil {
 		return err
 	}
-	err = tx.Get(out,
-		`SELECT * FROM knowledge WHERE slug = ? AND (project_id = ? OR global = 1) ORDER BY global LIMIT 1`,
-		resolved, projectID)
+	d, err := readDocArg(slug, key)
+	if err != nil {
+		return err
+	}
+	if projectID == "" || d.scope == docVault {
+		err = tx.Get(out, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, d.slug)
+	} else if d.scope == docOwn {
+		err = tx.Get(out, `SELECT * FROM knowledge WHERE slug = ? AND project_id = ? AND global = 0`, d.slug, projectID)
+	} else {
+		err = tx.Get(out, `SELECT * FROM knowledge WHERE slug = ? AND (project_id = ? OR global = 1) ORDER BY global LIMIT 1`, d.slug, projectID)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return notFoundSlug(slug)
 	}
