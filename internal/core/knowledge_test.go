@@ -23,6 +23,7 @@ func TestCreateKnowledgeWritesFileAndRow(t *testing.T) {
 
 	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
 		Title: "Concurrency model", Template: "decision", Summary: "Leases, not locks",
+		Sources: []string{"https://example.com/design-notes"},
 	})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
@@ -439,16 +440,16 @@ func TestListKnowledgeFiltersByTypeAndProvenance(t *testing.T) {
 	c, p, _ := kbCore(t)
 	ctx := t.Context()
 
-	mk := func(title, template, prov string) {
+	mk := func(title, template, prov string, sources ...string) {
 		t.Helper()
 		if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
-			Title: title, Template: template, Provenance: prov,
+			Title: title, Template: template, Provenance: prov, Sources: sources,
 		}); err != nil {
 			t.Fatalf("CreateKnowledge %s: %v", title, err)
 		}
 	}
-	mk("Chosen storage", "decision", "authored")
-	mk("Measured latency", "finding", "authored")
+	mk("Chosen storage", "decision", "authored", "https://example.com/storage-comparison")
+	mk("Measured latency", "finding", "authored", "https://example.com/latency-numbers")
 	mk("Overheard preference", "note", "extracted")
 
 	cases := []struct {

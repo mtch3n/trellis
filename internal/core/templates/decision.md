@@ -1,5 +1,7 @@
 ---
-enforce: warn
+enforce: reject
+required: [sources]
+verify: [sources, body]
 ---
 # {{title}}
 

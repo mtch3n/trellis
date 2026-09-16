@@ -194,7 +194,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 	if len(violations) > 0 && tmpl.Enforce == "reject" {
 		return Knowledge{}, ErrUsage("template_violation",
 			tmpl.Name+" does not meet its template:\n  - "+strings.Join(violations, "\n  - "),
-			"trellis knowledge template show "+tmpl.Name)
+			templateViolationFix(tmpl.Name, violations))
 	}
 	if err := c.checkWrite(ctx, ProposedWrite{
 		Op: "doc.write", EntityType: "knowledge", ProjectID: projectID,

@@ -158,16 +158,17 @@ func TestSeededTemplatesAllParse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	wantEnforce := map[string]string{
+		"decision": "reject", "finding": "reject",
+		"note": "warn", "reference": "warn", "research": "warn", "runbook": "warn",
+	}
 	for _, name := range Templates() {
 		tmpl, err := loadTemplate(dir, name)
 		if err != nil {
 			t.Fatalf("loadTemplate(%s): %v", name, err)
 		}
-		if tmpl.Enforce != "warn" {
-			t.Errorf("%s: enforce = %q, want warn", name, tmpl.Enforce)
-		}
-		if len(tmpl.Required) != 0 || len(tmpl.Choices) != 0 {
-			t.Errorf("%s: has rules, want none", name)
+		if tmpl.Enforce != wantEnforce[name] {
+			t.Errorf("%s: enforce = %q, want %q", name, tmpl.Enforce, wantEnforce[name])
 		}
 	}
 }

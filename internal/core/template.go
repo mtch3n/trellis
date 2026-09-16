@@ -461,3 +461,18 @@ func (c *Core) CheckTemplate(ctx context.Context, projectID, name, slug string) 
 	}
 	return templateViolations(tmpl, fields, body, true), nil
 }
+
+// templateViolationFix picks the fix line an agent most needs. When the
+// violation involves sources, a runnable --source example beats a pointer
+// to `template show`, because an agent hitting reject for the first time
+// has no reason yet to know --source exists.
+func templateViolationFix(tmplName string, violations []string) string {
+	for _, v := range violations {
+		if strings.Contains(v, "sources") {
+			return `trellis knowledge new --template ` + tmplName +
+				` --title "<title>" --source </KEY/cards/KEY-12|[[slug]]|url>` +
+				"\n  trellis knowledge template show " + tmplName
+		}
+	}
+	return "trellis knowledge template show " + tmplName
+}

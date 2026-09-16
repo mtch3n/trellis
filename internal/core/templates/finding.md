@@ -1,20 +1,18 @@
 ---
-enforce: warn
+enforce: reject
+required: [sources]
+verify: [sources, body]
 ---
 # {{title}}
 
-## Symptom
+## Fact
 
-<!-- What was observed. Lead with the symptom. -->
+<!-- What is true, stated as a claim. -->
 
-## Cause
+## Evidence
 
-<!-- The mechanism, not the guess. How it was confirmed. -->
+<!-- What supports the claim. Cite it in `sources`. -->
 
-## Fix
+## Scope
 
-<!-- The change that resolved it, as a command or a diff. -->
-
-## How to recognise it again
-
-<!-- The cheapest signal that says "this again". -->
+<!-- Where this holds, and where it does not. -->
