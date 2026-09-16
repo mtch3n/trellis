@@ -502,8 +502,10 @@ type cardInfo struct {
 	Owner    *string `json:"owner,omitempty"`
 	// Unix milliseconds, as the single-card endpoint reports them. The
 	// overview's timeline places each card on the day it was created.
-	CreatedAt int64 `json:"created_at"`
-	UpdatedAt int64 `json:"updated_at"`
+	CreatedAt int64    `json:"created_at"`
+	UpdatedAt int64    `json:"updated_at"`
+	Labels    []string `json:"labels"`
+	Tags      []string `json:"tags"`
 }
 
 // columnCardsInfo contains cards grouped by column.
@@ -533,29 +535,114 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var result []columnCardsInfo
-	for _, col := range columns {
-		// Get cards in this column
-		var cards []struct {
-			ID        string        `db:"id"`
-			Seq       int64         `db:"seq"`
-			Title     string        `db:"title"`
-			Body      string        `db:"body_md"`
-			Priority  core.Priority `db:"priority"`
-			Owner     *string       `db:"owner"`
-			Version   int64         `db:"version"`
-			CreatedAt int64         `db:"created_at"`
-			UpdatedAt int64         `db:"updated_at"`
+	// Get all cards for this board
+	var allCards []struct {
+		ID        string        `db:"id"`
+		ColumnID  string        `db:"column_id"`
+		Seq       int64         `db:"seq"`
+		Title     string        `db:"title"`
+		Body      string        `db:"body_md"`
+		Priority  core.Priority `db:"priority"`
+		Owner     *string       `db:"owner"`
+		Version   int64         `db:"version"`
+		CreatedAt int64         `db:"created_at"`
+		UpdatedAt int64         `db:"updated_at"`
+	}
+	if err := s.db.SelectContext(ctx, &allCards,
+		`SELECT id, column_id, seq, title, body_md, priority, owner, version, created_at, updated_at FROM card WHERE board_id = ? AND archived_at IS NULL ORDER BY priority, rank`,
+		b.ID); err != nil {
+		s.error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Collect all card IDs
+	cardIDMap := make(map[string]bool)
+	for _, c := range allCards {
+		cardIDMap[c.ID] = true
+	}
+
+	// Fetch labels for all cards in one query
+	type cardLabel struct {
+		CardID string `db:"card_id"`
+		Name   string `db:"name"`
+	}
+	var labels []cardLabel
+	if len(cardIDMap) > 0 {
+		cardIDList := make([]string, 0, len(cardIDMap))
+		for id := range cardIDMap {
+			cardIDList = append(cardIDList, id)
 		}
-		if err := s.db.SelectContext(ctx, &cards,
-			`SELECT id, seq, title, body_md, priority, owner, version, created_at, updated_at FROM card WHERE column_id = ? AND archived_at IS NULL ORDER BY priority, rank`,
-			col.ID); err != nil {
+		query, args, err := sqlx.In(
+			`SELECT cl.card_id, l.name FROM card_label cl
+			 JOIN label l ON cl.label_id = l.id
+			 WHERE cl.card_id IN (?)
+			 ORDER BY l.name`,
+			cardIDList,
+		)
+		if err != nil {
 			s.error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if err := s.db.SelectContext(ctx, &labels, s.db.Rebind(query), args...); err != nil {
+			s.error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 
+	// Fetch tags for all cards in one query
+	type cardTag struct {
+		CardID string `db:"card_id"`
+		Name   string `db:"name"`
+	}
+	var tags []cardTag
+	if len(cardIDMap) > 0 {
+		cardIDList := make([]string, 0, len(cardIDMap))
+		for id := range cardIDMap {
+			cardIDList = append(cardIDList, id)
+		}
+		query, args, err := sqlx.In(
+			`SELECT ct.card_id, t.name FROM card_tag ct
+			 JOIN tag t ON ct.tag_id = t.id
+			 WHERE ct.card_id IN (?)
+			 ORDER BY t.name`,
+			cardIDList,
+		)
+		if err != nil {
+			s.error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if err := s.db.SelectContext(ctx, &tags, s.db.Rebind(query), args...); err != nil {
+			s.error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	// Build maps from card ID to labels/tags
+	labelsByCard := make(map[string][]string)
+	for _, l := range labels {
+		labelsByCard[l.CardID] = append(labelsByCard[l.CardID], l.Name)
+	}
+	tagsByCard := make(map[string][]string)
+	for _, t := range tags {
+		tagsByCard[t.CardID] = append(tagsByCard[t.CardID], t.Name)
+	}
+
+	// Build result
+	var result []columnCardsInfo
+	for _, col := range columns {
 		var cardInfos []cardInfo
-		for _, c := range cards {
+		for _, c := range allCards {
+			if c.ColumnID != col.ID {
+				continue
+			}
+			cardLabels := labelsByCard[c.ID]
+			if cardLabels == nil {
+				cardLabels = []string{}
+			}
+			cardTags := tagsByCard[c.ID]
+			if cardTags == nil {
+				cardTags = []string{}
+			}
 			cardInfos = append(cardInfos, cardInfo{
 				ID:        c.ID,
 				Ref:       p.Key + "-" + fmt.Sprintf("%d", c.Seq),
@@ -566,6 +653,8 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 				Version:   c.Version,
 				CreatedAt: c.CreatedAt,
 				UpdatedAt: c.UpdatedAt,
+				Labels:    cardLabels,
+				Tags:      cardTags,
 			})
 		}
 
