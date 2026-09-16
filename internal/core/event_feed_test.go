@@ -249,16 +249,14 @@ func TestEventFeedDeletedCardHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *test
 		t.Fatalf("DeleteCard: %v", err)
 	}
 
-	// A project-scoped read cannot reach a hard-deleted entity: the event
-	// table has no project column, so scoping joins the entity's live row,
-	// which is gone. Pinned here because it is a documented limitation, not
-	// an accident.
+	// A project-scoped read now reaches a hard-deleted entity's history
+	// because the event table carries project_id.
 	scoped, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"card"}})
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
-	if len(scoped) != 0 {
-		t.Errorf("project-scoped events = %+v, want none for a deleted card", scoped)
+	if len(scoped) != 2 {
+		t.Fatalf("project-scoped events = %+v, want created + deleted", scoped)
 	}
 
 	// Kinds: []string{"card"} excludes kbCore's own "board created" event,
@@ -294,12 +292,12 @@ func TestEventFeedDeletedKnowledgeHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t 
 		t.Fatalf("DeleteKnowledge: %v", err)
 	}
 
-	// Unscoped, for the same reason as the deleted-card test: a
-	// project-scoped read joins the entity's live row, which is gone.
+	// A project-scoped read now reaches a hard-deleted entity's history
+	// because the event table carries project_id.
 	// Kinds: []string{"knowledge"} excludes kbCore's own "board created"
 	// event, whose ref and title are still the (undeleted) board's — the
 	// loop below assumes every returned event is this entry's.
-	events, _, err := c.EventFeed(t.Context(), EventQuery{Kinds: []string{"knowledge"}})
+	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"knowledge"}})
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}

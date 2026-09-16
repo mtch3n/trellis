@@ -888,6 +888,9 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 				}
 			}
 		}()
+		if err := c.recordEvent(tx, "knowledge", doc.ID, "deleted", "", doc.Title, ""); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(`DELETE FROM knowledge WHERE id = ?`, doc.ID); err != nil {
 			return err
 		}
@@ -898,9 +901,6 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 		// something deleted is a finding, not a silent no-op (§10.4).
 		if _, err := tx.Exec(
 			`UPDATE link SET to_id = NULL WHERE to_type = 'doc' AND to_id = ?`, doc.ID); err != nil {
-			return err
-		}
-		if err := c.recordEvent(tx, "knowledge", doc.ID, "deleted", "", doc.Title, ""); err != nil {
 			return err
 		}
 		done = true

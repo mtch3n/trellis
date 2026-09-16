@@ -287,10 +287,10 @@ func (c *Core) DeleteBoard(ctx context.Context, projectID, name string, force bo
 				return err
 			}
 		}
-		if _, err := tx.Exec(`DELETE FROM board WHERE id = ?`, board.ID); err != nil {
+		if err := c.recordEvent(tx, "board", board.ID, "deleted", "", board.Name, ""); err != nil {
 			return err
 		}
-		if err := c.recordEvent(tx, "board", board.ID, "deleted", "", board.Name, ""); err != nil {
+		if _, err := tx.Exec(`DELETE FROM board WHERE id = ?`, board.ID); err != nil {
 			return err
 		}
 		if board.IsDefault {
