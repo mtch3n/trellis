@@ -4,7 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -105,33 +109,101 @@ func (c *Core) PruneRevisions(ctx context.Context) (int64, error) {
 	return total, nil
 }
 
-// PruneOrphanHistory removes revision directories whose entry file is gone --
-// what deleting a file outside Trellis leaves behind, since nothing else
-// notices. It returns the number of directories removed.
+// PruneOrphanHistory removes revision directories no entry accounts for --
+// what deleting a file and its row outside Trellis leaves behind. It returns
+// the number of directories removed.
+//
+// An entry whose file is missing is NOT one of these. The entry is still
+// registered, `knowledge lint` reports the missing file, and its history is
+// the only copy of that content left: deleting it here would finish the job
+// the accidental `rm` started.
 func (c *Core) PruneOrphanHistory(ctx context.Context) (int64, error) {
-	var docs []Knowledge
-	if err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		return tx.Select(&docs, `SELECT * FROM knowledge`)
-	}); err != nil {
+	orphans, err := c.orphanRevisionDirs(ctx, "")
+	if err != nil {
 		return 0, err
 	}
 	var removed int64
-	for _, d := range docs {
-		dir := revisionDir(d.Path)
-		if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
-			continue
-		} else if err != nil {
-			return removed, err
-		}
-		if _, err := os.Stat(d.Path); err == nil {
-			continue
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return removed, err
-		}
+	for _, dir := range orphans {
 		if err := os.RemoveAll(dir); err != nil {
+			return removed, err
+		}
+		if err := syncDirectory(filepath.Dir(dir)); err != nil {
 			return removed, err
 		}
 		removed++
 	}
 	return removed, nil
+}
+
+// orphanRevisionDirs lists every ".<name>/" directory in the vaults that no
+// knowledge row accounts for, sorted. An empty projectID covers every project
+// and the global vault; otherwise it covers that project's vault and the
+// directories its own entries live in.
+func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]string, error) {
+	var docs []Knowledge
+	var keys []string
+	if err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		q := `SELECT * FROM knowledge`
+		args := []any{}
+		if projectID != "" {
+			q += ` WHERE project_id = ?`
+			args = append(args, projectID)
+		}
+		if err := tx.Select(&docs, q, args...); err != nil {
+			return err
+		}
+		kq := `SELECT key FROM project`
+		kargs := []any{}
+		if projectID != "" {
+			kq += ` WHERE id = ?`
+			kargs = append(kargs, projectID)
+		}
+		return tx.Select(&keys, kq, kargs...)
+	}); err != nil {
+		return nil, err
+	}
+
+	root, err := c.root()
+	if err != nil {
+		return nil, err
+	}
+	// The vaults to walk: every project's own directory, the global one, and
+	// wherever the rows actually point, which covers a moved storage root.
+	vaults := map[string]bool{filepath.Join(root, "global", "knowledge"): true}
+	for _, key := range keys {
+		vaults[filepath.Join(root, "projects", key, "knowledge")] = true
+	}
+	live := make(map[string]bool, len(docs))
+	for _, d := range docs {
+		live[d.Path] = true
+		vaults[filepath.Dir(d.Path)] = true
+	}
+
+	var orphans []string
+	for vault := range vaults {
+		err := filepath.WalkDir(vault, func(path string, e fs.DirEntry, err error) error {
+			if err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					return nil
+				}
+				return err
+			}
+			if path == vault || !e.IsDir() {
+				return nil
+			}
+			if !strings.HasPrefix(e.Name(), ".") {
+				return nil
+			}
+			// A revision directory is ".<entry file name>" beside its entry.
+			if !live[filepath.Join(filepath.Dir(path), strings.TrimPrefix(e.Name(), "."))] {
+				orphans = append(orphans, path)
+			}
+			return fs.SkipDir
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	slices.Sort(orphans)
+	return orphans, nil
 }

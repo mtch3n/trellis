@@ -3,6 +3,8 @@ package core
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -58,9 +60,41 @@ func TestPruneRevisionsTrimsKnowledgeAndCards(t *testing.T) {
 	}
 }
 
-func TestPruneOrphanHistoryRemovesDirectoriesWithNoEntryFile(t *testing.T) {
+func TestPruneOrphanHistoryRemovesADirectoryNoEntryAccountsFor(t *testing.T) {
 	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Gone", Body: "v1\n"})
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Kept", Body: "v1\n"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	// What removing a file and its row outside Trellis leaves behind.
+	stray := filepath.Join(filepath.Dir(doc.Path), ".removed-by-hand.md")
+	if err := os.MkdirAll(stray, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stray, "1.md"), []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := c.PruneOrphanHistory(t.Context())
+	if err != nil {
+		t.Fatalf("PruneOrphanHistory: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("removed %d, want 1", n)
+	}
+	if _, err := os.Stat(stray); !os.IsNotExist(err) {
+		t.Error("the stray revision directory still exists")
+	}
+	if _, err := os.Stat(revisionDir(doc.Path)); err != nil {
+		t.Errorf("the live entry's revisions were removed too: %v", err)
+	}
+}
+
+// An entry whose file was deleted by hand still has its row, and its history
+// holds the only copy of the content left. Pruning must not take it.
+func TestPruneOrphanHistoryKeepsTheHistoryOfAnEntryWhoseFileIsGone(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Gone", Body: "the only copy\n"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
@@ -72,11 +106,15 @@ func TestPruneOrphanHistoryRemovesDirectoriesWithNoEntryFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PruneOrphanHistory: %v", err)
 	}
-	if n != 1 {
-		t.Fatalf("removed %d, want 1", n)
+	if n != 0 {
+		t.Fatalf("removed %d, want 0: the row still registers this entry", n)
 	}
-	if _, err := os.Stat(revisionDir(doc.Path)); !os.IsNotExist(err) {
-		t.Errorf("revision directory still exists after pruning")
+	raw, err := os.ReadFile(revisionFilePath(doc.Path, 1))
+	if err != nil {
+		t.Fatalf("version 1 must survive: %v", err)
+	}
+	if !strings.Contains(string(raw), "the only copy") {
+		t.Errorf("revision 1 = %q", raw)
 	}
 }
 
@@ -91,17 +129,12 @@ func TestHealthReportsRevisionsAndOrphans(t *testing.T) {
 		t.Fatalf("EditKnowledge: %v", err)
 	}
 
-	doc2, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Orphan", Body: "v1\n"})
-	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
-	}
-	// Delete the file so its revision directory becomes orphaned
-	if err := os.Remove(doc2.Path); err != nil {
+	// A revision directory no row accounts for.
+	stray := filepath.Join(filepath.Dir(doc1.Path), ".orphan.md")
+	if err := os.MkdirAll(stray, 0o700); err != nil {
 		t.Fatal(err)
 	}
 
-	// Test RevisionHealth directly instead of Health, which calls Lint
-	// and fails on missing files (that's a separate issue with Lint)
 	revisions, orphaned, err := c.RevisionHealth(t.Context(), p.ID)
 	if err != nil {
 		t.Fatalf("RevisionHealth: %v", err)

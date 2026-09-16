@@ -81,9 +81,9 @@ func (c *Core) Health(ctx context.Context, projectID string) ([]HealthLine, erro
 	}, nil
 }
 
-// RevisionHealth counts a project's retained knowledge revisions and the
-// revision directories a file deleted outside Trellis leaves behind: the row
-// still names a path, but the path is gone.
+// RevisionHealth counts an entry's retained revisions and the revision
+// directories no entry accounts for. A row whose file is missing keeps its
+// history and is reported by lint as a missing file, not counted here.
 func (c *Core) RevisionHealth(ctx context.Context, projectID string) (revisions, orphaned int, err error) {
 	var docs []Knowledge
 	if err := c.Tx(ctx, func(tx *sqlx.Tx) error {
@@ -99,15 +99,13 @@ func (c *Core) RevisionHealth(ctx context.Context, projectID string) (revisions,
 		if derr != nil {
 			return 0, 0, derr
 		}
-		if _, ferr := os.Stat(d.Path); errors.Is(ferr, os.ErrNotExist) {
-			orphaned++
-			continue
-		} else if ferr != nil {
-			return 0, 0, ferr
-		}
 		revisions += len(entries)
 	}
-	return revisions, orphaned, nil
+	orphans, err := c.orphanRevisionDirs(ctx, projectID)
+	if err != nil {
+		return 0, 0, err
+	}
+	return revisions, len(orphans), nil
 }
 
 func readWindowMS() int64 { return int64(ReadWindowDays) * 24 * 60 * 60 * 1000 }
