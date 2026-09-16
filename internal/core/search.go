@@ -173,7 +173,7 @@ func (c *Core) Search(ctx context.Context, projectID, query string, o SearchOpts
 		cardArgs = append(cardArgs, args...)
 		cardArgs = append(cardArgs, match, o.Limit)
 		if err := tx.Select(&hits, `
-			SELECT 'card' AS kind, p.key || '-' || c.seq AS ref, c.title, p.key AS project,
+			SELECT 'card' AS kind, c.ref, c.title, p.key AS project,
 			       col.name AS detail, 0 AS unreviewed
 			FROM card c
 			JOIN card_fts ON card_fts.rowid = c.rowid

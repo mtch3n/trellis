@@ -141,9 +141,8 @@ func (c *Core) Backlinks(ctx context.Context, docID string) ([]Backlink, error) 
 			 JOIN project p ON p.id = k.project_id
 			 WHERE l.to_type = 'doc' AND l.to_id = ? AND l.from_type = 'doc'
 			 UNION ALL
-			 SELECT 'card', p.key || '-' || c.seq, c.title, COALESCE(l.anchor, '')
+			 SELECT 'card', c.ref, c.title, COALESCE(l.anchor, '')
 			 FROM link l JOIN card c ON c.id = l.from_id
-			 JOIN project p ON p.id = c.project_id
 			 WHERE l.to_type = 'doc' AND l.to_id = ? AND l.from_type = 'card'
 			 ORDER BY ref`, docID, docID)
 	})

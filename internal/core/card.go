@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/vpath"
 )
 
 type Card struct {
@@ -26,9 +27,9 @@ type Card struct {
 	CreatedAt  int64    `db:"created_at" json:"created_at"`
 	UpdatedAt  int64    `db:"updated_at" json:"updated_at"`
 	ArchivedAt *int64   `db:"archived_at" json:"archived_at,omitzero"`
+	Ref        string   `db:"ref" json:"ref"` // stored: a merged card keeps its original prefix
 
 	// Computed for display; never read from the database.
-	Ref          string   `db:"-" json:"ref"`
 	ColumnName   string   `db:"-" json:"column"`
 	PriorityName string   `db:"-" json:"priority"`
 	Labels       []string `db:"-" json:"labels,omitempty"`
@@ -73,14 +74,10 @@ func (c *Core) checkCardOwner(card Card) error {
 
 // cardView fills the computed fields.
 func (c *Core) cardView(tx *sqlx.Tx, card *Card) error {
-	var key, colName string
-	if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, card.ProjectID); err != nil {
-		return err
-	}
+	var colName string
 	if err := tx.Get(&colName, `SELECT name FROM column_ WHERE id = ?`, card.ColumnID); err != nil {
 		return err
 	}
-	card.Ref = key + "-" + itoa(card.Seq)
 	card.ColumnName = colName
 	card.PriorityName = card.Priority.String()
 
@@ -100,13 +97,26 @@ func (c *Core) cardView(tx *sqlx.Tx, card *Card) error {
 }
 
 // loadCard fetches a card inside an existing transaction and fills computed fields.
+// A qualified ref is matched against the stored ref, so a card that arrived
+// through a merge is found under the prefix it was born with; a bare number
+// means this project's own prefix.
 func (c *Core) loadCard(tx *sqlx.Tx, projectID string, ref CardRef, out *Card) error {
-	var err error
+	key, err := projectKeyOf(tx, projectID)
+	if err != nil {
+		return err
+	}
 	switch {
 	case ref.UUID != "":
 		err = tx.Get(out, `SELECT * FROM card WHERE id = ? AND project_id = ?`, ref.UUID, projectID)
 	case ref.Seq > 0:
-		err = tx.Get(out, `SELECT * FROM card WHERE seq = ? AND project_id = ?`, ref.Seq, projectID)
+		want := ref.qualified()
+		if ref.Project() == "" {
+			want = key + "-" + itoa(ref.Seq)
+		}
+		err = tx.Get(out, `SELECT * FROM card WHERE ref = ? AND project_id = ?`, want, projectID)
+		if errors.Is(err, sql.ErrNoRows) && ref.Project() != "" {
+			return cardElsewhere(tx, want)
+		}
 	default:
 		return ErrUsage("bad_card_ref", "card reference is empty", "trellis card ls")
 	}
@@ -117,6 +127,47 @@ func (c *Core) loadCard(tx *sqlx.Tx, projectID string, ref CardRef, out *Card) e
 		return err
 	}
 	return c.cardView(tx, out)
+}
+
+// cardElsewhere explains a qualified ref missing from the project it was
+// looked up in: it is either a card in another project, or no card at all.
+// OTHER-12 typed while working in KEY once opened KEY-12; a ref names one card.
+func cardElsewhere(tx *sqlx.Tx, ref string) error {
+	var holder string
+	err := tx.Get(&holder,
+		`SELECT p.key FROM card c JOIN project p ON p.id = c.project_id WHERE c.ref = ?`, ref)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound("card_not_found", "no card "+ref, "trellis card ls")
+	}
+	if err != nil {
+		return err
+	}
+	return ErrUsage("wrong_project", fmt.Sprintf("%s is a card in project %s", ref, holder),
+		"trellis card show "+vpath.CardPath(holder, ref).String())
+}
+
+// CardHolder finds the project that holds the card a qualified ref names,
+// wherever its prefix points: after a merge, API-12 lives in MONO. A bare
+// number or a UUID names no project by itself, so found is false.
+func (c *Core) CardHolder(ctx context.Context, ref string) (Project, bool, error) {
+	r := ParseCardRef(ref)
+	if r.ProjectKey == "" {
+		return Project{}, false, nil
+	}
+	var p Project
+	err := c.db.GetContext(ctx, &p,
+		`SELECT p.* FROM project p JOIN card c ON c.project_id = p.id WHERE c.ref = ?`, r.qualified())
+	if errors.Is(err, sql.ErrNoRows) {
+		return Project{}, false, nil
+	}
+	return p, err == nil, err
+}
+
+// projectKeyOf returns the key of a project given its ID.
+func projectKeyOf(tx *sqlx.Tx, projectID string) (string, error) {
+	var key string
+	err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, projectID)
+	return key, err
 }
 
 // CreateCard adds a card to a board. seq is allocated per PROJECT, not per
@@ -161,6 +212,11 @@ func (c *Core) createCard(ctx context.Context, tx *sqlx.Tx, projectID, boardID s
 			return err
 		}
 
+		var key string
+		if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, projectID); err != nil {
+			return err
+		}
+
 		if err := c.checkWrite(ctx, ProposedWrite{
 			Op: "card.create", EntityType: "card", ProjectID: projectID, BoardID: boardID,
 			Fields: map[string]string{"title": in.Title, "body": in.Body},
@@ -174,7 +230,7 @@ func (c *Core) createCard(ctx context.Context, tx *sqlx.Tx, projectID, boardID s
 			prio = *in.Priority
 		}
 		card = Card{
-			ID: NewCardID(), ProjectID: projectID, BoardID: boardID, Seq: seq, ColumnID: col.ID,
+			ID: NewCardID(), ProjectID: projectID, BoardID: boardID, Seq: seq, Ref: key + "-" + itoa(seq), ColumnID: col.ID,
 			Title: in.Title, BodyMD: in.Body, Priority: prio,
 			Version: 1, CreatedAt: now, UpdatedAt: now,
 		}
@@ -183,10 +239,10 @@ func (c *Core) createCard(ctx context.Context, tx *sqlx.Tx, projectID, boardID s
 		card.Rank = card.ID
 
 		if _, err := tx.Exec(
-			`INSERT INTO card (id, project_id, board_id, seq, column_id, rank, title, body_md,
+			`INSERT INTO card (id, project_id, board_id, seq, ref, column_id, rank, title, body_md,
 			                   priority, version, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			card.ID, card.ProjectID, card.BoardID, card.Seq, card.ColumnID, card.Rank, card.Title,
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			card.ID, card.ProjectID, card.BoardID, card.Seq, card.Ref, card.ColumnID, card.Rank, card.Title,
 			card.BodyMD, int(card.Priority), card.Version, card.CreatedAt, card.UpdatedAt); err != nil {
 			return err
 		}

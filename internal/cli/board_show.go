@@ -150,12 +150,12 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 	if actor != "" {
 		var owned []struct {
 			ID    string `db:"id"`
-			Seq   int64  `db:"seq"`
+			Ref   string `db:"ref"`
 			Title string `db:"title"`
 			Note  string `db:"body_md"`
 		}
 		err := app.db.SelectContext(ctx, &owned,
-			`SELECT c.id, c.seq, c.title,
+			`SELECT c.id, c.ref, c.title,
 			        COALESCE((SELECT body_md FROM note WHERE card_id = c.id ORDER BY created_at DESC LIMIT 1), '') AS body_md
 			 FROM card c
 			 JOIN column_ col ON col.id = c.column_id
@@ -167,7 +167,7 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 		}
 		for _, o := range owned {
 			brief.yours = append(brief.yours, cardInfo{
-				Ref:   fmt.Sprintf("%s-%d", app.Project.Key, o.Seq),
+				Ref:   o.Ref,
 				Title: o.Title,
 				Note:  o.Note,
 			})
@@ -176,12 +176,12 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 
 	// OTHERS: cards where owner IS NOT NULL AND owner != :me AND is_done = 0
 	var otherCards []struct {
-		Seq   int64  `db:"seq"`
+		Ref   string `db:"ref"`
 		Title string `db:"title"`
 		Owner string `db:"owner"`
 	}
 	err := app.db.SelectContext(ctx, &otherCards,
-		`SELECT c.seq, c.title, c.owner
+		`SELECT c.ref, c.title, c.owner
 		 FROM card c
 		 JOIN column_ col ON col.id = c.column_id
 		 WHERE c.project_id = ? AND c.owner IS NOT NULL AND c.owner != ? AND c.archived_at IS NULL AND col.is_done = 0
@@ -192,7 +192,7 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 	}
 	for _, o := range otherCards {
 		brief.others = append(brief.others, cardInfo{
-			Ref:   fmt.Sprintf("%s-%d", app.Project.Key, o.Seq),
+			Ref:   o.Ref,
 			Title: o.Title,
 			Owner: o.Owner,
 		})

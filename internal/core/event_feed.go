@@ -50,8 +50,7 @@ type feedRow struct {
 	Field     string `db:"field"`
 	OldValue  string `db:"old_value"`
 	NewValue  string `db:"new_value"`
-	CardKey   string `db:"card_key"`
-	CardSeq   int64  `db:"card_seq"`
+	CardRef   string `db:"card_ref"`
 	CardTitle string `db:"card_title"`
 	KBKey     string `db:"kb_key"`
 	KBSlug    string `db:"kb_slug"`
@@ -77,8 +76,8 @@ func (r feedRow) toFeedEvent() FeedEvent {
 	}
 	switch r.Kind {
 	case "card":
-		if r.CardKey != "" {
-			ev.Ref = r.CardKey + "-" + itoa(r.CardSeq)
+		if r.CardRef != "" {
+			ev.Ref = r.CardRef
 			ev.Title = r.CardTitle
 		}
 	case "knowledge":
@@ -159,8 +158,7 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64
 		    COALESCE(e.field, '') AS field,
 		    COALESCE(e.old_value, '') AS old_value,
 		    COALESCE(e.new_value, '') AS new_value,
-		    COALESCE(pc.key, '') AS card_key,
-		    COALESCE(c.seq, 0) AS card_seq,
+		    COALESCE(c.ref, '') AS card_ref,
 		    COALESCE(c.title, '') AS card_title,
 		    COALESCE(CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE pk.key END, '') AS kb_key,
 		    COALESCE(k.slug, '') AS kb_slug,
@@ -173,7 +171,6 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64
 		    COALESCE(nc.title, '') AS note_title
 		FROM event e
 		LEFT JOIN card c ON c.id = e.entity_id AND e.entity_type = 'card'
-		LEFT JOIN project pc ON pc.id = c.project_id
 		LEFT JOIN knowledge k ON k.id = e.entity_id AND e.entity_type = 'knowledge'
 		LEFT JOIN project pk ON pk.id = k.project_id
 		LEFT JOIN board b ON b.id = e.entity_id AND e.entity_type = 'board'

@@ -520,7 +520,7 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 	projectKey := r.PathValue("key")
 	boardSlug := r.PathValue("board")
 
-	p, b, err := s.projectAndBoard(ctx, projectKey, boardSlug)
+	_, b, err := s.projectAndBoard(ctx, projectKey, boardSlug)
 	if err != nil {
 		s.error(w, http.StatusNotFound, err.Error())
 		return
@@ -538,7 +538,7 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 		// Get cards in this column
 		var cards []struct {
 			ID        string        `db:"id"`
-			Seq       int64         `db:"seq"`
+			Ref       string        `db:"ref"`
 			Title     string        `db:"title"`
 			Body      string        `db:"body_md"`
 			Priority  core.Priority `db:"priority"`
@@ -548,7 +548,7 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 			UpdatedAt int64         `db:"updated_at"`
 		}
 		if err := s.db.SelectContext(ctx, &cards,
-			`SELECT id, seq, title, body_md, priority, owner, version, created_at, updated_at FROM card WHERE column_id = ? AND archived_at IS NULL ORDER BY priority, rank`,
+			`SELECT id, ref, title, body_md, priority, owner, version, created_at, updated_at FROM card WHERE column_id = ? AND archived_at IS NULL ORDER BY priority, rank`,
 			col.ID); err != nil {
 			s.error(w, http.StatusInternalServerError, err.Error())
 			return
@@ -558,7 +558,7 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 		for _, c := range cards {
 			cardInfos = append(cardInfos, cardInfo{
 				ID:        c.ID,
-				Ref:       p.Key + "-" + fmt.Sprintf("%d", c.Seq),
+				Ref:       c.Ref,
 				Title:     c.Title,
 				Body:      c.Body,
 				Priority:  c.Priority.String(),
