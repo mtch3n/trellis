@@ -64,6 +64,9 @@ func (c *Core) ArtifactFile(ctx context.Context, projectID, name string) (Artifa
 	var matches []Artifact
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, projectID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return notFound
+			}
 			return err
 		}
 		return tx.Select(&matches,
@@ -119,7 +122,12 @@ func (c *Core) CreateArtifact(ctx context.Context, projectID, source string) (Ar
 	header := make([]byte, 512)
 	n, _ := io.ReadFull(io.LimitReader(in, 512), header)
 	mimeType := http.DetectContentType(header[:n])
-	if ext := mime.TypeByExtension(strings.ToLower(filepath.Ext(source))); mimeType == "application/octet-stream" && ext != "" {
+	// A genuine PDF always starts with "%PDF-" and so always sniffs as
+	// application/pdf; the sniffer only falls through to octet-stream for
+	// bytes that are not a PDF. Letting the extension override that here would
+	// let any file named *.pdf claim the one kind the web server serves
+	// without a sandbox, so the fallback must never produce application/pdf.
+	if ext := mime.TypeByExtension(strings.ToLower(filepath.Ext(source))); mimeType == "application/octet-stream" && ext != "" && ext != "application/pdf" {
 		mimeType = ext
 	}
 	kind := artifactKind(mimeType)
@@ -173,15 +181,25 @@ func (c *Core) CreateArtifact(ctx context.Context, projectID, source string) (Ar
 		// An entry may already name this artifact, written before it existed.
 		// The name is new to the project (artifactNameTaken made sure), so no
 		// stub it fills was ambiguous.
-		_, err = tx.Exec(
-			`UPDATE link SET to_id = ?
-			 WHERE to_type = 'artifact' AND rel = 'artifact' AND to_id IS NULL AND to_raw = ?
-			   AND from_type = 'doc'
-			   AND from_id IN (SELECT id FROM knowledge WHERE project_id = ?)`,
-			out.ID, out.Name, projectID)
-		return err
+		return backfillArtifactStubs(tx, projectID, out.Name, out.ID)
 	})
 	return out, err
+}
+
+// backfillArtifactStubs binds every doc stub named name to id. A stub is a
+// link row with to_id NULL because, at the time the entry's file was synced,
+// name resolved to zero or several artifacts. Both callers make it resolve to
+// exactly one: CreateArtifact when the name is new to the project, and
+// DeleteArtifact when removing one of two same-named artifacts leaves a
+// single survivor.
+func backfillArtifactStubs(tx *sqlx.Tx, projectID, name, id string) error {
+	_, err := tx.Exec(
+		`UPDATE link SET to_id = ?
+		 WHERE to_type = 'artifact' AND rel = 'artifact' AND to_id IS NULL AND to_raw = ?
+		   AND from_type = 'doc'
+		   AND from_id IN (SELECT id FROM knowledge WHERE project_id = ?)`,
+		id, name, projectID)
+	return err
 }
 
 // artifactNameTaken reports whether a candidate path cannot be used: a file is
@@ -381,9 +399,9 @@ func (c *Core) ListArtifacts(ctx context.Context, projectID, cardID, docID strin
 
 // DeleteArtifact removes metadata, graph links, and the stored file.
 func (c *Core) DeleteArtifact(ctx context.Context, projectID, artifactID string) error {
-	var path string
+	var deleted Artifact
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		if err := tx.Get(&path, `SELECT path FROM artifact WHERE id = ? AND project_id = ?`, artifactID, projectID); err != nil {
+		if err := tx.Get(&deleted, `SELECT * FROM artifact WHERE id = ? AND project_id = ?`, artifactID, projectID); err != nil {
 			return ErrNotFound("artifact_not_found", "artifact not found", "trellis artifact ls")
 		}
 		// An entry names its artifacts in its own file, so its link survives as
@@ -398,13 +416,27 @@ func (c *Core) DeleteArtifact(ctx context.Context, projectID, artifactID string)
 		if _, err := tx.Exec(`DELETE FROM link WHERE (to_type = 'artifact' AND to_id = ?) OR (from_type = 'artifact' AND from_id = ?)`, artifactID, artifactID); err != nil {
 			return err
 		}
-		_, err := tx.Exec(`DELETE FROM artifact WHERE id = ? AND project_id = ?`, artifactID, projectID)
-		return err
+		if _, err := tx.Exec(`DELETE FROM artifact WHERE id = ? AND project_id = ?`, artifactID, projectID); err != nil {
+			return err
+		}
+		// Deleting this artifact may leave exactly one other artifact with its
+		// name — the other half of a name collision. That survivor is no
+		// longer ambiguous, so any doc stub still naming it backfills the same
+		// way a brand-new artifact would fill one.
+		var survivors []string
+		if err := tx.Select(&survivors,
+			`SELECT id FROM artifact WHERE project_id = ? AND name = ?`, projectID, deleted.Name); err != nil {
+			return err
+		}
+		if len(survivors) == 1 {
+			return backfillArtifactStubs(tx, projectID, deleted.Name, survivors[0])
+		}
+		return nil
 	})
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(deleted.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil

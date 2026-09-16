@@ -11,6 +11,12 @@ import "github.com/jmoiron/sqlx"
 //	event.new_value  edited        EditKnowledgeFields writes the whole body
 //	                               there, which is the largest copy and the one
 //	                               nobody thinks to look for
+//	event.new_value  artifact_linked / artifact_unlinked
+//	                               EditKnowledgeFields records the artifact's
+//	                               name unconditionally, because presence of a
+//	                               name is metadata, not content — but once the
+//	                               entry is private that name still identifies
+//	                               a file that must not linger in the log
 //
 // The pin itself is not one of these. A pin row is (id, knowledge_id,
 // board_id, created_at) — it holds no text — and it is left alone on purpose.
@@ -54,7 +60,7 @@ func (c *Core) purgeDisclosedCopies(tx *sqlx.Tx, doc *Knowledge) error {
 	if _, err := tx.Exec(
 		`UPDATE event SET new_value = NULL, old_value = NULL
 		 WHERE entity_type = 'knowledge' AND entity_id = ?
-		   AND action IN ('pinned', 'unpinned', 'edited')`,
+		   AND action IN ('pinned', 'unpinned', 'edited', 'artifact_linked', 'artifact_unlinked')`,
 		doc.ID); err != nil {
 		return err
 	}

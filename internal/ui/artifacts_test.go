@@ -352,6 +352,86 @@ func TestArtifactRouteIsProtected(t *testing.T) {
 	}
 }
 
+// A name shared by two artifacts cannot be resolved to one file, so the route
+// answers the same as any other unresolvable name.
+func TestArtifactAmbiguousNameIsNotFound(t *testing.T) {
+	s, c, p := artifactTestServer(t)
+	a := storeArtifact(t, c, p.ID, "twin.png", pngBytes)
+	dup := filepath.Join(filepath.Dir(a.Path), "twin-2.png")
+	if err := os.WriteFile(dup, pngBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(
+		`INSERT INTO artifact (id, project_id, name, path, kind, mime, size, content_hash, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1)`,
+		core.NewCardID(), p.ID, a.Name, dup, a.Kind, a.MIME, a.Size, a.ContentHash); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := serve(s, http.MethodGet, artifactURL("ART", a.Name), nil)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}
+
+// protectedHandler denies a request whose Origin names a different host, even
+// with a valid token, before the token is ever checked.
+func TestArtifactRouteRejectsForeignOrigin(t *testing.T) {
+	s, c, p := artifactTestServer(t)
+	a := storeArtifact(t, c, p.ID, "shot.png", pngBytes)
+	h := s.protectedHandler("127.0.0.1:0")
+
+	build := func() *http.Request {
+		req := httptest.NewRequest(http.MethodGet, artifactURL("ART", a.Name), nil)
+		req.Host = "127.0.0.1:0"
+		req.Header.Set("X-Trellis-Token", s.token)
+		return req
+	}
+
+	ok := httptest.NewRecorder()
+	h.ServeHTTP(ok, build())
+	if ok.Code != http.StatusOK {
+		t.Fatalf("setup: without a foreign origin = %d, want 200", ok.Code)
+	}
+
+	req := build()
+	req.Header.Set("Origin", "http://evil.example")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("foreign origin: %d, want 403", rec.Code)
+	}
+}
+
+// protectedHandler denies a request Fetch metadata marks as cross-site, even
+// with a valid token.
+func TestArtifactRouteRejectsCrossSite(t *testing.T) {
+	s, c, p := artifactTestServer(t)
+	a := storeArtifact(t, c, p.ID, "shot.png", pngBytes)
+	h := s.protectedHandler("127.0.0.1:0")
+
+	build := func() *http.Request {
+		req := httptest.NewRequest(http.MethodGet, artifactURL("ART", a.Name), nil)
+		req.Host = "127.0.0.1:0"
+		req.Header.Set("X-Trellis-Token", s.token)
+		return req
+	}
+
+	ok := httptest.NewRecorder()
+	h.ServeHTTP(ok, build())
+	if ok.Code != http.StatusOK {
+		t.Fatalf("setup: without the header = %d, want 200", ok.Code)
+	}
+
+	req := build()
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("cross-site: %d, want 403", rec.Code)
+	}
+}
+
 // A name is only a lookup key, but it is echoed into Content-Disposition, so a
 // hostile one must not break the header.
 func TestAFilenameCannotBreakTheDispositionHeader(t *testing.T) {
