@@ -161,9 +161,21 @@ const (
 )
 
 var (
-	cardRefRE = regexp.MustCompile(`^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-[0-9]+$`)
-	slugRE    = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+	cardRefRE = regexp.MustCompile(`^[^/#\s-][^/#\s]*-[0-9]+$`)
+	docSlugRE = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 )
+
+func KnowledgePath(key, slug string) Path {
+	return Path{Project: key, Collection: CollectionKnowledge, Name: slug}
+}
+func GlobalKnowledgePath(slug string) Path { return KnowledgePath(GlobalKey, slug) }
+func CardPath(key, ref string) Path {
+	return Path{Project: key, Collection: CollectionCards, Name: ref}
+}
+func ArtifactPath(key, name string) Path {
+	return Path{Project: key, Collection: CollectionArtifacts, Name: name}
+}
+func SplitAnchor(s string) (target, anchor string) { target, anchor, _ = strings.Cut(s, "#"); return }
 
 // Parse reads an absolute address: /KEY/cards/<ref>, /KEY/knowledge/<slug>,
 // /GLOBAL/knowledge/<slug> or /KEY/artifacts/<name>. Keys and card refs are
@@ -174,37 +186,58 @@ var (
 // docs/superpowers/specs/2026-09-16-virtual-paths-design.md that a template's
 // verify rule needs — no boards, no anchors — and the full layer extends it.
 func Parse(s string) (Path, error) {
-	parts := strings.Split(s, "/")
-	if len(parts) != 4 || parts[0] != "" || parts[1] == "" || parts[2] == "" || parts[3] == "" {
-		return Path{}, fmt.Errorf("%q is not an absolute address", s)
+	s = strings.TrimSpace(s)
+	rest, ok := strings.CutPrefix(s, "/")
+	if !ok {
+		return Path{}, fmt.Errorf("%q is not an address: an address starts with /", s)
 	}
-	project, collection, name := strings.ToUpper(parts[1]), parts[2], parts[3]
-
-	if project == GlobalKey && collection != CollectionKnowledge {
-		return Path{}, fmt.Errorf("%s is only valid with knowledge, not %s", GlobalKey, collection)
+	if strings.Contains(s, "#") {
+		return Path{}, fmt.Errorf("%q carries an anchor; an address names the entry, not a heading", s)
 	}
-	if project != GlobalKey && !ValidKey(project) {
-		return Path{}, fmt.Errorf("%q is not a valid project key", parts[1])
+	segs := strings.Split(rest, "/")
+	key := strings.ToUpper(segs[0])
+	if !ValidKey(key) {
+		return Path{}, fmt.Errorf("%q is not a project key", segs[0])
 	}
-
+	if len(segs) == 1 {
+		if key == GlobalKey {
+			return Path{}, errors.New("GLOBAL holds only knowledge")
+		}
+		return ProjectPath(key), nil
+	}
+	if len(segs) != 3 {
+		return Path{}, fmt.Errorf("%q is not an address; expected /KEY/<collection>/<name>", s)
+	}
+	collection, name := segs[1], segs[2]
+	if key == GlobalKey && collection != CollectionKnowledge {
+		return Path{}, errors.New("GLOBAL holds only knowledge")
+	}
 	switch collection {
+	case CollectionBoards:
+		if !ValidSlug(name) {
+			return Path{}, fmt.Errorf("%q is not a board slug", name)
+		}
 	case CollectionCards:
-		ref := strings.ToUpper(name)
-		if !cardRefRE.MatchString(ref) {
-			return Path{}, fmt.Errorf("%q is not a valid card ref", name)
+		name = strings.ToUpper(name)
+		if !ValidCardRef(name) {
+			return Path{}, fmt.Errorf("%q is not a card ref", segs[2])
 		}
-		return Path{Project: project, Collection: CollectionCards, Name: ref}, nil
 	case CollectionKnowledge:
-		if !slugRE.MatchString(name) {
-			return Path{}, fmt.Errorf("%q is not a valid knowledge slug", name)
+		if !ValidDocSlug(name) {
+			return Path{}, fmt.Errorf("%q is not a knowledge slug", name)
 		}
-		return Path{Project: project, Collection: CollectionKnowledge, Name: name}, nil
 	case CollectionArtifacts:
-		if name == "." || name == ".." || strings.ContainsRune(name, 0) {
-			return Path{}, fmt.Errorf("%q is not a valid artifact name", name)
+		if !ValidArtifactName(name) {
+			return Path{}, fmt.Errorf("%q is not an artifact name", name)
 		}
-		return Path{Project: project, Collection: CollectionArtifacts, Name: name}, nil
 	default:
-		return Path{}, fmt.Errorf("%q is not a known collection", collection)
+		return Path{}, fmt.Errorf("%q is not a collection", collection)
 	}
+	return Path{Project: key, Collection: collection, Name: name}, nil
+}
+
+func ValidCardRef(s string) bool { return s == strings.ToUpper(s) && cardRefRE.MatchString(s) }
+func ValidDocSlug(s string) bool { return docSlugRE.MatchString(s) }
+func ValidArtifactName(s string) bool {
+	return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, "/\\\x00")
 }
