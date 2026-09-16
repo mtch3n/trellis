@@ -36,8 +36,8 @@ func TestRecallFindsWhatAPhraseSearchCannot(t *testing.T) {
 	if len(hits) == 0 {
 		t.Fatal("Recall found nothing in a sentence naming the entry's subject")
 	}
-	if hits[0].Ref != "XPSCTL/lease-renewal-on-claim" {
-		t.Errorf("first hit = %q, want XPSCTL/lease-renewal-on-claim", hits[0].Ref)
+	if hits[0].Ref != "/XPSCTL/knowledge/lease-renewal-on-claim" {
+		t.Errorf("first hit = %q, want /XPSCTL/knowledge/lease-renewal-on-claim", hits[0].Ref)
 	}
 }
 
@@ -208,7 +208,7 @@ func TestRecallLiftsHitsConnectedToOtherHits(t *testing.T) {
 	if len(hits) != 3 {
 		t.Fatalf("Recall returned %d hits, want 3", len(hits))
 	}
-	if hits[2].Ref != "XPSCTL/retry-gamma" {
+	if hits[2].Ref != "/XPSCTL/knowledge/retry-gamma" {
 		t.Errorf("order = %s %s %s; want the unconnected entry last",
 			hits[0].Ref, hits[1].Ref, hits[2].Ref)
 	}
@@ -249,8 +249,8 @@ func TestRecallCountsALinkToAHubForLessThanALinkToARarity(t *testing.T) {
 	for i, h := range hits {
 		rank[h.Ref] = i
 	}
-	alpha, okA := rank["XPSCTL/retry-alpha"]
-	beta, okB := rank["XPSCTL/retry-beta"]
+	alpha, okA := rank["/XPSCTL/knowledge/retry-alpha"]
+	beta, okB := rank["/XPSCTL/knowledge/retry-beta"]
 	if !okA || !okB {
 		t.Fatalf("both linkers should be recalled; got %v", rank)
 	}
@@ -337,7 +337,7 @@ func TestRecallHoldsOutAnIngestionPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Recall: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Ref != "XPSCTL/retry-budget-authored" {
+	if len(hits) != 1 || hits[0].Ref != "/XPSCTL/knowledge/retry-budget-authored" {
 		t.Errorf("hits = %+v, want only the authored entry", hits)
 	}
 }

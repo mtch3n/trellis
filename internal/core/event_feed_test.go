@@ -390,7 +390,7 @@ func TestEventFeedKnowledgeRefUsesGlobalForAnEscalatedDoc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
-	if len(events) != 1 || events[0].Ref != GlobalKey+"/"+doc.Slug {
-		t.Fatalf("events = %+v, want ref %s/%s", events, GlobalKey, doc.Slug)
+	if want := DocAddress("", true, doc.Slug); len(events) != 1 || events[0].Ref != want {
+		t.Fatalf("events = %+v, want ref %s", events, want)
 	}
 }

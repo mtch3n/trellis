@@ -162,7 +162,7 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 		var docs []RecallHit
 		if err := tx.Select(&docs, `
 			SELECT 'knowledge' AS kind, k.id,
-			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END || '/' || k.slug AS ref,
+			       `+docAddressSQL+` AS ref,
 			       k.title,
 			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
 			       k.doc_type AS detail,

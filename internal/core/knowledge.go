@@ -20,7 +20,8 @@ import (
 //go:embed templates/*.md
 var templateFS embed.FS
 
-// GlobalKey names the global vault; vpath owns the reservation.
+// GlobalKey names the global vault. vpath owns the reservation: no project can
+// take the key, so /GLOBAL/knowledge/<slug> never collides with a project.
 const GlobalKey = vpath.GlobalKey
 
 // Knowledge is the cached row for one markdown file. The file always wins: every
@@ -51,7 +52,7 @@ type Knowledge struct {
 	UpdatedAt   int64  `db:"updated_at" json:"updated_at"`
 
 	// Computed for display.
-	Ref       string        `db:"-" json:"ref"`             // KEY/slug
+	Ref       string        `db:"-" json:"ref"`             // /KEY/knowledge/<slug> or /GLOBAL/knowledge/<slug>
 	BoardName string        `db:"-" json:"board,omitempty"` // association only
 	Tags      []string      `db:"-" json:"tags,omitempty"`
 	Labels    []string      `db:"-" json:"labels,omitempty"`
@@ -500,7 +501,7 @@ func (c *Core) docView(tx *sqlx.Tx, doc *Knowledge) error {
 			return err
 		}
 	}
-	doc.Ref = key + "/" + doc.Slug
+	doc.Ref = DocAddress(key, doc.Global, doc.Slug)
 	doc.BoardName = ""
 	if doc.BoardID != nil {
 		if err := tx.Get(&doc.BoardName, `SELECT name FROM board WHERE id = ?`, *doc.BoardID); err != nil && !errors.Is(err, sql.ErrNoRows) {

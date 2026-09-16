@@ -47,6 +47,29 @@ func (c *Core) SearchCards(ctx context.Context, projectID string, query string, 
 	return cards, err
 }
 
+// KnowledgeHit is the search hit for one entry, found by id: how a vector
+// match becomes a result. Unless allProjects is set, the entry must belong to
+// projectID or the vault. A non-empty label must be on the entry. A miss is
+// sql.ErrNoRows.
+func (c *Core) KnowledgeHit(ctx context.Context, docID, projectID string, allProjects bool, label string) (SearchHit, error) {
+	q := `SELECT 'knowledge' AS kind, ` + docAddressSQL + ` AS ref, k.title,
+             CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
+             k.doc_type AS detail, 0 AS unreviewed
+      FROM knowledge k JOIN project p ON p.id = k.project_id WHERE k.id = ?`
+	args := []any{docID}
+	if !allProjects {
+		q += ` AND (k.project_id = ? OR k.global = 1)`
+		args = append(args, projectID)
+	}
+	if label != "" {
+		q += ` AND EXISTS (SELECT 1 FROM knowledge_label kl JOIN label l ON l.id = kl.label_id WHERE kl.doc_id = k.id AND l.name = ?)`
+		args = append(args, label)
+	}
+	var hit SearchHit
+	err := c.db.GetContext(ctx, &hit, q, args...)
+	return hit, err
+}
+
 // FindSimilarOpenCards searches for open (non-archived, not in a done column)
 // cards with titles matching the given query. Used for duplicate detection.
 func (c *Core) FindSimilarOpenCards(ctx context.Context, projectID string, title string, limit int) ([]Card, error) {
@@ -170,7 +193,7 @@ func (c *Core) Search(ctx context.Context, projectID, query string, o SearchOpts
 		var docs []SearchHit
 		if err := tx.Select(&docs, `
 			SELECT 'knowledge' AS kind,
-			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END || '/' || k.slug AS ref,
+			       `+docAddressSQL+` AS ref,
 			       k.title,
 			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
 			       k.doc_type AS detail,
@@ -212,7 +235,7 @@ func (c *Core) matchKnowledge(ctx context.Context, projectID, match string, limi
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		return tx.Select(&hits, `
 			SELECT 'knowledge' AS kind,
-			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END || '/' || k.slug AS ref,
+			       `+docAddressSQL+` AS ref,
 			       k.title,
 			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
 			       k.doc_type AS detail,

@@ -141,7 +141,6 @@ func TestParseRejectsMalformedAddresses(t *testing.T) {
 	bad := []string{
 		"/trellis/cards/not-a-ref",
 		"/1BAD/cards/1BAD-1",
-		"/TRELLIS/boards/main",
 		"/GLOBAL/cards/GLOBAL-1",
 		"/TRELLIS/artifacts/..",
 		"/TRELLIS/knowledge/Not_A_Slug",

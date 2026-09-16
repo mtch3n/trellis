@@ -801,6 +801,9 @@ func (s *Server) handleGlobalKnowledgeList(w http.ResponseWriter, r *http.Reques
 		s.error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	for i := range docs {
+		docs[i].Ref = core.DocAddress("", true, docs[i].Slug)
+	}
 	writeJSON(w, http.StatusOK, docs)
 }
 

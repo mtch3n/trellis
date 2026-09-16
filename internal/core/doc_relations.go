@@ -135,7 +135,7 @@ func (c *Core) Backlinks(ctx context.Context, docID string) ([]Backlink, error) 
 	out := []Backlink{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		return tx.Select(&out,
-			`SELECT 'doc' AS from_type, p.key || '/' || k.slug AS ref, k.title,
+			`SELECT 'doc' AS from_type, `+docAddressSQL+` AS ref, k.title,
 			        COALESCE(l.anchor, '') AS anchor
 			 FROM link l JOIN knowledge k ON k.id = l.from_id
 			 JOIN project p ON p.id = k.project_id

@@ -83,7 +83,7 @@ func (r feedRow) toFeedEvent() FeedEvent {
 		}
 	case "knowledge":
 		if r.KBKey != "" {
-			ev.Ref = r.KBKey + "/" + r.KBSlug
+			ev.Ref = DocAddress(r.KBKey, r.KBKey == GlobalKey, r.KBSlug)
 			ev.Title = r.KBTitle
 			ev.Type = r.KBDocType
 		}
