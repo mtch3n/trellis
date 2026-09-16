@@ -1,6 +1,8 @@
 package core
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -242,4 +244,63 @@ func (c *Core) refuseResemblingDir(tx *sqlx.Tx, projectID, dir string, allowNew 
 	return ErrUsage("similar_directory",
 		dir+" is close to existing "+strings.Join(similar, ", ")+"; that may be the same idea spelled two ways",
 		"trellis knowledge new --title \"...\" --in "+dir+" --new-dir")
+}
+
+// resolveSlug turns CLI or wikilink input into exactly one entry's stored
+// slug. input may be the full path ("deployment/rollback") or a bare leaf
+// ("rollback"): a bare leaf matches any directory and is a permanent
+// addressing mode, not a compatibility shim. includeGlobal widens matching
+// to the vault, which loadDoc's callers want (show, edit, pin, escalate...)
+// and DeleteKnowledge does not: rm only ever removes this project's own row.
+func (c *Core) resolveSlug(tx *sqlx.Tx, projectID, input string, includeGlobal bool) (string, error) {
+	norm := normalizeSlugPath(input)
+	// For exact matches, prefer project-local entries over global ones.
+	var exact string
+	err := tx.Get(&exact, `SELECT slug FROM knowledge WHERE slug = ? AND project_id = ?`, norm, projectID)
+	if err == nil {
+		return exact, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	// No project-local exact match; check global if allowed.
+	if includeGlobal {
+		err = tx.Get(&exact, `SELECT slug FROM knowledge WHERE slug = ? AND global = 1`, norm)
+		if err == nil {
+			return exact, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+	}
+	// No exact match. Try bare-leaf matching if the input has no "/".
+	if norm == "" || strings.Contains(norm, "/") {
+		return "", notFoundSlug(input)
+	}
+	scope := "project_id = ?"
+	if includeGlobal {
+		scope = "(project_id = ? OR global = 1)"
+	}
+	var matches []string
+	if err := tx.Select(&matches,
+		`SELECT slug FROM knowledge WHERE (slug = ? OR slug LIKE '%/' || ?) AND `+scope+` ORDER BY slug`,
+		norm, norm, projectID); err != nil {
+		return "", err
+	}
+	switch len(matches) {
+	case 0:
+		return "", notFoundSlug(input)
+	case 1:
+		return matches[0], nil
+	default:
+		return "", &Error{
+			Code: "ambiguous_slug", Exit: 2,
+			Msg: fmt.Sprintf("%q matches more than one entry: %s", input, strings.Join(matches, ", ")),
+			Fix: "trellis knowledge show <full path>", Detail: matches,
+		}
+	}
+}
+
+func notFoundSlug(input string) error {
+	return ErrNotFound("knowledge_not_found", "no knowledge entry "+input, "trellis knowledge ls")
 }

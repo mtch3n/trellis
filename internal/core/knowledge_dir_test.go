@@ -1,8 +1,10 @@
 package core
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -154,5 +156,102 @@ func TestApiDoesNotMatchApisLegacyAsADirectory(t *testing.T) {
 	}
 	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Y", Dir: "api"}); err != nil {
 		t.Fatalf("api must not be refused as resembling apis-legacy: %v", err)
+	}
+}
+
+func TestBareLeafOpensTheUniqueMatch(t *testing.T) {
+	c, p, _ := kbCore(t)
+	created, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	got, err := c.LoadKnowledge(t.Context(), p.ID, "rollback")
+	if err != nil {
+		t.Fatalf("LoadKnowledge by bare leaf: %v", err)
+	}
+	if got.ID != created.ID {
+		t.Fatalf("got %q, want %q", got.Slug, created.Slug)
+	}
+}
+
+func TestBareLeafAmbiguityListsCandidatesAndOpensNeither(t *testing.T) {
+	c, p, _ := kbCore(t)
+	a, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge a: %v", err)
+	}
+	b, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "docs"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge b: %v", err)
+	}
+	_, err = c.LoadKnowledge(t.Context(), p.ID, "rollback")
+	e, ok := errors.AsType[*Error](err)
+	if !ok || e.Code != "ambiguous_slug" {
+		t.Fatalf("err = %v, want ambiguous_slug", err)
+	}
+	detail, ok := e.Detail.([]string)
+	if !ok || !slices.Contains(detail, a.Slug) || !slices.Contains(detail, b.Slug) {
+		t.Errorf("Detail = %v, want both %q and %q", e.Detail, a.Slug, b.Slug)
+	}
+}
+
+func TestFullPathStillResolvesExactlyEvenWhenALeafIsAmbiguous(t *testing.T) {
+	c, p, _ := kbCore(t)
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"}); err != nil {
+		t.Fatalf("CreateKnowledge a: %v", err)
+	}
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "docs"}); err != nil {
+		t.Fatalf("CreateKnowledge b: %v", err)
+	}
+	got, err := c.LoadKnowledge(t.Context(), p.ID, "deployment/rollback")
+	if err != nil {
+		t.Fatalf("LoadKnowledge by full path: %v", err)
+	}
+	if got.Slug != "deployment/rollback" {
+		t.Fatalf("slug = %q", got.Slug)
+	}
+}
+
+func TestBareLeafNotFoundIsTheOrdinaryNotFoundError(t *testing.T) {
+	c, p, _ := kbCore(t)
+	_, err := c.LoadKnowledge(t.Context(), p.ID, "nope")
+	if pathErrCode(err) != "knowledge_not_found" {
+		t.Fatalf("err = %v, want knowledge_not_found", err)
+	}
+}
+
+func TestDeleteKnowledgeByBareLeaf(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if err := c.DeleteKnowledge(t.Context(), p.ID, "rollback"); err != nil {
+		t.Fatalf("DeleteKnowledge by bare leaf: %v", err)
+	}
+	if _, err := os.Stat(doc.Path); !os.IsNotExist(err) {
+		t.Fatalf("file still exists: %v", err)
+	}
+}
+
+// rm never bare-leaf-resolves into the global vault: a project's rm is
+// scoped to its own vault, even though show/edit/pin already look there.
+func TestDeleteKnowledgeDoesNotBareLeafIntoTheGlobalVault(t *testing.T) {
+	c, p, _ := kbCore(t)
+	other := seededProject2(t, c)
+	doc, err := c.CreateKnowledge(t.Context(), other.ID, NewKnowledge{Title: "Shared", Dir: "docs"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.EscalateKnowledge(t.Context(), other.ID, doc.Slug, "cross-project"); err != nil {
+		t.Fatalf("EscalateKnowledge: %v", err)
+	}
+	// LoadKnowledge from an unrelated project finds it in the vault...
+	if _, err := c.LoadKnowledge(t.Context(), p.ID, "shared"); err != nil {
+		t.Fatalf("LoadKnowledge should find the global entry: %v", err)
+	}
+	// ...but DeleteKnowledge from that same unrelated project must not.
+	if err := c.DeleteKnowledge(t.Context(), p.ID, "shared"); pathErrCode(err) != "knowledge_not_found" {
+		t.Fatalf("err = %v, want knowledge_not_found: rm must not reach into another project's escalated entry", err)
 	}
 }

@@ -396,12 +396,15 @@ func (c *Core) ReadKnowledge(ctx context.Context, projectID, slug string) (Knowl
 }
 
 func (c *Core) loadDoc(tx *sqlx.Tx, projectID, slug string, out *Knowledge) error {
-	err := tx.Get(out,
+	resolved, err := c.resolveSlug(tx, projectID, slug, true)
+	if err != nil {
+		return err
+	}
+	err = tx.Get(out,
 		`SELECT * FROM knowledge WHERE slug = ? AND (project_id = ? OR global = 1) ORDER BY global LIMIT 1`,
-		Slugify(slug), projectID)
+		resolved, projectID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound("knowledge_not_found", "no knowledge entry "+slug+" in this project",
-			"trellis knowledge ls")
+		return notFoundSlug(slug)
 	}
 	if err != nil {
 		return err
@@ -813,10 +816,14 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 	var doc Knowledge
 	var done bool
 	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
+		resolved, rerr := c.resolveSlug(tx, projectID, slug, false)
+		if rerr != nil {
+			return rerr
+		}
 		if err := tx.Get(&doc,
-			`SELECT * FROM knowledge WHERE project_id = ? AND slug = ?`, projectID, Slugify(slug)); err != nil {
+			`SELECT * FROM knowledge WHERE project_id = ? AND slug = ?`, projectID, resolved); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				return ErrNotFound("knowledge_not_found", "no knowledge entry "+slug, "trellis knowledge ls")
+				return notFoundSlug(slug)
 			}
 			return err
 		}
