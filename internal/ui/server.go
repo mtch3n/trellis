@@ -666,6 +666,15 @@ func (s *Server) handleKnowledgeCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, doc)
 }
 
+// knowledgePatch is a save from the editor. A field that is absent keeps its
+// value; one that is present replaces it.
+type knowledgePatch struct {
+	Title   *string `json:"title"`
+	Summary *string `json:"summary"`
+	Body    *string `json:"body"`
+	Version *int64  `json:"version"`
+}
+
 func (s *Server) handleKnowledgeEdit(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -674,12 +683,14 @@ func (s *Server) handleKnowledgeEdit(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusNotFound, err.Error())
 		return
 	}
-	var in knowledgeRequest
+	var in knowledgePatch
 	if !decodeJSON(w, r, &in) {
 		s.error(w, http.StatusBadRequest, "invalid knowledge JSON")
 		return
 	}
-	doc, err := s.core.EditKnowledge(ctx, p.ID, r.PathValue("slug"), in.Body, in.Version)
+	doc, err := s.core.EditKnowledgeFields(ctx, p.ID, r.PathValue("slug"), core.KnowledgeEdit{
+		Title: in.Title, Summary: in.Summary, Body: in.Body, IfVersion: in.Version,
+	})
 	if err != nil {
 		s.coreError(w, err)
 		return
