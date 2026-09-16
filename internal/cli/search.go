@@ -6,7 +6,6 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/core"
 	"github.com/mtch3n/trellis/internal/daemon"
 	"github.com/mtch3n/trellis/internal/home"
@@ -52,10 +51,7 @@ func newSearchCmd() *cobra.Command {
 				if useDaemon {
 					return searchViaDaemon(cmd, args[0], app.Project.ID, opts, false, method)
 				}
-				cfg, loadErr := config.Load()
-				if loadErr != nil {
-					cfg = config.Defaults()
-				}
+				cfg := app.cfg
 				if method != "" {
 					cfg.Search.Method = method
 				}
