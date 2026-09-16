@@ -95,9 +95,13 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) (events []FeedEvent,
   `knowledge` event, `artifact_linked` or `artifact_unlinked`.
 - **`read` is left out unless asked for.** `knowledge show` records one per
   read, and a feed that carried them would be mostly reads.
-- **An entity that no longer exists** keeps its events in the feed with an empty
-  `ref` and `title`, so an extension still sees that something happened to it.
-  The `deleted` event itself carries the title the log recorded at deletion.
+- **An entity that no longer exists** keeps its events with an empty `ref` and
+  `title`, so an extension still sees that something happened to it. The
+  `deleted` event itself carries the title the log recorded at deletion.
+  **But a project-scoped read cannot reach them**: `event` has no project
+  column, so scoping joins the entity's live row, which is gone. Those events
+  are returned only by a read across every project. Closing that needs a
+  `project_id` on `event`, filled at write time — TRELLIS-39.
 - `next` is the last `seq` returned, or null for an empty page.
 
 ### Consumers

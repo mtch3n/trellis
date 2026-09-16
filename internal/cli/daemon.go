@@ -104,6 +104,7 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	if cfgErr != nil {
 		cfg = config.Defaults()
 	}
+	c.SetHistoryKeep(cfg.History.EffectiveKeep())
 	search := retrieval.NewService(c, db, dbPath, cfg)
 	c.SetKnowledgeChanged(search.ReconcileProject)
 	address := net.JoinHostPort(bind, fmt.Sprint(port))

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -18,15 +19,16 @@ import (
 // Config represents the full settings tree. All fields must have sensible
 // zero-value defaults since YAML parsing leaves unset fields as zero values.
 type Config struct {
-	UI     UIConfig     `yaml:"ui"`
-	DB     DBConfig     `yaml:"db"`
-	Git    GitConfig    `yaml:"git"`
-	Lease  LeaseConfig  `yaml:"lease"`
-	Board  BoardConfig  `yaml:"board"`
-	Labels LabelsConfig `yaml:"labels"`
-	Tags   TagsConfig   `yaml:"tags"`
-	Card   CardConfig   `yaml:"card"`
-	Search SearchConfig `yaml:"search"`
+	UI      UIConfig      `yaml:"ui"`
+	DB      DBConfig      `yaml:"db"`
+	Git     GitConfig     `yaml:"git"`
+	Lease   LeaseConfig   `yaml:"lease"`
+	Board   BoardConfig   `yaml:"board"`
+	Labels  LabelsConfig  `yaml:"labels"`
+	Tags    TagsConfig    `yaml:"tags"`
+	Card    CardConfig    `yaml:"card"`
+	Search  SearchConfig  `yaml:"search"`
+	History HistoryConfig `yaml:"history"`
 }
 
 type UIConfig struct {
@@ -78,6 +80,24 @@ type SearchConfig struct {
 	Limit  int                `yaml:"limit"`
 	Method string             `yaml:"method"` // fts, vector, or hybrid
 	Vector VectorSearchConfig `yaml:"vector"`
+}
+
+// HistoryConfig controls revision retention for knowledge entries and cards.
+type HistoryConfig struct {
+	// Keep is a pointer because zero is a real, meaningful value -- it turns
+	// capture off -- and a plain int cannot tell that apart from "absent from
+	// the file", the same reason UIConfig.Enabled is a pointer. Read it
+	// through EffectiveKeep rather than dereferencing.
+	Keep *int `yaml:"keep"`
+}
+
+// EffectiveKeep reports how many revisions each entry and card retains. An
+// unset key means the default, 100.
+func (h HistoryConfig) EffectiveKeep() int {
+	if h.Keep == nil {
+		return 100
+	}
+	return *h.Keep
 }
 
 // VectorSearchConfig controls the optional semantic document index. The
@@ -132,6 +152,7 @@ func Defaults() Config {
 			Method: "fts",
 			Vector: VectorSearchConfig{Limit: 10, ChunkSize: 1200, ChunkOverlap: 200},
 		},
+		History: HistoryConfig{Keep: ptr(100)},
 	}
 }
 
@@ -174,6 +195,10 @@ func Load() (Config, error) {
 	// Apply defaults to any field that was not set in the file.
 	// Unmarshal leaves unset fields as zero values, so we need to restore them.
 	applyDefaults(&cfg)
+
+	if *cfg.History.Keep < 0 {
+		return cfg, fmt.Errorf("history.keep must not be negative, got %d", *cfg.History.Keep)
+	}
 
 	return cfg, nil
 }
@@ -227,6 +252,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Search.Vector.ChunkOverlap == 0 {
 		cfg.Search.Vector.ChunkOverlap = defaults.Search.Vector.ChunkOverlap
+	}
+	if cfg.History.Keep == nil {
+		cfg.History.Keep = defaults.History.Keep
 	}
 }
 
@@ -284,9 +312,28 @@ func GetValue(cfg Config, key string) (string, bool) {
 		return fmt.Sprintf("%d", cfg.Search.Vector.ChunkSize), true
 	case "search.vector.chunk_overlap":
 		return fmt.Sprintf("%d", cfg.Search.Vector.ChunkOverlap), true
+	case "history.keep":
+		return fmt.Sprintf("%d", cfg.History.EffectiveKeep()), true
 	default:
 		return "", false
 	}
+}
+
+// ValidateValue rejects a value for a key with semantic constraints beyond
+// being a known key -- so far only history.keep, whose zero disables capture
+// but whose negative values are nonsensical, not a synonym for "unlimited".
+func ValidateValue(key, value string) error {
+	if key != "history.keep" {
+		return nil
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return fmt.Errorf("history.keep must be a whole number, got %q", value)
+	}
+	if n < 0 {
+		return fmt.Errorf("history.keep must not be negative, got %d", n)
+	}
+	return nil
 }
 
 // EffectiveValue returns the effective value for a key, resolving defaults then

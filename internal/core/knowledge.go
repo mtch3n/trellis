@@ -88,6 +88,11 @@ type NewKnowledge struct {
 	Board      string // board name, association only
 	Tags       []string
 	Labels     []string
+	// Dir places the entry in a directory instead of the vault root; empty
+	// means the root. NewDir creates Dir even if it resembles an existing
+	// directory.
+	Dir    string
+	NewDir bool
 	// Set supplies values for fields a template asks for (required or
 	// choices), and any other field the caller wants recorded. Every entry
 	// is written into the new document's frontmatter.
@@ -203,6 +208,11 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		return Knowledge{}, err
 	}
 
+	dirSlug, err := SlugifyPath(in.Dir)
+	if err != nil {
+		return Knowledge{}, err
+	}
+
 	var doc Knowledge
 	var writtenPath string
 	err = c.Tx(ctx, func(tx *sqlx.Tx) error {
@@ -214,7 +224,23 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		if err != nil {
 			return err
 		}
-		slug, err := uniqueSlug(tx, projectID, Slugify(in.Title))
+		if err := c.refuseResemblingDir(tx, projectID, dirSlug, in.NewDir); err != nil {
+			return err
+		}
+		base := truncateSegment(Slugify(in.Title))
+		if dirSlug != "" {
+			base = dirSlug + "/" + base
+			if room := maxRelSlugLen - len(dirSlug) - 1; len(base) > maxRelSlugLen {
+				if room < 1 {
+					return ErrUsage("path_too_long",
+						dirSlug+" leaves no room for a title-derived slug",
+						"trellis knowledge new --title \"...\" --in <a shorter directory>")
+				}
+				leaf := strings.TrimRight(Slugify(in.Title)[:room], "-")
+				base = dirSlug + "/" + leaf
+			}
+		}
+		slug, err := uniqueSlug(tx, projectID, base)
 		if err != nil {
 			return err
 		}
@@ -245,7 +271,10 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 			}
 		}
 		raw := RenderDoc(fm, body)
-		path := filepath.Join(dir, slug+".md")
+		path := filepath.Join(dir, filepath.FromSlash(slug)+".md")
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return err
+		}
 		if err := writeAtomic(path, []byte(raw), false); err != nil {
 			return err
 		}
@@ -265,6 +294,9 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 			Size: st.Size(), Version: 1, CreatedAt: now, UpdatedAt: now,
 		}
 		if err := insertKnowledge(tx, doc); err != nil {
+			return err
+		}
+		if err := c.captureKnowledgeRevision(doc.Path, doc.Version, []byte(raw)); err != nil {
 			return err
 		}
 		if err := c.syncDocRelations(tx, &doc, fm, body); err != nil {
@@ -288,6 +320,8 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		if raw, readErr := os.ReadFile(writtenPath); readErr == nil && ContentHash(string(raw)) == doc.ContentHash {
 			_ = os.Remove(writtenPath)
 			_ = syncDirectory(filepath.Dir(writtenPath))
+			_ = os.Remove(revisionFilePath(writtenPath, 1))
+			_ = removeRevisionDirIfEmpty(writtenPath)
 		}
 	}
 	if err == nil {
@@ -311,7 +345,10 @@ func insertKnowledge(tx *sqlx.Tx, d Knowledge) error {
 	return err
 }
 
-// uniqueSlug resolves collisions the way board slugs do: design, then design-2.
+// uniqueSlug resolves collisions the way board slugs do: design, then
+// design-2. A reserved Windows device name is treated as permanently taken
+// even on the first attempt, so a title like "CON" becomes "con-2" — a name
+// Windows can open — rather than a file it cannot.
 func uniqueSlug(tx *sqlx.Tx, projectID, base string) (string, error) {
 	if base == "" {
 		base = "untitled"
@@ -320,6 +357,9 @@ func uniqueSlug(tx *sqlx.Tx, projectID, base string) (string, error) {
 		slug := base
 		if n > 1 {
 			slug = fmt.Sprintf("%s-%d", base, n)
+		}
+		if reservedLeafTaken(slug) {
+			continue
 		}
 		var exists int
 		if err := tx.Get(&exists,
@@ -361,12 +401,15 @@ func (c *Core) ReadKnowledge(ctx context.Context, projectID, slug string) (Knowl
 }
 
 func (c *Core) loadDoc(tx *sqlx.Tx, projectID, slug string, out *Knowledge) error {
-	err := tx.Get(out,
+	resolved, err := c.resolveSlug(tx, projectID, slug, true)
+	if err != nil {
+		return err
+	}
+	err = tx.Get(out,
 		`SELECT * FROM knowledge WHERE slug = ? AND (project_id = ? OR global = 1) ORDER BY global LIMIT 1`,
-		Slugify(slug), projectID)
+		resolved, projectID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound("knowledge_not_found", "no knowledge entry "+slug+" in this project",
-			"trellis knowledge ls")
+		return notFoundSlug(slug)
 	}
 	if err != nil {
 		return err
@@ -411,8 +454,8 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 	doc.BodyMD = body
 	oldHash := doc.ContentHash
 	doc.ContentHash = ContentHash(string(raw))
-	changed := st.ModTime().UnixMilli() != doc.MTime || st.Size() != doc.Size ||
-		oldHash != doc.ContentHash || privateDrifted
+	contentChanged := st.ModTime().UnixMilli() != doc.MTime || st.Size() != doc.Size || oldHash != doc.ContentHash
+	changed := contentChanged || privateDrifted
 	doc.MTime = st.ModTime().UnixMilli()
 	doc.Size = st.Size()
 	doc.UpdatedAt = c.clock.NowMS()
@@ -429,6 +472,11 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 		doc.Title, doc.DocType, doc.Summary, doc.Provenance, doc.Private, doc.ContentHash,
 		doc.MTime, doc.Size, doc.Version, doc.UpdatedAt, doc.ID); err != nil {
 		return err
+	}
+	if contentChanged {
+		if err := c.captureKnowledgeRevision(doc.Path, doc.Version, raw); err != nil {
+			return err
+		}
 	}
 	if becamePrivate {
 		if err := c.purgeDisclosedCopies(tx, doc); err != nil {
@@ -649,6 +697,9 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		}
 		base := doc.ContentHash // the hash this write is based on
 		oldRaw = raw
+		if err := c.captureKnowledgeRevision(doc.Path, doc.Version, oldRaw); err != nil {
+			return err
+		}
 		fm, body, err := splitDocFile(doc.Path, raw)
 		if err != nil {
 			return err
@@ -746,6 +797,9 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 				}
 			}
 		}
+		if err := c.captureKnowledgeRevision(doc.Path, doc.Version, []byte(out)); err != nil {
+			return err
+		}
 		if err := c.docView(tx, &doc); err != nil {
 			return err
 		}
@@ -774,20 +828,31 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 
 // DeleteKnowledge removes the row and the file.
 func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) error {
-	var staged *stagedRemoval
+	var staged, revStaged *stagedRemoval
 	var doc Knowledge
 	var done bool
 	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
+		resolved, rerr := c.resolveSlug(tx, projectID, slug, false)
+		if rerr != nil {
+			return rerr
+		}
 		if err := tx.Get(&doc,
-			`SELECT * FROM knowledge WHERE project_id = ? AND slug = ?`, projectID, Slugify(slug)); err != nil {
+			`SELECT * FROM knowledge WHERE project_id = ? AND slug = ?`, projectID, resolved); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				return ErrNotFound("knowledge_not_found", "no knowledge entry "+slug, "trellis knowledge ls")
+				return notFoundSlug(slug)
 			}
 			return err
 		}
 		var serr error
 		staged, serr = stageRemoval(doc.Path)
 		if serr != nil {
+			return serr
+		}
+		revStaged, serr = stageRemoval(revisionDir(doc.Path))
+		if serr != nil {
+			if rerr := staged.restore(); rerr != nil {
+				return errors.Join(serr, rerr)
+			}
 			return serr
 		}
 		// A failure, or a panic, below undoes the stage before this closure
@@ -799,6 +864,9 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 		defer func() {
 			if !done {
 				if rerr := staged.restore(); rerr != nil {
+					err = errors.Join(err, rerr)
+				}
+				if rerr := revStaged.restore(); rerr != nil {
 					err = errors.Join(err, rerr)
 				}
 			}
@@ -832,14 +900,22 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 		qerr := c.db.Get(&gone, `SELECT COUNT(*) FROM knowledge WHERE id = ?`, doc.ID)
 		if writeLanded(gone == 0, qerr) {
 			err = nil
-		} else if rerr := staged.restore(); rerr != nil {
-			err = errors.Join(err, rerr)
+		} else {
+			if rerr := staged.restore(); rerr != nil {
+				err = errors.Join(err, rerr)
+			}
+			if rerr := revStaged.restore(); rerr != nil {
+				err = errors.Join(err, rerr)
+			}
 		}
 	}
 	if err != nil {
 		return err
 	}
 	if err := staged.finalize(); err != nil {
+		return err
+	}
+	if err := revStaged.finalize(); err != nil {
 		return err
 	}
 	c.notifyKnowledgeChanged(ctx, projectID)

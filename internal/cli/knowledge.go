@@ -25,15 +25,16 @@ func newKnowledgeCmd() *cobra.Command {
 		newKnowledgeRmCmd(), newKnowledgePinCmd(), newKnowledgePinsCmd(), newKnowledgeLintCmd(),
 		newKnowledgeNominateCmd(), newKnowledgeNominationsCmd(), newKnowledgeEscalateCmd(),
 		newKnowledgeDemoteCmd(), newKnowledgeVerifyCmd(), newKnowledgeHealthCmd(),
-		newKnowledgeUptakeCmd(), newKnowledgeTemplateCmd())
+		newKnowledgeUptakeCmd(), newKnowledgeTemplateCmd(),
+		newKnowledgeHistoryCmd(), newKnowledgeDiffCmd())
 	return cmd
 }
 
 func newKnowledgeNewCmd() *cobra.Command {
 	var title, body, summary TextValue
-	var template, board, provenance string
+	var template, board, provenance, dir string
 	var tags, labels, setFlags, sources []string
-	var private bool
+	var private, newDir bool
 
 	cmd := &cobra.Command{
 		Use:   "new",
@@ -53,6 +54,7 @@ func newKnowledgeNewCmd() *cobra.Command {
 					Provenance: provenance,
 					Summary:    summary.String(), Board: board, Tags: tags, Labels: labels,
 					Private: private, Set: fields, Sources: sources,
+					Dir: dir, NewDir: newDir,
 				})
 				if err != nil {
 					return err
@@ -80,6 +82,8 @@ func newKnowledgeNewCmd() *cobra.Command {
 		"cite what a claim is based on: a URL, path:lines, card ref, wikilink or absolute address; repeatable")
 	cmd.Flags().BoolVar(&private, "private", false,
 		"do not transmit this body automatically: no vector index, no recap, no content in the event log, pointer-only injection")
+	cmd.Flags().StringVar(&dir, "in", "", "place the entry in this directory instead of the vault root")
+	cmd.Flags().BoolVar(&newDir, "new-dir", false, "create --in even if it resembles an existing directory")
 	return cmd
 }
 
@@ -138,6 +142,52 @@ func withholdContent(docs []core.Knowledge) {
 			docs[i].Summary, docs[i].Recap = "", nil
 		}
 	}
+}
+
+func newKnowledgeHistoryCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "history <slug>",
+		Short: "List an entry's retained revisions",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withBoard(func(app *appCtx) error {
+				revs, err := app.Core.ListKnowledgeRevisions(cmd.Context(), app.Project.ID, args[0])
+				if err != nil {
+					return err
+				}
+				return Emit(cmd, map[string]any{"revisions": revs}, func() string {
+					var b strings.Builder
+					w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+					for _, r := range revs {
+						fmt.Fprintf(w, "%d\t%s\n", r.Version, msDate(r.Timestamp))
+					}
+					w.Flush()
+					return strings.TrimRight(b.String(), "\n")
+				})
+			})
+		},
+	}
+}
+
+func newKnowledgeDiffCmd() *cobra.Command {
+	var from, to int64
+	cmd := &cobra.Command{
+		Use:   "diff <slug>",
+		Short: "Show a unified diff between two retained revisions",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withBoard(func(app *appCtx) error {
+				d, err := app.Core.DiffKnowledge(cmd.Context(), app.Project.ID, args[0], from, to)
+				if err != nil {
+					return err
+				}
+				return Emit(cmd, d, func() string { return d.Diff })
+			})
+		},
+	}
+	cmd.Flags().Int64Var(&from, "from", 0, "earlier version (default: the one before --to)")
+	cmd.Flags().Int64Var(&to, "to", 0, "later version (default: the latest retained)")
+	return cmd
 }
 
 // renderKnowledgeList is the text form of `knowledge ls`. It is a function

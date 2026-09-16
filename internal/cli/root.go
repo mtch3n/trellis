@@ -75,6 +75,7 @@ func openCore() (*core.Core, *sqlx.DB, error) {
 	}
 	c.SetDefaultColumns(cfg.Board.DefaultColumns)
 	c.SetCardRequirements(cfg.Labels.RequireOnCard, cfg.Tags.RequireOnCard)
+	c.SetHistoryKeep(cfg.History.EffectiveKeep())
 	search := retrieval.NewService(c, db, path, cfg)
 	c.SetKnowledgeChanged(search.ReconcileProject)
 	return c, db, nil

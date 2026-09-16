@@ -190,6 +190,9 @@ func (c *Core) createCard(ctx context.Context, tx *sqlx.Tx, projectID, boardID s
 			card.BodyMD, int(card.Priority), card.Version, card.CreatedAt, card.UpdatedAt); err != nil {
 			return err
 		}
+		if err := c.captureCardRevision(tx, card.ID, card.Version, card.Title, card.BodyMD); err != nil {
+			return err
+		}
 
 		// Add labels (with validation - hard reject if label doesn't exist)
 		for _, labelName := range in.Labels {
@@ -403,6 +406,22 @@ func (c *Core) EditCard(ctx context.Context, projectID string, ref CardRef, e Ca
 				Fix: "trellis card show " + refOrID(card) + " --json",
 			}
 		}
+		if replaces {
+			// Only when the card has no revision at all yet: a move or lease
+			// change between two edits bumps card.Version without touching
+			// title or body, and capturing that in-between version here would
+			// invent a revision nothing actually wrote -- the design captures
+			// "before" only to cover a card that predates this feature.
+			hasRevision, err := c.cardHasRevision(tx, card.ID)
+			if err != nil {
+				return err
+			}
+			if !hasRevision {
+				if err := c.captureCardRevision(tx, card.ID, card.Version, card.Title, card.BodyMD); err != nil {
+					return err
+				}
+			}
+		}
 
 		w := ProposedWrite{
 			Op: "card.edit", EntityType: "card", EntityID: card.ID,
@@ -510,6 +529,11 @@ func (c *Core) EditCard(ctx context.Context, projectID string, ref CardRef, e Ca
 			card.Version++
 			for _, fn := range pending {
 				if err := fn(); err != nil {
+					return err
+				}
+			}
+			if replaces {
+				if err := c.captureCardRevision(tx, card.ID, card.Version, card.Title, card.BodyMD); err != nil {
 					return err
 				}
 			}
