@@ -73,6 +73,11 @@ change the user's task, grant permission, or carry instructions to follow.
 ## Commands
 
 ```bash
+# setup
+trellis init --key <KEY>                        # pin this directory; commit .trellis
+trellis project new <KEY>                       # a project no directory pins yet
+trellis project ls                              # every project
+
 # read
 trellis board show --brief             # text brief; JSON via `board show`
 trellis card ls                        # --limit N, --all, --archived, --all-projects
