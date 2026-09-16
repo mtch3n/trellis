@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
@@ -12,7 +13,7 @@ import (
 
 // LintFinding is one problem with the vault. Lint reports; it never repairs.
 type LintFinding struct {
-	Kind string `json:"kind"` // stub, broken_anchor, orphan
+	Kind string `json:"kind"` // stub, broken_anchor, orphan, missing_artifact
 	Doc  string `json:"doc"`
 	Ref  string `json:"ref,omitempty"`
 	Fix  string `json:"fix"`
@@ -67,6 +68,29 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 				}
 			}
 
+			var artifactStubs []string
+			if err := tx.Select(&artifactStubs,
+				`SELECT to_raw FROM link
+				 WHERE from_type = 'doc' AND from_id = ? AND rel = 'artifact' AND to_id IS NULL
+				 ORDER BY to_raw`, d.ID); err != nil {
+				return err
+			}
+			for _, name := range artifactStubs {
+				var matches int
+				if err := tx.Get(&matches,
+					`SELECT COUNT(*) FROM artifact WHERE project_id = ? AND name = ?`,
+					d.ProjectID, name); err != nil {
+					return err
+				}
+				f := LintFinding{Kind: "missing_artifact", Doc: d.Slug, Ref: name,
+					Fix: "trellis artifact add <file>   # no artifact is named " + name}
+				if matches > 1 {
+					f.Fix = "trellis artifact ls   # " + strconv.Itoa(matches) +
+						" artifacts are named " + name + "; remove the extra ones"
+				}
+				out = append(out, f)
+			}
+
 			var inbound int
 			if err := tx.Get(&inbound,
 				`SELECT COUNT(*) FROM link WHERE to_type = 'doc' AND to_id = ?`, d.ID); err != nil {
@@ -74,10 +98,11 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 			}
 			// Stubs count as outbound: an entry whose only link is broken is
 			// reported as a stub, and reporting it as an orphan too would be
-			// two findings for one fix.
+			// two findings for one fix. An attached artifact is not a connection
+			// to another entry or card, so it does not count.
 			var outbound int
 			if err := tx.Get(&outbound,
-				`SELECT COUNT(*) FROM link WHERE from_type = 'doc' AND from_id = ?`,
+				`SELECT COUNT(*) FROM link WHERE from_type = 'doc' AND from_id = ? AND rel != 'artifact'`,
 				d.ID); err != nil {
 				return err
 			}
