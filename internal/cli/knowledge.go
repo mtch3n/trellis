@@ -31,9 +31,9 @@ func newKnowledgeCmd() *cobra.Command {
 
 func newKnowledgeNewCmd() *cobra.Command {
 	var title, body, summary TextValue
-	var template, board, provenance string
+	var template, board, provenance, dir string
 	var tags, labels, setFlags, sources []string
-	var private bool
+	var private, newDir bool
 
 	cmd := &cobra.Command{
 		Use:   "new",
@@ -53,6 +53,7 @@ func newKnowledgeNewCmd() *cobra.Command {
 					Provenance: provenance,
 					Summary:    summary.String(), Board: board, Tags: tags, Labels: labels,
 					Private: private, Set: fields, Sources: sources,
+					Dir: dir, NewDir: newDir,
 				})
 				if err != nil {
 					return err
@@ -80,6 +81,8 @@ func newKnowledgeNewCmd() *cobra.Command {
 		"cite what a claim is based on: a URL, path:lines, card ref, wikilink or absolute address; repeatable")
 	cmd.Flags().BoolVar(&private, "private", false,
 		"do not transmit this body automatically: no vector index, no recap, no content in the event log, pointer-only injection")
+	cmd.Flags().StringVar(&dir, "in", "", "place the entry in this directory instead of the vault root")
+	cmd.Flags().BoolVar(&newDir, "new-dir", false, "create --in even if it resembles an existing directory")
 	return cmd
 }
 
