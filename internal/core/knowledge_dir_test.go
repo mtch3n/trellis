@@ -529,3 +529,74 @@ func TestListKnowledgeScopesToADirectoryAndItsSubtree(t *testing.T) {
 		t.Errorf("docs = %+v, want %q and %q", docs, root.Slug, nested.Slug)
 	}
 }
+
+func findingsOfKind(findings []LintFinding, kind string) []LintFinding {
+	var out []LintFinding
+	for _, f := range findings {
+		if f.Kind == kind {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func TestLintReportsDeepDirectories(t *testing.T) {
+	c, p, _ := kbCore(t)
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment/aws/runbooks"}); err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	findings, err := c.Lint(t.Context(), p.ID)
+	if err != nil {
+		t.Fatalf("Lint: %v", err)
+	}
+	if got := findingsOfKind(findings, "deep_directory"); len(got) != 1 {
+		t.Fatalf("findings = %+v, want one deep_directory", findings)
+	}
+}
+
+func TestLintDoesNotReportDeepDirectoryAtDepthTwo(t *testing.T) {
+	c, p, _ := kbCore(t)
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment/aws"}); err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	findings, err := c.Lint(t.Context(), p.ID)
+	if err != nil {
+		t.Fatalf("Lint: %v", err)
+	}
+	if got := findingsOfKind(findings, "deep_directory"); len(got) != 0 {
+		t.Fatalf("findings = %+v, want none", got)
+	}
+}
+
+func TestLintReportsALongDirectoryName(t *testing.T) {
+	c, p, _ := kbCore(t)
+	long := "a-directory-name-that-is-well-past-thirty-characters"
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "X", Dir: long}); err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	findings, err := c.Lint(t.Context(), p.ID)
+	if err != nil {
+		t.Fatalf("Lint: %v", err)
+	}
+	got := findingsOfKind(findings, "long_directory_name")
+	if len(got) != 1 || got[0].Ref != long {
+		t.Fatalf("findings = %+v, want one naming %q", findings, long)
+	}
+}
+
+func TestLintReportsSimilarDirectories(t *testing.T) {
+	c, p, _ := kbCore(t)
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "A", Dir: "deploy"}); err != nil {
+		t.Fatalf("CreateKnowledge a: %v", err)
+	}
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "B", Dir: "deployment", NewDir: true}); err != nil {
+		t.Fatalf("CreateKnowledge b: %v", err)
+	}
+	findings, err := c.Lint(t.Context(), p.ID)
+	if err != nil {
+		t.Fatalf("Lint: %v", err)
+	}
+	if got := findingsOfKind(findings, "similar_directory"); len(got) == 0 {
+		t.Fatalf("findings = %+v, want at least one similar_directory", findings)
+	}
+}
