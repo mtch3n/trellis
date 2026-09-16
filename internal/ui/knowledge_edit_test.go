@@ -87,3 +87,47 @@ func TestKnowledgeEditWritesTitleAndSummary(t *testing.T) {
 		t.Fatalf("refused saves changed the entry: title=%q version=%d", got.Title, got.Version)
 	}
 }
+
+// A template that rejects an entry without sources must still be usable from
+// the web, so the create request carries sources and template fields.
+func TestKnowledgeCreateCarriesSources(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-create-test").WithKBRoot(t.TempDir())
+	ctx := context.Background()
+	p, err := c.EnsureProject(ctx, resolve.Identity{Kind: "test", Value: "create", SuggestedKey: "CREATE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateBoard(ctx, p.ID, "default", true); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(c, db, "127.0.0.1:0")
+	post := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/p/CREATE/b/default/knowledge", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := post(`{"title":"Chose SQLite","template":"decision"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("a decision without sources: status = %d, want 400, body = %s", rec.Code, rec.Body)
+	}
+
+	rec = post(`{"title":"Chose SQLite","template":"decision","sources":["https://sqlite.org/whentouse.html"]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("a decision with a source: status = %d, want 201, body = %s", rec.Code, rec.Body)
+	}
+	doc, err := c.LoadKnowledge(ctx, p.ID, "chose-sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Sources) != 1 || doc.Sources[0] != "https://sqlite.org/whentouse.html" {
+		t.Fatalf("sources = %v", doc.Sources)
+	}
+}

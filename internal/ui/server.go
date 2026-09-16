@@ -566,6 +566,11 @@ type knowledgeRequest struct {
 	Summary  string `json:"summary"`
 	Template string `json:"template"`
 	Version  *int64 `json:"version"`
+	// Sources and Set carry what a template may require, so a browser can
+	// satisfy a template that rejects an entry without them. Without these
+	// the only way to create from such a template would be the CLI.
+	Sources []string          `json:"sources"`
+	Set     map[string]string `json:"set"`
 }
 type labelMergeRequest struct {
 	From string `json:"from"`
@@ -658,7 +663,10 @@ func (s *Server) handleKnowledgeCreate(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "knowledge title required")
 		return
 	}
-	doc, err := s.core.CreateKnowledge(ctx, p.ID, core.NewKnowledge{Title: in.Title, Body: in.Body, Summary: in.Summary, Template: in.Template, Board: b.Name})
+	doc, err := s.core.CreateKnowledge(ctx, p.ID, core.NewKnowledge{
+		Title: in.Title, Body: in.Body, Summary: in.Summary, Template: in.Template,
+		Board: b.Name, Sources: in.Sources, Set: in.Set,
+	})
 	if err != nil {
 		s.coreError(w, err)
 		return
