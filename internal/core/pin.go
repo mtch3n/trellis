@@ -1,6 +1,7 @@
 package core
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -32,6 +33,11 @@ type Pin struct {
 // what a model is good at and a CLI is not, so trellis never generates one: with
 // no recap supplied it falls back to the frontmatter summary, then to the first
 // paragraph.
+//
+// A private entry has no recap. Its pin injects a pointer, ref and title, so
+// any recap supplied for it is discarded rather than stored: a stored one would
+// never be shown, and would sit in knowledge.recap and the event log until the
+// entry was un-marked and it was injected after all.
 func (c *Core) PinKnowledge(ctx context.Context, projectID, slug, recap, board string) (Pin, error) {
 	var pin Pin
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
@@ -39,18 +45,13 @@ func (c *Core) PinKnowledge(ctx context.Context, projectID, slug, recap, board s
 		if err := c.loadDoc(tx, projectID, slug, &doc); err != nil {
 			return err
 		}
-		text := strings.TrimSpace(recap)
-		if text == "" && doc.Private {
-			return ErrUsage("recap_required",
-				"a private entry needs a recap written on purpose; trellis will not lift one from the body",
-				`trellis knowledge pin `+doc.Slug+` --recap "one line an agent can act on"`)
-		}
-		if text == "" {
-			text = cmpOr(doc.Summary, FirstParagraph(doc.BodyMD))
-		}
-		if text == "" {
-			return ErrUsage("no_recap", "this entry has no summary to fall back on",
-				`trellis knowledge pin `+doc.Slug+` --recap "one line an agent can act on"`)
+		var text string
+		if !doc.Private {
+			text = cmp.Or(strings.TrimSpace(recap), doc.Summary, FirstParagraph(doc.BodyMD))
+			if text == "" {
+				return ErrUsage("no_recap", "this entry has no summary to fall back on",
+					`trellis knowledge pin `+doc.Slug+` --recap "one line an agent can act on"`)
+			}
 		}
 
 		var boardID *string
@@ -63,9 +64,15 @@ func (c *Core) PinKnowledge(ctx context.Context, projectID, slug, recap, board s
 			boardID, boardName = &b.ID, &b.Name
 		}
 		now := c.clock.NowMS()
+		// NULL for a private entry, written explicitly rather than left alone
+		// so the rule holds whatever the row carried before.
+		var stored, hash *string
+		if !doc.Private {
+			stored, hash = &text, &doc.ContentHash
+		}
 		if _, err := tx.Exec(
 			`UPDATE knowledge SET recap = ?, recap_hash = ? WHERE id = ?`,
-			text, doc.ContentHash, doc.ID); err != nil {
+			stored, hash, doc.ID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(

@@ -125,7 +125,7 @@ because these are precisely the paths that reach a model unasked.
 | Local FTS5 | indexed | indexed |
 | `search` / `recall` hits | returned | returned |
 | Vector index | body, chunked | **not indexed at all** |
-| Recap | may fall back to summary, then first paragraph | **explicit recap only, no fallback** |
+| Recap | may fall back to summary, then first paragraph | **none; a supplied recap is discarded** |
 | Session injection | recap | **pointer: ref + title** |
 | Event log content | body and summary recorded in `new_value` | **field name only, `new_value` empty** |
 | `knowledge show` | body | body |
@@ -138,6 +138,14 @@ The pointer is **ref + title**, not ref + title + path. An earlier draft said
 path; paths do not exist until the knowledge-paths design ships, and the ref is
 already the address. Once slugs become path-shaped the pointer carries the path
 for free, with no change here.
+
+A private document has **no recap**, written or derived. An earlier revision
+allowed an explicit one, but recall and the pin list blank the recap of every
+private hit, so a stored recap was never shown. It only sat in `knowledge.recap`
+and the `pinned` event, ready to be injected the moment the flag was cleared.
+Pinning a private document therefore succeeds with or without `--recap`: a
+supplied recap is discarded, `recap` and `recap_hash` stay NULL, and the
+`pinned` event records no value.
 
 Local FTS5 keeps indexing private documents, and this is safe because
 `rebuildKnowledgeFTS` (`internal/core/knowledge.go:632`) reads files directly
@@ -170,18 +178,31 @@ it. Nothing has to go and delete it.
 
 ## Reclassification
 
-Marking an existing document private must purge what already escaped. Four local
-copies exist:
+Marking an existing document private must purge what already escaped. A
+private document never acquires these copies (it has no recap, and its pins and
+edits record no value), so each one was made while the document was ordinary.
+Three local copies exist:
 
 1. `knowledge.recap` — the column, plus `recap_hash`
-2. Pins that would inject that recap
-3. `event.new_value` for `pinned`/`unpinned` — `PinKnowledge` writes the recap
-   text into the event log (`pin.go:70` → `event.go:11`)
-4. `event.new_value` for `edited` — `EditKnowledgeFields` writes the full body
+2. `event.new_value` for `pinned` — `PinKnowledge` writes an ordinary
+   document's recap text into the event log (`pin.go` → `event.go:11`)
+3. `event.new_value` for `edited` — `EditKnowledgeFields` writes the full body
    there (`knowledge.go:547`). This is the largest copy and the one nobody looks
    for, because an audit log is not where you expect to find content.
 
-The vector index is a fifth copy and needs no explicit step, for the reason
+A pin is not a copy. Its row is (id, knowledge_id, board_id, created_at) and
+holds no text, so the purge leaves it alone. Once the recap is gone a surviving
+pin injects the pointer, which keeps telling the agent the document exists.
+Deleting it would also break an immediate unpin: the purge runs inside the
+caller's transaction, the unpin would find no row, and its error would roll the
+purge back.
+
+The purge is self-healing. Any caller that fails after it rolls it back
+together with the mirror update, so the next successful read sees the same
+transition and purges again. Nothing is disclosed in between, because recall
+and the pin list decide from the file.
+
+The vector index is a fourth copy and needs no explicit step, for the reason
 above: exclusion from the corpus is eviction. A second draft of this spec added a
 mechanism to push a reindex after the transition, on the belief that
 `refreshFromFile` never triggers one. That belief rested on a misread —
@@ -255,12 +276,16 @@ Stated here so they are not discovered later as surprises.
   very first operation. Both must reflect the new state. A test that calls
   `LoadKnowledge` first, or that creates the document already private, cannot see
   this failure and is not a test of it.
-- Reclassification: pin a document **and** edit its body, confirm the recap
-  reaches `knowledge.recap` and `event.new_value` and the body reaches
-  `event.new_value` for the `edited` action, then mark it private and confirm all
-  of them are purged.
-- Recap fallback: a private document with no explicit recap injects a pointer and
-  never a body excerpt, through both the pin path and the recall path.
+- Reclassification: pin a document **and** edit its body while it is ordinary,
+  confirm the recap reaches `knowledge.recap` and the `pinned` event and the body
+  reaches the `edited` event, each checked on its own, then mark it private and
+  confirm all of them are purged.
+- No recap: pinning a private document with no recap and with an explicit one
+  both succeed, and neither stores anything in `knowledge.recap`, `recap_hash` or
+  the `pinned` event. The document injects a pointer and never a summary or body
+  excerpt, through both the pin path and the recall path.
+- A purge rolled back by a failing caller discloses nothing, and the next
+  successful read purges again.
 - An unrecognised `private` value fails the parse rather than defaulting.
 
 There is deliberately no "drop the database and rebuild from files" test. The

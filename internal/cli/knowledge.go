@@ -66,7 +66,7 @@ func newKnowledgeNewCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "free-form tags")
 	cmd.Flags().StringSliceVar(&labels, "label", nil, "labels from the project vocabulary")
 	cmd.Flags().BoolVar(&private, "private", false,
-		"do not transmit this body automatically: no vector index, no recap fallback, no content in the event log, pointer-only injection")
+		"do not transmit this body automatically: no vector index, no recap, no content in the event log, pointer-only injection")
 	return cmd
 }
 
@@ -273,11 +273,12 @@ func newKnowledgePinCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return Emit(cmd, pin, func() string { return "pinned " + pin.Slug + ": " + pin.Recap })
+				// A private entry is pinned as a pointer and has no recap.
+				return Emit(cmd, pin, func() string { return "pinned " + pin.Slug + ": " + cmp.Or(pin.Recap, pin.Title) })
 			})
 		},
 	}
-	cmd.Flags().Var(&recap, "recap", "the summary to inject; you write it, trellis never generates one")
+	cmd.Flags().Var(&recap, "recap", "the summary to inject; you write it, trellis never generates one (discarded for a private entry)")
 	cmd.Flags().StringVar(&board, "board", "", "pin to one board (default: project-wide)")
 	cmd.Flags().BoolVar(&remove, "remove", false, "unpin instead")
 	return cmd

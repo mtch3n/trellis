@@ -230,9 +230,12 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 		}
 		for i := range hits {
 			if private[hits[i].ID] {
-				// The identifier and the title still travel. Only an
-				// explicitly written recap would have survived, and the
-				// purge has already cleared any that existed.
+				// The identifier and the title still travel. A private
+				// entry has no recap of its own, so what this blanks is
+				// the summary fallback, or a recap written while the
+				// entry was ordinary: the SELECT above read it before
+				// this refresh purged it, or a rolled-back purge left it
+				// in the column for the next successful read to clear.
 				hits[i].Recap = ""
 			}
 		}

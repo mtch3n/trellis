@@ -7,6 +7,7 @@ import "github.com/jmoiron/sqlx"
 //
 //	knowledge.recap / recap_hash   the stored recap
 //	event.new_value  pinned        PinKnowledge writes the recap text there
+//	                               while the entry is still ordinary
 //	event.new_value  edited        EditKnowledgeFields writes the whole body
 //	                               there, which is the largest copy and the one
 //	                               nobody thinks to look for
@@ -27,10 +28,11 @@ import "github.com/jmoiron/sqlx"
 // marks a document private and then immediately unpins it must not see that.
 //
 // The purge is self-healing, so this is not the only place it runs. Any
-// caller that returns an error after the purge — PinKnowledge's
-// recap_required is one — rolls the purge back along with everything else in
-// its transaction, including the private mirror this function does not touch
-// directly (refreshFromFile sets it just before calling in). The next
+// caller that returns an error after the purge rolls it back along with
+// everything else in its transaction — UnpinKnowledge naming a board that does
+// not exist is one, since loadDoc has already purged when boardByName fails —
+// and that includes the private mirror this function does not touch directly
+// (refreshFromFile sets it just before calling in). The next
 // successful read recomputes the false-to-true transition from the file and
 // re-attempts the purge. Nothing discloses in the meantime: both Recall and
 // Pins decide what to redact from the file, not from the recap column, so a

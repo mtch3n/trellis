@@ -232,31 +232,100 @@ func TestListKnowledgeStillReturnsPrivate(t *testing.T) {
 	t.Errorf("ListKnowledge dropped the private entry %q; it is local and must stay listed", secret.Slug)
 }
 
-func TestPinOnPrivateRefusesTheBodyFallback(t *testing.T) {
+// A private entry has no recap. Recall and the pin list blank one anyway, so a
+// stored recap would never be shown; it would only sit in knowledge.recap and
+// the event log, waiting to be injected the moment the entry is un-marked.
+// Pinning succeeds with or without --recap and stores nothing either way.
+func TestPinOnPrivateStoresNoRecap(t *testing.T) {
 	c, p, _ := kbCore(t)
 
+	const title = "Staging credentials"
 	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
-		Title: "Staging credentials", Private: true,
-		Body: "hunter2 is the staging database password.\n",
+		Title: title, Private: true,
+		Summary: "swordfish opens the staging database",
+		Body:    "hunter2 is the staging database password.\n",
 	})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
 
-	_, err = c.PinKnowledge(t.Context(), p.ID, doc.Slug, "", "")
-	if err == nil {
-		t.Fatal("PinKnowledge fell back to the body for a private entry")
-	}
-	if strings.Contains(err.Error(), "hunter2") {
-		t.Fatalf("the error itself leaked the body: %v", err)
+	storesNothing := func(step string) {
+		t.Helper()
+		var row struct {
+			Recap *string `db:"recap"`
+			Hash  *string `db:"recap_hash"`
+		}
+		if err := c.db.Get(&row, `SELECT recap, recap_hash FROM knowledge WHERE id = ?`, doc.ID); err != nil {
+			t.Fatalf("%s: read recap: %v", step, err)
+		}
+		if row.Recap != nil || row.Hash != nil {
+			t.Errorf("%s: recap = %v, recap_hash = %v, want both NULL", step, row.Recap, row.Hash)
+		}
+
+		var pinned struct {
+			Total  int `db:"total"`
+			Valued int `db:"valued"`
+		}
+		if err := c.db.Get(&pinned,
+			`SELECT COUNT(*) AS total, COUNT(new_value) AS valued
+			 FROM event WHERE entity_id = ? AND action = 'pinned'`, doc.ID); err != nil {
+			t.Fatalf("%s: read pinned events: %v", step, err)
+		}
+		if pinned.Total == 0 {
+			t.Errorf("%s: the pin was not recorded at all; the fact of it must survive", step)
+		}
+		if pinned.Valued != 0 {
+			t.Errorf("%s: %d pinned events carry a value, want none", step, pinned.Valued)
+		}
+
+		var leaked int
+		if err := c.db.Get(&leaked,
+			`SELECT COUNT(*) FROM event WHERE entity_id = ?
+			   AND (COALESCE(new_value, '') LIKE '%hunter2%'
+			     OR COALESCE(new_value, '') LIKE '%swordfish%'
+			     OR COALESCE(new_value, '') LIKE '%rotated quarterly%')`,
+			doc.ID); err != nil {
+			t.Fatalf("%s: count leaks: %v", step, err)
+		}
+		if leaked != 0 {
+			t.Errorf("%s: %d event rows carry body, summary or recap text, want 0", step, leaked)
+		}
 	}
 
-	pin, err := c.PinKnowledge(t.Context(), p.ID, doc.Slug, "staging DB access, rotated quarterly", "")
+	pin, err := c.PinKnowledge(t.Context(), p.ID, doc.Slug, "", "")
+	if err != nil {
+		t.Fatalf("PinKnowledge with no recap: %v", err)
+	}
+	if pin.Recap != "" || pin.Title != title {
+		t.Errorf("pin = %+v, want an empty recap and the title", pin)
+	}
+	storesNothing("no recap")
+
+	pin, err = c.PinKnowledge(t.Context(), p.ID, doc.Slug, "staging DB access, rotated quarterly", "")
 	if err != nil {
 		t.Fatalf("PinKnowledge with an explicit recap: %v", err)
 	}
-	if strings.Contains(pin.Recap, "hunter2") {
-		t.Errorf("recap = %q, want only what the author wrote", pin.Recap)
+	if pin.Recap != "" {
+		t.Errorf("pin.Recap = %q, want the supplied recap discarded", pin.Recap)
+	}
+	storesNothing("explicit recap")
+
+	pins, err := c.Pins(t.Context(), p.ID, "")
+	if err != nil {
+		t.Fatalf("Pins: %v", err)
+	}
+	var found bool
+	for _, got := range pins {
+		if got.Slug != doc.Slug {
+			continue
+		}
+		found = true
+		if got.Recap != "" || got.Title != title {
+			t.Errorf("pin = %+v, want a pointer: the title and no recap", got)
+		}
+	}
+	if !found {
+		t.Fatal("the private entry is not in the pin list; it must stay pinned as a pointer")
 	}
 }
 
@@ -588,46 +657,74 @@ func TestPinsStillCarryAnOrdinaryRecap(t *testing.T) {
 	}
 }
 
-// A reviewer of Task 6 found this path: PinKnowledge's own recap_required
-// error rolls back the transaction that loadDoc's purge just ran inside, which
-// restores the old recap in the column. If Pins ever went back to reading
-// knowledge.recap directly, this is the sequence that would leak it — and it
-// does not require anyone to have read the document again first.
+// The purge runs inside its caller's transaction, so any caller that fails
+// after loadDoc rolls the purge back, and the private mirror with it.
+// UnpinKnowledge naming a board that does not exist is one such caller: loadDoc
+// purges, then boardByName fails. The old recap is back in the column and
+// nothing has read the document successfully since. If Pins ever went back to
+// reading knowledge.recap directly, this is the sequence that would leak it.
 func TestPinsDoNotDiscloseAfterARolledBackPurge(t *testing.T) {
 	c, p, _ := kbCore(t)
 
+	const recap = "hunter2 opens staging"
 	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
 		Title: "Staging cluster access", Body: "initial\n",
 	})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if _, err := c.PinKnowledge(t.Context(), p.ID, doc.Slug, "hunter2 opens staging", ""); err != nil {
+	if _, err := c.PinKnowledge(t.Context(), p.ID, doc.Slug, recap, ""); err != nil {
 		t.Fatalf("PinKnowledge: %v", err)
 	}
 
 	setPrivateInFile(t, doc.Path, true)
 
-	_, err = c.PinKnowledge(t.Context(), p.ID, doc.Slug, "", "")
-	if err == nil {
-		t.Fatal("PinKnowledge with an empty recap on a private entry succeeded, want recap_required")
+	err = c.UnpinKnowledge(t.Context(), p.ID, doc.Slug, "no-such-board")
+	if coreErr, ok := errors.AsType[*Error](err); !ok || coreErr.Code != "board_not_found" {
+		t.Fatalf("UnpinKnowledge = %v, want board_not_found", err)
 	}
-	var coreErr *Error
-	if !errors.As(err, &coreErr) || coreErr.Code != "recap_required" {
-		t.Fatalf("err = %v, want code recap_required", err)
+
+	type stored struct {
+		Private bool    `db:"private"`
+		Recap   *string `db:"recap"`
+	}
+	read := func() stored {
+		t.Helper()
+		var row stored
+		if err := c.db.Get(&row, `SELECT private, recap FROM knowledge WHERE id = ?`, doc.ID); err != nil {
+			t.Fatalf("read row: %v", err)
+		}
+		return row
+	}
+	// Without a genuine rollback this test proves nothing, so confirm one: the
+	// purge and the mirror update both have to be undone.
+	if row := read(); row.Private || row.Recap == nil || *row.Recap != recap {
+		t.Fatalf("setup is wrong: private = %v, recap = %v after the failed unpin, want false and %q",
+			row.Private, row.Recap, recap)
 	}
 
 	pins, err := c.Pins(t.Context(), p.ID, "")
 	if err != nil {
 		t.Fatalf("Pins: %v", err)
 	}
+	var found bool
 	for _, pin := range pins {
 		if pin.Slug != doc.Slug {
 			continue
 		}
+		found = true
 		if strings.Contains(pin.Recap, "hunter2") {
 			t.Fatalf("recap = %q reached the brief after a rolled-back purge restored the stale column", pin.Recap)
 		}
+	}
+	if !found {
+		t.Fatal("the entry is missing from the pin list; the redaction was never exercised")
+	}
+
+	// Pins' own refresh is the next successful read, so it redoes the purge.
+	if row := read(); !row.Private || row.Recap != nil {
+		t.Errorf("private = %v, recap = %v after Pins, want true and NULL: the purge did not heal",
+			row.Private, row.Recap)
 	}
 }
 
