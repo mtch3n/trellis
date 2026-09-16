@@ -236,6 +236,7 @@ var reservedFrontmatterFields = map[string]bool{
 	"title": true, "type": true, "status": true, "summary": true,
 	"provenance": true, "private": true, "board": true, "tags": true,
 	"labels": true, "artifacts": true, "created": true, "updated": true,
+	"sources": true,
 }
 
 // templateViolations checks supplied field values against a template's

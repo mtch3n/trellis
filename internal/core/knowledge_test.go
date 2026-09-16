@@ -591,3 +591,55 @@ func TestCreateKnowledgeChecksSectionsOnlyWhenBodyIsSupplied(t *testing.T) {
 		t.Fatalf("err = %v, want template_violation naming Steps", err)
 	}
 }
+
+func TestCreateKnowledgeRecordsSourcesAndReadsThemBack(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Cited", Sources: []string{"https://example.com", "  "},
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if len(doc.Sources) != 1 || doc.Sources[0] != "https://example.com" {
+		t.Fatalf("Sources = %v, want the blank entry dropped", doc.Sources)
+	}
+
+	got, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	if err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+	if len(got.Sources) != 1 || got.Sources[0] != "https://example.com" {
+		t.Errorf("Sources after reload = %v", got.Sources)
+	}
+}
+
+func TestEditKnowledgeReplacesSources(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Backfilled", Sources: []string{"https://example.com"},
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+
+	next := []string{"https://example.com", "https://example.org"}
+	got, err := c.EditKnowledgeFields(t.Context(), p.ID, doc.Slug,
+		KnowledgeEdit{Sources: &next, IfVersion: &doc.Version})
+	if err != nil {
+		t.Fatalf("EditKnowledgeFields: %v", err)
+	}
+	if len(got.Sources) != 2 {
+		t.Errorf("Sources = %v, want two", got.Sources)
+	}
+	raw, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm, _, err := SplitFrontmatter(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fm.Sources) != 2 {
+		t.Errorf("file lists %v, want two sources", fm.Sources)
+	}
+}

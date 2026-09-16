@@ -33,8 +33,15 @@ type Frontmatter struct {
 	// Artifacts names the files attached to this entry, by stored artifact
 	// name. The list is the record; link rows are derived from it.
 	Artifacts []string `yaml:"artifacts,omitempty"`
-	Created   string   `yaml:"created,omitempty"`
-	Updated   string   `yaml:"updated,omitempty"`
+	// Sources cites what a claim in this entry is based on: a URL, a
+	// path:lines pointer, a card ref, a wikilink, an absolute address, or
+	// free prose. Free-form by design — recording that a claim was checked
+	// against something, not that the something is true. A template's
+	// verify rule (TRELLIS-35) checks only the internal-reference forms
+	// (wikilinks and absolute addresses); everything else passes unchecked.
+	Sources []string `yaml:"sources,omitempty"`
+	Created string   `yaml:"created,omitempty"`
+	Updated string   `yaml:"updated,omitempty"`
 	// Extra keeps every frontmatter key this struct does not name. A
 	// template may ask for a field ("owner", "severity") that has no
 	// dedicated column here; without this, yaml.Unmarshal would silently

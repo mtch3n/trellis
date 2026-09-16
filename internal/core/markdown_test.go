@@ -105,3 +105,15 @@ func TestFrontmatterWithNoExtraKeysIsUnchanged(t *testing.T) {
 		t.Errorf("RenderDoc with no Extra = %q, want %q", got, want)
 	}
 }
+
+func TestFrontmatterSourcesRoundTrip(t *testing.T) {
+	fm := Frontmatter{Title: "X", Sources: []string{"https://example.com", "[[design-doc]]"}}
+	raw := RenderDoc(fm, "body\n")
+	back, _, err := SplitFrontmatter(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(back.Sources) != 2 || back.Sources[0] != "https://example.com" || back.Sources[1] != "[[design-doc]]" {
+		t.Errorf("Sources = %v", back.Sources)
+	}
+}
