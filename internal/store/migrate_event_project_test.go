@@ -9,9 +9,9 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-// seedV17Events fills the database with events from various entity types, matching
-// the schema before migration 0018 (no project_id in event table).
-func seedV17Events(t *testing.T, db *sqlx.DB) {
+// seedV15Events fills the database with events from various entity types, matching
+// the schema before migration 0016 (no project_id in event table).
+func seedV15Events(t *testing.T, db *sqlx.DB) {
 	t.Helper()
 
 	for _, q := range []string{
@@ -53,7 +53,7 @@ func seedV17Events(t *testing.T, db *sqlx.DB) {
 	}
 }
 
-func TestMigration0018BackfillsProjectIDForAllEventTypes(t *testing.T) {
+func TestMigrationEventProjectIDBackfillsAllEventTypes(t *testing.T) {
 	db, err := connect(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +62,7 @@ func TestMigration0018BackfillsProjectIDForAllEventTypes(t *testing.T) {
 	if err := goose.UpTo(db.DB, "migrations", 15); err != nil {
 		t.Fatalf("UpTo(15): %v", err)
 	}
-	seedV17Events(t, db)
+	seedV15Events(t, db)
 
 	// Run the migration.
 	if err := goose.Up(db.DB, "migrations"); err != nil {
