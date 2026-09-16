@@ -102,6 +102,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/cards/{card}", s.handleDeleteCard)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/move", s.handleMoveCard)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/steal", s.handleStealCard)
+	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/claim", s.handleClaimCard)
+	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/release", s.handleReleaseCard)
+	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/notes", s.handleCreateNote)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/knowledge", s.handleKnowledgeList)
 	s.mux.HandleFunc("GET /api/p/{key}/knowledge", s.handleProjectKnowledgeList)
 	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}/history", s.handleKnowledgeHistory)
@@ -110,8 +113,11 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/global/knowledge", s.handleGlobalKnowledgeList)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/knowledge", s.handleKnowledgeCreate)
 	s.mux.HandleFunc("PATCH /api/p/{key}/b/{board}/knowledge/{slug}", s.handleKnowledgeEdit)
+	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/knowledge/{slug}", s.handleDeleteKnowledge)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/graph/{entity}", s.handleGraph)
 	s.mux.HandleFunc("GET /api/p/{key}/labels", s.handleLabels)
+	s.mux.HandleFunc("POST /api/p/{key}/labels", s.handleCreateLabel)
+	s.mux.HandleFunc("DELETE /api/p/{key}/labels/{name}", s.handleDeleteLabel)
 	s.mux.HandleFunc("POST /api/p/{key}/labels/merge", s.handleLabelMerge)
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
 	s.mux.HandleFunc("GET /api/activity", s.handleActivity)
@@ -502,8 +508,10 @@ type cardInfo struct {
 	Owner    *string `json:"owner,omitempty"`
 	// Unix milliseconds, as the single-card endpoint reports them. The
 	// overview's timeline places each card on the day it was created.
-	CreatedAt int64 `json:"created_at"`
-	UpdatedAt int64 `json:"updated_at"`
+	CreatedAt int64    `json:"created_at"`
+	UpdatedAt int64    `json:"updated_at"`
+	Labels    []string `json:"labels"`
+	Tags      []string `json:"tags"`
 }
 
 // columnCardsInfo contains cards grouped by column.
@@ -533,29 +541,114 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var result []columnCardsInfo
-	for _, col := range columns {
-		// Get cards in this column
-		var cards []struct {
-			ID        string        `db:"id"`
-			Seq       int64         `db:"seq"`
-			Title     string        `db:"title"`
-			Body      string        `db:"body_md"`
-			Priority  core.Priority `db:"priority"`
-			Owner     *string       `db:"owner"`
-			Version   int64         `db:"version"`
-			CreatedAt int64         `db:"created_at"`
-			UpdatedAt int64         `db:"updated_at"`
+	// Get all cards for this board
+	var allCards []struct {
+		ID        string        `db:"id"`
+		ColumnID  string        `db:"column_id"`
+		Seq       int64         `db:"seq"`
+		Title     string        `db:"title"`
+		Body      string        `db:"body_md"`
+		Priority  core.Priority `db:"priority"`
+		Owner     *string       `db:"owner"`
+		Version   int64         `db:"version"`
+		CreatedAt int64         `db:"created_at"`
+		UpdatedAt int64         `db:"updated_at"`
+	}
+	if err := s.db.SelectContext(ctx, &allCards,
+		`SELECT id, column_id, seq, title, body_md, priority, owner, version, created_at, updated_at FROM card WHERE board_id = ? AND archived_at IS NULL ORDER BY priority, rank`,
+		b.ID); err != nil {
+		s.error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Collect all card IDs
+	cardIDMap := make(map[string]bool)
+	for _, c := range allCards {
+		cardIDMap[c.ID] = true
+	}
+
+	// Fetch labels for all cards in one query
+	type cardLabel struct {
+		CardID string `db:"card_id"`
+		Name   string `db:"name"`
+	}
+	var labels []cardLabel
+	if len(cardIDMap) > 0 {
+		cardIDList := make([]string, 0, len(cardIDMap))
+		for id := range cardIDMap {
+			cardIDList = append(cardIDList, id)
 		}
-		if err := s.db.SelectContext(ctx, &cards,
-			`SELECT id, seq, title, body_md, priority, owner, version, created_at, updated_at FROM card WHERE column_id = ? AND archived_at IS NULL ORDER BY priority, rank`,
-			col.ID); err != nil {
+		query, args, err := sqlx.In(
+			`SELECT cl.card_id, l.name FROM card_label cl
+			 JOIN label l ON cl.label_id = l.id
+			 WHERE cl.card_id IN (?)
+			 ORDER BY l.name`,
+			cardIDList,
+		)
+		if err != nil {
 			s.error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if err := s.db.SelectContext(ctx, &labels, s.db.Rebind(query), args...); err != nil {
+			s.error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 
+	// Fetch tags for all cards in one query
+	type cardTag struct {
+		CardID string `db:"card_id"`
+		Name   string `db:"name"`
+	}
+	var tags []cardTag
+	if len(cardIDMap) > 0 {
+		cardIDList := make([]string, 0, len(cardIDMap))
+		for id := range cardIDMap {
+			cardIDList = append(cardIDList, id)
+		}
+		query, args, err := sqlx.In(
+			`SELECT ct.card_id, t.name FROM card_tag ct
+			 JOIN tag t ON ct.tag_id = t.id
+			 WHERE ct.card_id IN (?)
+			 ORDER BY t.name`,
+			cardIDList,
+		)
+		if err != nil {
+			s.error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if err := s.db.SelectContext(ctx, &tags, s.db.Rebind(query), args...); err != nil {
+			s.error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	// Build maps from card ID to labels/tags
+	labelsByCard := make(map[string][]string)
+	for _, l := range labels {
+		labelsByCard[l.CardID] = append(labelsByCard[l.CardID], l.Name)
+	}
+	tagsByCard := make(map[string][]string)
+	for _, t := range tags {
+		tagsByCard[t.CardID] = append(tagsByCard[t.CardID], t.Name)
+	}
+
+	// Build result
+	var result []columnCardsInfo
+	for _, col := range columns {
 		var cardInfos []cardInfo
-		for _, c := range cards {
+		for _, c := range allCards {
+			if c.ColumnID != col.ID {
+				continue
+			}
+			cardLabels := labelsByCard[c.ID]
+			if cardLabels == nil {
+				cardLabels = []string{}
+			}
+			cardTags := tagsByCard[c.ID]
+			if cardTags == nil {
+				cardTags = []string{}
+			}
 			cardInfos = append(cardInfos, cardInfo{
 				ID:        c.ID,
 				Ref:       p.Key + "-" + fmt.Sprintf("%d", c.Seq),
@@ -566,6 +659,8 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 				Version:   c.Version,
 				CreatedAt: c.CreatedAt,
 				UpdatedAt: c.UpdatedAt,
+				Labels:    cardLabels,
+				Tags:      cardTags,
 			})
 		}
 
@@ -714,6 +809,12 @@ type moveRequest struct {
 type stealRequest struct {
 	Reason string `json:"reason"`
 }
+type claimRequest struct {
+	TTLMinutes *int64 `json:"ttl_minutes"`
+}
+type noteRequest struct {
+	Body string `json:"body"`
+}
 type knowledgeRequest struct {
 	Title    string `json:"title"`
 	Body     string `json:"body"`
@@ -729,6 +830,11 @@ type knowledgeRequest struct {
 type labelMergeRequest struct {
 	From string `json:"from"`
 	Into string `json:"into"`
+}
+
+type labelCreateRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 func (s *Server) handleStealCard(w http.ResponseWriter, r *http.Request) {
@@ -759,6 +865,98 @@ func (s *Server) handleStealCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, claimed)
+}
+
+func (s *Server) handleClaimCard(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, b, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
+	if err != nil {
+		s.error(w, http.StatusNotFound, err.Error())
+		return
+	}
+	var in claimRequest
+	decodeJSON(w, r, &in)
+	// TTL is optional; defaults to configured lease TTL
+	var ttlMS int64 = 0
+	if in.TTLMinutes != nil && *in.TTLMinutes > 0 {
+		ttlMS = *in.TTLMinutes * 60 * 1000
+	}
+	card, err := s.core.GetCard(ctx, p.ID, core.ParseCardRef(r.PathValue("card")))
+	if err != nil || card.BoardID != b.ID {
+		if err != nil {
+			s.coreError(w, err)
+		} else {
+			s.error(w, http.StatusNotFound, "card not found on this board")
+		}
+		return
+	}
+	claimed, err := s.write.ClaimCard(ctx, card.ID, ttlMS, false, "")
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, claimed)
+}
+
+func (s *Server) handleReleaseCard(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, b, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
+	if err != nil {
+		s.error(w, http.StatusNotFound, err.Error())
+		return
+	}
+	card, err := s.core.GetCard(ctx, p.ID, core.ParseCardRef(r.PathValue("card")))
+	if err != nil || card.BoardID != b.ID {
+		if err != nil {
+			s.coreError(w, err)
+		} else {
+			s.error(w, http.StatusNotFound, "card not found on this board")
+		}
+		return
+	}
+	if err := s.write.ReleaseCard(ctx, card.ID); err != nil {
+		s.coreError(w, err)
+		return
+	}
+	// Return the released card
+	released, err := s.core.GetCard(ctx, p.ID, core.ParseCardRef(r.PathValue("card")))
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, released)
+}
+
+func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, b, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
+	if err != nil {
+		s.error(w, http.StatusNotFound, err.Error())
+		return
+	}
+	var in noteRequest
+	if !decodeJSON(w, r, &in) || strings.TrimSpace(in.Body) == "" {
+		s.error(w, http.StatusBadRequest, "note body required")
+		return
+	}
+	card, err := s.core.GetCard(ctx, p.ID, core.ParseCardRef(r.PathValue("card")))
+	if err != nil || card.BoardID != b.ID {
+		if err != nil {
+			s.coreError(w, err)
+		} else {
+			s.error(w, http.StatusNotFound, "card not found on this board")
+		}
+		return
+	}
+	note, err := s.write.CreateNote(ctx, card.ID, in.Body)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, note)
 }
 
 func (s *Server) handleKnowledgeList(w http.ResponseWriter, r *http.Request) {
@@ -863,6 +1061,22 @@ func (s *Server) handleKnowledgeEdit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, doc)
 }
 
+func (s *Server) handleDeleteKnowledge(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, _, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
+	if err != nil {
+		s.error(w, http.StatusNotFound, err.Error())
+		return
+	}
+	slug := r.PathValue("slug")
+	if err := s.write.DeleteKnowledge(ctx, p.ID, slug); err != nil {
+		s.coreError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -909,6 +1123,43 @@ func (s *Server) handleLabels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, labels)
+}
+
+func (s *Server) handleCreateLabel(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	var p core.Project
+	if err := s.db.GetContext(ctx, &p, `SELECT * FROM project WHERE key = ?`, r.PathValue("key")); err != nil {
+		s.error(w, http.StatusNotFound, "project not found")
+		return
+	}
+	var in labelCreateRequest
+	if !decodeJSON(w, r, &in) || in.Name == "" {
+		s.error(w, http.StatusBadRequest, "label name required")
+		return
+	}
+	label, err := s.write.CreateLabel(ctx, p.ID, in.Name, in.Description)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, label)
+}
+
+func (s *Server) handleDeleteLabel(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	var p core.Project
+	if err := s.db.GetContext(ctx, &p, `SELECT * FROM project WHERE key = ?`, r.PathValue("key")); err != nil {
+		s.error(w, http.StatusNotFound, "project not found")
+		return
+	}
+	name := r.PathValue("name")
+	if err := s.write.DeleteLabel(ctx, p.ID, name); err != nil {
+		s.coreError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleLabelMerge(w http.ResponseWriter, r *http.Request) {
