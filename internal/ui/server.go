@@ -109,6 +109,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/p/{key}/knowledge", s.handleProjectKnowledgeList)
 	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}/history", s.handleKnowledgeHistory)
 	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}/diff", s.handleKnowledgeDiff)
+	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}", s.handleGetKnowledge)
 	s.mux.HandleFunc("GET /api/p/{key}/artifacts/{name}", s.handleArtifact)
 	s.mux.HandleFunc("GET /api/global/knowledge", s.handleGlobalKnowledgeList)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/knowledge", s.handleKnowledgeCreate)
@@ -972,6 +973,7 @@ func (s *Server) handleKnowledgeList(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
+	withoutContent(docs)
 	writeJSON(w, http.StatusOK, knowledgeItems(p.Key, docs))
 }
 
@@ -988,6 +990,7 @@ func (s *Server) handleProjectKnowledgeList(w http.ResponseWriter, r *http.Reque
 		s.coreError(w, err)
 		return
 	}
+	withoutContent(docs)
 	writeJSON(w, http.StatusOK, knowledgeItems(p.Key, docs))
 }
 
@@ -1002,7 +1005,33 @@ func (s *Server) handleGlobalKnowledgeList(w http.ResponseWriter, r *http.Reques
 	for i := range docs {
 		docs[i].Ref = core.DocAddress("", true, docs[i].Slug)
 	}
+	withoutContent(docs)
 	writeJSON(w, http.StatusOK, docs)
+}
+
+func (s *Server) handleGetKnowledge(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, err := s.projectByKey(ctx, r.PathValue("key"))
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	doc, err := s.core.ReadKnowledge(ctx, p.ID, r.PathValue("slug"))
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	// Build the knowledgeItem response with artifacts
+	item := knowledgeItem{Knowledge: doc}
+	for _, a := range doc.Artifacts {
+		artifactItem := artifactItem{ArtifactRef: a}
+		if !a.Missing {
+			artifactItem.URL = artifactURL(p.Key, a.Name)
+		}
+		item.Artifacts = append(item.Artifacts, artifactItem)
+	}
+	writeJSON(w, http.StatusOK, item)
 }
 
 func (s *Server) handleKnowledgeCreate(w http.ResponseWriter, r *http.Request) {
@@ -1310,6 +1339,18 @@ func (s *Server) error(w http.ResponseWriter, status int, msg string) {
 	w.WriteHeader(status)
 	b, _ := json.Marshal(map[string]string{"error": msg})
 	w.Write(b)
+}
+
+// withoutContent removes body and (for private entries) summary/recap from knowledge
+// entries, matching the CLI's withholdContent behavior for listings.
+func withoutContent(docs []core.Knowledge) {
+	for i := range docs {
+		docs[i].BodyMD = ""
+		if docs[i].Private {
+			docs[i].Summary = ""
+			docs[i].Recap = nil
+		}
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
