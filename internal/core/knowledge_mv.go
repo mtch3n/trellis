@@ -10,16 +10,6 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// revisionDirFor is where the revision-history design keeps an entry's old
-// versions: a hidden directory beside the file, named after the file
-// including its extension ("standup.md" -> ".standup.md/"). It has no
-// database row of its own, so it is never mistaken for an entry -- Slugify
-// never produces a leading dot, and projectDirectories is derived from the
-// slug column rather than the filesystem, so it never appears there either.
-func revisionDirFor(docPath string) string {
-	return filepath.Join(filepath.Dir(docPath), "."+filepath.Base(docPath))
-}
-
 // moveRevisionDirIfExists moves an entry's revision directory alongside it.
 // It is a no-op, not an error, when the directory does not exist: revision
 // history may not have shipped yet, or the entry may be new. A same-content
@@ -27,7 +17,7 @@ func revisionDirFor(docPath string) string {
 // (crossing a filesystem boundary), since a revision directory can hold many
 // files.
 func moveRevisionDirIfExists(oldDocPath, newDocPath string) (moved bool, err error) {
-	oldDir, newDir := revisionDirFor(oldDocPath), revisionDirFor(newDocPath)
+	oldDir, newDir := revisionDir(oldDocPath), revisionDir(newDocPath)
 	if _, err := os.Stat(oldDir); errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	} else if err != nil {
@@ -42,7 +32,7 @@ func moveRevisionDirIfExists(oldDocPath, newDocPath string) (moved bool, err err
 		return false, err
 	}
 	if err := os.Rename(oldDir, newDir); err != nil {
-		if cerr := copyDirFlat(oldDir, newDir); cerr != nil {
+		if cerr := copyDirAtomic(newDir, oldDir); cerr != nil {
 			return false, errors.Join(err, cerr)
 		}
 		if rerr := os.RemoveAll(oldDir); rerr != nil {
@@ -56,28 +46,6 @@ func moveRevisionDirIfExists(oldDocPath, newDocPath string) (moved bool, err err
 		return false, err
 	}
 	return true, nil
-}
-
-// copyDirFlat copies every regular file directly inside src into dst, which
-// is all a revision directory ever holds: one file per retained version, no
-// subdirectories.
-func copyDirFlat(src, dst string) error {
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dst, 0o700); err != nil {
-		return err
-	}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if err := copyAtomic(filepath.Join(dst, e.Name()), filepath.Join(src, e.Name())); err != nil {
-			return err
-		}
-	}
-	return syncDirectory(dst)
 }
 
 // MoveKnowledge renames or relocates an entry within its own project's

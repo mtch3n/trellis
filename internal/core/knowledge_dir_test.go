@@ -342,7 +342,7 @@ func TestMoveKnowledgeMovesTheRevisionDirectoryIfPresent(t *testing.T) {
 	}
 	// Simulate the revision-history feature having already captured a
 	// version: a hidden directory named ".<filename>" beside the entry.
-	oldRevDir := revisionDirFor(doc.Path)
+	oldRevDir := revisionDir(doc.Path)
 	if err := os.MkdirAll(oldRevDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +356,7 @@ func TestMoveKnowledgeMovesTheRevisionDirectoryIfPresent(t *testing.T) {
 	if _, err := os.Stat(oldRevDir); !os.IsNotExist(err) {
 		t.Fatalf("old revision directory must be gone: %v", err)
 	}
-	newRevDir := revisionDirFor(moved.Path)
+	newRevDir := revisionDir(moved.Path)
 	got, err := os.ReadFile(filepath.Join(newRevDir, "1.md"))
 	if err != nil {
 		t.Fatalf("revision file must have moved with the entry: %v", err)
@@ -437,7 +437,7 @@ func TestEscalateKnowledgeMovesTheRevisionDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	oldRevDir := revisionDirFor(doc.Path)
+	oldRevDir := revisionDir(doc.Path)
 	if err := os.MkdirAll(oldRevDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +448,7 @@ func TestEscalateKnowledgeMovesTheRevisionDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EscalateKnowledge: %v", err)
 	}
-	if _, err := os.Stat(revisionDirFor(global.Path)); err != nil {
+	if _, err := os.Stat(revisionDir(global.Path)); err != nil {
 		t.Fatalf("revision directory must have moved: %v", err)
 	}
 }
