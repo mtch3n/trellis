@@ -93,7 +93,7 @@ func newVectorStatusCmd() *cobra.Command {
 			return err
 		}
 		defer idx.Close()
-		docs, err := pctx.Core.ListKnowledge(cmd.Context(), pctx.Project.ID, core.KnowledgeFilter{})
+		docs, err := pctx.Core.ListSearchKnowledge(cmd.Context(), pctx.Project.ID)
 		if err != nil {
 			return err
 		}
@@ -128,7 +128,7 @@ func newVectorRebuildCmd() *cobra.Command {
 		}
 		defer idx.Close()
 		defer pctx.db.Close()
-		docs, err := pctx.Core.ListKnowledge(cmd.Context(), pctx.Project.ID, core.KnowledgeFilter{})
+		docs, err := pctx.Core.ListSearchKnowledge(cmd.Context(), pctx.Project.ID)
 		if err != nil {
 			return err
 		}
@@ -157,7 +157,7 @@ func newVectorPruneCmd() *cobra.Command {
 		}
 		defer idx.Close()
 		defer pctx.db.Close()
-		docs, err := pctx.Core.ListKnowledge(cmd.Context(), pctx.Project.ID, core.KnowledgeFilter{})
+		docs, err := pctx.Core.ListSearchKnowledge(cmd.Context(), pctx.Project.ID)
 		if err != nil {
 			return err
 		}

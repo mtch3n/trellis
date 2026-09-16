@@ -227,21 +227,33 @@ func (c *Core) matchKnowledge(ctx context.Context, projectID, match string, limi
 	return hits, err
 }
 
-// ListSearchKnowledge returns the documents visible to a project search:
-// entries owned by the project plus globally escalated entries. It refreshes
-// file-backed rows using the same source-of-truth rules as ListKnowledge.
+// ListSearchKnowledge is the corpus every vector index build, count and prune
+// reads. Private entries are dropped here rather than at each call site, so a
+// second builder cannot reintroduce them by querying the table directly.
+//
+// The filter is applied after refreshFromFile and never in the SELECT. The
+// private column is a mirror of the file and is stale for exactly one read
+// after the file changes, which is the read that matters: filtering in SQL
+// would still select a document just marked private, and would never again
+// select one just un-marked.
 func (c *Core) ListSearchKnowledge(ctx context.Context, projectID string) ([]Knowledge, error) {
 	docs := []Knowledge{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		if err := tx.Select(&docs, `SELECT * FROM knowledge WHERE project_id = ? OR global = 1 ORDER BY updated_at DESC`, projectID); err != nil {
+		var all []Knowledge
+		if err := tx.Select(&all,
+			`SELECT * FROM knowledge WHERE project_id = ? OR global = 1 ORDER BY updated_at DESC`,
+			projectID); err != nil {
 			return err
 		}
-		for i := range docs {
-			if err := c.refreshFromFile(tx, &docs[i]); err != nil {
+		for i := range all {
+			if err := c.refreshFromFile(tx, &all[i]); err != nil {
 				return err
 			}
-			if err := c.docView(tx, &docs[i]); err != nil {
+			if err := c.docView(tx, &all[i]); err != nil {
 				return err
+			}
+			if !all[i].Private {
+				docs = append(docs, all[i])
 			}
 		}
 		return nil

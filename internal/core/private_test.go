@@ -129,3 +129,102 @@ func TestPrivateWithANonBooleanValueFailsTheParse(t *testing.T) {
 		t.Errorf("error = %v, want it to name the frontmatter", err)
 	}
 }
+
+// The corpus that feeds the vector index is the one place a body is shipped to
+// something that may not be on this machine.
+func TestVectorCorpusExcludesPrivate(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	open, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Recall ranking"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	secret, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Staging credentials", Private: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+
+	docs, err := c.ListSearchKnowledge(t.Context(), p.ID)
+	if err != nil {
+		t.Fatalf("ListSearchKnowledge: %v", err)
+	}
+	var sawOpen, sawSecret bool
+	for _, d := range docs {
+		switch d.Slug {
+		case open.Slug:
+			sawOpen = true
+		case secret.Slug:
+			sawSecret = true
+		}
+	}
+	if !sawOpen {
+		t.Errorf("the open entry %q is missing from the corpus", open.Slug)
+	}
+	if sawSecret {
+		t.Errorf("the private entry %q reached the corpus", secret.Slug)
+	}
+}
+
+// A hand-edit is the ordinary way the flag changes, and the corpus must follow
+// it on the very next read — in both directions. Filtering in SQL passes the
+// first half of this test and fails the second permanently.
+func TestVectorCorpusFollowsTheFileOnTheNextRead(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Env staging"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+
+	inCorpus := func() bool {
+		t.Helper()
+		docs, err := c.ListSearchKnowledge(t.Context(), p.ID)
+		if err != nil {
+			t.Fatalf("ListSearchKnowledge: %v", err)
+		}
+		for _, d := range docs {
+			if d.Slug == doc.Slug {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !inCorpus() {
+		t.Fatal("setup is wrong: the entry is not in the corpus to begin with")
+	}
+
+	setPrivateInFile(t, doc.Path, true)
+	if inCorpus() {
+		t.Error("still in the corpus after the file was marked private; the filter read a stale mirror")
+	}
+
+	setPrivateInFile(t, doc.Path, false)
+	if !inCorpus() {
+		t.Error("never returned to the corpus after the file was un-marked; the filter read a stale mirror")
+	}
+}
+
+// Everything local keeps listing private entries.
+func TestListKnowledgeStillReturnsPrivate(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	secret, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Staging credentials", Private: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	docs, err := c.ListKnowledge(t.Context(), p.ID, KnowledgeFilter{})
+	if err != nil {
+		t.Fatalf("ListKnowledge: %v", err)
+	}
+	for _, d := range docs {
+		if d.Slug == secret.Slug {
+			return
+		}
+	}
+	t.Errorf("ListKnowledge dropped the private entry %q; it is local and must stay listed", secret.Slug)
+}
