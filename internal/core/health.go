@@ -55,7 +55,8 @@ func (c *Core) Health(ctx context.Context, projectID string) ([]HealthLine, erro
 		}
 		return tx.Get(&stale, `
 			SELECT COUNT(*) FROM pin p JOIN knowledge k ON k.id = p.knowledge_id
-			WHERE k.project_id = ? AND k.recap_hash IS NOT k.content_hash`, projectID)
+			WHERE k.project_id = ? AND k.recap_hash IS NOT NULL
+			  AND k.recap_hash IS NOT k.content_hash`, projectID)
 	})
 	if err != nil {
 		return nil, err

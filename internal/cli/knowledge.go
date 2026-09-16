@@ -323,7 +323,7 @@ func pinTable(pins []core.Pin) string {
 		if p.Stale {
 			mark = "(stale) "
 		}
-		fmt.Fprintf(w, "%s\t%s%s\n", p.Slug, mark, p.Recap)
+		fmt.Fprintf(w, "%s\t%s%s\n", p.Slug, mark, cmp.Or(p.Recap, p.Title))
 	}
 	w.Flush()
 	if len(pins) > core.MaxInjectedPins {

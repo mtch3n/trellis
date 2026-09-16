@@ -17,6 +17,8 @@ import (
 const MaxInjectedPins = 5
 
 // Pin is a knowledge entry whose recap is injected at session start (§10.5).
+// An empty Recap makes the pin a pointer, ref and title, which is all a private
+// entry ever injects. A pointer is never Stale: there is no recap to be wrong.
 type Pin struct {
 	// ID is not part of the payload — callers address a pin by slug — but the
 	// disclosure refresh needs it. See privateAfterRefresh.
@@ -154,6 +156,13 @@ func (c *Core) Pins(ctx context.Context, projectID, boardID string) ([]Pin, erro
 		for i := range pins {
 			if private[pins[i].ID] {
 				pins[i].Recap = ""
+			}
+			// Decided after the refresh, not in the SELECT. A purged row has
+			// a NULL recap_hash, which the SELECT reads as stale, but the
+			// SELECT sees each row as it was before this refresh, so the
+			// read that runs the purge would say the opposite.
+			if pins[i].Recap == "" {
+				pins[i].Stale = false
 			}
 		}
 		return nil

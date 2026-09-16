@@ -756,6 +756,55 @@ func TestPinsDoNotDiscloseAfterARolledBackPurge(t *testing.T) {
 	}
 }
 
+// Staleness describes a recap, and a private pin has none. It must not read as
+// stale on the first read after the flag is set by hand, when the row still
+// carries the old recap_hash, nor on any later read, when the purge has cleared
+// it. Health counts stale recaps and must agree with the pin list.
+func TestAPrivatePinIsNeverStale(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Staging cluster access", Body: "initial\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.PinKnowledge(t.Context(), p.ID, doc.Slug, "hunter2 opens staging", ""); err != nil {
+		t.Fatalf("PinKnowledge: %v", err)
+	}
+	setPrivateInFile(t, doc.Path, true)
+
+	for read := 1; read <= 2; read++ {
+		pins, err := c.Pins(t.Context(), p.ID, "")
+		if err != nil {
+			t.Fatalf("read %d: Pins: %v", read, err)
+		}
+		var found bool
+		for _, pin := range pins {
+			if pin.Slug != doc.Slug {
+				continue
+			}
+			found = true
+			if pin.Stale {
+				t.Errorf("read %d: a private pin with recap %q is marked stale", read, pin.Recap)
+			}
+		}
+		if !found {
+			t.Fatalf("read %d: the pin list dropped %q", read, doc.Slug)
+		}
+	}
+
+	lines, err := c.Health(t.Context(), p.ID)
+	if err != nil {
+		t.Fatalf("Health: %v", err)
+	}
+	for _, l := range lines {
+		if l.What == "stale pinned recaps" && l.Count != 0 {
+			t.Errorf("health counts %d stale recaps, want 0: a private pin has no recap", l.Count)
+		}
+	}
+}
+
 // Ordinary documents keep the audit fidelity they have today.
 func TestEditOnNormalStillRecordsContent(t *testing.T) {
 	c, p, _ := kbCore(t)

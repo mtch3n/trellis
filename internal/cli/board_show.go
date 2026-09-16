@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -284,7 +285,9 @@ func formatBrief(brief *boardBrief) string {
 				// is worse than no recap.
 				stale = "(stale) "
 			}
-			recap := p.Recap
+			// A pin with no recap is a pointer, which is what a private
+			// entry injects: the slug and the title, nothing from the body.
+			recap := cmp.Or(p.Recap, p.Title)
 			if len(recap) > 120 {
 				recap = recap[:120] + "..."
 			}
