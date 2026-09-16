@@ -292,11 +292,10 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 			return err
 		}
 		src = doc.Path
-		moved, err := moveFile(doc.Path, dir)
+		dest, err = moveFileTo(doc.Path, filepath.Join(dir, filepath.FromSlash(doc.Slug)+".md"))
 		if err != nil {
 			return err
 		}
-		dest = moved
 		revSrc = revisionDir(src)
 		revMoved, err := moveDir(revSrc, dir)
 		if err != nil {
@@ -370,7 +369,7 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 			}
 		}()
 
-		gerr := tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, Slugify(slug))
+		gerr := tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, normalizeSlugPath(slug))
 		if errors.Is(gerr, sql.ErrNoRows) {
 			return ErrNotFound("not_global", "no global entry "+slug, "trellis knowledge ls --global")
 		}
@@ -386,11 +385,10 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 			return err
 		}
 		src = doc.Path
-		moved, err := moveFile(doc.Path, dir)
+		dest, err = moveFileTo(doc.Path, filepath.Join(dir, filepath.FromSlash(doc.Slug)+".md"))
 		if err != nil {
 			return err
 		}
-		dest = moved
 		revSrc = revisionDir(src)
 		revMoved, err := moveDir(revSrc, dir)
 		if err != nil {
@@ -437,7 +435,7 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 func (c *Core) VerifyKnowledge(ctx context.Context, slug string) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var doc Knowledge
-		err := tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, Slugify(slug))
+		err := tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, normalizeSlugPath(slug))
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound("not_global", "no global entry "+slug, "trellis knowledge ls --global")
 		}

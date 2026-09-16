@@ -391,3 +391,97 @@ func TestMoveKnowledgeByBareLeaf(t *testing.T) {
 		t.Fatalf("moved = %+v", moved)
 	}
 }
+
+func TestEscalateKnowledgePreservesTheSubpath(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	global, err := c.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "reason")
+	if err != nil {
+		t.Fatalf("EscalateKnowledge: %v", err)
+	}
+	if global.Slug != "deployment/rollback" {
+		t.Fatalf("slug = %q, want the subpath preserved", global.Slug)
+	}
+	if filepath.Base(filepath.Dir(global.Path)) != "deployment" {
+		t.Fatalf("path = %q, want the subpath preserved on disk too", global.Path)
+	}
+}
+
+func TestDemoteKnowledgePreservesTheSubpath(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "reason"); err != nil {
+		t.Fatalf("EscalateKnowledge: %v", err)
+	}
+	back, err := c.DemoteKnowledge(t.Context(), doc.Slug, "reason")
+	if err != nil {
+		t.Fatalf("DemoteKnowledge: %v", err)
+	}
+	if back.Slug != "deployment/rollback" {
+		t.Fatalf("slug = %q, want the subpath preserved", back.Slug)
+	}
+	if filepath.Base(filepath.Dir(back.Path)) != "deployment" {
+		t.Fatalf("path = %q, want the subpath preserved on disk too", back.Path)
+	}
+}
+
+func TestEscalateKnowledgeMovesTheRevisionDirectory(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	oldRevDir := revisionDirFor(doc.Path)
+	if err := os.MkdirAll(oldRevDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldRevDir, "1.md"), []byte("v1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	global, err := c.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "reason")
+	if err != nil {
+		t.Fatalf("EscalateKnowledge: %v", err)
+	}
+	if _, err := os.Stat(revisionDirFor(global.Path)); err != nil {
+		t.Fatalf("revision directory must have moved: %v", err)
+	}
+}
+
+// DemoteKnowledge and VerifyKnowledge look a global entry up by slug with a
+// direct query, not through loadDoc/resolveSlug, so they need their own fix
+// for a directory-shaped slug: today they flatten the input with a
+// whole-string Slugify, which would turn "deployment/rollback" into
+// "deployment-rollback" and never find the row.
+func TestDemoteKnowledgeResolvesADirectoryShapedSlug(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "reason"); err != nil {
+		t.Fatalf("EscalateKnowledge: %v", err)
+	}
+	if _, err := c.DemoteKnowledge(t.Context(), "deployment/rollback", "reason"); err != nil {
+		t.Fatalf("DemoteKnowledge by full path: %v", err)
+	}
+}
+
+func TestVerifyKnowledgeResolvesADirectoryShapedSlug(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "reason"); err != nil {
+		t.Fatalf("EscalateKnowledge: %v", err)
+	}
+	if err := c.VerifyKnowledge(t.Context(), "deployment/rollback"); err != nil {
+		t.Fatalf("VerifyKnowledge by full path: %v", err)
+	}
+}
