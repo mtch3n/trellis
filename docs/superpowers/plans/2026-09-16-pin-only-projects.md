@@ -25,7 +25,7 @@ When this plan was written, the working tree held other uncommitted work:
 - the split `plugin/skills/*`
 - `PRODUCT.md`
 
-Task 6 edits `DeleteProject`'s doc comment and Task 8 edits `PRODUCT.md`, so that work must be committed first. Run `git status --short`. If anything outside `docs/` is modified or untracked, stop and ask the author to commit it. Do not stash it or commit it yourself.
+Task 7 edits `DeleteProject`'s doc comment and Task 8 edits `PRODUCT.md`, so that work must be committed first. Run `git status --short`. If anything outside `docs/` is modified or untracked, stop and ask the author to commit it. Do not stash it or commit it yourself.
 
 ## Global Constraints
 
@@ -61,11 +61,11 @@ Task 6 edits `DeleteProject`'s doc comment and Task 8 edits `PRODUCT.md`, so tha
 | `internal/vpath/vpath_test.go` (create) | Grammar tests |
 | `internal/resolve/pin.go` (create) | `PinFile`, `Pin`, `PinError`, `ErrNotRegular`, `ReadPin`, `FindPin`, `Unpinnable` |
 | `internal/resolve/pin_test.go` (create) | Walk tests |
-| `internal/resolve/resolve.go` (modify → shrink) | Keeps only `normalizeDir` after Task 6 |
-| `internal/resolve/git.go`, `giturl.go`, `git_test.go`, `giturl_test.go`, `resolve_test.go` (delete in Task 6) | Git identity |
-| `internal/core/project.go` (modify) | `Project`, `CreateProject`, `createProject`, `checkNewKey`, `InitRequest`, `InitResult`, `InitProject`; `EnsureProject` removed in Task 6 |
+| `internal/resolve/resolve.go` (modify → shrink) | Keeps only `normalizeDir` after Task 7 |
+| `internal/resolve/git.go`, `giturl.go`, `git_test.go`, `giturl_test.go`, `resolve_test.go` (delete in Task 7) | Git identity |
+| `internal/core/project.go` (modify) | `Project`, `CreateProject`, `createProject`, `checkNewKey`, `InitRequest`, `InitResult`, `InitProject`; `EnsureProject` removed in Task 7 |
 | `internal/core/project_init_test.go` (create) | `CreateProject` / `InitProject` tests |
-| `internal/core/project_test.go` (delete in Task 6) | `EnsureProject` tests |
+| `internal/core/project_test.go` (delete in Task 7) | `EnsureProject` tests |
 | `internal/core/board.go` (modify) | `boardBySlug`, `BoardBySlug` |
 | `internal/core/label.go` (modify) | `seedLabelsIfNone`; `EnsureDefaultLabels` removed in Task 4 |
 | `internal/core/knowledge.go` (modify) | `GlobalKey = vpath.GlobalKey` |
@@ -82,10 +82,10 @@ Task 6 edits `DeleteProject`'s doc comment and Task 8 edits `PRODUCT.md`, so tha
 | `internal/cli/project_cmd_test.go` (create) | Project command tests |
 | `internal/cli/doctor.go`, `doctor_test.go` (modify) | Project checks |
 | `internal/cli/knowledge_cmd_test.go` (modify) | `projectEnv` seeds through `seedProject` |
-| Test seeds in `internal/core/{column,note,lease,artifact}_test.go`, `internal/config/config_test.go`, `internal/cli/tui_test.go`, `internal/ui/server_test.go` (modify in Task 6) | No identity columns |
+| Test seeds in `internal/core/{column,note,lease,artifact}_test.go`, `internal/config/config_test.go`, `internal/cli/tui_test.go`, `internal/ui/server_test.go`, `internal/cli/doctor_test.go` (modify in Task 7) | No identity columns |
 | `CLAUDE.md`, `README.md`, `PRODUCT.md`, `plugin/skills/trellis/SKILL.md`, `scripts/tests/test_plugin_cli.py`, `.gitignore`, `.trellis` (Task 8) | Docs and this repository's own pin |
 
-Task order keeps every commit green. Tasks 3–5 write the transitional `identity_kind = 'pin'` because the column is `NOT NULL` until Task 6 drops it; Task 6 removes that value in the same commit as the column.
+Task order keeps every commit green. Tasks 3–6 write transitional identity values: `identity_kind = 'pin'`, `identity_value = KEY` and `root_path = 'pin:KEY'`. The existing `Project` type scans those columns as strings, so they must not be NULL, and `root_path` is UNIQUE. Task 7 drops the columns and these values in the same commit.
 
 ---
 
@@ -422,7 +422,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Create: `internal/resolve/pin.go`
 - Test: `internal/resolve/pin_test.go`
 
-`resolve.go` keeps `Identify` untouched until Task 6; the new walk lives beside it and does not replace it yet.
+`resolve.go` keeps `Identify` untouched until Task 7; the new walk lives beside it and does not replace it yet.
 
 **Interfaces:**
 - Consumes: `vpath.ParsePin`, `vpath.Path` (Task 1); `normalizeDir` (existing, `internal/resolve/resolve.go`).
@@ -1106,6 +1106,20 @@ func TestInitProjectIsOneTransaction(t *testing.T) {
 	}
 }
 
+func TestInitProjectNeverWritesAnUnparsablePin(t *testing.T) {
+	c := testCore(t)
+	for key, want := range map[string]string{"MY_APP": "bad_key", "GLOBAL": "reserved_key"} {
+		dir := t.TempDir()
+		_, err := c.InitProject(t.Context(), InitRequest{Dir: dir, Key: key, Join: true})
+		if got := errCode(t, err); got != want {
+			t.Errorf("join %s: code = %s, want %s", key, got, want)
+		}
+		if _, statErr := os.Stat(filepath.Join(dir, resolve.PinFile)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Errorf("join %s wrote a pin", key)
+		}
+	}
+}
+
 func existingPin(t *testing.T, dir, content string) *resolve.Pin {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, resolve.PinFile), []byte(content), 0o644); err != nil {
@@ -1333,10 +1347,13 @@ func (c *Core) createProject(tx *sqlx.Tx, key string) (Project, error) {
 			fmt.Sprintf("project %s already exists", key), "trellis project ls")
 	}
 	p := Project{ID: NewCardID(), Key: key, Name: key, CreatedAt: c.clock.NowMS()}
-	// identity_kind stays NOT NULL until migration 0013 drops it.
+	// The identity columns stay until migration 0013 drops them. Project still
+	// scans them as strings, so none may be NULL, and root_path is UNIQUE:
+	// each gets a placeholder derived from the key.
 	if _, err := tx.Exec(
-		`INSERT INTO project (id, key, identity_kind, name, created_at) VALUES (?, ?, 'pin', ?, ?)`,
-		p.ID, p.Key, p.Name, p.CreatedAt); err != nil {
+		`INSERT INTO project (id, key, identity_kind, identity_value, root_path, name, created_at)
+		 VALUES (?, ?, 'pin', ?, ?, ?, ?)`,
+		p.ID, p.Key, p.Key, "pin:"+p.Key, p.Name, p.CreatedAt); err != nil {
 		return Project{}, err
 	}
 	if err := c.recordEvent(tx, "project", p.ID, "created", "", "", p.Key); err != nil {
@@ -1395,6 +1412,11 @@ func (c *Core) InitProject(ctx context.Context, req InitRequest) (InitResult, er
 			return InitResult{}, pinExists(e.Path, e.Target, "--key "+key)
 		}
 		key, pinBoard, join = e.Target.Project, e.Target.Board(), true
+	}
+	// Every pin this writes must parse, including one that joins a project
+	// whose key predates the grammar: such a project is reached by --project.
+	if err := checkNewKey(key); err != nil {
+		return InitResult{}, err
 	}
 
 	res := InitResult{PinPath: filepath.Join(req.Dir, resolve.PinFile)}
@@ -2443,7 +2465,239 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 6: Drop project identity
+### Task 6: Doctor reports where the project came from
+
+This task runs before Task 7 removes `resolve.Identify`, which `checkProject` still calls today.
+
+**Files:**
+- Modify: `internal/cli/doctor.go`:
+  - `checkProject`
+  - a new `checkProjectKeys`
+  - a new `openExistingDB`
+  - `runDoctor`
+- Test: `internal/cli/doctor_test.go`
+
+**Interfaces:**
+- Consumes: `resolve.FindPin` (Task 2); `vpath.ValidKey` (Task 1); `projectFlagKey` (existing); `pinEnv`, `writePin`, `seedProject` (Task 4).
+- Produces: doctor check names `project` and `project keys`.
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `internal/cli/doctor_test.go`. Add `"os"` and `"github.com/mtch3n/trellis/internal/home"` and `"github.com/mtch3n/trellis/internal/store"` to its imports if they are missing.
+
+```go
+func TestCheckProjectFromAPin(t *testing.T) {
+	dir := pinEnv(t, "app")
+	seedProject(t, "APP")
+	writePin(t, dir, "/APP\n")
+	got := checkProject()
+	if got.Status != checkOK || !strings.Contains(got.Detail, "/APP (pin ") {
+		t.Errorf("check = %+v", got)
+	}
+}
+
+func TestCheckProjectWithoutAPinWarns(t *testing.T) {
+	pinEnv(t, "loose")
+	got := checkProject()
+	if got.Status != checkWarn || got.Fix != "trellis init --key <KEY>" {
+		t.Errorf("check = %+v", got)
+	}
+}
+
+func TestCheckProjectNamesItsSource(t *testing.T) {
+	pinEnv(t, "loose")
+	t.Setenv("TRELLIS_PROJECT", "envkey")
+	if got := checkProject(); !strings.Contains(got.Detail, "ENVKEY (from TRELLIS_PROJECT)") {
+		t.Errorf("env: %+v", got)
+	}
+	projectFlagKey = "flagkey"
+	t.Cleanup(func() { projectFlagKey = "" })
+	if got := checkProject(); !strings.Contains(got.Detail, "FLAGKEY (from --project)") {
+		t.Errorf("flag: %+v", got)
+	}
+}
+
+func TestCheckProjectWarnsWhenThePinnedProjectIsMissing(t *testing.T) {
+	dir := pinEnv(t, "clone")
+	seedProject(t, "OTHER")
+	writePin(t, dir, "/GHOST\n")
+	got := checkProject()
+	if got.Status != checkWarn || got.Fix != "trellis init" {
+		t.Errorf("check = %+v", got)
+	}
+}
+
+// A fresh clone: the pin is committed, and this machine has no database yet.
+func TestCheckProjectWithoutADatabaseWarns(t *testing.T) {
+	dir := pinEnv(t, "clone")
+	writePin(t, dir, "/APP\n")
+	got := checkProject()
+	if got.Status != checkWarn || got.Fix != "trellis init" || !strings.Contains(got.Detail, "no database here yet") {
+		t.Errorf("check = %+v", got)
+	}
+	path, err := home.DBPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("the check created a database: %v", err)
+	}
+}
+
+func TestCheckProjectKeysFlagsKeysAPinCannotName(t *testing.T) {
+	pinEnv(t, "anywhere")
+	seedProject(t, "GOOD")
+	path, err := home.DBPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The identity columns still exist in this task; the next one drops them.
+	_, err = db.Exec(`INSERT INTO project (id, key, identity_kind, identity_value, root_path, name, created_at)
+	                  VALUES ('x', 'MY_APP', 'pin', 'MY_APP', 'pin:MY_APP', 'MY_APP', 1)`)
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := checkProjectKeys()
+	if got.Status != checkWarn || !strings.Contains(got.Detail, "MY_APP") || strings.Contains(got.Detail, "GOOD") {
+		t.Errorf("check = %+v", got)
+	}
+}
+
+func TestCheckProjectKeysWithoutADatabase(t *testing.T) {
+	t.Setenv("TRELLIS_HOME", t.TempDir())
+	if got := checkProjectKeys(); got.Status != checkOK {
+		t.Errorf("check = %+v", got)
+	}
+}
+```
+
+In `TestRunDoctorCoversEveryAreaAndNeverPanics`, add `"project keys"` to the list of names.
+
+Run: `go test ./internal/cli/ -run 'CheckProject|RunDoctor'`
+Expected: FAIL. `checkProjectKeys` is undefined.
+
+- [ ] **Step 2: Write the checks**
+
+In `internal/cli/doctor.go`, replace `checkProject`, and add the two helpers:
+
+```go
+// checkProject reports which project this directory acts on, and how that was
+// decided.
+func checkProject() Check {
+	switch {
+	case projectFlagKey != "":
+		return ok("project", strings.ToUpper(projectFlagKey)+" (from --project)")
+	case os.Getenv("TRELLIS_PROJECT") != "":
+		return ok("project", strings.ToUpper(os.Getenv("TRELLIS_PROJECT"))+" (from TRELLIS_PROJECT)")
+	}
+	dir, err := os.Getwd()
+	if err != nil {
+		return warn("project", "cannot read the working directory: "+err.Error(), "")
+	}
+	pin, found, err := resolve.FindPin(dir)
+	if err != nil {
+		return warn("project", err.Error(), "trellis init --key <KEY>")
+	}
+	if !found {
+		return warn("project", "no .trellis pin in this directory or any parent", "trellis init --key <KEY>")
+	}
+	detail := fmt.Sprintf("%s (pin %s)", pin.Target, pin.Path)
+	path, err := home.DBPath()
+	if err != nil {
+		return warn("project", detail+", but the database cannot be located: "+err.Error(), "")
+	}
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return warn("project", detail+", but there is no database here yet", "trellis init")
+	} else if err != nil {
+		return warn("project", detail+", but the database cannot be read: "+err.Error(), "")
+	}
+	db, err := store.Open(path)
+	if err != nil {
+		return warn("project", detail+", but the database cannot be opened: "+err.Error(), "")
+	}
+	defer db.Close()
+	var n int
+	if err := db.Get(&n, `SELECT count(*) FROM project WHERE key = ?`, pin.Target.Project); err != nil {
+		return warn("project", detail+", but the database cannot be read: "+err.Error(), "")
+	}
+	if n == 0 {
+		return warn("project", detail+", but this database has no such project", "trellis init")
+	}
+	return ok("project", detail)
+}
+
+// checkProjectKeys lists projects whose key predates the key grammar. They
+// stay reachable with --project, but no pin can name them.
+func checkProjectKeys() Check {
+	db, err := openExistingDB()
+	if err != nil {
+		return ok("project keys", "no database yet")
+	}
+	defer db.Close()
+	var keys []string
+	if err := db.Select(&keys, `SELECT key FROM project ORDER BY key`); err != nil {
+		return warn("project keys", "cannot read project keys: "+err.Error(), "trellis maintenance")
+	}
+	bad := slices.DeleteFunc(keys, vpath.ValidKey)
+	if len(bad) == 0 {
+		return ok("project keys", "every key can be pinned")
+	}
+	return warn("project keys",
+		fmt.Sprintf("no pin can name %s: %s", plural(len(bad), "this project", "these projects"), strings.Join(bad, ", ")),
+		"trellis --project <KEY> ...   # still reachable by name")
+}
+
+// openExistingDB opens the database only when it already exists, so a check
+// never creates one.
+func openExistingDB() (*sqlx.DB, error) {
+	path, err := home.DBPath()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
+	return store.Open(path)
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+```
+
+In `runDoctor`, change the last line to:
+
+```go
+	return append(checks, checkProject(), checkProjectKeys(), checkVectorSearch(cfg))
+```
+
+Add the imports `"errors"` (if missing), `"slices"`, `"github.com/jmoiron/sqlx"` and `"github.com/mtch3n/trellis/internal/vpath"`, and keep `resolve`, `home` and `store`. Package `cli` has no `plural` of its own (core's is unexported), so the one above is new.
+
+- [ ] **Step 3: Run the tests to verify they pass**
+
+Run: `go test ./internal/cli/ && go vet ./internal/cli/ && gofmt -l internal/cli`
+Expected: `ok`, and nothing printed by `gofmt`.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add internal/cli/doctor.go internal/cli/doctor_test.go
+git commit -m "feat(cli): doctor names the pin a directory resolves through
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+### Task 7: Drop project identity
 
 This task removes git identity in one commit: the columns, the struct fields, `EnsureProject`, `Identify`, the git code and every test seed that wrote those columns. Splitting it would leave a commit whose inserts fail against the schema.
 
@@ -2470,6 +2724,7 @@ This task removes git identity in one commit: the columns, the struct fields, `E
   - `internal/config/config_test.go` (three inserts)
   - `internal/cli/tui_test.go`
   - `internal/ui/server_test.go` (five sites)
+  - `internal/cli/doctor_test.go` (the `MY_APP` insert from Task 6)
 
 **Interfaces:**
 - Consumes: `core.CreateProject` (Task 3).
@@ -2665,6 +2920,30 @@ func TestDropProjectIdentityRecordsTheOldBindings(t *testing.T) {
 	}
 }
 
+// goose records the version separately; a crash in between reruns the
+// migration against a schema it already rebuilt.
+func TestDropProjectIdentityIsSafeToRerun(t *testing.T) {
+	db := openAtVersion(t, 12)
+	seedV12(t, db)
+	if err := goose.Up(db.DB, "migrations"); err != nil {
+		t.Fatal(err)
+	}
+	var before int
+	if err := db.Get(&before, `SELECT count(*) FROM event`); err != nil {
+		t.Fatal(err)
+	}
+	if err := dropProjectIdentity(t.Context(), db.DB); err != nil {
+		t.Fatalf("rerun: %v", err)
+	}
+	var after int
+	if err := db.Get(&after, `SELECT count(*) FROM event`); err != nil {
+		t.Fatal(err)
+	}
+	if after != before || !slices.Equal(projectColumns(t, db), []string{"id", "key", "name", "created_at"}) {
+		t.Errorf("a rerun changed something: events %d -> %d, columns %v", before, after, projectColumns(t, db))
+	}
+}
+
 func TestDropProjectIdentityRollsBackOnAForeignKeyViolation(t *testing.T) {
 	db := openAtVersion(t, 12)
 	seedV12(t, db)
@@ -2736,6 +3015,18 @@ func init() {
 // The old values go to the event log first. Migrations run on whatever
 // command opens the database, so nobody gets to copy them down beforehand.
 func dropProjectIdentity(ctx context.Context, db *sql.DB) (err error) {
+	// goose records the version after this returns, outside the transaction
+	// below. A process that dies in between leaves the rebuild committed and
+	// the version unrecorded, so the next start runs this again: succeed.
+	var remaining int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM pragma_table_info('project') WHERE name = 'root_path'`).Scan(&remaining); err != nil {
+		return err
+	}
+	if remaining == 0 {
+		return nil
+	}
+
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return err
@@ -2860,7 +3151,7 @@ type Project struct {
 ```
 
 2. Delete `EnsureProject` and its doc comment.
-3. In `createProject`, delete the `identity_kind stays NOT NULL` comment and replace the insert with:
+3. In `createProject`, delete the comment about the identity columns and replace the insert with:
 
 ```go
 	if _, err := tx.Exec(
@@ -2950,6 +3241,12 @@ For example, the `CLAIM` site becomes:
 
 Keep each site's own `projectID`, key and name values; only the identity columns and their arguments go.
 
+`internal/cli/doctor_test.go`, in `TestCheckProjectKeysFlagsKeysAPinCannotName`: delete the comment above the insert and use:
+
+```go
+	_, err = db.Exec(`INSERT INTO project (id, key, name, created_at) VALUES ('x', 'MY_APP', 'MY_APP', 1)`)
+```
+
 `internal/cli/tui_test.go`:
 
 ```go
@@ -2976,205 +3273,6 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
 Before committing, check `git status --short` to confirm that `git add -A` staged only files this task touched.
-
----
-
-### Task 7: Doctor reports where the project came from
-
-**Files:**
-- Modify: `internal/cli/doctor.go`:
-  - `checkProject`
-  - a new `checkProjectKeys`
-  - a new `openExistingDB`
-  - `runDoctor`
-- Test: `internal/cli/doctor_test.go`
-
-**Interfaces:**
-- Consumes: `resolve.FindPin` (Task 2); `vpath.ValidKey` (Task 1); `projectFlagKey` (existing); `pinEnv`, `writePin`, `seedProject` (Task 4).
-- Produces: doctor check names `project` and `project keys`.
-
-- [ ] **Step 1: Write the failing tests**
-
-Append to `internal/cli/doctor_test.go`. Add `"os"` and `"github.com/mtch3n/trellis/internal/home"` and `"github.com/mtch3n/trellis/internal/store"` to its imports if they are missing.
-
-```go
-func TestCheckProjectFromAPin(t *testing.T) {
-	dir := pinEnv(t, "app")
-	seedProject(t, "APP")
-	writePin(t, dir, "/APP\n")
-	got := checkProject()
-	if got.Status != checkOK || !strings.Contains(got.Detail, "/APP (pin ") {
-		t.Errorf("check = %+v", got)
-	}
-}
-
-func TestCheckProjectWithoutAPinWarns(t *testing.T) {
-	pinEnv(t, "loose")
-	got := checkProject()
-	if got.Status != checkWarn || got.Fix != "trellis init --key <KEY>" {
-		t.Errorf("check = %+v", got)
-	}
-}
-
-func TestCheckProjectNamesItsSource(t *testing.T) {
-	pinEnv(t, "loose")
-	t.Setenv("TRELLIS_PROJECT", "envkey")
-	if got := checkProject(); !strings.Contains(got.Detail, "ENVKEY (from TRELLIS_PROJECT)") {
-		t.Errorf("env: %+v", got)
-	}
-	projectFlagKey = "flagkey"
-	t.Cleanup(func() { projectFlagKey = "" })
-	if got := checkProject(); !strings.Contains(got.Detail, "FLAGKEY (from --project)") {
-		t.Errorf("flag: %+v", got)
-	}
-}
-
-func TestCheckProjectWarnsWhenThePinnedProjectIsMissing(t *testing.T) {
-	dir := pinEnv(t, "clone")
-	seedProject(t, "OTHER")
-	writePin(t, dir, "/GHOST\n")
-	got := checkProject()
-	if got.Status != checkWarn || got.Fix != "trellis init" {
-		t.Errorf("check = %+v", got)
-	}
-}
-
-func TestCheckProjectKeysFlagsKeysAPinCannotName(t *testing.T) {
-	pinEnv(t, "anywhere")
-	seedProject(t, "GOOD")
-	path, err := home.DBPath()
-	if err != nil {
-		t.Fatal(err)
-	}
-	db, err := store.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(`INSERT INTO project (id, key, name, created_at) VALUES ('x', 'MY_APP', 'MY_APP', 1)`)
-	db.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := checkProjectKeys()
-	if got.Status != checkWarn || !strings.Contains(got.Detail, "MY_APP") || strings.Contains(got.Detail, "GOOD") {
-		t.Errorf("check = %+v", got)
-	}
-}
-
-func TestCheckProjectKeysWithoutADatabase(t *testing.T) {
-	t.Setenv("TRELLIS_HOME", t.TempDir())
-	if got := checkProjectKeys(); got.Status != checkOK {
-		t.Errorf("check = %+v", got)
-	}
-}
-```
-
-In `TestRunDoctorCoversEveryAreaAndNeverPanics`, add `"project keys"` to the list of names.
-
-Run: `go test ./internal/cli/ -run 'CheckProject|RunDoctor'`
-Expected: FAIL. `checkProjectKeys` is undefined.
-
-- [ ] **Step 2: Write the checks**
-
-In `internal/cli/doctor.go`, replace `checkProject`, and add the two helpers:
-
-```go
-// checkProject reports which project this directory acts on, and how that was
-// decided.
-func checkProject() Check {
-	switch {
-	case projectFlagKey != "":
-		return ok("project", strings.ToUpper(projectFlagKey)+" (from --project)")
-	case os.Getenv("TRELLIS_PROJECT") != "":
-		return ok("project", strings.ToUpper(os.Getenv("TRELLIS_PROJECT"))+" (from TRELLIS_PROJECT)")
-	}
-	dir, err := os.Getwd()
-	if err != nil {
-		return warn("project", "cannot read the working directory: "+err.Error(), "")
-	}
-	pin, found, err := resolve.FindPin(dir)
-	if err != nil {
-		return warn("project", err.Error(), "trellis init --key <KEY>")
-	}
-	if !found {
-		return warn("project", "no .trellis pin in this directory or any parent", "trellis init --key <KEY>")
-	}
-	detail := fmt.Sprintf("%s (pin %s)", pin.Target, pin.Path)
-	db, err := openExistingDB()
-	if err != nil {
-		return ok("project", detail)
-	}
-	defer db.Close()
-	var n int
-	if err := db.Get(&n, `SELECT count(*) FROM project WHERE key = ?`, pin.Target.Project); err == nil && n == 0 {
-		return warn("project", detail+", but this database has no such project", "trellis init")
-	}
-	return ok("project", detail)
-}
-
-// checkProjectKeys lists projects whose key predates the key grammar. They
-// stay reachable with --project, but no pin can name them.
-func checkProjectKeys() Check {
-	db, err := openExistingDB()
-	if err != nil {
-		return ok("project keys", "no database yet")
-	}
-	defer db.Close()
-	var keys []string
-	if err := db.Select(&keys, `SELECT key FROM project ORDER BY key`); err != nil {
-		return warn("project keys", "cannot read project keys: "+err.Error(), "trellis maintenance")
-	}
-	bad := slices.DeleteFunc(keys, vpath.ValidKey)
-	if len(bad) == 0 {
-		return ok("project keys", "every key can be pinned")
-	}
-	return warn("project keys",
-		fmt.Sprintf("no pin can name %s: %s", plural(len(bad), "this project", "these projects"), strings.Join(bad, ", ")),
-		"trellis --project <KEY> ...   # still reachable by name")
-}
-
-// openExistingDB opens the database only when it already exists, so a check
-// never creates one.
-func openExistingDB() (*sqlx.DB, error) {
-	path, err := home.DBPath()
-	if err != nil {
-		return nil, err
-	}
-	if _, err := os.Stat(path); err != nil {
-		return nil, err
-	}
-	return store.Open(path)
-}
-
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return one
-	}
-	return many
-}
-```
-
-In `runDoctor`, change the last line to:
-
-```go
-	return append(checks, checkProject(), checkProjectKeys(), checkVectorSearch(cfg))
-```
-
-Add the imports `"slices"`, `"github.com/jmoiron/sqlx"` and `"github.com/mtch3n/trellis/internal/vpath"`, and keep `resolve`. Package `cli` has no `plural` of its own (core's is unexported), so the one above is new.
-
-- [ ] **Step 3: Run the tests to verify they pass**
-
-Run: `go test ./internal/cli/ && go vet ./internal/cli/ && gofmt -l internal/cli`
-Expected: `ok`, and nothing printed by `gofmt`.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add internal/cli/doctor.go internal/cli/doctor_test.go
-git commit -m "feat(cli): doctor names the pin a directory resolves through
-
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
-```
 
 ---
 

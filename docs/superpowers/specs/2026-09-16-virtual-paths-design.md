@@ -62,7 +62,14 @@ has to name them without renumbering.
 - **Key:** as in the pin spec, `^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*$`, matched
   case-insensitively. `GLOBAL` is valid only with `knowledge`.
 - **Board slug:** as in the pin spec.
-- **Card ref:** `<key>-<digits>`, case-insensitive, stored upper-case.
+- **Card ref:** `<prefix>-<digits>`, case-insensitive, stored upper-case. The
+  prefix is looser than a project key, `^[^/#\s-][^/#\s]*-[0-9]+$` after
+  upper-casing: it only has to be one segment with no `/`, `#` or whitespace.
+  Two kinds of card carry a prefix that is not a valid key today. A card keeps
+  its ref when its project is merged into another. And keys created before
+  the key grammar existed, such as `MY_APP`, produce refs like `MY_APP-1`.
+  After a merge, `/MONO/cards/MY_APP-1` must parse. The project key in the
+  first segment of an address stays strict.
 - **Knowledge slug:** one segment in the shape `Slugify` produces,
   `[a-z0-9]+(-[a-z0-9]+)*`. Knowledge paths later allow `/` inside this part;
   the parser treats everything after `/knowledge/` as the name, so that change
@@ -104,15 +111,29 @@ command's collection in the current project. Rules per collection:
 current project, is removed.
 
 **An absolute argument names its own project.** The command acts in that
-project even when no pin applies, and `--project` becomes unnecessary.
+project even when no pin applies, and `--project` becomes unnecessary. This
+holds for flags that take a reference as much as for positional arguments:
+`card block --by`, `knowledge new --board`, `knowledge pin --board`, and
+`artifact add`, `link` and `ls --card`.
 
 - An absolute argument beats the pin and `TRELLIS_PROJECT`. Both are ambient.
 - If `--project` names a different project, the command fails with
   `project_conflict`. The caller stated two targets.
+- If two references in one command name different projects, the command
+  fails with `project_conflict`.
+- A relative reference means the current project. When one resolves and
+  another reference names a different project, the command fails with
+  `project_conflict` rather than reading the relative one somewhere else:
+  `card block 2 --by /OTHER/cards/OTHER-1` in a pinned directory must not
+  quietly block OTHER-2. Where no current project resolves, the named project
+  is the only candidate, and the relative reference is read there.
 - A `/GLOBAL/knowledge/...` argument needs no project. `knowledge show`,
-  `edit`, `demote` and `verify` run without one. `pin`, `nominate`,
-  `escalate` and `rm` still resolve the current project, because they act on
-  it.
+  `edit`, `demote`, `verify` and `graph` run without one, and consult nothing
+  ambient: a malformed or stale pin, or a `TRELLIS_PROJECT` naming nothing,
+  does not block them. `pin`, `nominate`, `escalate` and `rm` still resolve
+  the current project, because they act on it.
+- `init --board` is not a reference. It names a board of the project being
+  pinned, by name.
 
 **An absolute address in the wrong collection is a usage error**,
 `wrong_collection`, and names the command that takes it. `card show
@@ -122,6 +143,14 @@ project even when no pin applies, and `--project` becomes unnecessary.
 id and a reference refuses an absolute reference to a different project with
 `wrong_project` (`/GLOBAL` is allowed where the operation allows it). This keeps
 the project-scoped HTTP routes honest without a second rule set.
+
+For cards, `CardRef` carries the project an address names apart from the ref's
+prefix, so `/OTHER/cards/KEY-12` in project KEY is refused and never reduced
+to `KEY-12`. Core refuses a card ref whose address project or prefix differs
+from the project it acts in. That check lives in one place, which the merge
+layer replaces once a prefix no longer has to match its project. Callers above
+core, such as the terminal workspace, check only an address's project and
+leave prefixes to core.
 
 **Cross-project operations:**
 - `trellis link <card> <doc>` may link a card to another project's document.
@@ -173,7 +202,8 @@ the project-scoped HTTP routes honest without a second rule set.
   as a stub. Lint reports it as `wrong_collection`.
 
 **Resolution** (`resolveDocRef`):
-- A relative target resolves as today.
+- A relative target resolves in the current project, then in the vault. The
+  vault fallback is new; the project's own entry still wins.
 - `/KEY/knowledge/s` resolves in project KEY, **including when KEY is another
   project**.
 - `/GLOBAL/knowledge/s` resolves in the vault.
@@ -274,7 +304,10 @@ relaxes the knowledge-slug grammar above to allow directory segments.
   - Each emitted ref opens with the matching `show` command. This is the
     round-trip the problem statement says is broken today.
 - **Wikilinks:**
-  - Relative and anchored links resolve as before.
+  - Relative and anchored links resolve as before, and a relative link falls
+    back to the vault.
+  - A missing heading is reported for a target in another project or the
+    vault, not only for this project's entries.
   - `[[/OTHER/knowledge/x]]` resolves across projects.
   - A link to a missing project is a stub and is backfilled when that
     project's entry is created.

@@ -51,6 +51,11 @@ holds everything SRC owned.
 - A conflict involving a **vault** entry is never renamed automatically, even
   with the flag. Renaming it would change a `/GLOBAL/...` address that every
   project may cite. The fix is a human decision: demote it, or edit one side.
+- **File conditions are conflicts too, and the plan checks them.** A SRC file
+  that is missing, or an untracked file already sitting at a destination, is
+  listed with a `reason`. The plan must see what the apply would trip over.
+- **Collapsing keeps nomination evidence.** Where one actor nominated both
+  entries, DST's nomination keeps its row and gains SRC's reason.
 
 ### Refusals
 
@@ -140,6 +145,10 @@ was renamed. Absolute references change:
   target is an address under `/DST/`, is re-resolved. A DST document that cited
   `[[x]]` before x existed there now resolves.
 
+**Documents to rewrite are found by reading the files**, not the link rows.
+The rows lag behind an edit made outside Trellis until that document is next
+read.
+
 **One rewrite function serves both cases.** It walks the wikilinks the parser
 finds and replaces only those, so code spans and fences stay untouched, exactly
 as parsing skips them. It lives beside `ParseWikilinks`.
@@ -187,11 +196,20 @@ working directory that contains `.git`, or the working directory itself.
 **Then one transaction does everything in the database.** File operations are
 staged inside it:
 
-- **Moves** rename the file and record how to rename it back. The source and
-  destination are both under the storage root, so a rename never crosses
-  filesystems. A move never replaces an existing file.
-- **Rewrites** use `writeAtomic` with replace, and keep the old bytes for
-  undo.
+- **Moves** publish with a hard link, which fails if anything is at the
+  destination, even a file that appeared after a check. Then they remove the
+  source. `writeAtomic` publishes the same way. The undo is recorded as soon as
+  the link exists.
+- **Rewrites** use `writeAtomic` with replace. The old bytes are recorded for
+  undo *before* the write, because `writeAtomic` can replace a file and then
+  fail to sync its directory.
+
+**Between the backup and the transaction, nothing is locked.**
+- The backup records a hash for every file it copied.
+- The apply refuses (`merge_changed`, exit 4, nothing changed) to move or
+  rewrite a file that the backup does not hold, or holds with a different hash.
+- The database copy is a snapshot taken just before the apply. A change
+  another process commits in that window is merged, but is not in the copy.
 
 If the transaction fails, every staged operation is undone, newest first.
 

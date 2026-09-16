@@ -102,9 +102,9 @@ Run `git log --oneline | head -30` and confirm both plans' commits are present. 
 **Interfaces:**
 - Consumes:
   - `vpath.CardPath` (layer 2)
-  - `twoProjectsWithCards` (layer 2, `card_ref_test.go`)
+  - `twoProjectsWithCards`, `CardRef.Project`, `CardRef.qualified`, `projectKeyOf` (layer 2)
   - `seededProject`, `seededBoard`, `testCore` (existing)
-  - `targetContext`, `argProject`, `normalizeProjectArg`, `projectConflict`, `namedBoard`, `resolveProject`, `selectBoard` (earlier plans)
+  - `targetContext(a refArg, key, ref string, relative bool)`, `argProject`, `normalizeProjectArg`, `projectConflict`, `namedBoard`, `resolveProject`, `selectBoard` (earlier plans)
 - Produces:
   - Goose version 15. It adds `card.ref TEXT NOT NULL`, the global unique index `card_ref`, and the table `merged_project(key, into_id, merged_at)`.
   - `Card.Ref` is now `db:"ref"`.
@@ -253,6 +253,14 @@ func TestACardKeepsItsRefInAnotherProject(t *testing.T) {
 		t.Errorf("fix = %q", te.Fix)
 	}
 
+	_, err = c.GetCard(ctx, other.ID, ParseCardRef("/XPSCTL/cards/XPSCTL-1"))
+	if got := errCode(t, err); got != "wrong_project" {
+		t.Errorf("an address naming XPSCTL, looked up in OTHERPROJ: code = %s", got)
+	}
+	if got, err := c.GetCard(ctx, other.ID, ParseCardRef("/OTHERPROJ/cards/XPSCTL-1")); err != nil || got.ID != local.ID {
+		t.Errorf("/OTHERPROJ/cards/XPSCTL-1 = %+v, %v", got, err)
+	}
+
 	holder, found, err := c.CardHolder(ctx, "xpsctl-1")
 	if err != nil || !found || holder.Key != "OTHERPROJ" {
 		t.Errorf("CardHolder = %+v, %v, %v", holder, found, err)
@@ -346,17 +354,31 @@ In `internal/core/card.go`:
 // through a merge is found under the prefix it was born with; a bare number
 // means this project's own prefix.
 func (c *Core) loadCard(tx *sqlx.Tx, projectID string, ref CardRef, out *Card) error {
-	var err error
+	key, err := projectKeyOf(tx, projectID)
+	if err != nil {
+		return err
+	}
+	// An address names its project outright; the ref's prefix may differ
+	// from it after a merge, the address's project may not.
+	if ref.Project != "" && ref.Project != key {
+		addr := ref.String() // an address renders as the address
+		var exists int
+		if err := tx.Get(&exists, `SELECT COUNT(*) FROM project WHERE key = ?`, ref.Project); err != nil {
+			return err
+		}
+		if exists == 0 {
+			return ErrNotFound("card_not_found",
+				fmt.Sprintf("no card %s: there is no project %s", addr, ref.Project), "trellis project ls")
+		}
+		return ErrUsage("wrong_project", fmt.Sprintf("%s names project %s, not %s", addr, ref.Project, key),
+			"trellis card show "+addr)
+	}
 	switch {
 	case ref.UUID != "":
 		err = tx.Get(out, `SELECT * FROM card WHERE id = ? AND project_id = ?`, ref.UUID, projectID)
 	case ref.Seq > 0:
-		want := ref.String()
+		want := ref.qualified()
 		if ref.ProjectKey == "" {
-			var key string
-			if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, projectID); err != nil {
-				return err
-			}
 			want = key + "-" + itoa(ref.Seq)
 		}
 		err = tx.Get(out, `SELECT * FROM card WHERE ref = ? AND project_id = ?`, want, projectID)
@@ -402,7 +424,7 @@ func (c *Core) CardHolder(ctx context.Context, ref string) (Project, bool, error
 	}
 	var p Project
 	err := c.db.GetContext(ctx, &p,
-		`SELECT p.* FROM project p JOIN card c ON c.project_id = p.id WHERE c.ref = ?`, r.String())
+		`SELECT p.* FROM project p JOIN card c ON c.project_id = p.id WHERE c.ref = ?`, r.qualified())
 	if errors.Is(err, sql.ErrNoRows) {
 		return Project{}, false, nil
 	}
@@ -549,73 +571,45 @@ func TestAMovedCardIsFoundByItsRef(t *testing.T) {
 Run: `go test ./internal/cli/ -run MovedCard`
 Expected: FAIL. `card show api-1` routes to project API and gets `wrong_project`.
 
-In `internal/cli/target.go`, replace `targetContext` with:
+In `internal/cli/target.go`, `targetContext`, change only the branch that runs when the argument names a project, below the `if key == "" { ... }` block:
+
+1. Delete the `--project` conflict check that precedes `openCore()`:
 
 ```go
-func targetContext(a refArg, key, ref string) (*appCtx, error) {
-	if key == "" {
-		app, err := currentBoard()
-		if err == nil || !a.NoProject || !isVaultAddress(a.Value) {
-			return app, err
-		}
-		if ce, ok := errors.AsType[*core.Error](err); !ok || (ce.Code != "unresolved" && ce.Code != "no_default_board") {
-			return nil, err
-		}
-		c, db, err := openCore()
-		if err != nil {
-			return nil, err
-		}
-		return &appCtx{Core: c, db: db}, nil
+	if flag := normalizeProjectArg(projectFlagKey); flag != "" && flag != key {
+		return nil, projectConflict(flag, a.Value, key)
 	}
+```
 
-	c, db, err := openCore()
-	if err != nil {
-		return nil, err
-	}
-	ctx := context.Background()
+2. Directly after `ctx := context.Background()`, and before `r, rerr := resolveProject(ctx, c)`, insert the holder lookup, followed by the same check, which now compares against the project that actually holds the card:
+
+```go
 	// A card ref's prefix is where the card was born. After a merge it lives
 	// elsewhere, so a qualified ref (not an address, which names its project
 	// outright) is routed to the project that holds it.
 	if a.Collection == vpath.CollectionCards && !strings.HasPrefix(strings.TrimSpace(a.Value), "/") {
 		holder, found, err := c.CardHolder(ctx, ref)
 		if err != nil {
-			db.Close()
-			return nil, err
+			return fail(err)
 		}
 		if found {
 			key = holder.Key
 		}
 	}
 	if flag := normalizeProjectArg(projectFlagKey); flag != "" && flag != key {
-		db.Close()
-		return nil, projectConflict(flag, a.Value, key)
+		return fail(projectConflict(flag, a.Value, key))
 	}
-	if r, err := resolveProject(ctx, c); err == nil && r.Project.Key == key {
-		b, err := selectBoard(ctx, c, r)
-		if err != nil {
-			db.Close()
-			return nil, err
-		}
-		return &appCtx{Core: c, Project: r.Project, Board: b, db: db}, nil
-	}
-	p, err := c.ProjectByKey(ctx, key)
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-	b, err := namedBoard(ctx, c, p, a.Collection, ref)
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-	return &appCtx{Core: c, Project: p, Board: b, db: db}, nil
-}
 ```
+
+Leave the rest of `targetContext` as the virtual-paths plan left it.
 
 - [ ] **Step 7: Run everything**
 
 Run: `gofmt -l . ; go test ./... && go vet ./...`
-Expected: `gofmt` prints nothing, and every package reports `ok`. The layer-2 test `TestAQualifiedRefIsNeverRescoped` still passes: `OTHERPROJ-1` is found in OTHERPROJ and reported as `wrong_project`.
+Expected: `gofmt` prints nothing, and every package reports `ok`. The layer-2 tests `TestAQualifiedRefIsNeverRescoped` and `TestACardAddressKeepsItsProject` still pass:
+- `OTHERPROJ-1` is found in OTHERPROJ and reported as `wrong_project`.
+- An address naming a missing project is `card_not_found`.
+- `/XPSCTL/cards/OTHERPROJ-1` misses in XPSCTL, and `cardElsewhere` reports `wrong_project`.
 
 - [ ] **Step 8: Commit**
 
@@ -877,8 +871,7 @@ In `internal/cli/target.go`, in `targetContext`, replace the `p, err := c.Projec
 ```go
 	p, err := c.ProjectByKey(ctx, key)
 	if err != nil {
-		db.Close()
-		return nil, mergedAddress(err, a.Value)
+		return fail(mergedAddress(err, a.Value))
 	}
 ```
 
@@ -919,11 +912,10 @@ func mergedAddress(err error, value string) error {
 }
 ```
 
-In `internal/cli/doctor.go`, `checkProject`, replace the block that queries `count(*) FROM project WHERE key = ?` with:
+In `internal/cli/doctor.go`, `checkProject`, replace the `if n == 0 { ... }` block with:
 
 ```go
-	var n int
-	if err := db.Get(&n, `SELECT count(*) FROM project WHERE key = ?`, pin.Target.Project); err == nil && n == 0 {
+	if n == 0 {
 		var into string
 		if err := db.Get(&into,
 			`SELECT p.key FROM merged_project m JOIN project p ON p.id = m.into_id WHERE m.key = ?`,
@@ -958,13 +950,13 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Test: `internal/core/file_stage_test.go` (create)
 
 **Interfaces:**
-- Consumes: `writeAtomic`, `copyAtomic`, `stageRemoval`, `syncDirectory` (existing).
+- Consumes: `writeAtomic`, `copyAtomic`, `syncDirectory`, `fileHash` (existing).
 - Produces:
   - `type fileStage struct`, with the methods:
     - `move(from, to string) error`
     - `rewrite(path string, data []byte) error`
     - `rollback() error`
-  - `func copyUnder(root, dir string, files []string) error`
+  - `func copyUnder(root, dir string, files []string) (map[string]string, error)`, which returns the hash of each copy by source path
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1051,14 +1043,18 @@ func TestCopyUnderKeepsThePathsBelowTheRoot(t *testing.T) {
 	writeFile(t, a, "A")
 	writeFile(t, b, "B")
 	out := filepath.Join(t.TempDir(), "files")
-	if err := copyUnder(root, out, []string{a, b}); err != nil {
+	hashes, err := copyUnder(root, out, []string{a, b})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if want, _ := fileHash(a); hashes[a] != want || len(hashes) != 2 {
+		t.Errorf("hashes = %v", hashes)
 	}
 	if readFile(t, filepath.Join(out, "projects", "API", "knowledge", "a.md")) != "A" ||
 		readFile(t, filepath.Join(out, "global", "knowledge", "b.md")) != "B" {
 		t.Error("the copies are not laid out as under the root")
 	}
-	if err := copyUnder(root, out, []string{filepath.Join(t.TempDir(), "x.md")}); err == nil {
+	if _, err := copyUnder(root, out, []string{filepath.Join(t.TempDir(), "x.md")}); err == nil {
 		t.Error("a file outside the root was accepted")
 	}
 }
@@ -1073,43 +1069,51 @@ Append to `internal/core/file_store.go`, and add `"fmt"` and `"strings"` to its 
 
 ```go
 // fileStage records file operations made inside a database transaction, so
-// that a failed transaction can undo them, newest first. Moves never cross
-// filesystems: every path is under the storage root.
+// that a failed transaction can undo them, newest first. Every path is under
+// the storage root, so a move never crosses filesystems.
 type fileStage struct {
 	undo []func() error
 }
 
-// move renames from to to, refusing to replace anything at to.
+// move publishes from at to with a hard link, which fails if anything is at
+// to -- even a file that appears after any check -- and then removes from.
+// writeAtomic publishes the same way. The undo is registered as soon as the
+// link exists, because every later step can fail.
 func (s *fileStage) move(from, to string) error {
-	if _, err := os.Lstat(to); err == nil {
-		return fmt.Errorf("cannot move %s: %s already exists", from, to)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
 	if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
 		return err
 	}
-	if err := os.Rename(from, to); err != nil {
+	if err := os.Link(from, to); err != nil {
+		return fmt.Errorf("cannot move %s to %s: %w", from, to, err)
+	}
+	s.undo = append(s.undo, func() error {
+		if _, err := os.Lstat(from); errors.Is(err, os.ErrNotExist) {
+			if err := os.Link(to, from); err != nil {
+				return err
+			}
+		}
+		return os.Remove(to)
+	})
+	if err := os.Remove(from); err != nil {
 		return err
 	}
-	s.undo = append(s.undo, func() error { return os.Rename(to, from) })
 	if err := syncDirectory(filepath.Dir(to)); err != nil {
 		return err
 	}
 	return syncDirectory(filepath.Dir(from))
 }
 
-// rewrite replaces a file's content, keeping the old bytes for undo.
+// rewrite replaces a file's content, keeping the old bytes for undo. The undo
+// is registered before the write: writeAtomic can replace the file and then
+// fail to sync its directory, and that file must still be restored. Undoing a
+// write that never happened rewrites the same bytes.
 func (s *fileStage) rewrite(path string, data []byte) error {
 	old, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	if err := writeAtomic(path, data, true); err != nil {
-		return err
-	}
 	s.undo = append(s.undo, func() error { return writeAtomic(path, old, true) })
-	return nil
+	return writeAtomic(path, data, true)
 }
 
 // rollback undoes every recorded operation, newest first, and reports every
@@ -1123,23 +1127,28 @@ func (s *fileStage) rollback() error {
 	return errors.Join(errs...)
 }
 
-// copyUnder copies each file into dir at its path relative to root. A file
-// outside root is refused: the copy is a backup of the storage root.
-func copyUnder(root, dir string, files []string) error {
+// copyUnder copies each file into dir at its path relative to root, and
+// returns the hash of every copy by source path. A file outside root is
+// refused: the copy is a backup of the storage root.
+func copyUnder(root, dir string, files []string) (map[string]string, error) {
+	hashes := make(map[string]string, len(files))
 	for _, f := range files {
 		rel, err := filepath.Rel(root, f)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("%s is outside the storage root %s", f, root)
+			return nil, fmt.Errorf("%s is outside the storage root %s", f, root)
 		}
 		dest := filepath.Join(dir, rel)
 		if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
-			return err
+			return nil, err
 		}
 		if err := copyAtomic(dest, f); err != nil {
-			return err
+			return nil, err
+		}
+		if hashes[f], err = fileHash(dest); err != nil {
+			return nil, err
 		}
 	}
-	return nil
+	return hashes, nil
 }
 ```
 
@@ -1518,17 +1527,17 @@ This task builds `MergeProjects` with plan and apply modes, and a backup before 
   - `fileStage`, `copyUnder` (Task 3)
   - `dropDerived` (Task 5)
   - `mergedTarget`, `errProjectMerged` (Task 2)
-  - `normalizeKey`, `slugify`, `plural`, `recordEvent`, `rebuildKnowledgeFTS`, `notifyKnowledgeChanged`, `Backup` (existing)
+  - `normalizeKey`, `slugify`, `plural`, `recordEvent`, `rebuildKnowledgeFTS`, `Core.knowledgeChanged`, `fileHash`, `Backup` (existing)
   - `resolve.Pin`, `vpath.BoardPath`, `vpath.ValidKey`
 - Produces:
   - `type MergeOptions struct{ Apply, RenameConflicts bool; ScanRoot string; Pins []resolve.Pin; UnreadablePins []string }`
   - `type MergePlan struct`, with the fields in the code below
   - `BoardMove`, `CardMoves`, `ItemMoves`, `Rename`, `MergeConflict`, `NameMoves`, `ConfigDrop`, `PinRewrites` and `PinRewrite`
   - `func (c *Core) MergeProjects(ctx context.Context, srcKey, dstKey string, opts MergeOptions) (MergePlan, error)`
-  - Error codes `merge_refused` and `merge_conflicts` (exit 4)
+  - Error codes `merge_refused`, `merge_conflicts` and `merge_changed` (exit 4)
   - Unexported, for Tasks 7–9:
-    - `merger`, with the fields `docPath`, `fromSrc`, `addr`, `renamed`, `boardSlug`, `srcDefaultSlug`, `root`, `stage` and `apply`
-    - `(*merger).run`
+    - `merger`, with the fields `docPath`, `fromSrc`, `addr`, `renamed`, `boardSlug`, `srcDefaultSlug`, `root`, `stage`, `apply` and `backedUp`
+    - `(*merger).run`, `(*merger).touch`
     - `MergePlan.files`, `MergePlan.dstID`
     - `(*Core).afterMerge`
     - `mergeNotReady`
@@ -1763,13 +1772,24 @@ func TestMergeRefusals(t *testing.T) {
 	}
 	f.exec(`UPDATE card SET owner = NULL, lease_until = NULL WHERE id = ?`, held.ID)
 
+	// A key from before the key grammar, with a card whose ref carries it.
 	f.exec(`INSERT INTO project (id, key, name, created_at) VALUES ('odd', 'MY_APP', 'MY_APP', 1)`)
+	oddBoard := f.board(Project{ID: "odd", Key: "MY_APP"}, "odd")
+	legacy := f.card(Project{ID: "odd", Key: "MY_APP"}, oddBoard, "legacy", nil, nil)
+	if legacy.Ref != "MY_APP-1" {
+		t.Fatalf("legacy ref = %s", legacy.Ref)
+	}
 	plan, err = f.c.MergeProjects(ctx, "API", "MY_APP", MergeOptions{})
 	if err != nil || !strings.Contains(plan.Refused, "MY_APP") {
 		t.Errorf("DST without a pinnable key: %+v, %v", plan, err)
 	}
 	if _, err := f.c.MergeProjects(ctx, "MY_APP", "MONO", MergeOptions{Apply: true}); err != nil {
-		t.Errorf("a SRC without a pinnable key must merge: %v", err)
+		t.Fatalf("a SRC without a pinnable key must merge: %v", err)
+	}
+	for _, ref := range []string{"MY_APP-1", "/MONO/cards/MY_APP-1"} {
+		if got, err := f.c.GetCard(ctx, f.mono.ID, ParseCardRef(ref)); err != nil || got.ID != legacy.ID {
+			t.Errorf("%s after the merge = %+v, %v", ref, got, err)
+		}
 	}
 }
 
@@ -1846,6 +1866,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -1916,9 +1937,10 @@ type Rename struct {
 
 type MergeConflict struct {
 	Name    string `json:"name"`
-	SrcHash string `json:"src_hash"`
-	DstHash string `json:"dst_hash"`
-	Vault   bool   `json:"vault"` // SRC's side is a vault entry, which is never renamed
+	SrcHash string `json:"src_hash,omitempty"`
+	DstHash string `json:"dst_hash,omitempty"`
+	Vault   bool   `json:"vault"`            // SRC's side is a vault entry, which is never renamed
+	Reason  string `json:"reason,omitempty"` // set when the conflict is not a name clash
 }
 
 type NameMoves struct {
@@ -1954,14 +1976,14 @@ var errPlanOnly = errors.New("merge plan: rolled back by design")
 // plan is never a separate estimate. Apply re-runs it for real after a backup.
 func (c *Core) MergeProjects(ctx context.Context, srcKey, dstKey string, opts MergeOptions) (MergePlan, error) {
 	srcKey, dstKey = normalizeKey(srcKey), normalizeKey(dstKey)
-	plan, err := c.runMerge(ctx, srcKey, dstKey, opts, false)
+	plan, err := c.runMerge(ctx, srcKey, dstKey, opts, nil)
 	if err != nil || !opts.Apply {
 		return plan, err
 	}
 	if !plan.Ready {
 		return plan, mergeNotReady(plan)
 	}
-	backup, err := c.backupForMerge(ctx, plan)
+	backup, backedUp, err := c.backupForMerge(ctx, plan)
 	if err != nil {
 		return plan, fmt.Errorf("backing up before the merge: %w", err)
 	}
@@ -1969,7 +1991,7 @@ func (c *Core) MergeProjects(ctx context.Context, srcKey, dstKey string, opts Me
 	if err := c.dropDerived(ctx, srcKey); err != nil {
 		warnings = append(warnings, "dropping "+srcKey+"'s vector tables: "+err.Error())
 	}
-	applied, err := c.runMerge(ctx, srcKey, dstKey, opts, true)
+	applied, err := c.runMerge(ctx, srcKey, dstKey, opts, backedUp)
 	applied.Backup = backup
 	applied.Warnings = append(warnings, applied.Warnings...)
 	if err != nil {
@@ -1979,12 +2001,16 @@ func (c *Core) MergeProjects(ctx context.Context, srcKey, dstKey string, opts Me
 	return applied, nil
 }
 
-func (c *Core) runMerge(ctx context.Context, srcKey, dstKey string, opts MergeOptions, apply bool) (MergePlan, error) {
+// runMerge runs the merge in one transaction. backedUp is nil for a plan;
+// for an apply it holds the hash of every file the backup copied, and the
+// merge touches no file outside it.
+func (c *Core) runMerge(ctx context.Context, srcKey, dstKey string, opts MergeOptions, backedUp map[string]string) (MergePlan, error) {
 	plan := MergePlan{Src: srcKey, Dst: dstKey}
 	stage := &fileStage{}
+	apply := backedUp != nil
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		m := &merger{
-			c: c, tx: tx, plan: &plan, opts: opts, apply: apply, stage: stage,
+			c: c, tx: tx, plan: &plan, opts: opts, apply: apply, stage: stage, backedUp: backedUp,
 			docPath: map[string]string{}, fromSrc: map[string]bool{}, addr: map[string]string{},
 			renamed: map[string]string{}, boardSlug: map[string]string{},
 		}
@@ -2032,38 +2058,79 @@ func mergeNotReady(p MergePlan) error {
 }
 
 // backupForMerge writes the database and a copy of every file the merge will
-// touch. VACUUM cannot run inside a transaction, so this precedes the merge.
-func (c *Core) backupForMerge(ctx context.Context, plan MergePlan) (string, error) {
+// touch, and returns the hash of each copy. VACUUM cannot run inside a
+// transaction, so this precedes the merge; the apply then refuses to touch a
+// file the backup does not hold as it is, so a change made in between stops
+// the merge instead of escaping the backup.
+func (c *Core) backupForMerge(ctx context.Context, plan MergePlan) (string, map[string]string, error) {
 	root, err := c.root()
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	stamp := time.UnixMilli(c.clock.NowMS()).UTC().Format("20060102T150405Z")
 	dir := filepath.Join(root, "backups", fmt.Sprintf("merge-%s-into-%s-%s", plan.Src, plan.Dst, stamp))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if err := c.Backup(ctx, filepath.Join(dir, "trellis.db")); err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return dir, copyUnder(root, filepath.Join(dir, "files"), plan.files)
+	hashes, err := copyUnder(root, filepath.Join(dir, "files"), plan.files)
+	return dir, hashes, err
+}
+
+// touch records a file the merge moves or rewrites. A plan collects them for
+// the backup. An apply accepts only a file the backup copied and that has not
+// changed since.
+func (m *merger) touch(path string) error {
+	if slices.Contains(m.plan.files, path) {
+		return nil
+	}
+	m.plan.files = append(m.plan.files, path)
+	if !m.apply {
+		return nil
+	}
+	want, ok := m.backedUp[path]
+	if !ok {
+		return errMergeChanged(path, "appeared after the backup")
+	}
+	got, err := fileHash(path)
+	if err != nil {
+		return err
+	}
+	if got != want {
+		return errMergeChanged(path, "changed after the backup")
+	}
+	return nil
+}
+
+func errMergeChanged(path, what string) error {
+	return ErrConflict("merge_changed",
+		fmt.Sprintf("%s %s; the merge changed nothing", path, what),
+		"trellis project merge <SRC> --into <DST> --apply   # run it again")
 }
 
 // afterMerge runs what cannot be part of the transaction. Each step is best
 // effort and reports into Warnings.
 func (c *Core) afterMerge(ctx context.Context, plan *MergePlan) {
-	c.notifyKnowledgeChanged(ctx, plan.dstID)
+	if c.knowledgeChanged != nil {
+		if err := c.knowledgeChanged(ctx, plan.dstID); err != nil {
+			plan.Warnings = append(plan.Warnings,
+				fmt.Sprintf("refreshing %s's derived search state: %v", plan.Dst, err))
+		}
+	}
 }
 
 // merger is one run of a merge inside its transaction.
 type merger struct {
-	c     *Core
-	tx    *sqlx.Tx
-	plan  *MergePlan
-	opts  MergeOptions
-	apply bool
-	stage *fileStage
-	root  string
+	c        *Core
+	tx       *sqlx.Tx
+	plan     *MergePlan
+	opts     MergeOptions
+	apply    bool
+	backedUp map[string]string // path -> hash of its backup copy; nil for a plan
+	stage    *fileStage
+	root     string
 
 	src, dst Project
 
@@ -2377,6 +2444,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 package core
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -2644,6 +2712,93 @@ func TestMergeFailureRestoresFiles(t *testing.T) {
 		t.Errorf("a failed merge left changes:\nbefore %s\nafter  %s", before, after)
 	}
 }
+
+// An edit made on disk and not yet read back still has its links rewritten:
+// the files, not the link rows, say who cites SRC.
+func TestMergeRewritesLinksTheDatabaseHasNotSeen(t *testing.T) {
+	f := newMergeFixture(t)
+	core, _ := f.project("CORE")
+	f.doc(f.api, "Runbook", "x\n")
+	notes := f.doc(core, "Notes", "Nothing yet.\n")
+	edited := readFile(t, notes.Path) + "\nSee [[/API/knowledge/runbook]].\n"
+	if err := os.WriteFile(notes.Path, []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := f.merge(MergeOptions{Apply: true})
+
+	if !slices.Contains(plan.DocumentsRewritten, "/CORE/knowledge/notes") {
+		t.Errorf("rewritten = %v", plan.DocumentsRewritten)
+	}
+	if got := readFile(t, notes.Path); !strings.Contains(got, "[[/MONO/knowledge/runbook]]") {
+		t.Errorf("notes:\n%s", got)
+	}
+}
+
+func TestMergeKeepsBothReasonsOfOneActorsNominations(t *testing.T) {
+	f := newMergeFixture(t)
+	ctx := t.Context()
+	a := f.doc(f.api, "Shared", "Identical body.\n")
+	m := f.doc(f.mono, "Shared", "Different for now.\n")
+	if err := os.WriteFile(m.Path, []byte(readFile(t, a.Path)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.c.ReadKnowledge(ctx, f.mono.ID, "shared"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.c.NominateKnowledge(ctx, f.api.ID, "shared", "api reason"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.c.NominateKnowledge(ctx, f.mono.ID, "shared", "mono reason"); err != nil {
+		t.Fatal(err)
+	}
+
+	f.merge(MergeOptions{Apply: true})
+
+	var reasons []string
+	if err := f.c.db.Select(&reasons, `SELECT reason FROM nomination WHERE knowledge_id = ?`, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(reasons) != 1 || !strings.Contains(reasons[0], "mono reason") || !strings.Contains(reasons[0], "api reason") {
+		t.Errorf("nominations = %q", reasons)
+	}
+}
+
+func TestMergePlanSeesAnUntrackedFileInTheWay(t *testing.T) {
+	f := newMergeFixture(t)
+	f.doc(f.api, "Runbook", "x\n")
+	writeFile(t, filepath.Join(f.root, "projects", "MONO", "knowledge", "runbook.md"), "not tracked")
+
+	plan := f.merge(MergeOptions{})
+
+	if plan.Ready || len(plan.Knowledge.Conflicts) != 1 ||
+		!strings.Contains(plan.Knowledge.Conflicts[0].Reason, "no entry") {
+		t.Errorf("plan = %+v", plan.Knowledge)
+	}
+}
+
+// The backup is taken before the apply's transaction. A file changed in
+// between stops the apply; it never escapes the backup.
+func TestMergeStopsWhenAFileChangesAfterTheBackup(t *testing.T) {
+	f := newMergeFixture(t)
+	ctx := t.Context()
+	doc := f.doc(f.api, "Runbook", "x\n")
+	f.c.SetDropDerived(func(context.Context, string) error {
+		return os.WriteFile(doc.Path, []byte("edited meanwhile\n"), 0o600)
+	})
+
+	_, err := f.c.MergeProjects(ctx, "API", "MONO", MergeOptions{Apply: true})
+
+	if got := errCode(t, err); got != "merge_changed" {
+		t.Fatalf("code = %s", got)
+	}
+	if _, err := f.c.ProjectByKey(ctx, "API"); err != nil {
+		t.Errorf("API was merged anyway: %v", err)
+	}
+	if got := readFile(t, doc.Path); got != "edited meanwhile\n" {
+		t.Errorf("the edited file = %q", got)
+	}
+}
 ```
 
 Run: `go test ./internal/core/ -run 'MergeMoves|MergeCollapses|MergeStops|MergeRenames|MergeNever|MergeDocument|MergeFailure'`
@@ -2711,6 +2866,7 @@ and the matching case message becomes `"merging artifacts is not implemented yet
 package core
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -2756,11 +2912,32 @@ func (m *merger) planDocs() error {
 		taken[s.Slug] = true
 	}
 	out := &m.plan.Knowledge
+	dir := filepath.Join(m.root, "projects", m.dst.Key, "knowledge")
+	// movable reports whether s can move under slug, recording a conflict
+	// when its file is gone or an untracked file already holds the
+	// destination. The plan must see what the apply would trip over.
+	movable := func(s docRow, slug string) bool {
+		if _, err := os.Lstat(s.Path); err != nil {
+			out.Conflicts = append(out.Conflicts, MergeConflict{Name: s.Slug, Reason: "its file is missing: " + s.Path})
+			return false
+		}
+		if s.Global {
+			return true
+		}
+		dest := filepath.Join(dir, slug+".md")
+		if _, err := os.Lstat(dest); err == nil {
+			out.Conflicts = append(out.Conflicts, MergeConflict{Name: s.Slug, Reason: "a file with no entry is already at " + dest})
+			return false
+		}
+		return true
+	}
 	for _, s := range src {
 		m.docPath[s.ID], m.origPath[s.ID], m.fromSrc[s.ID] = s.Path, s.Path, true
 		d, clash := bySlug[s.Slug]
 		if !clash {
-			m.docMoves = append(m.docMoves, docMove{doc: s, slug: s.Slug})
+			if movable(s, s.Slug) {
+				m.docMoves = append(m.docMoves, docMove{doc: s, slug: s.Slug})
+			}
 			continue
 		}
 		srcHash, err := fileHash(s.Path)
@@ -2781,8 +2958,10 @@ func (m *merger) planDocs() error {
 		default:
 			slug := freeName(s.Slug+"-"+Slugify(m.src.Key), taken)
 			taken[slug] = true
-			m.docMoves = append(m.docMoves, docMove{doc: s, slug: slug})
-			out.Renamed = append(out.Renamed, Rename{From: s.Slug, To: slug})
+			if movable(s, slug) {
+				m.docMoves = append(m.docMoves, docMove{doc: s, slug: slug})
+				out.Renamed = append(out.Renamed, Rename{From: s.Slug, To: slug})
+			}
 		}
 	}
 	return nil
@@ -2811,7 +2990,9 @@ func (m *merger) moveDocs() error {
 			return err
 		}
 		if path != d.Path {
-			m.plan.files = append(m.plan.files, d.Path)
+			if err := m.touch(d.Path); err != nil {
+				return err
+			}
 			if m.apply {
 				if err := m.stage.move(d.Path, path); err != nil {
 					return err
@@ -2834,6 +3015,16 @@ func (m *merger) moveDocs() error {
 // SRC's row now points at DST's. SRC's file stays in SRC's directory, which
 // is kept with the backup after the commit.
 func (m *merger) collapseDoc(d docRow, into string) error {
+	// One actor's two nominations cannot both survive the unique key: keep
+	// DST's row and append SRC's reason to it, so no evidence is lost.
+	if _, err := m.tx.Exec(
+		`UPDATE nomination AS dn
+		 SET reason = dn.reason || char(10) || sn.reason, created_at = min(dn.created_at, sn.created_at)
+		 FROM nomination AS sn
+		 WHERE sn.knowledge_id = ? AND dn.knowledge_id = ? AND dn.actor = sn.actor AND dn.reason <> sn.reason`,
+		d.ID, into); err != nil {
+		return err
+	}
 	for _, q := range []string{
 		`UPDATE link SET to_id = ? WHERE to_type = 'doc' AND to_id = ?`,
 		`UPDATE OR IGNORE pin SET knowledge_id = ? WHERE knowledge_id = ?`,
@@ -2859,11 +3050,8 @@ func (m *merger) collapseDoc(d docRow, into string) error {
 func (m *merger) references() error {
 	if len(m.addr) > 0 {
 		prefix := "/" + m.src.Key + "/"
-		var ids []string
-		if err := m.tx.Select(&ids,
-			`SELECT DISTINCT from_id FROM link
-			 WHERE from_type = 'doc' AND rel = 'wikilink' AND upper(substr(to_raw, 1, ?)) = ?`,
-			utf8.RuneCountInString(prefix), prefix); err != nil {
+		ids, err := m.docsCiting(m.src.Key)
+		if err != nil {
 			return err
 		}
 		if len(m.renamed) > 0 {
@@ -2882,6 +3070,39 @@ func (m *merger) references() error {
 		}
 	}
 	return m.resolveStubs()
+}
+
+// docsCiting lists every document whose file, as it is on disk now, holds a
+// wikilink into project key. The files are the source of truth; link rows lag
+// behind an edit made outside Trellis until that document is next read.
+func (m *merger) docsCiting(key string) ([]string, error) {
+	var docs []struct {
+		ID   string `db:"id"`
+		Path string `db:"path"`
+	}
+	if err := m.tx.Select(&docs, `SELECT id, path FROM knowledge ORDER BY id`); err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, d := range docs {
+		path := d.Path
+		if p, ok := m.docPath[d.ID]; ok {
+			path = p
+		}
+		raw, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			m.plan.Warnings = append(m.plan.Warnings, "not searched for links: "+path+" is missing")
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		_, body, _ := SplitFrontmatter(string(raw))
+		if slices.ContainsFunc(ParseWikilinks(body), func(r Reference) bool { return r.ProjectKey == key }) {
+			ids = append(ids, d.ID)
+		}
+	}
+	return ids, nil
 }
 
 // rewriteDoc rewrites one document's links through RewriteWikilinks, then
@@ -2926,8 +3147,8 @@ func (m *merger) rewriteDoc(id string) error {
 		return nil
 	}
 	m.plan.DocumentsRewritten = append(m.plan.DocumentsRewritten, DocAddress(d.Key, d.Global, d.Slug))
-	if !slices.Contains(m.plan.files, original) {
-		m.plan.files = append(m.plan.files, original)
+	if err := m.touch(original); err != nil {
+		return err
 	}
 	if !m.apply {
 		return nil
@@ -3168,6 +3389,7 @@ package core
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -3205,10 +3427,25 @@ func (m *merger) planArtifacts() error {
 		taken[s.Name] = true
 	}
 	out := &m.plan.Artifacts
+	dir := filepath.Join(m.root, "projects", m.dst.Key, "artifacts")
+	movable := func(s artifactRow, name string) bool {
+		if _, err := os.Lstat(s.Path); err != nil {
+			out.Conflicts = append(out.Conflicts, MergeConflict{Name: s.Name, Reason: "its file is missing: " + s.Path})
+			return false
+		}
+		if _, err := os.Lstat(filepath.Join(dir, name)); err == nil {
+			out.Conflicts = append(out.Conflicts,
+				MergeConflict{Name: s.Name, Reason: "a file with no artifact is already at " + filepath.Join(dir, name)})
+			return false
+		}
+		return true
+	}
 	for _, s := range src {
 		d, clash := byName[s.Name]
 		if !clash {
-			m.artMoves = append(m.artMoves, artifactMove{row: s, name: s.Name})
+			if movable(s, s.Name) {
+				m.artMoves = append(m.artMoves, artifactMove{row: s, name: s.Name})
+			}
 			continue
 		}
 		srcHash, err := fileHash(s.Path)
@@ -3228,8 +3465,10 @@ func (m *merger) planArtifacts() error {
 		default:
 			name := freeArtifactName(s.Name, Slugify(m.src.Key), taken)
 			taken[name] = true
-			m.artMoves = append(m.artMoves, artifactMove{row: s, name: name})
-			out.Renamed = append(out.Renamed, Rename{From: s.Name, To: name})
+			if movable(s, name) {
+				m.artMoves = append(m.artMoves, artifactMove{row: s, name: name})
+				out.Renamed = append(out.Renamed, Rename{From: s.Name, To: name})
+			}
 		}
 	}
 	return nil
@@ -3271,7 +3510,9 @@ func (m *merger) moveArtifacts() error {
 			m.dst.ID, mv.name, path, a.ID); err != nil {
 			return err
 		}
-		m.plan.files = append(m.plan.files, a.Path)
+		if err := m.touch(a.Path); err != nil {
+			return err
+		}
 		if m.apply {
 			if err := m.stage.move(a.Path, path); err != nil {
 				return err
@@ -3341,7 +3582,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Consumes:
   - `canonicalDir`, `homeDir`, `ReadPin`, `PinFile` (pin-only plan)
   - `isolateHome`, `mkdir`, `pinAt`, `normalizeDir` (existing resolve tests)
-  - `writeAtomic`, `notifyKnowledgeChanged`, `SetDropDerived`
+  - `writeAtomic`, `Core.knowledgeChanged`, `SetKnowledgeChanged`, `SetDropDerived`
 - Produces:
   - `func resolve.ScanRoot(dir string) (string, error)`
   - `func resolve.PinsUnder(root string) (pins []Pin, skipped []string, err error)`
@@ -3505,6 +3746,15 @@ func TestMergeFinishesAfterTheCommit(t *testing.T) {
 	}
 }
 
+func TestMergeReportsAFailedRefresh(t *testing.T) {
+	f := newMergeFixture(t)
+	f.c.SetKnowledgeChanged(func(context.Context, string) error { return errors.New("embedder down") })
+	plan := f.merge(MergeOptions{Apply: true})
+	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "embedder down") {
+		t.Errorf("warnings = %v", plan.Warnings)
+	}
+}
+
 func TestMergeDropsDerivedStateBeforeApplying(t *testing.T) {
 	f := newMergeFixture(t)
 	var dropped []string
@@ -3560,7 +3810,11 @@ func (c *Core) afterMerge(ctx context.Context, plan *MergePlan) {
 			warn("rewriting %s: %v; it still names %s", r.Path, err, r.From)
 		}
 	}
-	c.notifyKnowledgeChanged(ctx, plan.dstID)
+	if c.knowledgeChanged != nil {
+		if err := c.knowledgeChanged(ctx, plan.dstID); err != nil {
+			warn("refreshing %s's derived search state: %v", plan.Dst, err)
+		}
+	}
 }
 
 func dirExists(path string) bool {

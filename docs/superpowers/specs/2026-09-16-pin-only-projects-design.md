@@ -222,7 +222,9 @@ flag, and `./.trellis` itself. The walk plays no part.
 **No `./.trellis`.**
 
 - **With `--key`,** join the project if it exists, and create it if it does
-  not. The output says which happened.
+  not. The output says which happened. The key must pass the key grammar
+  either way: `init` never writes a pin its own parser would reject, so a
+  project with a legacy key is reached through `--project` or merged.
 - **Without `--key`,** the key is the sanitized folder name, and `init` only
   ever creates with it. If a project with that key already exists, the result is
   `key_collision`. The hint suggests `trellis init --key <KEY>` to join that
@@ -291,8 +293,9 @@ read a pin back when the no-clobber write finds one already there.
 - **`project` check, where the project came from:** `/TRELLIS (pin <path>)`,
   `(from --project)` or `(from TRELLIS_PROJECT)`.
 - **No pin:** a warning that suggests `trellis init --key <KEY>`.
-- **Pin names a project this database does not have:** a warning that suggests
-  `trellis init`.
+- **Pin names a project this database does not have, or there is no database
+  yet (a fresh clone):** a warning that suggests `trellis init`. A database
+  that cannot be opened or read is a warning with the error, never `ok`.
 - **`project keys` check:** a warning that lists every key failing the key
   grammar. Neither check creates a database.
 
@@ -350,6 +353,11 @@ table-rebuild procedure:
    the migration, naming the violating tables.
 8. Commit. Whether the migration succeeded or failed, finish with
    `PRAGMA foreign_keys = ON`.
+
+**The migration is safe to rerun.** goose records the version after the
+function returns, outside its transaction. A process that dies in between
+leaves the rebuild committed and the version unrecorded, so the migration
+first checks whether `root_path` is already gone, and succeeds if so.
 
 The Down migration re-adds the three columns empty.
 

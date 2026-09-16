@@ -9,7 +9,7 @@
 - **Core output.** Core builds document addresses in one Go helper and one SQL fragment.
 - **Core input.** Core reads absolute knowledge and artifact arguments itself, and refuses an address naming a project other than the one it acts in (`wrong_project`).
 - **Wikilinks** resolve across projects.
-- **CLI.** One helper, `withTarget`, reads a command's reference argument. When the argument names a project, the helper routes the command there, so the command needs no pin.
+- **CLI.** One helper, `withTargets`, reads a command's references, positional and flags alike. When a reference names a project, the helper routes the command there, so the command needs no pin.
 - **Web.** One small parser.
 
 **Tech Stack:** Go 1.27 (`errors.AsType`, stdlib `uuid`, `t.Chdir`), SQLite via `sqlx`, goose SQL migrations, cobra, React + TypeScript built with pnpm and Vite, Node 26 `node --test`.
@@ -39,8 +39,10 @@ Before starting, all three must hold:
 - **Every argument or flag that takes a reference also takes an absolute address.** A relative argument keeps today's meaning.
 - **An absolute argument, or a qualified card ref such as `OTHER-12`, names its own project.**
   - It beats the pin and `TRELLIS_PROJECT`.
-  - A different `--project` is `project_conflict`.
-  - `KEY-N` is never re-scoped to the current project.
+  - A different `--project` is `project_conflict`, and so are two references naming different projects.
+  - A relative reference means the current project; with one resolved, a reference naming another project is `project_conflict`.
+  - `KEY-N` is never re-scoped to the current project, and a card address reaches core with its project (`CardRef.Project`).
+- **A `/GLOBAL/knowledge` argument to a read or edit consults nothing ambient.**
 - **Core refuses an absolute reference to another project** with `wrong_project`. `/GLOBAL` is allowed where the operation allows it.
 - **The old reference forms are removed outright.** `[[KEY/slug]]` and `[[GLOBAL/slug]]` have no compatibility path, and raw link text is not migrated.
 - **A dangling wikilink is a stub, not an error.** `resolveDocStubs` backfills it.
@@ -91,7 +93,7 @@ Before starting, all three must hold:
 | `internal/store/migrate_0014_test.go` (create) | Migration tests |
 | `internal/retrieval/service.go` | Vector hits through `core.KnowledgeHit` |
 | `internal/ui/server.go` | Event refs, vault list refs |
-| `internal/cli/target.go` (create) | `refArg`, `argProject`, `withTarget`, `targetContext`, `namedBoard`, `cardRefValue`, `boardNameValue`, `tuiCardRef`, `isVaultAddress` |
+| `internal/cli/target.go` (create) | `refArg`, `argProject`, `withTargets`, `withTarget`, `targetContext`, `namedBoard`, `tuiCardRef`, `isUnresolved`, `isVaultAddress` |
 | `internal/cli/resolve.go` | `namedProjectKey`, `boardNamed`, `projectConflict`, `normalizeProjectArg` |
 | `internal/cli/root.go` | `projectKey` removed |
 | `internal/cli/target_test.go`, `internal/cli/target_knowledge_test.go` (create) | CLI routing tests |
@@ -133,6 +135,7 @@ func TestParseReadsEveryCollection(t *testing.T) {
 		"/trellis":                       ProjectPath("TRELLIS"),
 		"/TRELLIS/boards/api":            BoardPath("TRELLIS", "api"),
 		"/mono/cards/mono-12":            CardPath("MONO", "MONO-12"),
+		"/MONO/cards/my_app-1":           CardPath("MONO", "MY_APP-1"),
 		"/KIOSK-ANALYSE/cards/KIOSK-ANALYSE-3": CardPath("KIOSK-ANALYSE", "KIOSK-ANALYSE-3"),
 		"/MONO/knowledge/concurrency-model":    KnowledgePath("MONO", "concurrency-model"),
 		"/GLOBAL/knowledge/conventions":        GlobalKnowledgePath("conventions"),
@@ -213,7 +216,14 @@ func TestSplitAnchor(t *testing.T) {
 }
 
 func TestNameValidators(t *testing.T) {
-	for s, want := range map[string]bool{"MONO-12": true, "KIOSK-ANALYSE-3": true, "mono-12": false, "12": false, "MONO-": false, "MONO-1a": false} {
+	// A card ref's prefix is looser than a project key: a card keeps its ref
+	// when its project is merged, and keys that predate the key grammar, such
+	// as MY_APP, are still somebody's prefix.
+	for s, want := range map[string]bool{
+		"MONO-12": true, "KIOSK-ANALYSE-3": true, "MY_APP-1": true, "V1.2-3": true,
+		"mono-12": false, "12": false, "MONO-": false, "MONO-1a": false, "-12": false,
+		"A/B-1": false, "A#B-1": false, "A B-1": false,
+	} {
 		if ValidCardRef(s) != want {
 			t.Errorf("ValidCardRef(%q) = %v", s, !want)
 		}
@@ -249,7 +259,7 @@ const (
 )
 
 var (
-	cardRefRE = regexp.MustCompile(`^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-[0-9]+$`)
+	cardRefRE = regexp.MustCompile(`^[^/#\s-][^/#\s]*-[0-9]+$`)
 	docSlugRE = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 )
 
@@ -340,8 +350,12 @@ func Parse(s string) (Path, error) {
 	return Path{Project: key, Collection: collection, Name: name}, nil
 }
 
-// ValidCardRef reports whether s is an upper-case card ref, KEY-N.
-func ValidCardRef(s string) bool { return cardRefRE.MatchString(s) }
+// ValidCardRef reports whether s is an upper-case card ref, PREFIX-N. The
+// prefix is deliberately looser than a project key: a card keeps its ref when
+// its project is merged into another, and keys created before the key
+// grammar existed (MY_APP) are still prefixes. It only has to be one address
+// segment, so it holds no /, # or whitespace, and does not start with -.
+func ValidCardRef(s string) bool { return s == strings.ToUpper(s) && cardRefRE.MatchString(s) }
 
 // ValidDocSlug reports whether s has the shape core.Slugify produces.
 func ValidDocSlug(s string) bool { return docSlugRE.MatchString(s) }
@@ -1190,7 +1204,9 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Consumes: `vpath.Parse`, `vpath.SplitAnchor` (Task 1); `ParseAddress`, `commandFor` (Task 3).
 - Produces:
   - **`Reference`:** the fields are unchanged. `ProjectKey` is `""` for a relative target, `"GLOBAL"` for the vault, and otherwise the key an address names. An absolute target that names no knowledge entry keeps its text as `Slug`, so it can never match a row.
+  - **`resolveDocRef`**: a relative target resolves in the source's project first, then in the vault, the same order `loadDoc` uses.
   - **`LintFinding.Kind`** gains `wrong_collection` and `bad_path`. `LintFinding.Doc` is now the holding entry's address.
+  - **Lint** checks an anchor against the entry the link resolved to, wherever it lives. `type linkTarget struct{ ref string; anchors map[string]bool }`, `type linkTargets map[string]linkTarget` with `func (t linkTargets) get(tx *sqlx.Tx, id string) (linkTarget, bool, error)`, and `func anchorSet(body string) map[string]bool`. `linkFinding` now takes the transaction and the cache and returns an error.
   - **`LinkCardToDoc`** accepts an address in another project. A non-knowledge address is `wrong_collection`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1320,6 +1336,52 @@ func TestLinkToAProjectThatDoesNotExistIsAStub(t *testing.T) {
 	}
 }
 
+// A relative link means this project, then the vault, as a relative
+// argument does.
+func TestARelativeLinkFallsBackToTheVault(t *testing.T) {
+	c, p, _ := kbCore(t)
+	ctx := t.Context()
+	other := seededProject2(t, c)
+	shared, err := c.CreateKnowledge(ctx, other.ID, NewKnowledge{Title: "Conventions"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.EscalateKnowledge(ctx, other.ID, shared.Slug, "shared"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+		Title: "Setup", Body: "Follow [[conventions]].\n"}); err != nil {
+		t.Fatal(err)
+	}
+	back, err := c.Backlinks(ctx, shared.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(back) != 1 || back[0].Ref != "/XPSCTL/knowledge/setup" {
+		t.Errorf("vault backlinks = %+v", back)
+	}
+	if kinds, findings := lintKinds(t, c, p.ID); kinds["stub"] != 0 {
+		t.Errorf("findings = %+v, want the link resolved", findings)
+	}
+
+	// The project's own entry still wins over the vault's.
+	own, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Conventions"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+		Title: "Onboarding", Body: "Read [[conventions]].\n"}); err != nil {
+		t.Fatal(err)
+	}
+	back, err = c.Backlinks(ctx, own.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(back) != 1 || back[0].Ref != "/XPSCTL/knowledge/onboarding" {
+		t.Errorf("own backlinks = %+v, want the project entry to win", back)
+	}
+}
+
 func TestTheOldQualifiedFormIsARelativeStub(t *testing.T) {
 	c, p, _ := kbCore(t)
 	ctx := t.Context()
@@ -1375,6 +1437,45 @@ func TestAnchorsAreCheckedOnTheLinkedEntry(t *testing.T) {
 	}
 }
 
+// A missing heading is found in a target this project does not own: lint
+// reads that entry's file rather than trusting its own listing.
+func TestMissingHeadingsInForeignAndVaultTargets(t *testing.T) {
+	c, p, _ := kbCore(t)
+	ctx := t.Context()
+	other := seededProject2(t, c)
+	if _, err := c.CreateKnowledge(ctx, other.ID, NewKnowledge{Title: "Runbook", Body: "## Rollback\n"}); err != nil {
+		t.Fatal(err)
+	}
+	shared, err := c.CreateKnowledge(ctx, other.ID, NewKnowledge{Title: "Conventions", Body: "## Naming\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.EscalateKnowledge(ctx, other.ID, shared.Slug, "shared"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Setup", Body: "" +
+		"Foreign [[/OTHERPROJ/knowledge/runbook#rollback]] and [[/OTHERPROJ/knowledge/runbook#nope]].\n" +
+		"Vault [[/GLOBAL/knowledge/conventions#naming]] and [[conventions#missing]].\n"}); err != nil {
+		t.Fatal(err)
+	}
+	_, findings := lintKinds(t, c, p.ID)
+	broken := map[string]string{}
+	for _, f := range findings {
+		if f.Kind == "broken_anchor" {
+			broken[f.Ref] = f.Fix
+		}
+	}
+	if len(broken) != 2 {
+		t.Fatalf("broken anchors = %v, want two; findings: %+v", broken, findings)
+	}
+	if fix := broken["/OTHERPROJ/knowledge/runbook#nope"]; !strings.Contains(fix, "trellis knowledge show /OTHERPROJ/knowledge/runbook") {
+		t.Errorf("foreign fix = %q", fix)
+	}
+	if fix := broken["conventions#missing"]; !strings.Contains(fix, "trellis knowledge show /GLOBAL/knowledge/conventions") {
+		t.Errorf("vault fix = %q", fix)
+	}
+}
+
 func TestLinkCardToDocAcrossProjects(t *testing.T) {
 	c, p, b := kbCore(t)
 	ctx := t.Context()
@@ -1411,8 +1512,8 @@ func TestLinkCardToDocAcrossProjects(t *testing.T) {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `go test ./internal/core/ -run 'Wikilink|ParseReference|Stub|OldQualified|NameNoEntry|Anchors|LinkCardToDocAcross'`
-Expected: FAIL. `ParseWikilinks` still splits on the first `/`, and cross-project links stay stubs.
+Run: `go test ./internal/core/ -run 'Wikilink|ParseReference|Stub|FallsBackToTheVault|OldQualified|NameNoEntry|Anchors|MissingHeadings|LinkCardToDocAcross'`
+Expected: FAIL. `ParseWikilinks` still splits on the first `/`, cross-project links stay stubs, and a relative link never reaches the vault.
 
 - [ ] **Step 3: Rewrite the reference parser**
 
@@ -1484,17 +1585,20 @@ In `internal/core/doc_relations.go`, add `"github.com/mtch3n/trellis/internal/vp
 // unresolved link is listed by `knowledge lint`, never an error: writing a link
 // to something not yet written is how a vault gets built.
 //
-// A relative reference resolves in the source's project. An address resolves
-// wherever it points, another project included: the link names its target
-// exactly, and reading that project by name is already allowed. A project or
-// entry that does not exist yet leaves a stub, which resolveDocStubs fills in
-// when the entry is created.
+// A relative reference resolves in the source's project first and in the
+// vault second, the order loadDoc uses for a relative argument. An address
+// resolves wherever it points, another project included: the link names its
+// target exactly, and reading that project by name is already allowed. A
+// project or entry that does not exist yet leaves a stub, which
+// resolveDocStubs fills in when the entry is created or escalated.
 func (c *Core) resolveDocRef(tx *sqlx.Tx, projectID string, ref Reference) (any, error) {
 	var q string
 	var args []any
 	switch ref.ProjectKey {
 	case "":
-		q, args = `SELECT id FROM knowledge WHERE slug = ? AND project_id = ?`, []any{ref.Slug, projectID}
+		q = `SELECT id FROM knowledge WHERE slug = ? AND (project_id = ? OR global = 1)
+		     ORDER BY global LIMIT 1`
+		args = []any{ref.Slug, projectID}
 	case GlobalKey:
 		q, args = `SELECT id FROM knowledge WHERE slug = ? AND global = 1`, []any{ref.Slug}
 	default:
@@ -1566,6 +1670,8 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
+	"errors"
+	"os"
 	"slices"
 	"strings"
 
@@ -1590,18 +1696,13 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 	if err != nil {
 		return nil, err
 	}
-	// Anchors are checked on the entry a link resolved to, by id. Checking by
-	// slug compared an address in another project with this project's
-	// namesake.
-	byID := map[string]Knowledge{}
-	anchors := map[string]map[string]bool{}
+	// Anchors are checked on the entry a link resolved to, by id, wherever it
+	// lives. The project's own entries are in hand already; a target in
+	// another project or in the vault is read from its file the first time a
+	// link needs it.
+	targets := linkTargets{}
 	for _, d := range docs {
-		byID[d.ID] = d
-		set := map[string]bool{}
-		for _, a := range HeadingAnchors(d.BodyMD) {
-			set[a] = true
-		}
-		anchors[d.ID] = set
+		targets[d.ID] = linkTarget{ref: d.Ref, anchors: anchorSet(d.BodyMD)}
 	}
 
 	err = c.Tx(ctx, func(tx *sqlx.Tx) error {
@@ -1617,7 +1718,11 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 				return err
 			}
 			for _, r := range rows {
-				if f, ok := linkFinding(d, r.ToRaw, r.ToID, r.Anchor, byID, anchors); ok {
+				f, ok, err := linkFinding(tx, targets, d, r.ToRaw, r.ToID, r.Anchor)
+				if err != nil {
+					return err
+				}
+				if ok {
 					out = append(out, f)
 				}
 			}
@@ -1648,26 +1753,77 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 }
 
 // linkFinding judges one wikilink held by d.
-func linkFinding(d Knowledge, raw string, toID, anchor sql.NullString,
-	byID map[string]Knowledge, anchors map[string]map[string]bool) (LintFinding, bool) {
+func linkFinding(tx *sqlx.Tx, targets linkTargets, d Knowledge, raw string,
+	toID, anchor sql.NullString) (LintFinding, bool, error) {
 	ref := ParseReference(raw)
 	if !toID.Valid {
 		target, _ := vpath.SplitAnchor(raw)
 		target = strings.TrimSpace(target)
 		if strings.HasPrefix(target, "/") && ref.ProjectKey == "" {
-			return addressFinding(d, raw, target), true
+			return addressFinding(d, raw, target), true, nil
 		}
-		return LintFinding{Kind: "stub", Doc: d.Ref, Ref: raw, Fix: stubFix(ref)}, true
+		return LintFinding{Kind: "stub", Doc: d.Ref, Ref: raw, Fix: stubFix(ref)}, true, nil
 	}
 	if !anchor.Valid || anchor.String == "" {
-		return LintFinding{}, false
+		return LintFinding{}, false, nil
 	}
-	set, known := anchors[toID.String]
-	if !known || set[anchor.String] {
-		return LintFinding{}, false
+	target, found, err := targets.get(tx, toID.String)
+	if err != nil || !found || target.anchors[anchor.String] {
+		return LintFinding{}, false, err
 	}
 	return LintFinding{Kind: "broken_anchor", Doc: d.Ref, Ref: raw,
-		Fix: "trellis knowledge show " + byID[toID.String].Ref + "   # check its headings"}, true
+		Fix: "trellis knowledge show " + target.ref + "   # check its headings"}, true, nil
+}
+
+// linkTarget is what an anchor check needs from the entry a link resolved to.
+type linkTarget struct {
+	ref     string
+	anchors map[string]bool
+}
+
+// linkTargets caches link targets by entry id.
+type linkTargets map[string]linkTarget
+
+// get returns the target with id, reading its file the first time. found is
+// false when the row or its file has gone, which is not an anchor problem.
+func (t linkTargets) get(tx *sqlx.Tx, id string) (linkTarget, bool, error) {
+	if lt, ok := t[id]; ok {
+		return lt, true, nil
+	}
+	var row struct {
+		Path string `db:"path"`
+		Ref  string `db:"ref"`
+	}
+	err := tx.Get(&row, `SELECT k.path, `+docAddressSQL+` AS ref
+		FROM knowledge k JOIN project p ON p.id = k.project_id WHERE k.id = ?`, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return linkTarget{}, false, nil
+	}
+	if err != nil {
+		return linkTarget{}, false, err
+	}
+	raw, err := os.ReadFile(row.Path)
+	if errors.Is(err, os.ErrNotExist) {
+		return linkTarget{}, false, nil
+	}
+	if err != nil {
+		return linkTarget{}, false, err
+	}
+	_, body, err := splitDocFile(row.Path, raw)
+	if err != nil {
+		return linkTarget{}, false, err
+	}
+	lt := linkTarget{ref: row.Ref, anchors: anchorSet(body)}
+	t[id] = lt
+	return lt, true, nil
+}
+
+func anchorSet(body string) map[string]bool {
+	set := map[string]bool{}
+	for _, a := range HeadingAnchors(body) {
+		set[a] = true
+	}
+	return set
 }
 
 // addressFinding explains an absolute link target that names no knowledge
@@ -1711,7 +1867,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ### Task 5: A qualified card ref is never re-scoped
 
 **Files:**
-- Modify: `internal/core/ids.go`: `ParseCardRef`
+- Modify: `internal/core/ids.go`: `CardRef.Project`, `ParseCardRef`, `CardRef.String`, new `CardRef.qualified`
 - Modify: `internal/core/card.go`: `loadCard`, new `checkCardProject`
 - Modify: `internal/core/blocker.go`: `BlockCard`, `UnblockCard`, new `crossProjectBlock`
 - Modify: `internal/core/import.go`
@@ -1721,10 +1877,12 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `vpath.Parse`, `vpath.CardPath`, `vpath.CollectionCards` (Task 1).
 - Produces:
-  - **`ParseCardRef`** also accepts `/KEY/cards/<REF>`, and returns the ref part.
-  - **`func (c *Core) checkCardProject(tx *sqlx.Tx, projectID string, ref CardRef) error`** is the single place a qualified ref is held to its project. The merge layer replaces it.
-    - A qualified ref whose project does not exist is `card_not_found` (exit 3).
-    - A qualified ref naming another, existing project is `wrong_project` (exit 2).
+  - **`CardRef.Project string`**: the project an address names; `""` for shorthand (`12`, `KEY-12`, a UUID).
+  - **`ParseCardRef`** also accepts `/KEY/cards/<REF>`. It sets `Project` to `KEY` and `Seq`/`ProjectKey` from the ref, so the address keeps its project all the way into core.
+  - **`CardRef.String()`** renders an address as the address; `func (r CardRef) qualified() string` is the `PREFIX-N` part.
+  - **`func (c *Core) checkCardProject(tx *sqlx.Tx, projectID string, ref CardRef) error`** is the single place a ref is held to its project. The merge layer replaces it.
+    - An address whose `Project` differs from the current key is refused, and so is a `ProjectKey` prefix that differs.
+    - When the project it names does not exist, the result is `card_not_found` (exit 3); otherwise `wrong_project` (exit 2).
   - **`func crossProjectBlock(err error, blocker CardRef) error`** turns `wrong_project` into `cross_project_block` (exit 2).
 
 - [ ] **Step 1: Write the failing tests**
@@ -1733,13 +1891,25 @@ In `internal/core/ids_test.go`, add:
 
 ```go
 func TestParseCardRefReadsACardAddress(t *testing.T) {
-	if got := ParseCardRef("/xpsctl/cards/xpsctl-12"); got != (CardRef{Seq: 12, ProjectKey: "XPSCTL"}) {
-		t.Errorf("address = %+v", got)
+	cases := map[string]CardRef{
+		"/xpsctl/cards/xpsctl-12": {Seq: 12, ProjectKey: "XPSCTL", Project: "XPSCTL"},
+		// The address's project and the ref's prefix are kept apart: after a
+		// merge they legitimately differ, and core decides what that means.
+		"/MONO/cards/MY_APP-3": {Seq: 3, ProjectKey: "MY_APP", Project: "MONO"},
+		"XPSCTL-12":            {Seq: 12, ProjectKey: "XPSCTL"},
 	}
-	for _, s := range []string{"/XPSCTL/knowledge/design", "/XPSCTL/cards/12", "/XPSCTL"} {
+	for in, want := range cases {
+		if got := ParseCardRef(in); got != want {
+			t.Errorf("ParseCardRef(%q) = %+v, want %+v", in, got, want)
+		}
+	}
+	for _, s := range []string{"/XPSCTL/knowledge/design", "/XPSCTL/cards/12", "/XPSCTL", "/XPSCTL/cards/XPSCTL-99999999999999999999"} {
 		if got := ParseCardRef(s); got != (CardRef{}) {
 			t.Errorf("ParseCardRef(%q) = %+v, want the empty ref", s, got)
 		}
+	}
+	if got := ParseCardRef("/MONO/cards/MY_APP-3").String(); got != "/MONO/cards/MY_APP-3" {
+		t.Errorf("String() of an address = %q", got)
 	}
 }
 ```
@@ -1796,6 +1966,29 @@ func TestAQualifiedRefIsNeverRescoped(t *testing.T) {
 	}
 }
 
+// An address names its project even when its ref's prefix is the current
+// key: /OTHERPROJ/cards/XPSCTL-1 is not XPSCTL's card 1.
+func TestACardAddressKeepsItsProject(t *testing.T) {
+	c, p, _ := twoProjectsWithCards(t)
+	ctx := t.Context()
+	_, err := c.GetCard(ctx, p.ID, ParseCardRef("/OTHERPROJ/cards/XPSCTL-1"))
+	if got := errCode(t, err); got != "wrong_project" {
+		t.Fatalf("code = %s, want wrong_project", got)
+	}
+	if te, _ := errors.AsType[*Error](err); !strings.Contains(te.Msg, "OTHERPROJ") {
+		t.Errorf("message = %q, want it to name OTHERPROJ", te.Msg)
+	}
+	_, err = c.GetCard(ctx, p.ID, ParseCardRef("/NOPE/cards/XPSCTL-1"))
+	if got := errCode(t, err); got != "card_not_found" {
+		t.Errorf("an address to a missing project: code = %s", got)
+	}
+	// And the prefix check still holds inside the right project.
+	_, err = c.GetCard(ctx, p.ID, ParseCardRef("/XPSCTL/cards/OTHERPROJ-1"))
+	if got := errCode(t, err); got != "wrong_project" {
+		t.Errorf("a foreign prefix under the right project: code = %s", got)
+	}
+}
+
 func TestABlockerMustBeInTheSameProject(t *testing.T) {
 	c, p, _ := twoProjectsWithCards(t)
 	ctx := t.Context()
@@ -1806,6 +1999,11 @@ func TestABlockerMustBeInTheSameProject(t *testing.T) {
 	err = c.UnblockCard(ctx, p.ID, CardRef{Seq: 1}, ParseCardRef("OTHERPROJ-1"))
 	if got := errCode(t, err); got != "cross_project_block" {
 		t.Errorf("UnblockCard: code = %s", got)
+	}
+	// The address's project differs from the prefix, which is this project's.
+	err = c.BlockCard(ctx, p.ID, CardRef{Seq: 1}, ParseCardRef("/OTHERPROJ/cards/XPSCTL-1"))
+	if got := errCode(t, err); got != "cross_project_block" {
+		t.Errorf("BlockCard by a foreign address: code = %s", got)
 	}
 }
 
@@ -1830,16 +2028,25 @@ func TestImportRefusesABlockerInAnotherProject(t *testing.T) {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `go test ./internal/core/ -run 'CardAddress|NeverRescoped|SameProject|BlockerInAnotherProject'`
-Expected: FAIL. `GetCard(OTHERPROJ-1)` returns XPSCTL's card 1, and the address form parses to the empty ref.
+Expected: FAIL. The build fails because `CardRef.Project` is undefined.
 
 - [ ] **Step 3: Implement**
 
-In `internal/core/ids.go`, add `"github.com/mtch3n/trellis/internal/vpath"` to the imports. Then insert this at the top of `ParseCardRef`, after `s = strings.TrimSpace(s)`, and change its comment:
+In `internal/core/ids.go`, add `"github.com/mtch3n/trellis/internal/vpath"` to the imports, and replace `CardRef`, `ParseCardRef` and `String` with:
 
 ```go
-// ParseCardRef accepts "12", "XPSCTL-12", "/XPSCTL/cards/XPSCTL-12", or a uuid.
-// An address contributes its ref; the project it names is for the caller to
-// route by.
+// CardRef is a parsed card reference. Exactly one of UUID or Seq is set.
+type CardRef struct {
+	UUID       string
+	Seq        int64
+	ProjectKey string // the ref's prefix, set when the reference was qualified
+	Project    string // the project an address names; "" for shorthand
+}
+
+// ParseCardRef accepts "12", "XPSCTL-12", "/XPSCTL/cards/XPSCTL-12", or a
+// uuid. An address keeps the project it names in Project, apart from the
+// ref's prefix: the two differ once projects are merged, and deciding what
+// that means is checkCardProject's job, not the parser's.
 func ParseCardRef(s string) CardRef {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "/") {
@@ -1847,11 +2054,48 @@ func ParseCardRef(s string) CardRef {
 		if err != nil || p.Collection != vpath.CollectionCards {
 			return CardRef{}
 		}
-		s = p.Name
+		// vpath has checked the PREFIX-N shape; only the number can still
+		// fail, by overflowing.
+		key, num, _ := strings.CutLast(p.Name, "-")
+		n, err := strconv.ParseInt(num, 10, 64)
+		if err != nil {
+			return CardRef{}
+		}
+		return CardRef{Seq: n, ProjectKey: key, Project: p.Project}
 	}
-```
+	if _, err := uuid.Parse(s); err == nil {
+		return CardRef{UUID: s}
+	}
+	if key, num, ok := strings.CutLast(s, "-"); ok {
+		if n, err := strconv.ParseInt(num, 10, 64); err == nil {
+			return CardRef{Seq: n, ProjectKey: strings.ToUpper(key)}
+		}
+	}
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return CardRef{Seq: n}
+	}
+	return CardRef{}
+}
 
-The rest of the function is unchanged.
+// qualified is the PREFIX-N form of a qualified ref.
+func (r CardRef) qualified() string { return r.ProjectKey + "-" + itoa(r.Seq) }
+
+// String renders a CardRef for error messages. An address is shown as the
+// address the caller typed.
+func (r CardRef) String() string {
+	switch {
+	case r.UUID != "":
+		return r.UUID
+	case r.Project != "":
+		return vpath.CardPath(r.Project, r.qualified()).String()
+	case r.ProjectKey != "":
+		return r.qualified()
+	case r.Seq > 0:
+		return itoa(r.Seq)
+	}
+	return "<none>"
+}
+```
 
 In `internal/core/card.go`, add `"github.com/mtch3n/trellis/internal/vpath"` to the imports. Make `checkCardProject` the first statement of `loadCard`:
 
@@ -1864,37 +2108,43 @@ In `internal/core/card.go`, add `"github.com/mtch3n/trellis/internal/vpath"` to 
 Add the function after `loadCard`:
 
 ```go
-// checkCardProject is the one place a qualified ref is held to the project it
-// is looked up in. OTHER-12 typed while working in KEY used to open KEY-12;
-// a card ref names its project. The project-merge layer replaces this check
-// when refs become stored data.
+// checkCardProject is the one place a card ref is held to the project it is
+// looked up in. OTHER-12 typed while working in KEY used to open KEY-12, and
+// /OTHER/cards/KEY-12 would have too. An address names its project, and so
+// does a ref's prefix; either one disagreeing with the current key is another
+// project. The project-merge layer replaces this check when refs become
+// stored data and a prefix no longer has to match its project.
 func (c *Core) checkCardProject(tx *sqlx.Tx, projectID string, ref CardRef) error {
-	if ref.ProjectKey == "" {
+	if ref.Project == "" && ref.ProjectKey == "" {
 		return nil
 	}
-	var key string
-	if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, projectID); err != nil {
+	key, err := projectKeyOf(tx, projectID)
+	if err != nil {
 		return err
 	}
-	if ref.ProjectKey == key {
+	named := ref.Project
+	if named == "" || named == key {
+		named = ref.ProjectKey
+	}
+	if named == key {
 		return nil
 	}
 	var exists int
-	if err := tx.Get(&exists, `SELECT COUNT(*) FROM project WHERE key = ?`, ref.ProjectKey); err != nil {
+	if err := tx.Get(&exists, `SELECT COUNT(*) FROM project WHERE key = ?`, named); err != nil {
 		return err
 	}
 	if exists == 0 {
 		return ErrNotFound("card_not_found",
-			fmt.Sprintf("no card %s: there is no project %s", ref, ref.ProjectKey), "trellis project ls")
+			fmt.Sprintf("no card %s: there is no project %s", ref, named), "trellis project ls")
 	}
-	addr := vpath.CardPath(ref.ProjectKey, ref.String()).String()
+	addr := vpath.CardPath(named, ref.qualified()).String()
 	return ErrUsage("wrong_project",
-		fmt.Sprintf("%s is a card in project %s, not in %s", ref, ref.ProjectKey, key),
+		fmt.Sprintf("%s is a card in project %s, not in %s", ref, named, key),
 		"trellis card show "+addr)
 }
 ```
 
-In `internal/core/blocker.go`, change the imports to `"context"`, `"errors"`, `"fmt"` and `sqlx`. In both `BlockCard` and `UnblockCard`, wrap the blocker's `loadCard` error:
+In `internal/core/blocker.go`, change the imports to `"context"`, `"errors"` and `sqlx`. In both `BlockCard` and `UnblockCard`, wrap the blocker's `loadCard` error:
 
 ```go
 		if err := c.loadCard(tx, projectID, blockerRef, &blocker); err != nil {
@@ -1912,8 +2162,7 @@ func crossProjectBlock(err error, blocker CardRef) error {
 		return err
 	}
 	return ErrUsage("cross_project_block",
-		fmt.Sprintf("%s is in project %s; a card can only be blocked by a card in its own project",
-			blocker, blocker.ProjectKey),
+		blocker.String()+" is not in this project; a card can only be blocked by a card in its own project",
 		`trellis card note <card> --body "waiting on `+blocker.String()+`"`)
 }
 ```
@@ -2448,11 +2697,12 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
   - `pinEnv`, `seedProject`, `writePin`, `coreErr`, `showBoard`, `runCmd`, `execCmd` (existing test helpers)
 - Produces, in `internal/cli/target.go`:
   - `type refArg struct{ Collection, Value string; NoProject bool }`
-  - `func argProject(a refArg) (key, ref string, err error)`
-  - `func withTarget(a refArg, fn func(app *appCtx, ref string) error) error`
-  - `func targetContext(a refArg, key, ref string) (*appCtx, error)`
+  - `func argProject(a refArg) (key, ref string, err error)`: a board address becomes its slug; card, knowledge and artifact references pass through whole
+  - `func withTargets(args []refArg, fn func(app *appCtx, refs []string) error) error`: the positional reference first, then every reference-taking flag
+  - `func withTarget(a refArg, fn func(app *appCtx, ref string) error) error`: `withTargets` with one reference
+  - `func targetContext(a refArg, key, ref string, relative bool) (*appCtx, error)`
   - `func namedBoard(ctx context.Context, c *core.Core, p core.Project, collection, ref string) (core.Board, error)`
-  - `func cardRefValue(v string) (string, error)`
+  - `func isUnresolved(err error) bool`
   - `func isVaultAddress(v string) bool`
 - Produces, in `internal/cli/resolve.go`:
   - `func namedProjectKey() (string, error)`
@@ -2463,6 +2713,8 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
   - `--project` and `TRELLIS_PROJECT` accept `/KEY`.
   - `--board` and `TRELLIS_BOARD` accept `/KEY/boards/<slug>`. A `--board` address names its project.
   - `projectKey()` is deleted; `namedProjectKey` replaces its one caller.
+  - A command whose references name two different projects fails with `project_conflict`, and so does one whose relative reference means the pinned project while another reference names a different one.
+  - A `NoProject` vault address consults nothing ambient: no pin, no `TRELLIS_PROJECT`, no `--project`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2594,13 +2846,46 @@ func TestMovingANamedCardKeepsItsBoard(t *testing.T) {
 	}
 }
 
+// In a pinned directory a relative card means the pinned project, so a --by
+// naming another one is a conflict. An address whose project differs from
+// its ref's prefix gets through the CLI only when both references name that
+// project, and core refuses it there.
 func TestABlockerFromAnotherProjectIsRefused(t *testing.T) {
 	targetEnv(t)
-	for _, by := range []string{"BETA-1", "/BETA/cards/BETA-1"} {
+	for _, by := range []string{"BETA-1", "/BETA/cards/BETA-1", "/BETA/cards/ALPHA-1"} {
 		_, err := execCmd("card", "block", "1", "--by", by)
-		if ce := coreErr(t, err); ce.Code != "cross_project_block" {
+		if ce := coreErr(t, err); ce.Code != "project_conflict" {
 			t.Errorf("--by %s: error = %+v", by, ce)
 		}
+	}
+	_, err := execCmd("card", "block", "/ALPHA/cards/ALPHA-1", "--by", "/BETA/cards/BETA-1")
+	if ce := coreErr(t, err); ce.Code != "project_conflict" {
+		t.Errorf("two addresses, two projects: error = %+v", ce)
+	}
+	_, err = execCmd("card", "block", "/BETA/cards/BETA-1", "--by", "/BETA/cards/ALPHA-1")
+	if ce := coreErr(t, err); ce.Code != "cross_project_block" {
+		t.Errorf("ALPHA's ref under BETA's address: error = %+v", ce)
+	}
+}
+
+// With no pin, a --by address is what names the project.
+func TestABlockerAddressNamesTheProject(t *testing.T) {
+	pinEnv(t, "loose")
+	seedProject(t, "BETA")
+	refOf(t, "card", "new", "--title", "first", "--project", "BETA")
+	refOf(t, "card", "new", "--title", "second", "--project", "BETA")
+	out := runCmd(t, "card", "block", "2", "--by", "/BETA/cards/BETA-1", "--json")
+	var v struct {
+		Ref       string `json:"ref"`
+		BlockedBy []struct {
+			Ref string `json:"ref"`
+		} `json:"blocked_by"`
+	}
+	if err := json.Unmarshal([]byte(out), &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.Ref != "BETA-2" || len(v.BlockedBy) != 1 || v.BlockedBy[0].Ref != "BETA-1" {
+		t.Errorf("block = %+v", v)
 	}
 }
 
@@ -2634,7 +2919,7 @@ In `internal/cli/doctor_test.go`, extend `TestCheckProjectNamesItsSource`. After
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `go test ./internal/cli/ -run 'QualifiedCardRef|NeedsNoPin|BeatsTrellisProject|Misdirected|KeepsItsBoard|BlockerFromAnother|SelectorsTakeAddresses|NamesItsSource'`
+Run: `go test ./internal/cli/ -run 'QualifiedCardRef|NeedsNoPin|BeatsTrellisProject|Misdirected|KeepsItsBoard|BlockerFromAnother|BlockerAddress|SelectorsTakeAddresses|NamesItsSource'`
 Expected: FAIL. `card show BETA-1` returns `wrong_project` from core because the command still runs in ALPHA, and `--project /beta` is `project_not_found`.
 
 - [ ] **Step 3: Teach resolution to read addresses**
@@ -2755,22 +3040,23 @@ import (
 	"github.com/mtch3n/trellis/internal/vpath"
 )
 
-// refArg is a command's reference argument and the collection it names.
+// refArg is one reference a command takes, positional or from a flag, and
+// the collection it names.
 type refArg struct {
 	Collection string // vpath.CollectionCards, CollectionKnowledge, CollectionBoards or CollectionArtifacts
-	Value      string
-	// NoProject lets a /GLOBAL/knowledge address run when no project
-	// resolves: reading, editing or walking from a vault entry needs none.
-	// fn then receives an appCtx whose Project and Board are zero.
+	Value      string // "" when an optional flag was not given
+	// NoProject lets a /GLOBAL/knowledge address run with no project at all:
+	// reading, editing or walking from a vault entry needs none. fn then
+	// receives an appCtx whose Project and Board are zero.
 	NoProject bool
 }
 
-// argProject reads the project a reference argument names by itself -- an
-// absolute address or, for a card, a qualified ref such as OTHER-12 -- and
-// returns "" when the argument is relative to the current project. ref is
-// the argument in the form core takes: a card address becomes its ref and a
-// board address its slug. Knowledge and artifact arguments pass through
-// whole, because core reads those addresses itself.
+// argProject reads the project a reference names by itself -- an absolute
+// address or, for a card, a qualified ref such as OTHER-12 -- and returns ""
+// when the reference is relative or is a vault address. ref is the reference
+// in the form core takes: a board address becomes its slug. Everything else
+// passes through whole, because core reads card, knowledge and artifact
+// addresses itself, and a card address must reach core with its project.
 func argProject(a refArg) (key, ref string, err error) {
 	v := strings.TrimSpace(a.Value)
 	if !strings.HasPrefix(v, "/") {
@@ -2781,7 +3067,10 @@ func argProject(a refArg) (key, ref string, err error) {
 		}
 		return "", v, nil
 	}
-	target, _ := vpath.SplitAnchor(v)
+	target := v
+	if a.Collection == vpath.CollectionKnowledge {
+		target, _ = vpath.SplitAnchor(v) // only an entry has headings
+	}
 	p, err := core.ParseAddress(strings.TrimSpace(target), a.Collection)
 	if err != nil {
 		return "", "", err
@@ -2789,57 +3078,95 @@ func argProject(a refArg) (key, ref string, err error) {
 	switch {
 	case p.Project == vpath.GlobalKey:
 		return "", v, nil // the vault belongs to no project
-	case a.Collection == vpath.CollectionCards, a.Collection == vpath.CollectionBoards:
+	case a.Collection == vpath.CollectionBoards:
 		return p.Project, p.Name, nil
 	default:
 		return p.Project, v, nil
 	}
 }
 
-// withTarget runs fn in the context a reference argument names, and closes
-// the database afterwards.
-//
-// A relative argument resolves in the current project, exactly as withBoard
-// does. An argument that names its own project needs no pin. It beats the pin
-// and TRELLIS_PROJECT, which are ambient, and conflicts with a --project
-// naming anything else, because then the caller stated two targets. When the
-// named project is the current one, the current context is used, pin board
-// included, so OTHER-12 typed inside OTHER behaves exactly like 12.
+// withTarget runs fn in the context one reference names. See withTargets.
 func withTarget(a refArg, fn func(app *appCtx, ref string) error) error {
-	key, ref, err := argProject(a)
-	if err != nil {
-		return err
+	return withTargets([]refArg{a}, func(app *appCtx, refs []string) error { return fn(app, refs[0]) })
+}
+
+// withTargets runs fn in the context a command's references name, and closes
+// the database afterwards. args holds the positional reference first, then
+// every flag that takes one (--by, --card, a command's own --board). refs[i]
+// is args[i] in the form core takes, and "" for a flag that was not given.
+//
+// A reference that names its own project -- an address, or a qualified card
+// ref -- decides where the command runs, so it needs no pin. It beats the pin
+// and TRELLIS_PROJECT, which are ambient.
+//
+// Two references naming different projects are a conflict: the caller
+// stated two targets. A relative reference names the current project, so it
+// conflicts with a reference naming another one whenever a current project
+// resolves. In a directory where none does, the named project is the only
+// candidate, and the relative reference is read there. With no reference
+// naming a project, the command runs where withBoard would.
+func withTargets(args []refArg, fn func(app *appCtx, refs []string) error) error {
+	refs := make([]string, len(args))
+	keys := make([]string, len(args))
+	named, primary, relative := "", 0, false
+	for i, a := range args {
+		if strings.TrimSpace(a.Value) == "" {
+			continue
+		}
+		key, ref, err := argProject(a)
+		if err != nil {
+			return err
+		}
+		refs[i], keys[i] = ref, key
+		switch {
+		case key == "" && !isVaultAddress(a.Value):
+			relative = true
+		case key == "":
+		case named == "":
+			named, primary = key, i
+		case key != named:
+			return projectConflict(named, a.Value, key)
+		}
 	}
-	app, err := targetContext(a, key, ref)
+	app, err := targetContext(args[primary], named, refs[primary], relative)
 	if err != nil {
 		return err
 	}
 	defer app.db.Close()
-	if a.Collection == vpath.CollectionBoards && key != "" {
+	for i, a := range args {
+		if a.Collection != vpath.CollectionBoards || keys[i] == "" {
+			continue
+		}
 		// A board address works on that board; core takes board names.
-		b, err := app.Core.BoardBySlug(context.Background(), app.Project.ID, ref)
+		b, err := app.Core.BoardBySlug(context.Background(), app.Project.ID, refs[i])
 		if err != nil {
 			return err
 		}
-		app.Board, ref = b, b.Name
+		refs[i] = b.Name
+		if i == primary {
+			app.Board = b
+		}
 	}
-	return fn(app, ref)
+	return fn(app, refs)
 }
 
-func targetContext(a refArg, key, ref string) (*appCtx, error) {
-	if key == "" {
-		app, err := currentBoard()
-		if err == nil || !a.NoProject || !isVaultAddress(a.Value) {
-			return app, err
-		}
-		if ce, ok := errors.AsType[*core.Error](err); !ok || (ce.Code != "unresolved" && ce.Code != "no_default_board") {
-			return nil, err
-		}
+// targetContext opens the context a command runs in. key is the project its
+// references name, "" when none does. a is the reference that named it, or
+// the positional one when none did. relative says whether some other
+// reference relies on the current project.
+func targetContext(a refArg, key, ref string, relative bool) (*appCtx, error) {
+	if key == "" && a.NoProject && isVaultAddress(a.Value) {
+		// A vault entry belongs to no project, so nothing ambient is
+		// consulted: a malformed or stale pin, or a TRELLIS_PROJECT naming
+		// nothing, must not stand between a reader and the vault.
 		c, db, err := openCore()
 		if err != nil {
 			return nil, err
 		}
 		return &appCtx{Core: c, db: db}, nil
+	}
+	if key == "" {
+		return currentBoard()
 	}
 
 	if flag := normalizeProjectArg(projectFlagKey); flag != "" && flag != key {
@@ -2849,42 +3176,54 @@ func targetContext(a refArg, key, ref string) (*appCtx, error) {
 	if err != nil {
 		return nil, err
 	}
+	fail := func(err error) (*appCtx, error) {
+		db.Close()
+		return nil, err
+	}
 	ctx := context.Background()
-	if r, err := resolveProject(ctx, c); err == nil && r.Project.Key == key {
+	r, rerr := resolveProject(ctx, c)
+	switch {
+	case rerr == nil && r.Project.Key == key:
 		b, err := selectBoard(ctx, c, r)
 		if err != nil {
-			db.Close()
-			return nil, err
+			return fail(err)
 		}
 		return &appCtx{Core: c, Project: r.Project, Board: b, db: db}, nil
+	case relative && rerr == nil:
+		// The relative reference means this project, not the named one.
+		return fail(projectConflict(r.Project.Key, a.Value, key))
+	case relative && !isUnresolved(rerr):
+		// A relative reference needs the current project, and a broken pin
+		// is not the same as no pin.
+		return fail(rerr)
 	}
 	p, err := c.ProjectByKey(ctx, key)
 	if err != nil {
-		db.Close()
-		return nil, err
+		return fail(err)
 	}
 	b, err := namedBoard(ctx, c, p, a.Collection, ref)
 	if err != nil {
-		db.Close()
-		return nil, err
+		return fail(err)
 	}
 	return &appCtx{Core: c, Project: p, Board: b, db: db}, nil
 }
 
-// namedBoard picks the board in a project an argument named. Only --board
+// namedBoard picks the board in a project a reference named. Only --board
 // applies there: TRELLIS_BOARD and a pin's board describe the current
 // project. A card is worked on its own board, so that moving OTHER-12 never
 // drags it onto OTHER's default board.
 func namedBoard(ctx context.Context, c *core.Core, p core.Project, collection, ref string) (core.Board, error) {
 	switch {
 	case collection == vpath.CollectionBoards:
-		return core.Board{}, nil // withTarget sets the addressed board
+		return core.Board{}, nil // withTargets sets the addressed board
 	case boardFlag != "":
 		return boardNamed(ctx, c, p, boardFlag)
 	case collection == vpath.CollectionCards:
 		card, err := c.GetCard(ctx, p.ID, core.ParseCardRef(ref))
 		if err != nil {
-			return core.Board{}, err
+			// The command looks the card up itself and reports this in its
+			// own words; card block, for one, says cross_project_block.
+			return core.Board{}, nil
 		}
 		boards, err := c.ListBoards(ctx, p.ID)
 		if err != nil {
@@ -2900,12 +3239,10 @@ func namedBoard(ctx context.Context, c *core.Core, p core.Project, collection, r
 	}
 }
 
-// cardRefValue reads a second card argument, such as --by or --card, which
-// must be in the command's own project: an address is reduced to its ref,
-// and core refuses a ref naming another project.
-func cardRefValue(v string) (string, error) {
-	_, ref, err := argProject(refArg{Collection: vpath.CollectionCards, Value: v})
-	return ref, err
+// isUnresolved reports whether err says no pin applies here.
+func isUnresolved(err error) bool {
+	ce, ok := errors.AsType[*core.Error](err)
+	return ok && ce.Code == "unresolved"
 }
 
 // isVaultAddress reports whether v is a /GLOBAL address.
@@ -2958,20 +3295,21 @@ Replace the `RunE` of `newCardBlockCmd` in `internal/cli/card_block.go` with:
 				return core.ErrUsage("missing_blocker", "say which card blocks it",
 					"trellis card block "+args[0]+" --by 12")
 			}
-			blocker, err := cardRefValue(by)
-			if err != nil {
-				return err
-			}
-			return withTarget(refArg{Collection: vpath.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+			// --by takes a reference too, so it can name the project: a
+			// blocker lives in its card's project.
+			return withTargets([]refArg{
+				{Collection: vpath.CollectionCards, Value: args[0]},
+				{Collection: vpath.CollectionCards, Value: by},
+			}, func(app *appCtx, refs []string) error {
 				link := app.Core.BlockCard
 				if remove {
 					link = app.Core.UnblockCard
 				}
 				if err := link(cmd.Context(), app.Project.ID,
-					core.ParseCardRef(ref), core.ParseCardRef(blocker)); err != nil {
+					core.ParseCardRef(refs[0]), core.ParseCardRef(refs[1])); err != nil {
 					return err
 				}
-				return emitBlockers(cmd, app, ref)
+				return emitBlockers(cmd, app, refs[0])
 			})
 		},
 ```
@@ -2996,7 +3334,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ### Task 8: Knowledge, link, graph, board, artifact and workspace commands follow addresses
 
 **Files:**
-- Modify: `internal/cli/target.go`: add `boardNameValue`, `tuiCardRef`
+- Modify: `internal/cli/target.go`: add `tuiCardRef`
 - Modify:
   - `internal/cli/knowledge.go`: new, show, edit, rm, pin, nominate, escalate
   - `internal/cli/link.go`
@@ -3007,17 +3345,18 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes:
-  - `withTarget`, `refArg`, `argProject`, `cardRefValue`, `boardNamed`, `targetEnv`, `refOf` (Task 7)
+  - `withTarget`, `withTargets`, `refArg`, `boardNamed`, `targetEnv`, `refOf` (Task 7)
+  - `core.ParseAddress` (Task 3), `core.ParseCardRef` and `CardRef.Project` (Task 5)
   - `core.ResolveArtifact` (Task 6)
   - `core.EscalateKnowledge`
   - `home.DBPath`, `store.Open`
 - Produces:
-  - `func boardNameValue(ctx context.Context, app *appCtx, v string) (string, error)`
-  - `func tuiCardRef(app *appCtx, arg string) (core.CardRef, error)`
+  - `func tuiCardRef(app *appCtx, arg string) (core.CardRef, error)`: refuses an address naming another project; a qualified ref's prefix is left to core's `checkCardProject`
+- Behavior of reference-taking flags: `knowledge new --board`, `knowledge pin --board`, `artifact add --card`, `artifact link --card` and `artifact ls --card` go through `withTargets` with the positional reference, so an address in the flag names the command's project, even with no pin, and a disagreement is `project_conflict`.
   - `func resolveEntity(cmd *cobra.Command, app *appCtx, collection, ref string) (string, error)`: its signature changes
 - Behavior of `graph <arg>`:
   - An address is routed by its collection.
-  - A `KEY-N` argument is a card.
+  - An argument shaped like a card ref (`PREFIX-N`) is a card. An entry whose slug ends in `-N` is walked from by its address.
   - Any other relative argument tries an entry first, then a card, as before.
 
 - [ ] **Step 1: Write the failing tests**
@@ -3113,18 +3452,114 @@ func TestAnEntryAddressNamesItsProject(t *testing.T) {
 	}
 }
 
-func TestAVaultAddressNeedsNoProject(t *testing.T) {
-	pinEnv(t, "loose")
+// A vault address consults nothing ambient: no pin, broken or stale, and no
+// TRELLIS_PROJECT stands between a reader and the vault.
+func TestAVaultAddressIgnoresAmbientState(t *testing.T) {
+	dir := pinEnv(t, "loose")
 	seedProject(t, "ALPHA")
 	refOf(t, "knowledge", "new", "--title", "Conventions", "--project", "ALPHA")
 	escalateByHand(t, "ALPHA", "conventions")
 	const want = "/GLOBAL/knowledge/conventions"
-	if got := refOf(t, "knowledge", "show", want); got != want {
-		t.Errorf("knowledge show = %s", got)
-	}
+
 	_, err := execCmd("knowledge", "show", "conventions")
 	if ce := coreErr(t, err); ce.Code != "unresolved" {
 		t.Errorf("a relative slug still needs a project: %+v", ce)
+	}
+
+	// Each state builds on the one before; the last has a stale pin and an
+	// environment naming a project that does not exist.
+	for _, state := range []struct {
+		name  string
+		setup func()
+	}{
+		{"no pin", func() {}},
+		{"malformed pin", func() { writePin(t, dir, "ALPHA\n") }},
+		{"stale pin", func() { writePin(t, dir, "/GHOST\n") }},
+		{"bad env", func() { t.Setenv("TRELLIS_PROJECT", "NOPE") }},
+	} {
+		state.setup()
+		name := state.name
+		if got := refOf(t, "knowledge", "show", want); got != want {
+			t.Errorf("%s: knowledge show = %s", name, got)
+		}
+		if got := refOf(t, "knowledge", "edit", want, "--body", "Edited under "+name+".\n"); got != want {
+			t.Errorf("%s: knowledge edit = %s", name, got)
+		}
+		if nodes := refsIn(t, runCmd(t, "graph", want, "--json"), "nodes"); len(nodes) == 0 || nodes[0] != want {
+			t.Errorf("%s: graph = %v", name, nodes)
+		}
+	}
+}
+
+// A flag that takes a reference names the command's project as a positional
+// one does, so these all work with no pin at all.
+func TestReferenceFlagsNameTheProject(t *testing.T) {
+	pinEnv(t, "loose")
+	seedProject(t, "BETA", "Side")
+	refOf(t, "card", "new", "--title", "beta one", "--project", "BETA")
+	refOf(t, "knowledge", "new", "--title", "Runbook", "--project", "BETA")
+
+	out := runCmd(t, "knowledge", "new", "--title", "Side notes", "--board", "/BETA/boards/side", "--json")
+	var doc struct {
+		Ref   string `json:"ref"`
+		Board string `json:"board"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Ref != "/BETA/knowledge/side-notes" || doc.Board != "Side" {
+		t.Errorf("knowledge new = %+v", doc)
+	}
+
+	runCmd(t, "knowledge", "pin", "runbook", "--board", "/BETA/boards/side", "--recap", "roll back first")
+	out = runCmd(t, "knowledge", "pins", "--project", "BETA", "--board", "Side", "--json")
+	var pins struct {
+		Pins []struct {
+			Slug  string `json:"slug"`
+			Board string `json:"board"`
+		} `json:"pins"`
+	}
+	if err := json.Unmarshal([]byte(out), &pins); err != nil {
+		t.Fatal(err)
+	}
+	if len(pins.Pins) != 1 || pins.Pins[0].Slug != "runbook" || pins.Pins[0].Board != "Side" {
+		t.Errorf("pins = %+v", pins.Pins)
+	}
+
+	file := filepath.Join(t.TempDir(), "shot.png")
+	if err := os.WriteFile(file, []byte("not really an image"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const shot = "/BETA/artifacts/shot.png"
+	if got := refOf(t, "artifact", "add", file, "--card", "/BETA/cards/BETA-1"); got != shot {
+		t.Errorf("artifact add = %s", got)
+	}
+	second := filepath.Join(t.TempDir(), "other.png")
+	if err := os.WriteFile(second, []byte("also not an image"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runCmd(t, "artifact", "add", second, "--project", "BETA")
+	runCmd(t, "artifact", "link", "other.png", "--card", "/BETA/cards/BETA-1")
+	got := refsIn(t, runCmd(t, "artifact", "ls", "--card", "/BETA/cards/BETA-1", "--json"), "artifacts")
+	if len(got) != 2 {
+		t.Errorf("linked to BETA-1 = %v, want both", got)
+	}
+}
+
+func TestReferenceFlagsThatDisagreeConflict(t *testing.T) {
+	targetEnv(t)
+	for _, args := range [][]string{
+		// a relative positional means the pinned ALPHA
+		{"knowledge", "pin", "runbook", "--board", "/BETA/boards/side", "--recap", "x"},
+		{"artifact", "link", "shot.png", "--card", "/BETA/cards/BETA-1"},
+		// two references, two projects
+		{"knowledge", "pin", "/ALPHA/knowledge/runbook", "--board", "/BETA/boards/side", "--recap", "x"},
+		{"artifact", "link", "/ALPHA/artifacts/shot.png", "--card", "/BETA/cards/BETA-1"},
+	} {
+		_, err := execCmd(args...)
+		if ce := coreErr(t, err); ce.Code != "project_conflict" {
+			t.Errorf("%v: error = %+v", args, ce)
+		}
 	}
 }
 
@@ -3185,58 +3620,87 @@ func TestArtifactsTakeNamesAndAddresses(t *testing.T) {
 	}
 }
 
+// The workspace is bound to one project. An address naming another project
+// is refused here; a ref's prefix is core's to judge, because after a merge
+// MONO holds cards named API-1.
 func TestTheWorkspaceStaysInItsProject(t *testing.T) {
 	app := &appCtx{Project: core.Project{Key: "ALPHA"}}
 	for arg, want := range map[string]core.CardRef{
-		"4":                    {Seq: 4},
-		"ALPHA-3":              {Seq: 3, ProjectKey: "ALPHA"},
-		"/ALPHA/cards/ALPHA-3": {Seq: 3, ProjectKey: "ALPHA"},
+		"4":                   {Seq: 4},
+		"ALPHA-3":             {Seq: 3, ProjectKey: "ALPHA"},
+		"API-1":               {Seq: 1, ProjectKey: "API"},
+		"/ALPHA/cards/API-1":  {Seq: 1, ProjectKey: "API", Project: "ALPHA"},
 	} {
 		got, err := tuiCardRef(app, arg)
 		if err != nil || got != want {
 			t.Errorf("tuiCardRef(%q) = %+v, %v", arg, got, err)
 		}
 	}
-	for _, arg := range []string{"BETA-1", "/BETA/cards/BETA-1"} {
-		_, err := tuiCardRef(app, arg)
-		if ce := coreErr(t, err); ce.Code != "wrong_project" {
-			t.Errorf("tuiCardRef(%q): %+v", arg, ce)
-		}
+	_, err := tuiCardRef(app, "/BETA/cards/BETA-1")
+	if ce := coreErr(t, err); ce.Code != "wrong_project" {
+		t.Errorf("another project's address: %+v", ce)
+	}
+	_, err = tuiCardRef(app, "/ALPHA/cards/12")
+	if ce := coreErr(t, err); ce.Code != "bad_path" {
+		t.Errorf("a malformed address: %+v", ce)
+	}
+}
+
+// Inside the workspace, core still refuses a prefix naming another project
+// until the merge layer stores refs.
+func TestTheWorkspaceLeavesPrefixesToCore(t *testing.T) {
+	targetEnv(t)
+	path, err := home.DBPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	c := core.New(db, core.RealClock{}, "test")
+	p, err := c.ProjectByKey(t.Context(), "ALPHA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := tuiCardRef(&appCtx{Core: c, Project: p}, "BETA-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.GetCard(t.Context(), p.ID, ref)
+	if ce := coreErr(t, err); ce.Code != "wrong_project" {
+		t.Errorf("GetCard(BETA-1) in ALPHA: %+v", ce)
 	}
 }
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `go test ./internal/cli/ -run 'EntryRefOpens|EntryAddressNames|VaultAddressNeeds|LinkAndGraph|BoardCommandsTake|ArtifactsTake|WorkspaceStays'`
+Run: `go test ./internal/cli/ -run 'EntryRefOpens|EntryAddressNames|VaultAddressIgnores|ReferenceFlags|LinkAndGraph|BoardCommandsTake|ArtifactsTake|Workspace'`
 Expected: FAIL. The build fails because `tuiCardRef` is undefined.
 
-- [ ] **Step 3: Add the two helpers to `internal/cli/target.go`**
+- [ ] **Step 3: Add `tuiCardRef` to `internal/cli/target.go`**
 
 ```go
-// boardNameValue turns a board flag local to a command, such as knowledge
-// pin --board, into the name core takes. An address must name app's project.
-func boardNameValue(ctx context.Context, app *appCtx, v string) (string, error) {
-	if !strings.HasPrefix(strings.TrimSpace(v), "/") {
-		return v, nil
-	}
-	b, err := boardNamed(ctx, app.Core, app.Project, v)
-	return b.Name, err
-}
-
 // tuiCardRef reads a card argument inside the workspace, which is bound to
-// one project: an address or a qualified ref must name that project.
+// one project. An address must name that project. A qualified ref's prefix
+// is not compared here: core's checkCardProject judges it, and the merge
+// layer, where MONO legitimately holds API-1, replaces that check.
 func tuiCardRef(app *appCtx, arg string) (core.CardRef, error) {
-	key, ref, err := argProject(refArg{Collection: vpath.CollectionCards, Value: arg})
-	if err != nil {
-		return core.CardRef{}, err
+	arg = strings.TrimSpace(arg)
+	if strings.HasPrefix(arg, "/") {
+		p, err := core.ParseAddress(arg, vpath.CollectionCards)
+		if err != nil {
+			return core.CardRef{}, err
+		}
+		if p.Project != app.Project.Key {
+			return core.CardRef{}, core.ErrUsage("wrong_project",
+				fmt.Sprintf("%s is in project %s; this workspace is %s", arg, p.Project, app.Project.Key),
+				"trellis tui --project "+p.Project)
+		}
 	}
-	if key != "" && key != app.Project.Key {
-		return core.CardRef{}, core.ErrUsage("wrong_project",
-			fmt.Sprintf("%s is in project %s; this workspace is %s", arg, key, app.Project.Key),
-			"trellis tui --project "+key)
-	}
-	return core.ParseCardRef(ref), nil
+	return core.ParseCardRef(arg), nil
 }
 ```
 
@@ -3244,13 +3708,10 @@ func tuiCardRef(app *appCtx, arg string) (core.CardRef, error) {
 
 In `internal/cli/knowledge.go`, add `"github.com/mtch3n/trellis/internal/vpath"` to the imports.
 
-1. **`newKnowledgeNewCmd`:** inside the `withBoard` closure, before `CreateKnowledge`, add the following, and pass `Board: boardName` instead of `Board: board`:
+1. **`newKnowledgeNewCmd`:** its `--board` takes a reference, so it can name the project. Replace `return withBoard(func(app *appCtx) error {` with the lines below, and pass `Board: refs[0]` instead of `Board: board`:
 
 ```go
-				boardName, err := boardNameValue(cmd.Context(), app, board)
-				if err != nil {
-					return err
-				}
+			return withTargets([]refArg{{Collection: vpath.CollectionBoards, Value: board}}, func(app *appCtx, refs []string) error {
 ```
 
 2. **`newKnowledgeShowCmd`:** replace `withBoard(func(app *appCtx) error {` with the line below, and use `ref` in place of `args[0]` inside the closure:
@@ -3263,13 +3724,13 @@ In `internal/cli/knowledge.go`, add `"github.com/mtch3n/trellis/internal/vpath"`
 
 4. **`newKnowledgeRmCmd`, `newKnowledgeNominateCmd`, `newKnowledgeEscalateCmd`:** make the same change without `NoProject`. Pass `ref` to `DeleteKnowledge`, `NominateKnowledge` and `EscalateKnowledge`. Their JSON echoes keep `args[0]`. `requireHuman(args[0])` in escalate is unchanged.
 
-5. **`newKnowledgePinCmd`:** make the same change without `NoProject`. Then, at the top of the closure, add the following, and pass `ref` and `boardName` to `UnpinKnowledge` and `PinKnowledge`:
+5. **`newKnowledgePinCmd`:** both the entry and `--board` are references. Replace `return withBoard(func(app *appCtx) error {` with the lines below, and pass `refs[0]` and `refs[1]` to `UnpinKnowledge` and `PinKnowledge` in place of `args[0]` and `board`:
 
 ```go
-				boardName, err := boardNameValue(cmd.Context(), app, board)
-				if err != nil {
-					return err
-				}
+			return withTargets([]refArg{
+				{Collection: vpath.CollectionKnowledge, Value: args[0]},
+				{Collection: vpath.CollectionBoards, Value: board},
+			}, func(app *appCtx, refs []string) error {
 ```
 
 `demote` and `verify` are unchanged: they open core without a project, and core now reads a vault address.
@@ -3423,15 +3884,16 @@ In `internal/cli/artifact.go`, add the `vpath` import, and change the four comma
 		})
 ```
 
-- **`artifact add`:** in the `if card != ""` branch, read the card first:
+- **`artifact add`:** the file is not a reference, but `--card` is. Replace the `RunE` body with:
 
 ```go
-				if card != "" {
-					cardRef, err := cardRefValue(card)
-					if err != nil {
-						return err
-					}
-					id, err := cardID(cmd, app, cardRef)
+			return withTargets([]refArg{{Collection: vpath.CollectionCards, Value: card}}, func(app *appCtx, refs []string) error {
+				artifact, err := app.Core.CreateArtifact(cmd.Context(), app.Project.ID, args[0])
+				if err != nil {
+					return err
+				}
+				if refs[0] != "" {
+					id, err := cardID(cmd, app, refs[0])
 					if err != nil {
 						return err
 					}
@@ -3439,23 +3901,22 @@ In `internal/cli/artifact.go`, add the `vpath` import, and change the four comma
 						return err
 					}
 				}
+				return Emit(cmd, artifact, func() string { return artifact.Ref + "  " + artifact.Path })
+			})
 ```
-
-  Also change its text output to `artifact.Ref + "  " + artifact.Path`.
 
 - **`artifact link`:** replace the `withBoard` call with:
 
 ```go
-			cardRef, err := cardRefValue(card)
-			if err != nil {
-				return err
-			}
-			return withTarget(refArg{Collection: vpath.CollectionArtifacts, Value: args[0]}, func(app *appCtx, ref string) error {
-				a, err := app.Core.ResolveArtifact(cmd.Context(), app.Project.ID, ref)
+			return withTargets([]refArg{
+				{Collection: vpath.CollectionArtifacts, Value: args[0]},
+				{Collection: vpath.CollectionCards, Value: card},
+			}, func(app *appCtx, refs []string) error {
+				a, err := app.Core.ResolveArtifact(cmd.Context(), app.Project.ID, refs[0])
 				if err != nil {
 					return err
 				}
-				id, err := cardID(cmd, app, cardRef)
+				id, err := cardID(cmd, app, refs[1])
 				if err != nil {
 					return err
 				}
@@ -3468,14 +3929,14 @@ In `internal/cli/artifact.go`, add the `vpath` import, and change the four comma
 
   Its usage hint becomes `trellis artifact link <name> --card <card>`.
 
-- **`artifact ls`:** replace the `RunE` body with the version below. A `--card` that names another project lists that project's artifacts.
+- **`artifact ls`:** replace the `RunE` body with the version below. A `--card` that names a project lists that project's artifacts.
 
 ```go
-			list := func(app *appCtx, cardRef string) error {
+			return withTargets([]refArg{{Collection: vpath.CollectionCards, Value: card}}, func(app *appCtx, refs []string) error {
 				cardIDValue := ""
-				if cardRef != "" {
+				if refs[0] != "" {
 					var err error
-					if cardIDValue, err = cardID(cmd, app, cardRef); err != nil {
+					if cardIDValue, err = cardID(cmd, app, refs[0]); err != nil {
 						return err
 					}
 				}
@@ -3490,11 +3951,7 @@ In `internal/cli/artifact.go`, add the `vpath` import, and change the four comma
 					}
 					return strings.TrimRight(b.String(), "\n")
 				})
-			}
-			if card == "" {
-				return withBoard(func(app *appCtx) error { return list(app, "") })
-			}
-			return withTarget(refArg{Collection: vpath.CollectionCards, Value: card}, list)
+			})
 ```
 
 In `internal/cli/tui.go`:
@@ -3575,6 +4032,7 @@ test('reads every collection as internal/vpath does', () => {
     '/TRELLIS': { project: 'TRELLIS', collection: '', name: '' },
     '/trellis/boards/api': { project: 'TRELLIS', collection: 'boards', name: 'api' },
     '/mono/cards/mono-12': { project: 'MONO', collection: 'cards', name: 'MONO-12' },
+    '/MONO/cards/my_app-1': { project: 'MONO', collection: 'cards', name: 'MY_APP-1' },
     '/MONO/knowledge/concurrency-model': { project: 'MONO', collection: 'knowledge', name: 'concurrency-model' },
     '/global/knowledge/conventions': { project: 'GLOBAL', collection: 'knowledge', name: 'conventions' },
     '/MONO/artifacts/Screen Shot.PNG': { project: 'MONO', collection: 'artifacts', name: 'Screen Shot.PNG' },
@@ -3636,7 +4094,7 @@ export interface Address {
 
 const COLLECTIONS: readonly string[] = ['boards', 'cards', 'knowledge', 'artifacts']
 const KEY = /^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*$/
-const CARD_REF = /^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-[0-9]+$/
+const CARD_REF = /^[^/#\s-][^/#\s]*-[0-9]+$/
 const DOC_SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const BOARD_SLUG = /^[\p{L}\p{N}]+(-[\p{L}\p{N}]+)*$/u
 
@@ -3737,7 +4195,16 @@ export function parseReference(raw: string): Reference {
 }
 ```
 
-4. In `buildGraph`, replace the stub label line with:
+4. In `buildGraph`, a relative link falls back to the vault, as the backend's does. Replace the line `if (ref.key === '') target = nodeId(vault, ref.slug)` with:
+
+```ts
+      if (ref.key === '') {
+        const own = nodeId(vault, ref.slug)
+        target = nodes.has(own) ? own : nodeId(true, ref.slug)
+      }
+```
+
+   Then replace the stub label line with:
 
 ```ts
         const label = ref.key ? docAddress(ref.key, ref.key === GLOBAL_KEY, ref.slug) : ref.slug
