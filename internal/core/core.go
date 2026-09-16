@@ -51,6 +51,16 @@ func (c *Core) SetDefaultColumns(names []string) { c.defaultColumns = append([]s
 
 func (c *Core) SetCardRequirements(labels, tags bool) { c.requireLabels, c.requireTags = labels, tags }
 
+// SetHistoryKeep configures how many revisions each entry and card retains.
+// A negative value is rejected by config.ValidateValue and config.Load
+// before it can reach here; this treats one defensively by leaving the
+// current value in place.
+func (c *Core) SetHistoryKeep(n int) {
+	if n >= 0 {
+		c.historyKeep = n
+	}
+}
+
 func (c *Core) SetKnowledgeChanged(fn func(context.Context, string) error) {
 	c.knowledgeChanged = fn
 }

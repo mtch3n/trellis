@@ -188,6 +188,9 @@ func newConfigSetCmd() *cobra.Command {
 					fmt.Sprintf("unknown config key: %q", key),
 					"trellis config ls")
 			}
+			if err := config.ValidateValue(key, value); err != nil {
+				return core.ErrUsage("invalid_value", err.Error(), "trellis config set history.keep 100")
+			}
 
 			pctx, err := currentProject()
 			if err != nil {
@@ -208,6 +211,13 @@ func newConfigSetCmd() *cobra.Command {
 			})
 		},
 	}
+	// history.keep's own error case ("negative is invalid") needs -1 to
+	// reach RunE as the value, not be swallowed by pflag as an unknown
+	// shorthand flag. pflag treats any "-<digits>" as a flag candidate
+	// unless flag parsing stops at the first non-flag argument; every
+	// persistent flag (--project, --board, --json) still works before the
+	// key, just not after the value.
+	cmd.Flags().SetInterspersed(false)
 
 	return cmd
 }
@@ -244,6 +254,7 @@ func newConfigLsCmd() *cobra.Command {
 				"search.method",
 				"search.vector.enabled", "search.vector.provider", "search.vector.embed_command", "search.vector.endpoint",
 				"search.vector.model", "search.vector.dimension", "search.vector.limit",
+				"history.keep",
 			}
 
 			var rows []configRow
