@@ -555,10 +555,18 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 			return err
 		}
 		for _, field := range []string{"body", "title", "summary"} {
-			if _, ok := fields[field]; ok {
-				if err := c.recordEvent(tx, "knowledge", doc.ID, "edited", field, "", fields[field]); err != nil {
-					return err
-				}
+			if _, ok := fields[field]; !ok {
+				continue
+			}
+			// The value is the content. A private entry records that it was
+			// edited and nothing more, because an audit log holding whole
+			// bodies is a copy of them.
+			value := fields[field]
+			if doc.Private {
+				value = ""
+			}
+			if err := c.recordEvent(tx, "knowledge", doc.ID, "edited", field, "", value); err != nil {
+				return err
 			}
 		}
 		return c.docView(tx, &doc)

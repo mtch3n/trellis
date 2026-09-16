@@ -384,3 +384,63 @@ func TestPrivateAfterRefreshTreatsAMissingFileAsPrivate(t *testing.T) {
 		t.Errorf("private[%q] = true, want false: this file is still on disk and was never marked private", present.ID)
 	}
 }
+
+// Every edit copies the whole body into event.new_value. For a private entry
+// the audit trail keeps the fact of the edit and drops its content.
+func TestEditOnPrivateRecordsNoContent(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Staging credentials", Private: true, Body: "initial\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "hunter2 is the password\n", nil); err != nil {
+		t.Fatalf("EditKnowledge: %v", err)
+	}
+
+	var leaked int
+	if err := c.db.Get(&leaked,
+		`SELECT COUNT(*) FROM event WHERE entity_id = ? AND COALESCE(new_value, '') LIKE '%hunter2%'`,
+		doc.ID); err != nil {
+		t.Fatalf("count events: %v", err)
+	}
+	if leaked != 0 {
+		t.Errorf("%d event rows carry the private body, want 0", leaked)
+	}
+
+	var edits int
+	if err := c.db.Get(&edits,
+		`SELECT COUNT(*) FROM event WHERE entity_id = ? AND action = 'edited'`, doc.ID); err != nil {
+		t.Fatalf("count edits: %v", err)
+	}
+	if edits == 0 {
+		t.Error("the edit was not recorded at all; the fact of the edit must survive")
+	}
+}
+
+// Ordinary documents keep the audit fidelity they have today.
+func TestEditOnNormalStillRecordsContent(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Recall ranking", Body: "initial\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "ranks are fused\n", nil); err != nil {
+		t.Fatalf("EditKnowledge: %v", err)
+	}
+
+	var recorded int
+	if err := c.db.Get(&recorded,
+		`SELECT COUNT(*) FROM event WHERE entity_id = ? AND COALESCE(new_value, '') LIKE '%fused%'`,
+		doc.ID); err != nil {
+		t.Fatalf("count events: %v", err)
+	}
+	if recorded == 0 {
+		t.Error("an ordinary edit stopped recording its content")
+	}
+}
