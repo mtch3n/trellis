@@ -52,7 +52,7 @@ func TestArtifactStoresBytesOnDiskAndLinksToCard(t *testing.T) {
 	if err := c.LinkArtifactToCard(t.Context(), project.ID, card.ID, artifact.ID); err != nil {
 		t.Fatal(err)
 	}
-	items, err := c.ListArtifacts(t.Context(), project.ID, card.ID)
+	items, err := c.ListArtifacts(t.Context(), project.ID, card.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}

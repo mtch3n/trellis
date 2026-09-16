@@ -1,9 +1,11 @@
 package core
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -303,5 +305,219 @@ func TestDeletingAnArtifactLeavesEntryLinksAsStubs(t *testing.T) {
 	}
 	if cardLinks != 0 {
 		t.Errorf("%d card links remain, want 0: a card's link lives only in the database", cardLinks)
+	}
+}
+
+func artifactErrCode(err error) string {
+	if e, ok := errors.AsType[*Error](err); ok {
+		return e.Code
+	}
+	return ""
+}
+
+func TestResolveArtifactByIDOrName(t *testing.T) {
+	c, p, _ := kbCore(t)
+	a := addArtifact(t, c, p.ID, "map.png", "\x89PNG\r\n\x1a\nx")
+
+	byID, err := c.ResolveArtifact(t.Context(), p.ID, a.ID)
+	if err != nil || byID.ID != a.ID {
+		t.Errorf("by id = %+v, %v", byID, err)
+	}
+	byName, err := c.ResolveArtifact(t.Context(), p.ID, a.Name)
+	if err != nil || byName.ID != a.ID {
+		t.Errorf("by name = %+v, %v", byName, err)
+	}
+	if _, err := c.ResolveArtifact(t.Context(), p.ID, "nope.png"); artifactErrCode(err) != "artifact_not_found" {
+		t.Errorf("unknown: err = %v, want artifact_not_found", err)
+	}
+
+	insertDuplicateArtifact(t, c, p.ID, a)
+	_, err = c.ResolveArtifact(t.Context(), p.ID, a.Name)
+	if artifactErrCode(err) != "artifact_ambiguous" {
+		t.Fatalf("shared name: err = %v, want artifact_ambiguous", err)
+	}
+	if !strings.Contains(err.Error(), a.ID) {
+		t.Errorf("error %q does not name the matching ids", err)
+	}
+}
+
+func TestLinkArtifactToEntry(t *testing.T) {
+	c, p, _ := kbCore(t)
+	a := addArtifact(t, c, p.ID, "meeting.mp3", "ID3 meeting")
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Meeting"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+
+	got, err := c.LinkArtifactToDoc(t.Context(), p.ID, doc.Slug, a.Name)
+	if err != nil {
+		t.Fatalf("LinkArtifactToDoc: %v", err)
+	}
+	if names := artifactNamesOf(got); !slices.Equal(names, []string{a.Name}) || got.Artifacts[0].Missing {
+		t.Errorf("Artifacts = %+v", got.Artifacts)
+	}
+	if file := artifactsInFile(t, doc.Path); !slices.Equal(file, []string{a.Name}) {
+		t.Errorf("file lists %v, want [%s]", file, a.Name)
+	}
+	var logged int
+	if err := c.db.Get(&logged,
+		`SELECT COUNT(*) FROM event WHERE entity_id = ? AND action = 'artifact_linked' AND new_value = ?`,
+		doc.ID, a.Name); err != nil {
+		t.Fatal(err)
+	}
+	if logged != 1 {
+		t.Errorf("%d artifact_linked events, want 1", logged)
+	}
+
+	again, err := c.LinkArtifactToDoc(t.Context(), p.ID, doc.Slug, a.ID)
+	if err != nil {
+		t.Fatalf("LinkArtifactToDoc again: %v", err)
+	}
+	if again.Version != got.Version {
+		t.Errorf("version %d -> %d: linking an already-listed artifact must not rewrite the file",
+			got.Version, again.Version)
+	}
+}
+
+// A database restored from an older backup can lack an entry's link rows while
+// the file still lists the names. Linking must read the list from the file;
+// rewriting it from the lagging rows would drop names.
+func TestLinkKeepsNamesTheDatabaseHasLost(t *testing.T) {
+	c, p, _ := kbCore(t)
+	first := addArtifact(t, c, p.ID, "first.png", "\x89PNG\r\n\x1a\n1")
+	second := addArtifact(t, c, p.ID, "second.png", "\x89PNG\r\n\x1a\n2")
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Pair"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	setArtifactsInFile(t, doc.Path, first.Name)
+	if _, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+	if _, err := c.db.Exec(`DELETE FROM link WHERE from_id = ? AND rel = 'artifact'`, doc.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := c.LinkArtifactToDoc(t.Context(), p.ID, doc.Slug, second.Name); err != nil {
+		t.Fatalf("LinkArtifactToDoc: %v", err)
+	}
+	if file := artifactsInFile(t, doc.Path); !slices.Equal(file, []string{first.Name, second.Name}) {
+		t.Errorf("file lists %v, want [%s %s]", file, first.Name, second.Name)
+	}
+}
+
+func TestUnlinkArtifactFromEntry(t *testing.T) {
+	c, p, _ := kbCore(t)
+	a := addArtifact(t, c, p.ID, "a.png", "\x89PNG\r\n\x1a\na")
+	b := addArtifact(t, c, p.ID, "b.png", "\x89PNG\r\n\x1a\nb")
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Two"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	setArtifactsInFile(t, doc.Path, a.Name, b.Name)
+	if _, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+
+	got, err := c.UnlinkArtifactFromDoc(t.Context(), p.ID, doc.Slug, a.Name)
+	if err != nil {
+		t.Fatalf("UnlinkArtifactFromDoc: %v", err)
+	}
+	if names := artifactNamesOf(got); !slices.Equal(names, []string{b.Name}) {
+		t.Errorf("names = %v, want [%s]", names, b.Name)
+	}
+	if file := artifactsInFile(t, doc.Path); !slices.Equal(file, []string{b.Name}) {
+		t.Errorf("file lists %v, want [%s]", file, b.Name)
+	}
+	var logged int
+	if err := c.db.Get(&logged,
+		`SELECT COUNT(*) FROM event WHERE entity_id = ? AND action = 'artifact_unlinked' AND new_value = ?`,
+		doc.ID, a.Name); err != nil {
+		t.Fatal(err)
+	}
+	if logged != 1 {
+		t.Errorf("%d artifact_unlinked events, want 1", logged)
+	}
+
+	again, err := c.UnlinkArtifactFromDoc(t.Context(), p.ID, doc.Slug, a.Name)
+	if err != nil {
+		t.Fatalf("UnlinkArtifactFromDoc again: %v", err)
+	}
+	if again.Version != got.Version {
+		t.Errorf("unlinking a name that is not listed rewrote the file")
+	}
+}
+
+// A stub must be clearable: its artifact no longer exists, so the name cannot
+// be resolved, and unlinking must still remove it from the file.
+func TestUnlinkClearsANameWhoseArtifactIsGone(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Gone"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	setArtifactsInFile(t, doc.Path, "deleted.pdf")
+	if _, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+
+	got, err := c.UnlinkArtifactFromDoc(t.Context(), p.ID, doc.Slug, "deleted.pdf")
+	if err != nil {
+		t.Fatalf("UnlinkArtifactFromDoc: %v", err)
+	}
+	if len(got.Artifacts) != 0 || len(artifactsInFile(t, doc.Path)) != 0 {
+		t.Errorf("stub not cleared: Artifacts = %+v, file = %v", got.Artifacts, artifactsInFile(t, doc.Path))
+	}
+}
+
+func TestUnlinkArtifactFromCard(t *testing.T) {
+	c, p, b := kbCore(t)
+	a := addArtifact(t, c, p.ID, "shot.png", "\x89PNG\r\n\x1a\nx")
+	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "attach"})
+	if err != nil {
+		t.Fatalf("CreateCard: %v", err)
+	}
+	if err := c.LinkArtifactToCard(t.Context(), p.ID, card.ID, a.ID); err != nil {
+		t.Fatalf("LinkArtifactToCard: %v", err)
+	}
+
+	if err := c.UnlinkArtifactFromCard(t.Context(), p.ID, card.ID, a.ID); err != nil {
+		t.Fatalf("UnlinkArtifactFromCard: %v", err)
+	}
+	items, err := c.ListArtifacts(t.Context(), p.ID, card.ID, "")
+	if err != nil {
+		t.Fatalf("ListArtifacts: %v", err)
+	}
+	if len(items) != 0 {
+		t.Errorf("card still lists %d artifacts", len(items))
+	}
+	if err := c.UnlinkArtifactFromCard(t.Context(), p.ID, card.ID, a.ID); err != nil {
+		t.Errorf("unlinking again: %v, want no error", err)
+	}
+}
+
+func TestListArtifactsForAnEntry(t *testing.T) {
+	c, p, _ := kbCore(t)
+	a := addArtifact(t, c, p.ID, "one.png", "\x89PNG\r\n\x1a\n1")
+	b := addArtifact(t, c, p.ID, "two.png", "\x89PNG\r\n\x1a\n2")
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Listed"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	setArtifactsInFile(t, doc.Path, b.Name, a.Name)
+	if _, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+
+	items, err := c.ListArtifacts(t.Context(), p.ID, "", doc.ID)
+	if err != nil {
+		t.Fatalf("ListArtifacts: %v", err)
+	}
+	var names []string
+	for _, it := range items {
+		names = append(names, it.Name)
+	}
+	if !slices.Equal(names, []string{b.Name, a.Name}) {
+		t.Errorf("names = %v, want [%s %s]", names, b.Name, a.Name)
 	}
 }

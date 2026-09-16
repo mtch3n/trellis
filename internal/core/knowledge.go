@@ -87,9 +87,11 @@ type NewKnowledge struct {
 // current values, allowing callers to update frontmatter without losing the
 // body (or update the body without losing title and summary).
 type KnowledgeEdit struct {
-	Title     *string
-	Summary   *string
-	Body      *string
+	Title   *string
+	Summary *string
+	Body    *string
+	// Artifacts, when non-nil, replaces the entry's artifact list.
+	Artifacts *[]string
 	IfVersion *int64
 }
 
@@ -526,6 +528,9 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		if in.Summary != nil {
 			fields["summary"] = *in.Summary
 		}
+		if in.Artifacts != nil {
+			fields["artifacts"] = strings.Join(*in.Artifacts, "\n")
+		}
 		if err := c.checkWrite(ctx, ProposedWrite{
 			Op: "doc.write", EntityType: "knowledge", EntityID: doc.ID, ProjectID: projectID,
 			Fields: fields,
@@ -542,6 +547,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		if err != nil {
 			return err
 		}
+		before := slices.Clone(fm.Artifacts)
 		body := doc.BodyMD
 		if in.Body != nil {
 			body = *in.Body
@@ -554,6 +560,9 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		}
 		if in.Summary != nil {
 			fm.Summary = *in.Summary
+		}
+		if in.Artifacts != nil {
+			fm.Artifacts = dedupeNames(*in.Artifacts)
 		}
 		now := c.clock.NowMS()
 		fm.Updated = msToRFC3339(now)
@@ -600,6 +609,21 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 			}
 			if err := c.recordEvent(tx, "knowledge", doc.ID, "edited", field, "", value); err != nil {
 				return err
+			}
+		}
+		// An artifact name is metadata, not content, so it is recorded for a
+		// private entry too; presence is not what the disclosure design
+		// protects.
+		if in.Artifacts != nil {
+			for _, name := range namesAdded(before, fm.Artifacts) {
+				if err := c.recordEvent(tx, "knowledge", doc.ID, "artifact_linked", "", "", name); err != nil {
+					return err
+				}
+			}
+			for _, name := range namesAdded(fm.Artifacts, before) {
+				if err := c.recordEvent(tx, "knowledge", doc.ID, "artifact_unlinked", "", "", name); err != nil {
+					return err
+				}
 			}
 		}
 		return c.docView(tx, &doc)

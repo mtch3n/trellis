@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
@@ -167,13 +169,155 @@ func (c *Core) LinkArtifactToCard(ctx context.Context, projectID string, cardID,
 	})
 }
 
-func (c *Core) ListArtifacts(ctx context.Context, projectID, cardID string) ([]Artifact, error) {
-	var out []Artifact
+// ResolveArtifact finds an artifact by id or by name within a project. Ids are
+// UUIDs and names are filenames, so the two cannot be confused. A name shared by
+// several artifacts is an error that names them, never a guess.
+func (c *Core) ResolveArtifact(ctx context.Context, projectID, ref string) (Artifact, error) {
+	var out Artifact
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		if cardID == "" {
-			return tx.Select(&out, `SELECT * FROM artifact WHERE project_id = ? ORDER BY updated_at DESC`, projectID)
+		err := tx.Get(&out, `SELECT * FROM artifact WHERE project_id = ? AND id = ?`, projectID, ref)
+		if err == nil {
+			return nil
 		}
-		return tx.Select(&out, `SELECT a.* FROM artifact a JOIN link l ON l.to_type = 'artifact' AND l.to_id = a.id WHERE a.project_id = ? AND l.from_type = 'card' AND l.from_id = ? ORDER BY a.updated_at DESC`, projectID, cardID)
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		var matches []Artifact
+		if err := tx.Select(&matches,
+			`SELECT * FROM artifact WHERE project_id = ? AND name = ? ORDER BY created_at`,
+			projectID, ref); err != nil {
+			return err
+		}
+		switch len(matches) {
+		case 0:
+			return ErrNotFound("artifact_not_found", "no artifact "+ref, "trellis artifact ls")
+		case 1:
+			out = matches[0]
+			return nil
+		default:
+			ids := make([]string, len(matches))
+			for i, m := range matches {
+				ids[i] = m.ID
+			}
+			return ErrUsage("artifact_ambiguous",
+				"more than one artifact is named "+ref+": "+strings.Join(ids, ", "),
+				"trellis artifact rm <id>   # remove the extra ones, then refer to it by name")
+		}
+	})
+	return out, err
+}
+
+// LinkArtifactToDoc adds an artifact to an entry's `artifacts` list. The list
+// lives in the entry's file, so this is an edit of that file, and the link row
+// follows from it. Linking a name already listed changes nothing.
+func (c *Core) LinkArtifactToDoc(ctx context.Context, projectID, slug, artifactRef string) (Knowledge, error) {
+	a, err := c.ResolveArtifact(ctx, projectID, artifactRef)
+	if err != nil {
+		return Knowledge{}, err
+	}
+	return c.editDocArtifacts(ctx, projectID, slug, func(names []string) ([]string, bool) {
+		if slices.Contains(names, a.Name) {
+			return names, false
+		}
+		return append(names, a.Name), true
+	})
+}
+
+// UnlinkArtifactFromDoc removes an artifact from an entry's list. The reference
+// is resolved when it can be; when it cannot — the artifact is gone, or its name
+// is shared — it is taken as written, so a stub can still be cleared. Removing a
+// name that is not listed changes nothing.
+func (c *Core) UnlinkArtifactFromDoc(ctx context.Context, projectID, slug, artifactRef string) (Knowledge, error) {
+	name := artifactRef
+	a, err := c.ResolveArtifact(ctx, projectID, artifactRef)
+	switch e, ok := errors.AsType[*Error](err); {
+	case err == nil:
+		name = a.Name
+	case ok && (e.Code == "artifact_not_found" || e.Code == "artifact_ambiguous"):
+		// Keep the reference as written.
+	default:
+		return Knowledge{}, err
+	}
+	return c.editDocArtifacts(ctx, projectID, slug, func(names []string) ([]string, bool) {
+		if !slices.Contains(names, name) {
+			return names, false
+		}
+		return slices.DeleteFunc(names, func(n string) bool { return n == name }), true
+	})
+}
+
+// editDocArtifacts reads an entry's artifact list from its file, lets change
+// produce the next one, and writes it through EditKnowledgeFields. The list is
+// read from the file rather than from derived link rows, which can lag the file
+// after a database restore; rewriting the file from a lagging copy would drop
+// names. IfVersion makes a concurrent edit between the read and the write a
+// conflict instead of a lost update.
+func (c *Core) editDocArtifacts(ctx context.Context, projectID, slug string,
+	change func(names []string) ([]string, bool)) (Knowledge, error) {
+	doc, err := c.LoadKnowledge(ctx, projectID, slug)
+	if err != nil {
+		return Knowledge{}, err
+	}
+	raw, err := os.ReadFile(doc.Path)
+	if err != nil {
+		return Knowledge{}, err
+	}
+	fm, _, err := splitDocFile(doc.Path, raw)
+	if err != nil {
+		return Knowledge{}, err
+	}
+	next, changed := change(dedupeNames(fm.Artifacts))
+	if !changed {
+		return doc, nil
+	}
+	return c.EditKnowledgeFields(ctx, projectID, slug,
+		KnowledgeEdit{Artifacts: &next, IfVersion: &doc.Version})
+}
+
+// UnlinkArtifactFromCard removes a card's link to an artifact. Removing a link
+// that does not exist is not an error.
+func (c *Core) UnlinkArtifactFromCard(ctx context.Context, projectID, cardID, artifactID string) error {
+	return c.Tx(ctx, func(tx *sqlx.Tx) error {
+		_, err := tx.Exec(
+			`DELETE FROM link
+			 WHERE from_type = 'card' AND from_id = ? AND to_type = 'artifact'
+			   AND to_id = ? AND rel = 'artifact'`, cardID, artifactID)
+		return err
+	})
+}
+
+// namesAdded returns the names in after that before lacks, in after's order.
+func namesAdded(before, after []string) []string {
+	var out []string
+	for _, n := range after {
+		if !slices.Contains(before, n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// ListArtifacts lists a project's artifacts, or only those linked to one card
+// or one entry. Unresolved names are not artifacts and are not listed here; an
+// entry's stubs appear in its computed Artifacts.
+func (c *Core) ListArtifacts(ctx context.Context, projectID, cardID, docID string) ([]Artifact, error) {
+	out := []Artifact{}
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		switch {
+		case cardID != "":
+			return tx.Select(&out,
+				`SELECT a.* FROM artifact a JOIN link l ON l.to_type = 'artifact' AND l.to_id = a.id
+				 WHERE a.project_id = ? AND l.from_type = 'card' AND l.from_id = ?
+				 ORDER BY a.updated_at DESC`, projectID, cardID)
+		case docID != "":
+			return tx.Select(&out,
+				`SELECT a.* FROM artifact a JOIN link l ON l.to_type = 'artifact' AND l.to_id = a.id
+				 WHERE a.project_id = ? AND l.from_type = 'doc' AND l.from_id = ? AND l.rel = 'artifact'
+				 ORDER BY l.rowid`, projectID, docID)
+		default:
+			return tx.Select(&out,
+				`SELECT * FROM artifact WHERE project_id = ? ORDER BY updated_at DESC`, projectID)
+		}
 	})
 	return out, err
 }

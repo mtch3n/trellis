@@ -92,7 +92,7 @@ func newArtifactLsCmd() *cobra.Command {
 						return err
 					}
 				}
-				items, err := app.Core.ListArtifacts(cmd.Context(), app.Project.ID, cardIDValue)
+				items, err := app.Core.ListArtifacts(cmd.Context(), app.Project.ID, cardIDValue, "")
 				if err != nil {
 					return err
 				}
