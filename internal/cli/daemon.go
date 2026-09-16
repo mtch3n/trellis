@@ -62,8 +62,10 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	if ip := net.ParseIP(bind); ip == nil || !ip.IsLoopback() {
 		return fmt.Errorf("daemon bind address must be loopback")
 	}
-	if port == 0 {
-		port = 7788
+	// Port 0 asks the OS for any free port; the health call reports the one it
+	// got. Callers resolve the configured ui.port before they get here.
+	if port < 0 || port > 65535 {
+		return fmt.Errorf("daemon port %d is out of range", port)
 	}
 	dbPath, err := home.DBPath()
 	if err != nil {
@@ -133,7 +135,8 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 				// CLI tells "no daemon" from "daemon without a web UI".
 				url := ""
 				if listener != nil {
-					url = server.URL(address)
+					actualAddress := listener.Addr().String()
+					url = server.URL(actualAddress)
 				}
 				return localdaemon.Response{OK: true, Data: map[string]any{"url": url, "ui_enabled": listener != nil}}, nil
 			case "search":
