@@ -87,6 +87,66 @@ func TestKnowledgeEditWritesTitleAndSummary(t *testing.T) {
 	}
 }
 
+// EditKnowledgeMetadata tests changing type, private, tags, and labels via PATCH.
+func TestKnowledgeEditMetadata(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-edit-metadata-test").WithKBRoot(t.TempDir())
+	ctx := context.Background()
+	p, err := c.CreateProject(ctx, "META", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateBoard(ctx, p.ID, "default", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateLabel(ctx, p.ID, "reviewed", ""); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := c.CreateKnowledge(ctx, p.ID, core.NewKnowledge{Title: "Metadata", Body: "original\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(c, db, "127.0.0.1:0")
+	patch := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPatch, "/api/p/META/b/default/knowledge/"+doc.Slug, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Set type, private, tags, and labels
+	rec := patch(`{"type":"decision","private":true,"tags":["new"],"labels":["reviewed"],"version":1}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	got, err := c.LoadKnowledge(ctx, p.ID, doc.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DocType != "decision" || !got.Private || len(got.Tags) != 1 || got.Tags[0] != "new" || len(got.Labels) != 1 || got.Labels[0] != "reviewed" {
+		t.Fatalf("after edit: type=%q private=%v tags=%v labels=%v", got.DocType, got.Private, got.Tags, got.Labels)
+	}
+
+	// Clear tags and labels, set private to false
+	rec = patch(`{"private":false,"tags":[],"labels":[],"version":2}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	got, err = c.LoadKnowledge(ctx, p.ID, doc.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Private || len(got.Tags) != 0 || len(got.Labels) != 0 || got.DocType != "decision" {
+		t.Fatalf("after clear: type=%q private=%v tags=%v labels=%v", got.DocType, got.Private, got.Tags, got.Labels)
+	}
+}
+
 // A template that rejects an entry without sources must still be usable from
 // the web, so the create request carries sources and template fields.
 func TestKnowledgeCreateCarriesSources(t *testing.T) {

@@ -114,6 +114,10 @@ type KnowledgeEdit struct {
 	Artifacts *[]string
 	// Sources, when non-nil, replaces the entry's source list.
 	Sources   *[]string
+	DocType   *string
+	Private   *bool
+	Tags      *[]string
+	Labels    *[]string
 	IfVersion *int64
 }
 
@@ -679,6 +683,22 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 				Fix: "trellis knowledge show " + doc.Slug,
 			}
 		}
+		// Validate DocType if provided
+		if in.DocType != nil {
+			validTypes := Templates()
+			isValid := false
+			for _, t := range validTypes {
+				if t == *in.DocType {
+					isValid = true
+					break
+				}
+			}
+			if !isValid {
+				return ErrUsage("unknown_template", "unknown template type "+*in.DocType,
+					"trellis knowledge new --template "+*in.DocType)
+			}
+		}
+
 		fields := map[string]string{}
 		if in.Body != nil {
 			fields["body"] = *in.Body
@@ -734,6 +754,18 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		if in.Summary != nil {
 			fm.Summary = *in.Summary
 		}
+		if in.DocType != nil {
+			fm.Type = *in.DocType
+		}
+		if in.Private != nil {
+			fm.Private = *in.Private
+		}
+		if in.Tags != nil {
+			fm.Tags = *in.Tags
+		}
+		if in.Labels != nil {
+			fm.Labels = *in.Labels
+		}
 		if in.Artifacts != nil {
 			fm.Artifacts = dedupeNames(*in.Artifacts)
 		}
@@ -760,15 +792,25 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		doc.BodyMD = body
 		doc.ContentHash = written
 		doc.Sources = fm.Sources
+		doc.DocType = fm.Type
+		// Handle private false→true transition: purge disclosed copies in the same transaction
+		oldPrivate := doc.Private
+		doc.Private = fm.Private
 		doc.MTime = st.ModTime().UnixMilli()
 		doc.Size = st.Size()
 		doc.Version++
 		doc.UpdatedAt = now
 		if _, err := tx.Exec(
 			`UPDATE knowledge SET title = ?, summary = ?, content_hash = ?, mtime = ?, size = ?,
-			                      version = ?, updated_at = ? WHERE id = ?`,
-			doc.Title, doc.Summary, doc.ContentHash, doc.MTime, doc.Size, doc.Version, doc.UpdatedAt, doc.ID); err != nil {
+			                      version = ?, updated_at = ?, doc_type = ?, private = ? WHERE id = ?`,
+			doc.Title, doc.Summary, doc.ContentHash, doc.MTime, doc.Size, doc.Version, doc.UpdatedAt, doc.DocType, doc.Private, doc.ID); err != nil {
 			return err
+		}
+		// Purge disclosed copies if changing from public to private
+		if !oldPrivate && doc.Private {
+			if err := c.purgeDisclosedCopies(tx, &doc); err != nil {
+				return err
+			}
 		}
 		if err := c.syncDocRelations(tx, &doc, fm, body); err != nil {
 			return err
