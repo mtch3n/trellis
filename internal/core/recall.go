@@ -175,24 +175,6 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 			ORDER BY knowledge_fts.rank LIMIT ?`, docArgs...); err != nil {
 			return err
 		}
-
-		ids := make([]string, 0, len(docs))
-		for _, d := range docs {
-			ids = append(ids, d.ID)
-		}
-		private, err := c.privateAfterRefresh(tx, ids)
-		if err != nil {
-			return err
-		}
-		for i := range docs {
-			if private[docs[i].ID] {
-				// The identifier and the title still travel. Only an
-				// explicitly written recap would have survived, and the
-				// purge has already cleared any that existed.
-				docs[i].Recap = ""
-			}
-		}
-
 		var cards []RecallHit
 		if !narrowed {
 			if err := tx.Select(&cards, `
@@ -231,6 +213,30 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 				}
 			}
 		}
+
+		// Redaction runs on hits, the set that actually leaves this call, not
+		// on the over-fetched candidates: fetch can run to recallFetchFloor
+		// (60) while at most o.Limit (5 by default) are ever returned, and
+		// privateAfterRefresh re-reads a file from disk per id.
+		ids := make([]string, 0, len(hits))
+		for _, h := range hits {
+			if h.Kind == "knowledge" {
+				ids = append(ids, h.ID)
+			}
+		}
+		private, err := c.privateAfterRefresh(tx, ids)
+		if err != nil {
+			return err
+		}
+		for i := range hits {
+			if private[hits[i].ID] {
+				// The identifier and the title still travel. Only an
+				// explicitly written recap would have survived, and the
+				// purge has already cleared any that existed.
+				hits[i].Recap = ""
+			}
+		}
+
 		if o.Record {
 			for _, h := range hits {
 				if err := c.recordEvent(tx, h.Kind, h.ID, "injected", "", "", ""); err != nil {

@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/jmoiron/sqlx"
 )
 
 // setPrivateInFile edits the file the way a human with an editor would, which
@@ -337,5 +339,48 @@ func TestRecallStillCarriesAnOrdinaryRecap(t *testing.T) {
 		if strings.HasSuffix(h.Ref, doc.Slug) && h.Recap == "" {
 			t.Error("an ordinary entry lost its recap")
 		}
+	}
+}
+
+// privateAfterRefresh cannot confirm the disclosure status of a file that is no
+// longer there, so it must redact rather than disclose or fail. This is the
+// exact function Recall calls to decide what to redact; Task 7 hands it the pin
+// list, which — unlike recall's FTS-matched candidates — has no earlier sweep
+// that would have already dropped a vanished file from consideration, so this
+// path is the one that actually meets a deleted file in practice.
+func TestPrivateAfterRefreshTreatsAMissingFileAsPrivate(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	gone, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Deleted after the fact",
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	present, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Still on disk",
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+
+	if err := os.Remove(gone.Path); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	var private map[string]bool
+	err = c.Tx(t.Context(), func(tx *sqlx.Tx) error {
+		var txErr error
+		private, txErr = c.privateAfterRefresh(tx, []string{gone.ID, present.ID})
+		return txErr
+	})
+	if err != nil {
+		t.Fatalf("privateAfterRefresh: %v, want no error for a missing file", err)
+	}
+	if !private[gone.ID] {
+		t.Errorf("private[%q] = false, want true: a file that cannot be read must be treated as private", gone.ID)
+	}
+	if private[present.ID] {
+		t.Errorf("private[%q] = true, want false: this file is still on disk and was never marked private", present.ID)
 	}
 }
