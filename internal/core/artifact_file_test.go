@@ -32,6 +32,18 @@ func TestArtifactFileResolvesARegisteredArtifact(t *testing.T) {
 	}
 }
 
+// A project id that does not exist must fail the same way any other refusal
+// does, not with a raw sql.ErrNoRows that the web layer would map to 500.
+func TestArtifactFileWithUnknownProjectIsNotFound(t *testing.T) {
+	c, p, _ := kbCore(t)
+	a := addArtifact(t, c, p.ID, "serve.png", "\x89PNG\r\n\x1a\nx")
+
+	_, _, err := c.ArtifactFile(t.Context(), "no-such-project", a.Name)
+	if fileErrCode(err) != "artifact_not_found" {
+		t.Errorf("err = %v, want artifact_not_found", err)
+	}
+}
+
 func TestArtifactFileRefuses(t *testing.T) {
 	cases := map[string]func(t *testing.T, c *Core, projectID string, a Artifact) string{
 		"an unknown name": func(t *testing.T, c *Core, projectID string, a Artifact) string {

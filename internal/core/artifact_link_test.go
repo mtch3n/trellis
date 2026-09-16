@@ -309,6 +309,73 @@ func TestDeletingAnArtifactLeavesEntryLinksAsStubs(t *testing.T) {
 	}
 }
 
+// Deleting one of two same-named artifacts leaves a single survivor for the
+// name. An entry that held the name as an ambiguous stub must resolve to that
+// survivor without any edit of its own.
+func TestDeletingOneOfTwoSameNamedArtifactsBindsTheSurvivor(t *testing.T) {
+	c, p, _ := kbCore(t)
+	a := addArtifact(t, c, p.ID, "twin.png", "\x89PNG\r\n\x1a\nfirst")
+	insertDuplicateArtifact(t, c, p.ID, a)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Twins"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	setArtifactsInFile(t, doc.Path, a.Name)
+
+	got, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	if err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+	if len(got.Artifacts) != 1 || !got.Artifacts[0].Missing {
+		t.Fatalf("setup: Artifacts = %+v, want an ambiguous stub", got.Artifacts)
+	}
+
+	var dupID string
+	if err := c.db.Get(&dupID,
+		`SELECT id FROM artifact WHERE project_id = ? AND name = ? AND id != ?`,
+		p.ID, a.Name, a.ID); err != nil {
+		t.Fatalf("find duplicate: %v", err)
+	}
+	if err := c.DeleteArtifact(t.Context(), p.ID, dupID); err != nil {
+		t.Fatalf("DeleteArtifact: %v", err)
+	}
+
+	got, err = c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	if err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+	if len(got.Artifacts) != 1 || got.Artifacts[0].Missing || got.Artifacts[0].Kind != a.Kind {
+		t.Errorf("Artifacts = %+v, want %s resolved by the backfill", got.Artifacts, a.Name)
+	}
+}
+
+// Unlinking by the artifact's id, not its name, still removes it from the
+// entry's list.
+func TestUnlinkArtifactFromEntryByID(t *testing.T) {
+	c, p, _ := kbCore(t)
+	a := addArtifact(t, c, p.ID, "a.png", "\x89PNG\r\n\x1a\na")
+	b := addArtifact(t, c, p.ID, "b.png", "\x89PNG\r\n\x1a\nb")
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "ByID"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	setArtifactsInFile(t, doc.Path, a.Name, b.Name)
+	if _, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+
+	got, err := c.UnlinkArtifactFromDoc(t.Context(), p.ID, doc.Slug, a.ID)
+	if err != nil {
+		t.Fatalf("UnlinkArtifactFromDoc: %v", err)
+	}
+	if names := artifactNamesOf(got); !slices.Equal(names, []string{b.Name}) {
+		t.Errorf("names = %v, want [%s]", names, b.Name)
+	}
+	if file := artifactsInFile(t, doc.Path); !slices.Equal(file, []string{b.Name}) {
+		t.Errorf("file lists %v, want [%s]", file, b.Name)
+	}
+}
+
 func artifactErrCode(err error) string {
 	if e, ok := errors.AsType[*Error](err); ok {
 		return e.Code

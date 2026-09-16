@@ -724,6 +724,52 @@ func TestPinsStillCarryAnOrdinaryRecap(t *testing.T) {
 	}
 }
 
+// Reclassifying an entry as private must also purge the artifact names its
+// link events recorded while the entry was still public: a name identifies a
+// file, and once the entry is private that identification is exactly what
+// must not linger in the log.
+func TestMarkingPrivatePurgesArtifactLinkEvents(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	a := addArtifact(t, c, p.ID, "evidence.png", "\x89PNG\r\n\x1a\nx")
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Staging cluster access"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.LinkArtifactToDoc(t.Context(), p.ID, doc.Slug, a.Name); err != nil {
+		t.Fatalf("LinkArtifactToDoc: %v", err)
+	}
+
+	var before string
+	if err := c.db.Get(&before,
+		`SELECT COALESCE(new_value, '') FROM event WHERE entity_id = ? AND action = 'artifact_linked'`,
+		doc.ID); err != nil {
+		t.Fatalf("setup: read event: %v", err)
+	}
+	if before != a.Name {
+		t.Fatalf("setup is wrong: artifact_linked new_value = %q, want %q", before, a.Name)
+	}
+
+	setPrivateInFile(t, doc.Path, true)
+	reread, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	if err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+	if !reread.Private {
+		t.Fatal("the external edit was not picked up")
+	}
+
+	var after string
+	if err := c.db.Get(&after,
+		`SELECT COALESCE(new_value, '') FROM event WHERE entity_id = ? AND action = 'artifact_linked'`,
+		doc.ID); err != nil {
+		t.Fatalf("read event after privatising: %v", err)
+	}
+	if after != "" {
+		t.Errorf("artifact_linked new_value = %q after privatising, want empty", after)
+	}
+}
+
 // The purge runs inside its caller's transaction, so any caller that fails
 // after loadDoc rolls the purge back, and the private mirror with it.
 // UnpinKnowledge naming a board that does not exist is one such caller: loadDoc
