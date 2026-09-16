@@ -88,6 +88,11 @@ type NewKnowledge struct {
 	Board      string // board name, association only
 	Tags       []string
 	Labels     []string
+	// Dir places the entry in a directory instead of the vault root; empty
+	// means the root. NewDir creates Dir even if it resembles an existing
+	// directory.
+	Dir    string
+	NewDir bool
 	// Set supplies values for fields a template asks for (required or
 	// choices), and any other field the caller wants recorded. Every entry
 	// is written into the new document's frontmatter.
@@ -203,6 +208,11 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		return Knowledge{}, err
 	}
 
+	dirSlug, err := SlugifyPath(in.Dir)
+	if err != nil {
+		return Knowledge{}, err
+	}
+
 	var doc Knowledge
 	var writtenPath string
 	err = c.Tx(ctx, func(tx *sqlx.Tx) error {
@@ -214,7 +224,23 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		if err != nil {
 			return err
 		}
-		slug, err := uniqueSlug(tx, projectID, Slugify(in.Title))
+		if err := c.refuseResemblingDir(tx, projectID, dirSlug, in.NewDir); err != nil {
+			return err
+		}
+		base := truncateSegment(Slugify(in.Title))
+		if dirSlug != "" {
+			base = dirSlug + "/" + base
+			if room := maxRelSlugLen - len(dirSlug) - 1; len(base) > maxRelSlugLen {
+				if room < 1 {
+					return ErrUsage("path_too_long",
+						dirSlug+" leaves no room for a title-derived slug",
+						"trellis knowledge new --title \"...\" --in <a shorter directory>")
+				}
+				leaf := strings.TrimRight(Slugify(in.Title)[:room], "-")
+				base = dirSlug + "/" + leaf
+			}
+		}
+		slug, err := uniqueSlug(tx, projectID, base)
 		if err != nil {
 			return err
 		}
@@ -245,7 +271,10 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 			}
 		}
 		raw := RenderDoc(fm, body)
-		path := filepath.Join(dir, slug+".md")
+		path := filepath.Join(dir, filepath.FromSlash(slug)+".md")
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return err
+		}
 		if err := writeAtomic(path, []byte(raw), false); err != nil {
 			return err
 		}
@@ -311,7 +340,10 @@ func insertKnowledge(tx *sqlx.Tx, d Knowledge) error {
 	return err
 }
 
-// uniqueSlug resolves collisions the way board slugs do: design, then design-2.
+// uniqueSlug resolves collisions the way board slugs do: design, then
+// design-2. A reserved Windows device name is treated as permanently taken
+// even on the first attempt, so a title like "CON" becomes "con-2" — a name
+// Windows can open — rather than a file it cannot.
 func uniqueSlug(tx *sqlx.Tx, projectID, base string) (string, error) {
 	if base == "" {
 		base = "untitled"
@@ -320,6 +352,9 @@ func uniqueSlug(tx *sqlx.Tx, projectID, base string) (string, error) {
 		slug := base
 		if n > 1 {
 			slug = fmt.Sprintf("%s-%d", base, n)
+		}
+		if reservedLeafTaken(slug) {
+			continue
 		}
 		var exists int
 		if err := tx.Get(&exists,

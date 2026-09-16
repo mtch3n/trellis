@@ -2,7 +2,10 @@ package core
 
 import (
 	"fmt"
+	"slices"
 	"strings"
+
+	"github.com/jmoiron/sqlx"
 )
 
 // maxPathSegmentLen and maxRelSlugLen are the two length ceilings from the
@@ -180,4 +183,63 @@ func min3(a, b, c int) int {
 		a = c
 	}
 	return a
+}
+
+// projectDirectories lists every distinct directory prefix used by the
+// project's own entries, at every depth: "deployment/aws/runbooks/rollback"
+// contributes "deployment", "deployment/aws" and "deployment/aws/runbooks".
+// Derived from the slug column, not the filesystem — a revision directory
+// (".<filename>/", see the revision-history design) has no row and so never
+// appears here, and an empty leftover directory from a deleted entry is
+// correctly forgotten.
+func (c *Core) projectDirectories(tx *sqlx.Tx, projectID string) ([]string, error) {
+	var slugs []string
+	if err := tx.Select(&slugs, `SELECT slug FROM knowledge WHERE project_id = ?`, projectID); err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var dirs []string
+	for _, slug := range slugs {
+		parts := strings.Split(slug, "/")
+		for i := 1; i < len(parts); i++ {
+			dir := strings.Join(parts[:i], "/")
+			if !seen[dir] {
+				seen[dir] = true
+				dirs = append(dirs, dir)
+			}
+		}
+	}
+	return dirs, nil
+}
+
+// refuseResemblingDir is "look before you write", made mechanical: creating a
+// directory that resembles one already in the project is refused unless
+// allowNew is set. Writing into a directory that already exists, however it
+// is spelled, is never refused — the exact-match check runs first.
+func (c *Core) refuseResemblingDir(tx *sqlx.Tx, projectID, dir string, allowNew bool) error {
+	if dir == "" || allowNew {
+		return nil
+	}
+	existing, err := c.projectDirectories(tx, projectID)
+	if err != nil {
+		return err
+	}
+	for _, e := range existing {
+		if e == dir {
+			return nil
+		}
+	}
+	var similar []string
+	for _, e := range existing {
+		if resembles(dir, e) {
+			similar = append(similar, e)
+		}
+	}
+	if len(similar) == 0 {
+		return nil
+	}
+	slices.Sort(similar)
+	return ErrUsage("similar_directory",
+		dir+" is close to existing "+strings.Join(similar, ", ")+"; that may be the same idea spelled two ways",
+		"trellis knowledge new --title \"...\" --in "+dir+" --new-dir")
 }
