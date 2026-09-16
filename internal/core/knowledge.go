@@ -459,16 +459,22 @@ func (f KnowledgeFilter) where() (string, []any) {
 	}
 	// An IN list is built from a closed vocabulary, never from user text, so
 	// the placeholders are generated here rather than interpolated.
-	for column, values := range map[string][]string{"doc_type": f.DocTypes, "provenance": f.Provenances} {
+	for _, col := range []string{"doc_type", "provenance"} {
+		var values []string
+		switch col {
+		case "doc_type":
+			values = f.DocTypes
+		case "provenance":
+			values = f.Provenances
+		}
 		if len(values) == 0 {
 			continue
 		}
-		clauses = append(clauses, column+" IN (?"+strings.Repeat(", ?", len(values)-1)+")")
+		clauses = append(clauses, col+" IN (?"+strings.Repeat(", ?", len(values)-1)+")")
 		for _, v := range values {
 			args = append(args, v)
 		}
 	}
-	slices.Sort(clauses[1:]) // map iteration must not reach the query
 	return strings.Join(clauses, " AND "), args
 }
 
