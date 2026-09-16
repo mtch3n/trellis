@@ -28,7 +28,7 @@ func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
 	}
 
 	// The entry moves on; the recap does not. That must be visible.
-	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "Rewritten entirely.\n", nil); err != nil {
+	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "Rewritten entirely.\n", &doc.Version); err != nil {
 		t.Fatal(err)
 	}
 	pins, err = c.Pins(t.Context(), p.ID, "")

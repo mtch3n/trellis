@@ -5,7 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
@@ -246,21 +248,44 @@ const GlobalReviewDays = 180
 // for, so none exists anywhere.
 func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason string) (Knowledge, error) {
 	var doc Knowledge
-	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+	var src, dest string
+	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
+		// A failure after the move undoes it before this closure returns,
+		// while Core.Tx still holds SQLite's write lock.
+		defer func() {
+			if err != nil && dest != "" {
+				if merr := moveBack(dest, src); merr != nil {
+					err = errors.Join(err, merr)
+				}
+				dest = ""
+			}
+		}()
+
 		if err := c.loadDoc(tx, projectID, slug, &doc); err != nil {
 			return err
 		}
 		if doc.Global {
 			return ErrUsage("already_global", doc.Slug+" is already global", "")
 		}
+		var taken int
+		if err := tx.Get(&taken, `SELECT COUNT(*) FROM knowledge WHERE global = 1 AND slug = ?`, doc.Slug); err != nil {
+			return err
+		}
+		if taken > 0 {
+			return ErrConflict("global_slug_taken",
+				"the global vault already has an entry named "+doc.Slug,
+				"trellis knowledge show GLOBAL/"+doc.Slug)
+		}
 		dir, err := c.kbDir(GlobalKey, true)
 		if err != nil {
 			return err
 		}
-		dest, err := moveFile(doc.Path, dir)
+		src = doc.Path
+		moved, err := moveFile(doc.Path, dir)
 		if err != nil {
 			return err
 		}
+		dest = moved
 		now := c.clock.NowMS()
 		reviewBy := now + int64(GlobalReviewDays)*24*60*60*1000
 		if _, err := tx.Exec(
@@ -275,6 +300,17 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 		}
 		return c.docView(tx, &doc)
 	})
+	if err != nil && dest != "" {
+		// dest != "" only survives to here when the closure itself succeeded
+		// and tx.Commit failed: durable state, not a guess, decides which
+		// side of the move the file belongs on.
+		var landed string
+		if qerr := c.db.Get(&landed, `SELECT path FROM knowledge WHERE id = ?`, doc.ID); qerr != nil || landed != dest {
+			if merr := moveBack(dest, src); merr != nil {
+				err = errors.Join(err, merr)
+			}
+		}
+	}
 	return doc, err
 }
 
@@ -282,13 +318,23 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 // mistake must not be permanent.
 func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowledge, error) {
 	var doc Knowledge
-	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		err := tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, Slugify(slug))
-		if errors.Is(err, sql.ErrNoRows) {
+	var src, dest string
+	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
+		defer func() {
+			if err != nil && dest != "" {
+				if merr := moveBack(dest, src); merr != nil {
+					err = errors.Join(err, merr)
+				}
+				dest = ""
+			}
+		}()
+
+		gerr := tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, Slugify(slug))
+		if errors.Is(gerr, sql.ErrNoRows) {
 			return ErrNotFound("not_global", "no global entry "+slug, "trellis knowledge ls --global")
 		}
-		if err != nil {
-			return err
+		if gerr != nil {
+			return gerr
 		}
 		var key string
 		if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, doc.ProjectID); err != nil {
@@ -298,10 +344,12 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 		if err != nil {
 			return err
 		}
-		dest, err := moveFile(doc.Path, dir)
+		src = doc.Path
+		moved, err := moveFile(doc.Path, dir)
 		if err != nil {
 			return err
 		}
+		dest = moved
 		if _, err := tx.Exec(
 			`UPDATE knowledge SET global = 0, path = ?, review_by = NULL, updated_at = ? WHERE id = ?`,
 			dest, c.clock.NowMS(), doc.ID); err != nil {
@@ -313,6 +361,14 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 		}
 		return c.docView(tx, &doc)
 	})
+	if err != nil && dest != "" {
+		var landed string
+		if qerr := c.db.Get(&landed, `SELECT path FROM knowledge WHERE id = ?`, doc.ID); qerr != nil || landed != dest {
+			if merr := moveBack(dest, src); merr != nil {
+				err = errors.Join(err, merr)
+			}
+		}
+	}
 	return doc, err
 }
 
@@ -343,22 +399,44 @@ func (d Knowledge) Unreviewed(nowMS int64) bool {
 	return d.Global && d.ReviewBy != nil && nowMS > *d.ReviewBy
 }
 
+// moveFile moves src into destDir, refusing to replace anything already
+// there. A hard link is nearly free and needs no fallback for the common case
+// (same filesystem); os.Link's O_EXCL-like semantics are what make "refuses
+// to replace" true without a TOCTOU gap. A link across filesystems, or on a
+// filesystem without hard links, falls back to copyAtomic, which refuses the
+// same way. Either way src is only removed once dest is safely in place.
 func moveFile(src, destDir string) (string, error) {
-	dest := destDir + string(os.PathSeparator) + baseName(src)
-	if err := os.Rename(src, dest); err != nil {
-		// A rename across filesystems fails; copy then remove.
-		raw, rerr := os.ReadFile(src)
-		if rerr != nil {
-			return "", rerr
+	dest := filepath.Join(destDir, baseName(src))
+	if err := os.Link(src, dest); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return "", ErrConflict("path_taken", dest+" already exists", "")
 		}
-		if werr := os.WriteFile(dest, raw, 0o600); werr != nil {
-			return "", werr
-		}
-		if rmErr := os.Remove(src); rmErr != nil {
-			return "", rmErr
+		if err := copyAtomic(dest, src); err != nil {
+			if errors.Is(err, fs.ErrExist) {
+				return "", ErrConflict("path_taken", dest+" already exists", "")
+			}
+			return "", err
 		}
 	}
+	if err := os.Remove(src); err != nil {
+		_ = os.Remove(dest)
+		return "", err
+	}
+	if err := syncDirectory(destDir); err != nil {
+		return "", err
+	}
+	if err := syncDirectory(filepath.Dir(src)); err != nil {
+		return "", err
+	}
 	return dest, nil
+}
+
+// moveBack undoes a successful moveFile: dest moves back into the directory
+// src used to live in. It is the only compensation escalate and demote need,
+// so it stays a small helper rather than growing into a general framework.
+func moveBack(dest, src string) error {
+	_, err := moveFile(dest, filepath.Dir(src))
+	return err
 }
 
 func baseName(path string) string {

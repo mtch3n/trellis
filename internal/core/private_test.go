@@ -513,7 +513,7 @@ func TestEditOnPrivateRecordsNoContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "hunter2 is the password\n", nil); err != nil {
+	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "hunter2 is the password\n", &doc.Version); err != nil {
 		t.Fatalf("EditKnowledge: %v", err)
 	}
 
@@ -549,7 +549,7 @@ func TestMarkingPrivatePurgesEveryLocalCopy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "the password is hunter2\n", nil); err != nil {
+	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "the password is hunter2\n", &doc.Version); err != nil {
 		t.Fatalf("EditKnowledge: %v", err)
 	}
 	if _, err := c.PinKnowledge(t.Context(), p.ID, doc.Slug, "hunter2 opens staging", ""); err != nil {
@@ -898,7 +898,7 @@ func TestEditOnNormalStillRecordsContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "ranks are fused\n", nil); err != nil {
+	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "ranks are fused\n", &doc.Version); err != nil {
 		t.Fatalf("EditKnowledge: %v", err)
 	}
 

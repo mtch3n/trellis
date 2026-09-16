@@ -496,15 +496,45 @@ func (c *Core) EditKnowledge(ctx context.Context, projectID, slug, body string, 
 	return c.EditKnowledgeFields(ctx, projectID, slug, KnowledgeEdit{Body: &body, IfVersion: ifVersion})
 }
 
+// changedOnDisk reports that a knowledge file no longer holds the bytes a
+// write inside this transaction was based on: something outside Trellis, an
+// editor most likely, won the race.
+func changedOnDisk(slug string) error {
+	return ErrConflict("conflict", slug+" changed on disk while it was being edited",
+		"trellis knowledge show "+slug)
+}
+
 // EditKnowledgeFields atomically replaces the selected Markdown fields and
 // updates the cached row from the same rendered file.
 func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, in KnowledgeEdit) (Knowledge, error) {
 	var doc Knowledge
 	var oldRaw []byte
-	var wroteFile bool
-	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+	var written string
+	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
+		// Any failure from here on undoes the write before this closure
+		// returns, while Core.Tx still holds SQLite's write lock -- not after
+		// it rolls back and frees the lock for another process to act in.
+		defer func() {
+			if err != nil && written != "" {
+				// errors.Join always wraps, even when the second argument is
+				// nil, which would turn this *Error into one coreError's
+				// direct type assertion no longer recognises. Join only when
+				// the undo itself failed; otherwise the original error, with
+				// its code and exit intact, passes through unchanged.
+				if uerr := undoWrite(doc.Path, oldRaw, written); uerr != nil {
+					err = errors.Join(err, uerr)
+				}
+				written = ""
+			}
+		}()
+
 		if err := c.loadDoc(tx, projectID, slug, &doc); err != nil {
 			return err
+		}
+		if in.IfVersion == nil {
+			return ErrUsage("version_required",
+				"knowledge edit replaces whole fields and needs the version you read",
+				fmt.Sprintf("trellis knowledge show %s --json   # then pass --if-version %d", doc.Slug, doc.Version))
 		}
 		// refreshFromFile has already folded in any external edit, so a version
 		// mismatch here means exactly that: someone else changed the file.
@@ -533,16 +563,22 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 			return err
 		}
 
+		// The one read this write is based on. loadDoc's own read, above, may
+		// be stale by now: checkWrite just ran arbitrary policy code, and
+		// nothing here holds a lock against a program outside Trellis.
 		raw, err := os.ReadFile(doc.Path)
 		if err != nil {
 			return err
 		}
-		oldRaw = append(oldRaw[:0], raw...)
-		fm, _, err := splitDocFile(doc.Path, raw)
+		if ContentHash(string(raw)) != doc.ContentHash {
+			return changedOnDisk(doc.Slug)
+		}
+		base := doc.ContentHash // the hash this write is based on
+		oldRaw = raw
+		fm, body, err := splitDocFile(doc.Path, raw)
 		if err != nil {
 			return err
 		}
-		body := doc.BodyMD
 		if in.Body != nil {
 			body = *in.Body
 		}
@@ -558,10 +594,13 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		now := c.clock.NowMS()
 		fm.Updated = msToRFC3339(now)
 		out := RenderDoc(fm, body)
-		if err := writeAtomic(doc.Path, []byte(out), true); err != nil {
+		if err := replaceIfUnchanged(doc.Path, []byte(out), base); err != nil {
+			if errors.Is(err, errFileChanged) {
+				return changedOnDisk(doc.Slug)
+			}
 			return err
 		}
-		wroteFile = true
+		written = ContentHash(out)
 		st, err := os.Stat(doc.Path)
 		if err != nil {
 			return err
@@ -570,7 +609,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		doc.Title = cmpOr(fm.Title, doc.Title)
 		doc.Summary = fm.Summary
 		doc.BodyMD = body
-		doc.ContentHash = ContentHash(out)
+		doc.ContentHash = written
 		doc.MTime = st.ModTime().UnixMilli()
 		doc.Size = st.Size()
 		doc.Version++
@@ -604,9 +643,15 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		}
 		return c.docView(tx, &doc)
 	})
-	if err != nil && wroteFile {
-		if restoreErr := writeAtomic(doc.Path, oldRaw, true); restoreErr != nil {
-			err = errors.Join(err, restoreErr)
+	if err != nil && written != "" {
+		// written != "" only survives to here when the closure itself
+		// succeeded and tx.Commit failed: an ambiguous outcome the driver
+		// does not resolve for us. Durable state is the only honest answer.
+		var landed string
+		if qerr := c.db.Get(&landed, `SELECT content_hash FROM knowledge WHERE id = ?`, doc.ID); qerr != nil || landed != written {
+			if uerr := undoWrite(doc.Path, oldRaw, written); uerr != nil {
+				err = errors.Join(err, uerr)
+			}
 		}
 	}
 	if err == nil {
@@ -618,8 +663,8 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 // DeleteKnowledge removes the row and the file.
 func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) error {
 	var staged *stagedRemoval
-	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		var doc Knowledge
+	var doc Knowledge
+	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
 		if err := tx.Get(&doc,
 			`SELECT * FROM knowledge WHERE project_id = ? AND slug = ?`, projectID, Slugify(slug)); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -627,11 +672,20 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 			}
 			return err
 		}
-		var err error
-		staged, err = stageRemoval(doc.Path)
-		if err != nil {
-			return err
+		var serr error
+		staged, serr = stageRemoval(doc.Path)
+		if serr != nil {
+			return serr
 		}
+		// A failure below undoes the stage before this closure returns, while
+		// Core.Tx still holds SQLite's write lock.
+		defer func() {
+			if err != nil {
+				if rerr := staged.restore(); rerr != nil {
+					err = errors.Join(err, rerr)
+				}
+			}
+		}()
 		if _, err := tx.Exec(`DELETE FROM knowledge WHERE id = ?`, doc.ID); err != nil {
 			return err
 		}
@@ -647,18 +701,26 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 		return c.recordEvent(tx, "knowledge", doc.ID, "deleted", "", doc.Title, "")
 	})
 	if err != nil {
-		if restoreErr := staged.restore(); restoreErr != nil {
-			err = errors.Join(err, restoreErr)
+		// The closure's own defer already restored a mid-transaction failure.
+		// What can still reach here is an ambiguous tx.Commit failure, which
+		// only durable state can resolve: gone means the delete landed.
+		var gone int
+		if qerr := c.db.Get(&gone, `SELECT COUNT(*) FROM knowledge WHERE id = ?`, doc.ID); qerr == nil && gone == 0 {
+			if ferr := staged.finalize(); ferr != nil {
+				err = errors.Join(err, ferr)
+			}
+			return err
+		}
+		if rerr := staged.restore(); rerr != nil {
+			err = errors.Join(err, rerr)
 		}
 		return err
 	}
 	if err := staged.finalize(); err != nil {
 		return err
 	}
-	if err == nil {
-		c.notifyKnowledgeChanged(ctx, projectID)
-	}
-	return err
+	c.notifyKnowledgeChanged(ctx, projectID)
+	return nil
 }
 
 // RebuildKnowledgeSearch refreshes the derived FTS index from the Markdown
