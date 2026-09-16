@@ -31,6 +31,15 @@ type Core struct {
 	knowledgeChanged func(context.Context, string) error
 }
 
+// WithActor returns a copy that writes as another principal. It copies rather
+// than mutating the receiver, because one Core is shared by every request a
+// server handles and they would otherwise trample each other's identity.
+func (c *Core) WithActor(actor string) *Core {
+	clone := *c
+	clone.actor = actor
+	return &clone
+}
+
 func New(db *sqlx.DB, clock Clock, actor string) *Core {
 	return &Core{db: db, clock: clock, actor: actor, leaseTTL: 30 * 60 * 1000}
 }
