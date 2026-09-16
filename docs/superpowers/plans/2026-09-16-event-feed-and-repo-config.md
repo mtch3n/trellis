@@ -85,6 +85,13 @@ cobra CLI.
   (matching the comma-splitting `StringSliceVar` convention already used by
   `--label`, `--tag` and `--type` throughout `internal/cli`); every other
   repository-safe key is written as a plain scalar.
+- Spec-mandated order: this plan runs **after** the revision-history and
+  knowledge-templates plans on this branch. Task 8, the web endpoint, is
+  written to be the *last* thing this plan does specifically because the
+  spec says the other session's event-feed web handler (uncommitted,
+  different branch) must land first and this plan's commit is what replaces
+  its query with `EventFeed` — see Task 8 for the exact verification and
+  fallback if that handler is not present yet when this plan executes.
 - Migration numbering: the next unused file in `internal/store/migrations/` is
   `0013_*.sql` (highest existing is `0012_private.sql`). **The parallel
   revision-history plan also adds a migration on this branch.** Whichever
@@ -123,7 +130,7 @@ cobra CLI.
 |---|---|
 | `internal/core/event_feed.go` | Create: `EventQuery`, `FeedEvent`, `EventFeed`, `feedRow` |
 | `internal/core/event_feed_test.go` | Create: every `EventFeed` behavior |
-| `internal/core/event_consumer.go` | Create: `EventConsumer`, `ConsumerStatus`, `EnsureEventConsumer`, `AckEventConsumer`, `ListEventConsumers`, `DeleteEventConsumer`, `EventGapAfter` |
+| `internal/core/event_consumer.go` | Create: `EventConsumer`, `ConsumerStatus`, `EnsureEventConsumer`, `AckEventConsumer`, `ListEventConsumers`, `DeleteEventConsumer`, `EventGapAfter`, `gapExists` |
 | `internal/core/event_consumer_test.go` | Create: consumer behavior |
 | `internal/store/migrations/0013_event_consumer.sql` | Create: `event_consumer` table |
 | `internal/cli/events.go` | Create: `trellis events`, `ack`, `consumers`, `consumers rm`, `--follow` |
@@ -165,6 +172,10 @@ import (
 )
 
 func TestEventFeedOrdersBySeqAndPages(t *testing.T) {
+	// kbCore's project and board setup already recorded a "board created"
+	// event before either card exists, so every query here is filtered to
+	// Kinds: []string{"card"} — otherwise the very first page would return
+	// that board event, not "one".
 	c, p, b := kbCore(t)
 	card1, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "one"})
 	if err != nil {
@@ -175,7 +186,7 @@ func TestEventFeedOrdersBySeqAndPages(t *testing.T) {
 		t.Fatalf("CreateCard: %v", err)
 	}
 
-	first, next, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Limit: 1})
+	first, next, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"card"}, Limit: 1})
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
@@ -183,7 +194,7 @@ func TestEventFeedOrdersBySeqAndPages(t *testing.T) {
 		t.Fatalf("first page = %+v, next = %v", first, next)
 	}
 
-	second, next2, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, After: *next, Limit: 1})
+	second, next2, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"card"}, After: *next, Limit: 1})
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
@@ -193,7 +204,7 @@ func TestEventFeedOrdersBySeqAndPages(t *testing.T) {
 	_ = card1
 	_ = card2
 
-	empty, emptyNext, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, After: *next2})
+	empty, emptyNext, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"card"}, After: *next2})
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
@@ -209,7 +220,9 @@ func TestEventFeedDefaultAndMaxLimit(t *testing.T) {
 			t.Fatalf("CreateCard: %v", err)
 		}
 	}
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Limit: 50000})
+	// Kinds: []string{"card"} excludes kbCore's own "board created" event, so
+	// the count below is exactly the three writes this test made.
+	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"card"}, Limit: 50000})
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
@@ -311,7 +324,10 @@ func TestEventFeedScopesByProject(t *testing.T) {
 		t.Fatalf("CreateCard p2: %v", err)
 	}
 
-	scoped, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+	// Filtered to Kinds: []string{"card"} throughout: kbCore and
+	// seededBoard each already record a "board created" event for their own
+	// project, and this test is about project scoping, not board noise.
+	scoped, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"card"}})
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
@@ -319,12 +335,12 @@ func TestEventFeedScopesByProject(t *testing.T) {
 		t.Fatalf("scoped events = %+v, want only p's card", scoped)
 	}
 
-	all, _, err := c.EventFeed(t.Context(), EventQuery{})
+	all, _, err := c.EventFeed(t.Context(), EventQuery{Kinds: []string{"card"}})
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
 	if len(all) != 2 {
-		t.Fatalf("--all-projects (ProjectID \"\") events = %+v, want both", all)
+		t.Fatalf("--all-projects (ProjectID \"\") card events = %+v, want both", all)
 	}
 }
 
@@ -398,7 +414,10 @@ func TestEventFeedDeletedCardHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *test
 		t.Fatalf("DeleteCard: %v", err)
 	}
 
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+	// Kinds: []string{"card"} excludes kbCore's own "board created" event,
+	// whose ref is still the (undeleted) board's name and would otherwise
+	// trip the loop below, which assumes every returned event is this card's.
+	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"card"}})
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
@@ -428,7 +447,10 @@ func TestEventFeedDeletedKnowledgeHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t 
 		t.Fatalf("DeleteKnowledge: %v", err)
 	}
 
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+	// Kinds: []string{"knowledge"} excludes kbCore's own "board created"
+	// event, whose ref and title are still the (undeleted) board's — the
+	// loop below assumes every returned event is this entry's.
+	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"knowledge"}})
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
@@ -462,7 +484,9 @@ func TestEventFeedPrivateEntryCarriesRefAndTitleOnly(t *testing.T) {
 		t.Fatalf("EditKnowledgeFields: %v", err)
 	}
 
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+	// Kinds: []string{"knowledge"} excludes kbCore's own "board created"
+	// event, whose title is the board's name, not this entry's.
+	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"knowledge"}})
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
@@ -511,7 +535,9 @@ func TestEventFeedKnowledgeRefUsesGlobalForAnEscalatedDoc(t *testing.T) {
 		t.Fatalf("EscalateKnowledge: %v", err)
 	}
 
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Actions: []string{"created"}})
+	// Kinds: []string{"knowledge"} excludes kbCore's own "board created"
+	// event, which also has action "created".
+	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"knowledge"}, Actions: []string{"created"}})
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
@@ -742,7 +768,7 @@ Expected: PASS, all fourteen.
 
 - [ ] **Step 5: Run the full gates**
 
-Run: `go build ./... && go test ./... && go vet ./... && gofmt -l .`
+Run: `go build ./... && go test ./... && go vet ./... && gofmt -l . && GOOS=windows go build ./...`
 Expected: all pass; `gofmt -l .` prints nothing.
 
 **Known flake:** `TestListKnowledgeFiltersByTypeAndProvenance/both_dimensions` fails about one run in five (TRELLIS-26, pre-existing — `KnowledgeFilter.where()` ranges over a Go map). If that exact test fails, say so and move on. Investigate any other failure; never attribute it to this flake.
@@ -903,12 +929,57 @@ func TestAckRefusesASeqPastTheNewest(t *testing.T) {
 	}
 }
 
-func TestEventGapAfterPruning(t *testing.T) {
+// A single FixedClock timestamps every write identically, so PruneHistory's
+// timestamp cutoff cannot express "prune some but not all" within one Core.
+// This test opens a second Core on the same database, one tick later, the
+// same technique internal/core/lease_test.go:474-478 already uses to test
+// time-dependent behavior against a shared connection.
+func TestEventGapAfterPartialPruning(t *testing.T) {
 	c, p, b := kbCore(t)
-	for i := 0; i < 3; i++ {
-		if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
-			t.Fatalf("CreateCard: %v", err)
-		}
+	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
+		t.Fatalf("CreateCard: %v", err)
+	}
+	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "b"}); err != nil {
+		t.Fatalf("CreateCard: %v", err)
+	}
+	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+	if err != nil {
+		t.Fatalf("EventFeed: %v", err)
+	}
+	if _, err := c.AckEventConsumer(t.Context(), "worker", events[0].Seq); err != nil {
+		t.Fatalf("AckEventConsumer: %v", err)
+	}
+
+	baseMS := c.clock.NowMS()
+	later := New(c.db, FixedClock{MS: baseMS + 1000}, c.actor)
+	if _, err := later.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "later"}); err != nil {
+		t.Fatalf("CreateCard (later): %v", err)
+	}
+
+	if _, err := c.PruneHistory(t.Context(), baseMS+500, true, false); err != nil {
+		t.Fatalf("PruneHistory: %v", err)
+	}
+
+	gap, oldest, err := c.EventGapAfter(t.Context(), events[0].Seq)
+	if err != nil {
+		t.Fatalf("EventGapAfter: %v", err)
+	}
+	if !gap {
+		t.Fatal("want a gap: pruning removed events past the consumer's cursor")
+	}
+	if oldest <= events[0].Seq {
+		t.Errorf("oldest = %d, want it greater than the acked cursor %d", oldest, events[0].Seq)
+	}
+}
+
+// If pruning removes every event, MIN(seq) has nothing to report at all --
+// COALESCE would otherwise default it to 0 and the ordinary oldest > after+1
+// comparison would wrongly say there is no gap, when in fact everything,
+// including whatever the consumer had not yet reached, is gone.
+func TestEventGapWhenEveryEventIsPruned(t *testing.T) {
+	c, p, b := kbCore(t)
+	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
+		t.Fatalf("CreateCard: %v", err)
 	}
 	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
 	if err != nil {
@@ -922,15 +993,12 @@ func TestEventGapAfterPruning(t *testing.T) {
 		t.Fatalf("PruneHistory: %v", err)
 	}
 
-	gap, oldest, err := c.EventGapAfter(t.Context(), events[0].Seq)
+	gap, _, err := c.EventGapAfter(t.Context(), events[0].Seq)
 	if err != nil {
 		t.Fatalf("EventGapAfter: %v", err)
 	}
 	if !gap {
-		t.Fatal("want a gap: pruning removed events past the consumer's cursor")
-	}
-	if oldest <= events[0].Seq {
-		t.Errorf("oldest = %d, want it greater than the acked cursor %d", oldest, events[0].Seq)
+		t.Error("want a gap: every event, including ones past the cursor, is gone")
 	}
 }
 
@@ -1118,7 +1186,11 @@ func (c *Core) ListEventConsumers(ctx context.Context) ([]ConsumerStatus, error)
 		if err := tx.Select(&consumers, `SELECT * FROM event_consumer ORDER BY name`); err != nil {
 			return err
 		}
+		var count int
 		var newest, oldest int64
+		if err := tx.Get(&count, `SELECT COUNT(*) FROM event`); err != nil {
+			return err
+		}
 		if err := tx.Get(&newest, `SELECT COALESCE(MAX(seq), 0) FROM event`); err != nil {
 			return err
 		}
@@ -1130,7 +1202,7 @@ func (c *Core) ListEventConsumers(ctx context.Context) ([]ConsumerStatus, error)
 				Name:   ec.Name,
 				Cursor: ec.Cursor,
 				Lag:    newest - ec.Cursor,
-				Gap:    ec.Cursor > 0 && oldest > ec.Cursor+1,
+				Gap:    gapExists(ec.Cursor, count, oldest),
 			})
 		}
 		return nil
@@ -1147,30 +1219,42 @@ func (c *Core) DeleteEventConsumer(ctx context.Context, name string) error {
 	})
 }
 
+// gapExists is the one rule EventGapAfter and ListEventConsumers both apply:
+// a cursor that has never acked (0) never has a gap, and otherwise there is
+// one when every event is gone (count == 0) or the oldest surviving one is
+// past what the cursor already saw. If prune has removed every event,
+// MIN(seq) has nothing to report and COALESCE would default oldest to 0 --
+// indistinguishable from "nothing has ever been pruned; the log starts at
+// seq 0" -- so count is checked separately rather than folded into oldest.
+func gapExists(cursor int64, count int, oldest int64) bool {
+	return cursor > 0 && (count == 0 || oldest > cursor+1)
+}
+
 // EventGapAfter reports whether resuming a read from after (a consumer's
-// stored cursor) would skip events that maintenance prune already removed. A
-// brand-new consumer (after == 0) never reports a gap: it never tracked
-// whatever was pruned before it existed.
+// stored cursor) would skip events that maintenance prune already removed.
 func (c *Core) EventGapAfter(ctx context.Context, after int64) (gap bool, oldest int64, err error) {
+	var count int
 	err = c.Tx(ctx, func(tx *sqlx.Tx) error {
+		if err := tx.Get(&count, `SELECT COUNT(*) FROM event`); err != nil {
+			return err
+		}
 		return tx.Get(&oldest, `SELECT COALESCE(MIN(seq), 0) FROM event`)
 	})
 	if err != nil {
 		return false, 0, err
 	}
-	gap = after > 0 && oldest > after+1
-	return gap, oldest, nil
+	return gapExists(after, count, oldest), oldest, nil
 }
 ```
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `go test ./internal/core -run 'TestEnsureEventConsumer|TestAck|TestEventGap|TestListEventConsumers|TestDeleteEventConsumer' -v`
-Expected: PASS, all eight.
+Expected: PASS, all nine.
 
 - [ ] **Step 6: Run the full gates**
 
-Run: `go build ./... && go test ./... && go vet ./... && gofmt -l .`
+Run: `go build ./... && go test ./... && go vet ./... && gofmt -l . && GOOS=windows go build ./...`
 Expected: all pass.
 
 - [ ] **Step 7: Commit**
@@ -1627,7 +1711,7 @@ Expected: PASS, all nine.
 
 - [ ] **Step 6: Run the full gates**
 
-Run: `go build ./... && go test ./... && go vet ./... && gofmt -l .`
+Run: `go build ./... && go test ./... && go vet ./... && gofmt -l . && GOOS=windows go build ./...`
 Expected: all pass.
 
 - [ ] **Step 7: Commit**
@@ -2016,7 +2100,7 @@ Expected: PASS, all eleven.
 
 - [ ] **Step 5: Run the full gates**
 
-Run: `go build ./... && go test ./... && go vet ./... && gofmt -l .`
+Run: `go build ./... && go test ./... && go vet ./... && gofmt -l . && GOOS=windows go build ./...`
 Expected: all pass.
 
 - [ ] **Step 6: Commit**
@@ -2792,7 +2876,7 @@ Expected: PASS, all six.
 
 - [ ] **Step 11: Run the full gates**
 
-Run: `go build ./... && go test ./... && go vet ./... && gofmt -l .`
+Run: `go build ./... && go test ./... && go vet ./... && gofmt -l . && GOOS=windows go build ./...`
 Expected: all pass — this is the first full `go build ./...` since Step 4 changed `EffectiveValue`'s signature, and it must succeed now that every call site (Steps 6 and 9) compiles again.
 
 - [ ] **Step 12: Commit**
@@ -3013,8 +3097,8 @@ Expected: PASS, both.
 
 - [ ] **Step 6: Run the full gates**
 
-Run: `go build ./... && go test ./... && go vet ./... && gofmt -l .`
-Expected: all pass. Also run `GOOS=windows go build ./...` to confirm this change is clean cross-platform (it touches no OS-specific code, but this task edits `root.go`, used by every command).
+Run: `go build ./... && go test ./... && go vet ./... && gofmt -l . && GOOS=windows go build ./...`
+Expected: all pass — the `GOOS=windows` build matters here specifically because this task edits `root.go`, used by every command.
 
 - [ ] **Step 7: Commit**
 
@@ -3676,6 +3760,7 @@ package ui
 import (
 	"context"
 	"encoding/json/v2"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -3691,7 +3776,9 @@ import (
 // (internal/ui/artifacts_test.go:20) and the two tests in server_test.go
 // already use: a fresh store, a project via EnsureProject, one board, and a
 // *Server built directly on them. No auth header is needed to drive s.mux in
-// a test.
+// a test. EnsureProject's own default board, plus this helper's explicit
+// one, each record a "board created" event before any test writes anything
+// of its own — see baselineSeq below, which every test here reads past.
 func eventsTestServer(t *testing.T) (*Server, core.Project, core.Board) {
 	t.Helper()
 	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
@@ -3711,13 +3798,30 @@ func eventsTestServer(t *testing.T) (*Server, core.Project, core.Board) {
 	return NewServer(c, db, "127.0.0.1:0"), p, b
 }
 
+// baselineSeq returns the seq of the last event eventsTestServer's own setup
+// already wrote (EnsureProject's default board and this helper's explicit
+// one), so a test can query ?after=<baseline> and see only what it writes
+// itself.
+func baselineSeq(t *testing.T, s *Server, projectID string) int64 {
+	t.Helper()
+	setup, _, err := s.core.EventFeed(context.Background(), core.EventQuery{ProjectID: projectID})
+	if err != nil {
+		t.Fatalf("EventFeed (baseline): %v", err)
+	}
+	if len(setup) == 0 {
+		return 0
+	}
+	return setup[len(setup)-1].Seq
+}
+
 func TestHandleEventsReturnsTheDocumentedShape(t *testing.T) {
 	s, p, b := eventsTestServer(t)
+	baseline := baselineSeq(t, s, p.ID)
 	if _, err := s.core.CreateCard(context.Background(), p.ID, b.ID, core.NewCard{Title: "one"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/p/"+p.Key+"/events", nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/p/%s/events?after=%d", p.Key, baseline), nil)
 	rec := httptest.NewRecorder()
 	s.mux.ServeHTTP(rec, req)
 
@@ -3761,11 +3865,15 @@ func TestHandleEventsRejectsABadLimit(t *testing.T) {
 
 func TestHandleEventsEmptyPageHasNullNext(t *testing.T) {
 	s, p, _ := eventsTestServer(t)
-	req := httptest.NewRequest(http.MethodGet, "/api/p/"+p.Key+"/events", nil)
+	// A freshly created project is never truly eventless: EnsureProject's
+	// own default board writes a "board created" event too. Querying after
+	// everything the setup already wrote is what makes this page empty.
+	baseline := baselineSeq(t, s, p.ID)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/p/%s/events?after=%d", p.Key, baseline), nil)
 	rec := httptest.NewRecorder()
 	s.mux.ServeHTTP(rec, req)
 	if !strings.Contains(rec.Body.String(), `"next":null`) {
-		t.Errorf("body = %s, want next: null for an empty project", rec.Body.String())
+		t.Errorf("body = %s, want next: null for an empty page", rec.Body.String())
 	}
 }
 ```
@@ -3839,7 +3947,7 @@ Expected: PASS, all four.
 
 - [ ] **Step 5: Run the full gates**
 
-Run: `go build ./... && go test ./... && go vet ./... && gofmt -l .`
+Run: `go build ./... && go test ./... && go vet ./... && gofmt -l . && GOOS=windows go build ./...`
 Expected: all pass.
 
 - [ ] **Step 6: Commit**
