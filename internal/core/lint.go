@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -13,7 +14,7 @@ import (
 
 // LintFinding is one problem with the vault. Lint reports; it never repairs.
 type LintFinding struct {
-	Kind string `json:"kind"` // stub, broken_anchor, orphan, missing_artifact
+	Kind string `json:"kind"` // stub, broken_anchor, orphan, missing_artifact, unknown_field
 	Doc  string `json:"doc"`
 	Ref  string `json:"ref,omitempty"`
 	Fix  string `json:"fix"`
@@ -25,6 +26,10 @@ type LintFinding struct {
 func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error) {
 	out := []LintFinding{}
 	docs, err := c.ListKnowledge(ctx, projectID, KnowledgeFilter{})
+	if err != nil {
+		return nil, err
+	}
+	knownFields, err := c.knownExtraFields(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -91,6 +96,26 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 				out = append(out, f)
 			}
 
+			raw, err := os.ReadFile(d.Path)
+			if err != nil {
+				return err
+			}
+			fm, _, err := splitDocFile(d.Path, raw)
+			if err != nil {
+				return err
+			}
+			var extraKeys []string
+			for k := range fm.Extra {
+				extraKeys = append(extraKeys, k)
+			}
+			slices.Sort(extraKeys)
+			for _, k := range extraKeys {
+				if !knownFields[k] {
+					out = append(out, LintFinding{Kind: "unknown_field", Doc: d.Slug, Ref: k,
+						Fix: "trellis knowledge template ls   # " + k + " is not in any template's required or choices"})
+				}
+			}
+
 			var inbound int
 			if err := tx.Get(&inbound,
 				`SELECT COUNT(*) FROM link WHERE to_type = 'doc' AND to_id = ?`, d.ID); err != nil {
@@ -115,4 +140,40 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 	})
 	slices.SortStableFunc(out, func(a, b LintFinding) int { return cmp.Compare(a.Kind, b.Kind) })
 	return out, err
+}
+
+// knownExtraFields is every field name any template on disk currently
+// names, in required or choices. A frontmatter key outside this set, and
+// outside the Frontmatter struct's own fields, is unrecognised no matter
+// which template, if any, produced the document — a document does not
+// remember which template created it. A template that fails to parse
+// names nothing here; Lint reports the document's key regardless, which is
+// the safer default when a template is broken.
+func (c *Core) knownExtraFields(ctx context.Context) (map[string]bool, error) {
+	dir, err := c.templatesDir()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	known := map[string]bool{}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		name := strings.TrimSuffix(e.Name(), ".md")
+		t, err := loadTemplate(dir, name)
+		if err != nil {
+			continue
+		}
+		for _, f := range t.Required {
+			known[f] = true
+		}
+		for f := range t.Choices {
+			known[f] = true
+		}
+	}
+	return known, nil
 }

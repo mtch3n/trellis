@@ -25,14 +25,14 @@ func newKnowledgeCmd() *cobra.Command {
 		newKnowledgeRmCmd(), newKnowledgePinCmd(), newKnowledgePinsCmd(), newKnowledgeLintCmd(),
 		newKnowledgeNominateCmd(), newKnowledgeNominationsCmd(), newKnowledgeEscalateCmd(),
 		newKnowledgeDemoteCmd(), newKnowledgeVerifyCmd(), newKnowledgeHealthCmd(),
-		newKnowledgeUptakeCmd())
+		newKnowledgeUptakeCmd(), newKnowledgeTemplateCmd())
 	return cmd
 }
 
 func newKnowledgeNewCmd() *cobra.Command {
 	var title, body, summary TextValue
 	var template, board, provenance string
-	var tags, labels []string
+	var tags, labels, setFlags, sources []string
 	var private bool
 
 	cmd := &cobra.Command{
@@ -41,19 +41,29 @@ func newKnowledgeNewCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !title.Changed() {
 				return core.ErrUsage("missing_title", "a knowledge entry needs a title",
-					`trellis knowledge new --title "Concurrency model" --template decision`)
+					`trellis knowledge new --title "Concurrency model" --template decision --source https://example.com`)
+			}
+			fields, err := parseSetFlags(setFlags)
+			if err != nil {
+				return err
 			}
 			return withBoard(func(app *appCtx) error {
 				doc, err := app.Core.CreateKnowledge(cmd.Context(), app.Project.ID, core.NewKnowledge{
 					Title: title.String(), Body: body.String(), Template: template,
 					Provenance: provenance,
 					Summary:    summary.String(), Board: board, Tags: tags, Labels: labels,
-					Private: private,
+					Private: private, Set: fields, Sources: sources,
 				})
 				if err != nil {
 					return err
 				}
-				return Emit(cmd, doc, func() string { return doc.Ref + "\n" + doc.Path })
+				return Emit(cmd, doc, func() string {
+					out := doc.Ref + "\n" + doc.Path
+					for _, w := range doc.Warnings {
+						out += "\nwarning: " + w
+					}
+					return out
+				})
 			})
 		},
 	}
@@ -65,6 +75,9 @@ func newKnowledgeNewCmd() *cobra.Command {
 	cmd.Flags().StringVar(&board, "board", "", "associate with a board (association, never ownership)")
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "free-form tags")
 	cmd.Flags().StringSliceVar(&labels, "label", nil, "labels from the project vocabulary")
+	cmd.Flags().StringArrayVar(&setFlags, "set", nil, "name=value, repeatable; supplies a field the template asks for")
+	cmd.Flags().StringArrayVar(&sources, "source", nil,
+		"cite what a claim is based on: a URL, path:lines, card ref, wikilink or absolute address; repeatable")
 	cmd.Flags().BoolVar(&private, "private", false,
 		"do not transmit this body automatically: no vector index, no recap, no content in the event log, pointer-only injection")
 	return cmd
@@ -228,22 +241,32 @@ func newKnowledgeHealthCmd() *cobra.Command {
 
 func newKnowledgeEditCmd() *cobra.Command {
 	var body TextValue
+	var sources []string
 	var ifVersion int64
 	cmd := &cobra.Command{
 		Use:   "edit <slug>",
-		Short: "Replace an entry's body",
+		Short: "Replace an entry's body, or its sources, or both",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !body.Changed() {
-				return core.ErrUsage("missing_body", "--body replaces the whole body",
+			setSources := cmd.Flags().Changed("source")
+			if !body.Changed() && !setSources {
+				return core.ErrUsage("missing_body",
+					"--body replaces the whole body; --source replaces the source list",
 					"trellis knowledge edit "+args[0]+" --body @notes.md")
 			}
 			return withBoard(func(app *appCtx) error {
-				var v *int64
-				if ifVersion > 0 {
-					v = &ifVersion
+				edit := core.KnowledgeEdit{}
+				if body.Changed() {
+					b := body.String()
+					edit.Body = &b
 				}
-				doc, err := app.Core.EditKnowledge(cmd.Context(), app.Project.ID, args[0], body.String(), v)
+				if setSources {
+					edit.Sources = &sources
+				}
+				if ifVersion > 0 {
+					edit.IfVersion = &ifVersion
+				}
+				doc, err := app.Core.EditKnowledgeFields(cmd.Context(), app.Project.ID, args[0], edit)
 				if err != nil {
 					return err
 				}
@@ -252,6 +275,7 @@ func newKnowledgeEditCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Var(&body, "body", "new markdown body")
+	cmd.Flags().StringArrayVar(&sources, "source", nil, "replace the source list; repeatable")
 	cmd.Flags().Int64Var(&ifVersion, "if-version", 0, "the version you read; required (knowledge show --json)")
 	return cmd
 }

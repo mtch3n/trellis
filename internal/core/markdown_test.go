@@ -2,6 +2,7 @@ package core
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -57,5 +58,62 @@ func TestHeadingAnchors(t *testing.T) {
 	want := []string{"title", "parallel-safety", "why-it-matters"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("HeadingAnchors = %v, want %v", got, want)
+	}
+}
+
+func TestFrontmatterExtraKeysRoundTrip(t *testing.T) {
+	raw := "---\ntitle: Rollback the API\ntype: runbook\nowner: alice\nseverity: high\n---\n# Rollback the API\n"
+	fm, body, err := SplitFrontmatter(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fm.Extra["owner"] != "alice" || fm.Extra["severity"] != "high" {
+		t.Fatalf("Extra = %+v, want owner and severity kept", fm.Extra)
+	}
+	out := RenderDoc(fm, body)
+	back, _, err := SplitFrontmatter(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Extra["owner"] != "alice" || back.Extra["severity"] != "high" {
+		t.Errorf("round trip lost an unknown key: Extra = %+v", back.Extra)
+	}
+	if back.Title != "Rollback the API" || back.Type != "runbook" {
+		t.Errorf("a named field was lost: %+v", back)
+	}
+}
+
+func TestFrontmatterExtraKeysRenderInStableOrder(t *testing.T) {
+	a := Frontmatter{Title: "X", Extra: map[string]any{"zebra": "z", "apple": "a", "mango": "m"}}
+	b := Frontmatter{Title: "X", Extra: map[string]any{"mango": "m", "apple": "a", "zebra": "z"}}
+	rendered := RenderDoc(a, "body\n")
+	for range 20 {
+		if got := RenderDoc(b, "body\n"); got != rendered {
+			t.Fatalf("rendering is not deterministic:\n%q\n%q", rendered, got)
+		}
+	}
+	if !strings.Contains(rendered, "apple: a\nmango: m\nzebra: z\n") {
+		t.Errorf("Extra keys did not render in sorted order:\n%s", rendered)
+	}
+}
+
+func TestFrontmatterWithNoExtraKeysIsUnchanged(t *testing.T) {
+	fm := Frontmatter{Title: "Plain", Type: "note"}
+	got := RenderDoc(fm, "body\n")
+	want := "---\ntitle: Plain\ntype: note\n---\n\nbody\n"
+	if got != want {
+		t.Errorf("RenderDoc with no Extra = %q, want %q", got, want)
+	}
+}
+
+func TestFrontmatterSourcesRoundTrip(t *testing.T) {
+	fm := Frontmatter{Title: "X", Sources: []string{"https://example.com", "[[design-doc]]"}}
+	raw := RenderDoc(fm, "body\n")
+	back, _, err := SplitFrontmatter(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(back.Sources) != 2 || back.Sources[0] != "https://example.com" || back.Sources[1] != "[[design-doc]]" {
+		t.Errorf("Sources = %v", back.Sources)
 	}
 }

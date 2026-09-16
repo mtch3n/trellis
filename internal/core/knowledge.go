@@ -56,6 +56,13 @@ type Knowledge struct {
 	Tags      []string      `db:"-" json:"tags,omitempty"`
 	Labels    []string      `db:"-" json:"labels,omitempty"`
 	Artifacts []ArtifactRef `db:"-" json:"artifacts,omitempty"`
+	Sources   []string      `db:"-" json:"sources,omitempty"`
+	// Warnings is set only by CreateKnowledge, when creating from a
+	// template under enforce: warn found a problem: a missing required
+	// field, a value outside its choices, or a missing section. It is
+	// never persisted or reloaded — the render-once model checks a
+	// document against its template once, at creation.
+	Warnings []string `db:"-" json:"warnings,omitempty"`
 }
 
 // ArtifactRef is an artifact as an entry names it. A name that does not resolve
@@ -81,6 +88,13 @@ type NewKnowledge struct {
 	Board      string // board name, association only
 	Tags       []string
 	Labels     []string
+	// Set supplies values for fields a template asks for (required or
+	// choices), and any other field the caller wants recorded. Every entry
+	// is written into the new document's frontmatter.
+	Set map[string]string
+	// Sources cites what this entry's claims are based on. See
+	// Frontmatter.Sources.
+	Sources []string
 }
 
 // KnowledgeEdit is a whole-document replacement. Nil fields retain their
@@ -92,6 +106,8 @@ type KnowledgeEdit struct {
 	Body    *string
 	// Artifacts, when non-nil, replaces the entry's artifact list.
 	Artifacts *[]string
+	// Sources, when non-nil, replaces the entry's source list.
+	Sources   *[]string
 	IfVersion *int64
 }
 
@@ -104,18 +120,6 @@ func Templates() []string {
 	}
 	slices.Sort(names)
 	return names
-}
-
-func templateBody(name, title string) (string, error) {
-	if name == "" {
-		name = "note"
-	}
-	raw, err := templateFS.ReadFile("templates/" + name + ".md")
-	if err != nil {
-		return "", ErrUsage("unknown_template", "no template "+name,
-			"trellis knowledge new --template "+strings.Join(Templates(), "|"))
-	}
-	return strings.ReplaceAll(string(raw), "{{TITLE}}", title), nil
 }
 
 // WithKBRoot overrides where knowledge files live. Tests use it; the CLI does
@@ -157,11 +161,40 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 	if err != nil {
 		return Knowledge{}, err
 	}
-	body := in.Body
-	if body == "" {
-		if body, err = templateBody(in.Template, in.Title); err != nil {
-			return Knowledge{}, err
+	for name := range in.Set {
+		if flag, reserved := reservedFrontmatterFields[name]; reserved {
+			return Knowledge{}, ErrUsage("reserved_field",
+				`"`+name+`" is a built-in frontmatter field and cannot be set with --set`,
+				"use "+flag+" instead")
 		}
+	}
+	templatesDirPath, err := c.templatesDir()
+	if err != nil {
+		return Knowledge{}, err
+	}
+	tmpl, err := loadTemplate(templatesDirPath, cmpOr(in.Template, "note"))
+	if err != nil {
+		return Knowledge{}, err
+	}
+	fields := map[string][]string{"sources": cleanSources(in.Sources)}
+	for k, v := range in.Set {
+		fields[k] = []string{v}
+	}
+	body := in.Body
+	checkSections := body != ""
+	if body == "" {
+		body = stripOptionalMarkers(renderTemplateBody(tmpl.Body, in.Title, in.Set))
+	}
+	violations := templateViolations(tmpl, fields, body, checkSections)
+	verifyProblems, err := c.templateVerifyViolations(ctx, projectID, tmpl, fields, body)
+	if err != nil {
+		return Knowledge{}, err
+	}
+	violations = append(violations, verifyProblems...)
+	if len(violations) > 0 && tmpl.Enforce == "reject" {
+		return Knowledge{}, ErrUsage("template_violation",
+			tmpl.Name+" does not meet its template:\n  - "+strings.Join(violations, "\n  - "),
+			templateViolationFix(tmpl.Name, violations))
 	}
 	if err := c.checkWrite(ctx, ProposedWrite{
 		Op: "doc.write", EntityType: "knowledge", ProjectID: projectID,
@@ -202,7 +235,14 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 			Provenance: provenance,
 			Private:    in.Private,
 			Board:      boardName, Tags: in.Tags, Labels: in.Labels,
+			Sources: cleanSources(in.Sources),
 			Created: msToRFC3339(now), Updated: msToRFC3339(now),
+		}
+		if len(in.Set) > 0 {
+			fm.Extra = make(map[string]any, len(in.Set))
+			for k, v := range in.Set {
+				fm.Extra[k] = v
+			}
 		}
 		raw := RenderDoc(fm, body)
 		path := filepath.Join(dir, slug+".md")
@@ -220,6 +260,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 			Title: in.Title, Path: path, DocType: fm.Type, Summary: in.Summary,
 			Provenance: provenance,
 			Private:    in.Private,
+			Sources:    cleanSources(in.Sources),
 			BodyMD:     body, ContentHash: ContentHash(raw), MTime: st.ModTime().UnixMilli(),
 			Size: st.Size(), Version: 1, CreatedAt: now, UpdatedAt: now,
 		}
@@ -251,6 +292,9 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 	}
 	if err == nil {
 		c.notifyKnowledgeChanged(ctx, projectID)
+		if len(violations) > 0 {
+			doc.Warnings = violations
+		}
 	}
 	return doc, err
 }
@@ -357,6 +401,7 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 	doc.DocType = cmpOr(fm.Type, doc.DocType)
 	doc.Summary = fm.Summary
 	doc.Provenance = fm.Provenance
+	doc.Sources = fm.Sources
 	// The flag is compared separately because the content hash cannot see it:
 	// a database restored from an older backup, or a file that already carried
 	// the key when the column was added, has an unchanged file and a wrong row.
@@ -582,6 +627,9 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		if in.Artifacts != nil {
 			fields["artifacts"] = strings.Join(*in.Artifacts, "\n")
 		}
+		if in.Sources != nil {
+			fields["sources"] = strings.Join(*in.Sources, "\n")
+		}
 		if err := c.checkWrite(ctx, ProposedWrite{
 			Op: "doc.write", EntityType: "knowledge", EntityID: doc.ID, ProjectID: projectID,
 			Fields: fields,
@@ -621,6 +669,9 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		if in.Artifacts != nil {
 			fm.Artifacts = dedupeNames(*in.Artifacts)
 		}
+		if in.Sources != nil {
+			fm.Sources = cleanSources(*in.Sources)
+		}
 		now := c.clock.NowMS()
 		fm.Updated = msToRFC3339(now)
 		out := RenderDoc(fm, body)
@@ -640,6 +691,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		doc.Summary = fm.Summary
 		doc.BodyMD = body
 		doc.ContentHash = written
+		doc.Sources = fm.Sources
 		doc.MTime = st.ModTime().UnixMilli()
 		doc.Size = st.Size()
 		doc.Version++
@@ -871,6 +923,19 @@ func cmpOr(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// cleanSources trims each source and drops blank ones, but keeps
+// duplicates: citing the same source twice is redundant, not wrong, and
+// unlike an artifact name a source is never resolved by identity.
+func cleanSources(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // Provenances are the ingestion paths an entry can arrive by. The set is closed

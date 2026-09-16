@@ -1,4 +1,9 @@
-# {{TITLE}}
+---
+enforce: reject
+required: [sources]
+verify: [sources, body]
+---
+# {{title}}
 
 ## Context
 

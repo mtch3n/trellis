@@ -1,0 +1,175 @@
+package core
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func writeCustomTemplate(t *testing.T, c *Core, name, raw string) {
+	t.Helper()
+	dir, err := c.templatesDir()
+	if err != nil {
+		t.Fatalf("templatesDir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name+".md"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestVerifyRejectsWhenSourcesIsMissing(t *testing.T) {
+	c, p, _ := kbCore(t)
+	writeCustomTemplate(t, c, "cited",
+		"---\nenforce: reject\nrequired: [sources]\nverify: [sources]\n---\n# {{title}}\n")
+
+	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Claim", Template: "cited"})
+	e, ok := errors.AsType[*Error](err)
+	if !ok || e.Code != "template_violation" || !strings.Contains(e.Msg, "sources") {
+		t.Fatalf("err = %v, want template_violation naming sources", err)
+	}
+}
+
+func TestVerifyRejectsAnUnresolvedCardAddress(t *testing.T) {
+	c, p, _ := kbCore(t)
+	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
+
+	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Claim", Template: "cited", Sources: []string{"/XPSCTL/cards/XPSCTL-999"},
+	})
+	e, ok := errors.AsType[*Error](err)
+	if !ok || e.Code != "template_violation" || !strings.Contains(e.Msg, "XPSCTL-999") {
+		t.Fatalf("err = %v, want template_violation naming the unresolved card", err)
+	}
+}
+
+func TestVerifyRejectsAnUnresolvedWikilink(t *testing.T) {
+	c, p, _ := kbCore(t)
+	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
+
+	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Claim", Template: "cited", Sources: []string{"[[missing]]"},
+	})
+	e, ok := errors.AsType[*Error](err)
+	if !ok || e.Code != "template_violation" || !strings.Contains(e.Msg, "[[missing]]") {
+		t.Fatalf("err = %v, want template_violation naming the dangling wikilink", err)
+	}
+}
+
+func TestVerifyAcceptsAURLAndProse(t *testing.T) {
+	c, p, _ := kbCore(t)
+	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
+
+	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Claim", Template: "cited",
+		Sources: []string{"https://example.com/paper", "discussed in standup on Tuesday"},
+	})
+	if err != nil {
+		t.Fatalf("a URL and prose must pass unchecked: %v", err)
+	}
+}
+
+func TestVerifyAcceptsAResolvedCardEntryAndArtifact(t *testing.T) {
+	c, p, b := kbCore(t)
+	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
+	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Evidence"})
+	if err != nil {
+		t.Fatalf("CreateCard: %v", err)
+	}
+	entry, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Referenced entry"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	art := addArtifact(t, c, p.ID, "evidence.png", "\x89PNG\r\n\x1a\nx")
+
+	_, err = c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Claim", Template: "cited",
+		Sources: []string{
+			"/XPSCTL/cards/" + card.Ref,
+			"[[" + entry.Slug + "]]",
+			"/XPSCTL/artifacts/" + art.Name,
+		},
+	})
+	if err != nil {
+		t.Fatalf("resolved references must pass: %v", err)
+	}
+}
+
+func TestVerifyBodyRejectsADanglingLink(t *testing.T) {
+	c, p, _ := kbCore(t)
+	writeCustomTemplate(t, c, "linked", "---\nenforce: reject\nverify: [body]\n---\n# {{title}}\n")
+
+	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Claim", Template: "linked", Body: "# Claim\n\nSee [[missing]].\n",
+	})
+	e, ok := errors.AsType[*Error](err)
+	if !ok || e.Code != "template_violation" || !strings.Contains(e.Msg, "[[missing]]") {
+		t.Fatalf("err = %v, want template_violation naming the dangling body link", err)
+	}
+}
+
+func TestNoteTemplateStillAcceptsADanglingBodyLink(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Notes", Body: "# Notes\n\nSee [[not-written-yet]].\n",
+	})
+	if err != nil {
+		t.Fatalf("a template with no verify rule must not block a dangling link: %v", err)
+	}
+	if doc.Slug != "notes" {
+		t.Errorf("slug = %q", doc.Slug)
+	}
+}
+
+// Ruling: a "/"-prefixed source only counts as an internal reference when it
+// has the address shape /<key>/(cards|knowledge|artifacts)/<rest>. Anything
+// else that merely starts with "/" is external and passes unchecked.
+func TestVerifyAcceptsAFilesystemPathSource(t *testing.T) {
+	c, p, _ := kbCore(t)
+	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
+
+	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Claim", Template: "cited", Sources: []string{"/usr/share/doc/x.txt:10"},
+	})
+	if err != nil {
+		t.Fatalf("a filesystem path must pass unchecked: %v", err)
+	}
+}
+
+// A value that does have the address shape but fails to parse as a valid
+// address (a malformed ref, here) is unresolved and rejected — the shape
+// check only decides whether to bother resolving at all, not whether the
+// address is well-formed.
+func TestVerifyRejectsAnAddressShapedButMalformedSource(t *testing.T) {
+	c, p, _ := kbCore(t)
+	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
+
+	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Claim", Template: "cited", Sources: []string{"/XPSCTL/cards/not-a-ref"},
+	})
+	e, ok := errors.AsType[*Error](err)
+	if !ok || e.Code != "template_violation" || !strings.Contains(e.Msg, "not-a-ref") {
+		t.Fatalf("err = %v, want template_violation naming the malformed address", err)
+	}
+}
+
+// Ruling: in a body, an absolute address counts only at the start of the
+// text, or after whitespace or "(". A URL's path segment and a source file's
+// relative path must never be mistaken for one, since in both cases the
+// character right before the "/" is neither whitespace, "(", nor the start
+// of the text.
+func TestVerifyBodyIgnoresURLAndRelativePathLookalikes(t *testing.T) {
+	c, p, _ := kbCore(t)
+	writeCustomTemplate(t, c, "linked", "---\nenforce: reject\nverify: [body]\n---\n# {{title}}\n")
+
+	body := "# Claim\n\n" +
+		"See https://example.com/foo/cards/bar for the upstream issue.\n" +
+		"Implemented in src/api/cards/handler.go.\n"
+	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Claim", Template: "linked", Body: body,
+	})
+	if err != nil {
+		t.Fatalf("a URL path and a relative path must not be read as addresses: %v", err)
+	}
+}
