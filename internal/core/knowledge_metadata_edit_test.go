@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"testing"
+	"time"
 )
 
 func TestKnowledgeMetadataEdit(t *testing.T) {
@@ -126,5 +127,30 @@ func TestKnowledgeMetadataEditFailureIsAtomic(t *testing.T) {
 				t.Fatalf("rollback: %+v %v", got, err)
 			}
 		})
+	}
+}
+
+// A file whose bytes are unchanged but whose mtime moved — a touch, or a
+// write that was undone — is the same version.
+func TestATouchedFileKeepsItsVersion(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Touched", Body: "body\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	later := time.UnixMilli(doc.MTime).Add(5 * time.Second)
+	if err := os.Chtimes(doc.Path, later, later); err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Version != doc.Version {
+		t.Fatalf("version = %d after a touch, want %d", got.Version, doc.Version)
+	}
+	var mtime int64
+	if err := c.db.Get(&mtime, `SELECT mtime FROM knowledge WHERE id = ?`, doc.ID); err != nil || mtime != later.UnixMilli() {
+		t.Fatalf("stored mtime = %d (%v), want the new stat %d", mtime, err, later.UnixMilli())
 	}
 }

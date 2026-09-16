@@ -459,13 +459,22 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 	doc.BodyMD = body
 	oldHash := doc.ContentHash
 	doc.ContentHash = ContentHash(string(raw))
-	contentChanged := st.ModTime().UnixMilli() != doc.MTime || st.Size() != doc.Size || oldHash != doc.ContentHash
+	statMoved := st.ModTime().UnixMilli() != doc.MTime || st.Size() != doc.Size
+	contentChanged := oldHash != doc.ContentHash
 	changed := contentChanged || privateDrifted
 	doc.MTime = st.ModTime().UnixMilli()
 	doc.Size = st.Size()
 	doc.UpdatedAt = c.clock.NowMS()
 	if !changed {
-		doc.BodyMD = body
+		// Same bytes under a new mtime — a touch, or a write that was undone.
+		// That is not a new version: bumping it would hand every holder of the
+		// current version a false conflict. Record the stat and stop.
+		if statMoved {
+			if _, err := tx.Exec(`UPDATE knowledge SET mtime = ?, size = ? WHERE id = ?`,
+				doc.MTime, doc.Size, doc.ID); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	doc.Version++
