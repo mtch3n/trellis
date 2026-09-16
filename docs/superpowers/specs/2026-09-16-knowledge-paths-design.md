@@ -156,7 +156,8 @@ handles dangling links:
 
 - depth ≥ 3
 - a **directory** segment longer than 30 characters
-- near-duplicate directory names, such as `deploy/` beside `deployment/`
+- directory names that resemble each other, such as `deploy/` beside
+  `deployment/` — using the definition in the next section
 
 The second is a budget warning well before the hard 96-character ceiling:
 directories should be short so leaf slugs can be descriptive.
@@ -166,6 +167,38 @@ The first is a design smell. `deployment/aws/runbooks/rollback` encodes
 field while `aws` should be a tag. Depth is where using directories to
 re-implement existing facets becomes visible. Two levels is the recommended
 practice.
+
+## A new directory that resembles an existing one is refused
+
+Directories are free-form, so vocabulary drift — `deploy/` beside
+`deployment/` — is the main way they rot. Lint reports it, but only after the
+second directory exists and documents have landed in it.
+
+So `knowledge new --in <dir>` and `knowledge mv` refuse to **create** a
+directory when an existing one resembles it. The error lists the similar
+directories. `--new-dir` creates it anyway.
+
+This is "look before you write", made mechanical. A skill telling an agent to
+run `ls` first fires in at most 15% of sessions, and nothing can confirm the
+agent actually looked. A refusal at the moment of creation needs no such trust:
+the error message *is* the listing, and passing `--new-dir` is the agent stating
+that it saw the alternatives and still wants a new directory.
+
+The check applies only when a directory would be created. Writing into a
+directory that already exists is never refused, whatever it is called.
+
+**Resemblance** is defined once and used by both this check and the lint
+finding. Two names resemble each other when:
+
+- one is a prefix of the other and the shorter is at least four characters —
+  `deploy`/`deployment`, `runbook`/`runbooks`; or
+- both are at least five characters and they are within an edit distance of
+  two — `deployment`/`deplyoment`.
+
+The rule leans toward false positives on purpose. A false positive costs one
+`--new-dir`; a false negative is exactly the drift this exists to stop. The
+length floors keep the obvious noise out — `api` never matches `apis-legacy`,
+and `docs` never matches `dogs`.
 
 ## Bare-leaf resolution
 
@@ -264,9 +297,9 @@ relevant document. Not in this design.
 - No reserved `index.md`. OKF reserves it because its consumers have no query
   engine; Trellis has SQLite, FTS5, a vector index and a link graph. A stored
   listing would be a second source of truth that drifts.
-- No fixed top-level vocabulary. Directories are free-form; lint reports
-  near-duplicate directory names (`deploy/` beside `deployment/`) without
-  blocking.
+- No fixed top-level vocabulary. Directories are free-form. Drift is handled by
+  refusing to create a directory that resembles an existing one, with
+  `--new-dir` as the explicit override, and by lint for anything that got past.
 - No cap on file or directory counts. The scarce resource is context, not disk,
   and it is already bounded where it is spent: `MaxInjectedPins = 5` and the
   recall limit. A vault quota's failure mode is an agent that cannot write down
@@ -295,5 +328,10 @@ relevant document. Not in this design.
   global vault, and the old `[[KEY/x]]` form no longer parses as a qualifier.
 - Retrieval: a document under `deployment/` is returned by a search that names
   neither the directory nor any part of it.
+- New directories: `new --in deploy` is refused when `deployment/` exists, and
+  the error names `deployment`; `--new-dir` creates it; writing into an
+  existing `deploy/` is never refused. Resemblance cases from the definition —
+  including `api`/`apis-legacy` and `docs`/`dogs` not matching — are unit-tested
+  once and shared by the check and the lint finding.
 - Cross-platform: the path suite runs on Windows CI, which is where the reserved
   names and length limits actually bite.
