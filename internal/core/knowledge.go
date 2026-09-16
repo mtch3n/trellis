@@ -14,14 +14,14 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/mtch3n/trellis/internal/home"
+	"github.com/mtch3n/trellis/internal/vpath"
 )
 
 //go:embed templates/*.md
 var templateFS embed.FS
 
-// GlobalKey is reserved: init refuses it as a project key so [[GLOBAL/x]]
-// cannot collide with a real project (§10.6).
-const GlobalKey = "GLOBAL"
+// GlobalKey names the global vault; vpath owns the reservation.
+const GlobalKey = vpath.GlobalKey
 
 // Knowledge is the cached row for one markdown file. The file always wins: every
 // read compares mtime and size and re-reads when they moved (§5).

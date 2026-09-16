@@ -393,25 +393,27 @@ func (c *Core) SeedDefaultLabels(tx *sqlx.Tx, projectID string) error {
 	return nil
 }
 
+// seedLabelsIfNone seeds the default labels when the project has none, in the
+// caller's transaction, and reports whether it did.
+func (c *Core) seedLabelsIfNone(tx *sqlx.Tx, projectID string) (bool, error) {
+	var count int
+	if err := tx.Get(&count, `SELECT COUNT(*) FROM label WHERE project_id = ?`, projectID); err != nil {
+		return false, err
+	}
+	if count > 0 {
+		return false, nil
+	}
+	return true, c.SeedDefaultLabels(tx, projectID)
+}
+
 // EnsureDefaultLabels idempotently creates default labels if they don't exist yet.
-// Returns true if labels were just created, false if they already existed.
+// Returns true if labels were created, false if they already existed.
 func (c *Core) EnsureDefaultLabels(ctx context.Context, projectID string) (bool, error) {
 	var created bool
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		// Check if labels already exist
-		var count int
-		if err := tx.Get(&count,
-			`SELECT COUNT(*) FROM label WHERE project_id = ?`, projectID); err != nil {
-			return err
-		}
-		if count > 0 {
-			created = false
-			return nil
-		}
-
-		// No labels exist; create them
-		created = true
-		return c.SeedDefaultLabels(tx, projectID)
+		var err error
+		created, err = c.seedLabelsIfNone(tx, projectID)
+		return err
 	})
 	return created, err
 }
