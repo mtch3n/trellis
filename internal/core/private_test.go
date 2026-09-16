@@ -405,10 +405,18 @@ func TestRecallStillCarriesAnOrdinaryRecap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Recall: %v", err)
 	}
+	var found bool
 	for _, h := range hits {
-		if strings.HasSuffix(h.Ref, doc.Slug) && h.Recap == "" {
-			t.Error("an ordinary entry lost its recap")
+		if !strings.HasSuffix(h.Ref, doc.Slug) {
+			continue
 		}
+		found = true
+		if h.Recap != "ranks are fused, not scored" {
+			t.Errorf("Recap = %q, want the summary", h.Recap)
+		}
+	}
+	if !found {
+		t.Fatalf("recall did not return %q at all, so its recap was never checked", doc.Slug)
 	}
 }
 
@@ -509,18 +517,23 @@ func TestMarkingPrivatePurgesEveryLocalCopy(t *testing.T) {
 		t.Fatalf("PinKnowledge: %v", err)
 	}
 
-	countLeaks := func() int {
+	countLeaks := func(action string) int {
 		t.Helper()
 		var n int
 		if err := c.db.Get(&n,
-			`SELECT COUNT(*) FROM event WHERE entity_id = ? AND COALESCE(new_value, '') LIKE '%hunter2%'`,
-			doc.ID); err != nil {
-			t.Fatalf("count events: %v", err)
+			`SELECT COUNT(*) FROM event WHERE entity_id = ? AND action = ?
+			   AND COALESCE(new_value, '') LIKE '%hunter2%'`,
+			doc.ID, action); err != nil {
+			t.Fatalf("count %s events: %v", action, err)
 		}
 		return n
 	}
-	if countLeaks() == 0 {
-		t.Fatal("setup is wrong: nothing reached the event log")
+	// Each copy is confirmed on its own: an aggregate count would pass with
+	// only one of them present, and then the purge of the other proves nothing.
+	for _, action := range []string{"pinned", "edited"} {
+		if countLeaks(action) == 0 {
+			t.Fatalf("setup is wrong: no %s event carries the text", action)
+		}
 	}
 
 	setPrivateInFile(t, doc.Path, true)
@@ -539,8 +552,10 @@ func TestMarkingPrivatePurgesEveryLocalCopy(t *testing.T) {
 	if recap != "" {
 		t.Errorf("knowledge.recap = %q, want it cleared", recap)
 	}
-	if n := countLeaks(); n != 0 {
-		t.Errorf("%d event rows still carry content, want 0", n)
+	for _, action := range []string{"pinned", "edited"} {
+		if n := countLeaks(action); n != 0 {
+			t.Errorf("%d %s event rows still carry content, want 0", n, action)
+		}
 	}
 
 	// The pin itself is not content — it is (id, knowledge_id, board_id,
@@ -624,13 +639,18 @@ func TestPinsRedactAPrivateEntryWithNoPriorRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Pins: %v", err)
 	}
+	var found bool
 	for _, pin := range pins {
 		if pin.Slug != doc.Slug {
 			continue
 		}
+		found = true
 		if strings.Contains(pin.Recap, "hunter2") {
 			t.Fatalf("recap = %q reached the brief after the file said private", pin.Recap)
 		}
+	}
+	if !found {
+		t.Fatalf("the pin list dropped %q, so its redaction was never checked", doc.Slug)
 	}
 }
 
@@ -650,10 +670,18 @@ func TestPinsStillCarryAnOrdinaryRecap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Pins: %v", err)
 	}
+	var found bool
 	for _, pin := range pins {
-		if pin.Slug == doc.Slug && pin.Recap != "ranks are fused" {
+		if pin.Slug != doc.Slug {
+			continue
+		}
+		found = true
+		if pin.Recap != "ranks are fused" {
 			t.Errorf("recap = %q, want the authored one", pin.Recap)
 		}
+	}
+	if !found {
+		t.Fatalf("the pin list dropped %q, so its recap was never checked", doc.Slug)
 	}
 }
 
