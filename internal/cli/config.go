@@ -169,7 +169,10 @@ func newConfigSetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set <key> <value>",
 		Short: "Set a config value",
-		Args:  cobra.ExactArgs(2),
+		Long: "Set a config value.\n\n" +
+			"A value starting with - (e.g. a negative number) needs a -- separator " +
+			"so it is not read as a flag: trellis config set -- history.keep -1",
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := args[0]
 			value := args[1]
@@ -211,13 +214,6 @@ func newConfigSetCmd() *cobra.Command {
 			})
 		},
 	}
-	// history.keep's own error case ("negative is invalid") needs -1 to
-	// reach RunE as the value, not be swallowed by pflag as an unknown
-	// shorthand flag. pflag treats any "-<digits>" as a flag candidate
-	// unless flag parsing stops at the first non-flag argument; every
-	// persistent flag (--project, --board, --json) still works before the
-	// key, just not after the value.
-	cmd.Flags().SetInterspersed(false)
 
 	return cmd
 }

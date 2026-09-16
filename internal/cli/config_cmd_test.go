@@ -7,9 +7,14 @@ import (
 	"testing"
 )
 
+// The value needs a -- separator: without it pflag reads -1 as an unknown
+// shorthand flag rather than as config set's second positional argument.
+// Interspersed flag parsing stays on (see TestConfigSetStillAcceptsFlagsAfterArgs)
+// so a common agent-calling shape -- flags after the key and value -- keeps
+// working; the separator is the cost of that instead of history.keep alone.
 func TestConfigSetRejectsNegativeHistoryKeep(t *testing.T) {
 	projectEnv(t)
-	if _, err := runCmdErr(t, "config", "set", "history.keep", "-1"); cliErrCode(err) != "invalid_value" {
+	if _, err := runCmdErr(t, "config", "set", "--", "history.keep", "-1"); cliErrCode(err) != "invalid_value" {
 		t.Errorf("err = %v, want invalid_value", err)
 	}
 }
@@ -20,6 +25,17 @@ func TestConfigSetHistoryKeep(t *testing.T) {
 	out := runCmd(t, "config", "get", "history.keep", "--json")
 	if !strings.Contains(out, `"value":"10"`) {
 		t.Errorf("config get history.keep = %s, want value 10", out)
+	}
+}
+
+// A flag after the key and value must still parse: config set must not turn
+// on SetInterspersed(false), which would make a trailing --json (or
+// --project) a third positional argument instead of a flag.
+func TestConfigSetStillAcceptsFlagsAfterArgs(t *testing.T) {
+	projectEnv(t)
+	out := runCmd(t, "config", "set", "card.ls_limit", "50", "--json")
+	if !strings.Contains(out, `"value":"50"`) {
+		t.Errorf("config set card.ls_limit 50 --json = %s, want value 50", out)
 	}
 }
 
