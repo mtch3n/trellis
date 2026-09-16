@@ -104,6 +104,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/steal", s.handleStealCard)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/claim", s.handleClaimCard)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/release", s.handleReleaseCard)
+	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/notes", s.handleCreateNote)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/knowledge", s.handleKnowledgeList)
 	s.mux.HandleFunc("GET /api/p/{key}/knowledge", s.handleProjectKnowledgeList)
 	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}/history", s.handleKnowledgeHistory)
@@ -810,6 +811,9 @@ type stealRequest struct {
 type claimRequest struct {
 	TTLMinutes *int64 `json:"ttl_minutes"`
 }
+type noteRequest struct {
+	Body string `json:"body"`
+}
 type knowledgeRequest struct {
 	Title    string `json:"title"`
 	Body     string `json:"body"`
@@ -922,6 +926,36 @@ func (s *Server) handleReleaseCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, released)
+}
+
+func (s *Server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, b, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
+	if err != nil {
+		s.error(w, http.StatusNotFound, err.Error())
+		return
+	}
+	var in noteRequest
+	if !decodeJSON(w, r, &in) || strings.TrimSpace(in.Body) == "" {
+		s.error(w, http.StatusBadRequest, "note body required")
+		return
+	}
+	card, err := s.core.GetCard(ctx, p.ID, core.ParseCardRef(r.PathValue("card")))
+	if err != nil || card.BoardID != b.ID {
+		if err != nil {
+			s.coreError(w, err)
+		} else {
+			s.error(w, http.StatusNotFound, "card not found on this board")
+		}
+		return
+	}
+	note, err := s.write.CreateNote(ctx, card.ID, in.Body)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, note)
 }
 
 func (s *Server) handleKnowledgeList(w http.ResponseWriter, r *http.Request) {
