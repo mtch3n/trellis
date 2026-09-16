@@ -79,11 +79,48 @@ func (c *Core) PinKnowledge(ctx context.Context, projectID, slug, recap, board s
 			stored, hash, doc.ID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(
-			`INSERT INTO pin (id, knowledge_id, board_id, created_at) VALUES (?, ?, ?, ?)
-			 ON CONFLICT (knowledge_id, board_id) DO UPDATE SET created_at = excluded.created_at`,
-			NewCardID(), doc.ID, boardID, now); err != nil {
-			return err
+
+		// Handle pinning without a board: update the existing pin instead of
+		// inserting, since NULL != NULL in uniqueness constraints. Clean up any
+		// duplicates that may have accumulated.
+		if boardID == nil {
+			// Delete all but the most recent pin (if multiple exist)
+			var pinID string
+			err := tx.Get(&pinID,
+				`SELECT id FROM pin WHERE knowledge_id = ? AND board_id IS NULL
+				 ORDER BY created_at DESC LIMIT 1`,
+				doc.ID)
+			if err != nil && err != sql.ErrNoRows {
+				return err
+			}
+			if err == nil {
+				// A pin already exists; delete all others and update it
+				if _, err := tx.Exec(
+					`DELETE FROM pin WHERE knowledge_id = ? AND board_id IS NULL AND id != ?`,
+					doc.ID, pinID); err != nil {
+					return err
+				}
+				if _, err := tx.Exec(
+					`UPDATE pin SET created_at = ? WHERE id = ?`,
+					now, pinID); err != nil {
+					return err
+				}
+			} else {
+				// No pin exists yet, create it
+				if _, err := tx.Exec(
+					`INSERT INTO pin (id, knowledge_id, board_id, created_at) VALUES (?, ?, ?, ?)`,
+					NewCardID(), doc.ID, nil, now); err != nil {
+					return err
+				}
+			}
+		} else {
+			// For pinned boards, use the standard ON CONFLICT approach
+			if _, err := tx.Exec(
+				`INSERT INTO pin (id, knowledge_id, board_id, created_at) VALUES (?, ?, ?, ?)
+				 ON CONFLICT (knowledge_id, board_id) DO UPDATE SET created_at = excluded.created_at`,
+				NewCardID(), doc.ID, boardID, now); err != nil {
+				return err
+			}
 		}
 		pin = Pin{Slug: doc.Slug, Title: doc.Title, Recap: text, BoardName: boardName, CreatedAt: now}
 		return c.recordEvent(tx, "knowledge", doc.ID, "pinned", "", "", text)

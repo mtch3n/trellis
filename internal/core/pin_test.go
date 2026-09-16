@@ -46,6 +46,42 @@ func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
 		t.Errorf("Pins after unpin = %+v, want none", pins)
 	}
 }
+func TestPinWithoutBoardUpdatesExistingPin(t *testing.T) {
+	c, p, _ := kbCore(t)
+	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Concurrency model", Summary: "Leases, not locks", Body: "# Concurrency model\n\nBody.\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Pin the same entry twice without a board
+	_, err = c.PinKnowledge(t.Context(), p.ID, "concurrency-model", "", "")
+	if err != nil {
+		t.Fatalf("First PinKnowledge: %v", err)
+	}
+
+	pin2, err := c.PinKnowledge(t.Context(), p.ID, "concurrency-model", "Updated recap", "")
+	if err != nil {
+		t.Fatalf("Second PinKnowledge: %v", err)
+	}
+
+	// Should have only one pin
+	pins, err := c.Pins(t.Context(), p.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pins) != 1 {
+		t.Errorf("Pins = %+v, want exactly one pin after pinning twice without board", pins)
+	}
+	if pins[0].Recap != "Updated recap" {
+		t.Errorf("Pin recap = %q, want 'Updated recap'", pins[0].Recap)
+	}
+	if pins[0].CreatedAt != pin2.CreatedAt {
+		t.Errorf("Pin created_at = %d, want %d (from second pin)", pins[0].CreatedAt, pin2.CreatedAt)
+	}
+}
+
 func TestEscalateMovesTheEntryAndKeepsReferences(t *testing.T) {
 	c, p, _ := kbCore(t)
 	target, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Postgres conventions"})
