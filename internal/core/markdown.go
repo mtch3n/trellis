@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/mtch3n/trellis/internal/vpath"
 	"gopkg.in/yaml.v3"
 )
 
@@ -126,32 +127,25 @@ func Slugify(s string) string {
 	return strings.Trim(s, "-")
 }
 
-// Reference is one [[wikilink]] found in a body.
+// Reference is one [[wikilink]] target, or a link target typed on the command
+// line.
 type Reference struct {
-	Raw        string // the literal text between the brackets, e.g. "XPSCTL/design"
-	ProjectKey string // set when the reference was qualified
+	Raw        string // the target as written, anchor included: "design", "/XPSCTL/knowledge/design#why"
+	ProjectKey string // "" for a relative target, "GLOBAL" for the vault, else the key an address names
 	Slug       string
 	Anchor     string // heading slug, without the #
 }
 
-// ParseWikilinks finds every [[link]], [[link#anchor]] and [[KEY/link]] in a
-// body. Code spans and fenced blocks are skipped: an agent pasting a snippet
-// that happens to contain brackets is not making a reference.
+// ParseWikilinks finds every [[link]], [[link#anchor]] and
+// [[/KEY/knowledge/link]] in a body. Code spans and fenced blocks are skipped:
+// an agent pasting a snippet that happens to contain brackets is not making a
+// reference.
 func ParseWikilinks(body string) []Reference {
 	clean := fenceRE.ReplaceAllString(body, "")
 	seen := map[string]bool{}
 	var refs []Reference
 	for _, m := range wikiLinkRE.FindAllStringSubmatch(clean, -1) {
-		target := strings.TrimSpace(m[1])
-		anchor := Slugify(strings.TrimPrefix(m[2], "#"))
-		key := ""
-		if k, rest, ok := strings.Cut(target, "/"); ok {
-			key, target = strings.ToUpper(k), rest
-		}
-		ref := Reference{
-			Raw: strings.TrimSpace(m[1]) + m[2], ProjectKey: key,
-			Slug: Slugify(target), Anchor: anchor,
-		}
+		ref := ParseReference(strings.TrimSpace(m[1]) + m[2])
 		if ref.Slug == "" || seen[ref.Raw] {
 			continue
 		}
@@ -202,16 +196,29 @@ func FirstParagraph(body string) string {
 	return ""
 }
 
-// ParseReference reads one reference in its stored form — "slug",
-// "slug#anchor" or "KEY/slug#anchor" — back into a Reference. It is the
-// inverse of the Raw field ParseWikilinks writes, so a link recovered from
-// the database resolves exactly as it did when the body was parsed.
+// ParseReference reads one link target -- "slug", "slug#anchor",
+// "/KEY/knowledge/slug#anchor" or "/GLOBAL/knowledge/slug" -- into a
+// Reference. It is the inverse of Raw, so a link recovered from the database
+// resolves exactly as it did when the body was parsed.
+//
+// A relative target is slugified whole: [[a/b]] is the slug a-b until
+// knowledge paths give it a directory. An absolute target that names no
+// knowledge entry -- a card address, or a malformed one -- keeps its text as
+// the slug. No row can match that, so the link stays a stub and lint says why.
 func ParseReference(raw string) Reference {
-	target, anchor, _ := strings.Cut(strings.TrimSpace(raw), "#")
-	ref := Reference{Raw: strings.TrimSpace(raw), Anchor: Slugify(anchor)}
-	if key, rest, ok := strings.Cut(target, "/"); ok {
-		ref.ProjectKey, target = strings.ToUpper(key), rest
+	raw = strings.TrimSpace(raw)
+	target, anchor := vpath.SplitAnchor(raw)
+	target = strings.TrimSpace(target)
+	ref := Reference{Raw: raw, Anchor: Slugify(anchor)}
+	if !strings.HasPrefix(target, "/") {
+		ref.Slug = Slugify(target)
+		return ref
 	}
-	ref.Slug = Slugify(target)
+	p, err := vpath.Parse(target)
+	if err != nil || p.Collection != vpath.CollectionKnowledge {
+		ref.Slug = target
+		return ref
+	}
+	ref.ProjectKey, ref.Slug = p.Project, p.Name
 	return ref
 }

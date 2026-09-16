@@ -4,18 +4,20 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/vpath"
 )
 
 // LintFinding is one problem with the vault. Lint reports; it never repairs.
 type LintFinding struct {
-	Kind string `json:"kind"` // stub, broken_anchor, orphan, missing_artifact, unknown_field, deep_directory, long_directory_name, similar_directory
-	Doc  string `json:"doc"`
+	Kind string `json:"kind"` // stub, broken_anchor, orphan, wrong_collection, bad_path, missing_artifact, unknown_field, deep_directory, long_directory_name, similar_directory
+	Doc  string `json:"doc"`  // the address of the entry that holds the problem
 	Ref  string `json:"ref,omitempty"`
 	Fix  string `json:"fix"`
 }
@@ -33,13 +35,13 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 	if err != nil {
 		return nil, err
 	}
-	anchorsBySlug := map[string]map[string]bool{}
+	// Anchors are checked on the entry a link resolved to, by id, wherever it
+	// lives. The project's own entries are in hand already; a target in
+	// another project or in the vault is read from its file the first time a
+	// link needs it.
+	targets := linkTargets{}
 	for _, d := range docs {
-		set := map[string]bool{}
-		for _, a := range HeadingAnchors(d.BodyMD) {
-			set[a] = true
-		}
-		anchorsBySlug[d.Slug] = set
+		targets[d.ID] = linkTarget{ref: d.Ref, anchors: anchorSet(d.BodyMD)}
 	}
 
 	err = c.Tx(ctx, func(tx *sqlx.Tx) error {
@@ -55,21 +57,12 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 				return err
 			}
 			for _, r := range rows {
-				if !r.ToID.Valid {
-					out = append(out, LintFinding{Kind: "stub", Doc: d.Slug, Ref: r.ToRaw,
-						Fix: `trellis knowledge new --title "` + r.ToRaw + `"`})
-					continue
+				f, ok, err := linkFinding(tx, targets, d, r.ToRaw, r.ToID, r.Anchor)
+				if err != nil {
+					return err
 				}
-				if !r.Anchor.Valid || r.Anchor.String == "" {
-					continue
-				}
-				slug, _, _ := strings.Cut(r.ToRaw, "#")
-				if _, rest, ok := strings.Cut(slug, "/"); ok {
-					slug = rest
-				}
-				if set, known := anchorsBySlug[Slugify(slug)]; known && !set[r.Anchor.String] {
-					out = append(out, LintFinding{Kind: "broken_anchor", Doc: d.Slug, Ref: r.ToRaw,
-						Fix: "trellis knowledge show " + Slugify(slug) + "   # check its headings"})
+				if ok {
+					out = append(out, f)
 				}
 			}
 
@@ -87,7 +80,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 					d.ProjectID, name); err != nil {
 					return err
 				}
-				f := LintFinding{Kind: "missing_artifact", Doc: d.Slug, Ref: name,
+				f := LintFinding{Kind: "missing_artifact", Doc: d.Ref, Ref: name,
 					Fix: "trellis artifact add <file>   # no artifact is named " + name}
 				if matches > 1 {
 					f.Fix = "trellis artifact ls   # " + strconv.Itoa(matches) +
@@ -111,7 +104,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 			slices.Sort(extraKeys)
 			for _, k := range extraKeys {
 				if !knownFields[k] {
-					out = append(out, LintFinding{Kind: "unknown_field", Doc: d.Slug, Ref: k,
+					out = append(out, LintFinding{Kind: "unknown_field", Doc: d.Ref, Ref: k,
 						Fix: "trellis knowledge template ls   # " + k + " is not in any template's required or choices"})
 				}
 			}
@@ -132,20 +125,20 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 				return err
 			}
 			if inbound == 0 && outbound == 0 {
-				out = append(out, LintFinding{Kind: "orphan", Doc: d.Slug,
+				out = append(out, LintFinding{Kind: "orphan", Doc: d.Ref,
 					Fix: "link it from a card or another entry, or remove it"})
 			}
 
 			if dirs := strings.Split(d.Slug, "/"); len(dirs) > 1 {
 				dirs = dirs[:len(dirs)-1]
 				if len(dirs) >= 3 {
-					out = append(out, LintFinding{Kind: "deep_directory", Doc: d.Slug,
+					out = append(out, LintFinding{Kind: "deep_directory", Doc: d.Ref,
 						Ref: strings.Join(dirs, "/"),
 						Fix: "trellis knowledge mv " + d.Slug + " <a shallower path>   # depth is a design smell past two levels"})
 				}
 				for _, seg := range dirs {
 					if len(seg) > 30 {
-						out = append(out, LintFinding{Kind: "long_directory_name", Doc: d.Slug, Ref: seg,
+						out = append(out, LintFinding{Kind: "long_directory_name", Doc: d.Ref, Ref: seg,
 							Fix: "trellis knowledge mv " + d.Slug + " <a shorter directory name>"})
 					}
 				}
@@ -206,4 +199,100 @@ func (c *Core) knownExtraFields(ctx context.Context) (map[string]bool, error) {
 		}
 	}
 	return known, nil
+}
+
+// linkFinding judges one wikilink held by d.
+func linkFinding(tx *sqlx.Tx, targets linkTargets, d Knowledge, raw string,
+	toID, anchor sql.NullString) (LintFinding, bool, error) {
+	ref := ParseReference(raw)
+	if !toID.Valid {
+		target, _ := vpath.SplitAnchor(raw)
+		target = strings.TrimSpace(target)
+		if strings.HasPrefix(target, "/") && ref.ProjectKey == "" {
+			return addressFinding(d, raw, target), true, nil
+		}
+		return LintFinding{Kind: "stub", Doc: d.Ref, Ref: raw, Fix: stubFix(ref)}, true, nil
+	}
+	if !anchor.Valid || anchor.String == "" {
+		return LintFinding{}, false, nil
+	}
+	target, found, err := targets.get(tx, toID.String)
+	if err != nil || !found || target.anchors[anchor.String] {
+		return LintFinding{}, false, err
+	}
+	return LintFinding{Kind: "broken_anchor", Doc: d.Ref, Ref: raw,
+		Fix: "trellis knowledge show " + target.ref + "   # check its headings"}, true, nil
+}
+
+// linkTarget is what an anchor check needs from the entry a link resolved to.
+type linkTarget struct {
+	ref     string
+	anchors map[string]bool
+}
+
+// linkTargets caches link targets by entry id.
+type linkTargets map[string]linkTarget
+
+// get returns the target with id, reading its file the first time. found is
+// false when the row or its file has gone, which is not an anchor problem.
+func (t linkTargets) get(tx *sqlx.Tx, id string) (linkTarget, bool, error) {
+	if lt, ok := t[id]; ok {
+		return lt, true, nil
+	}
+	var row struct {
+		Path string `db:"path"`
+		Ref  string `db:"ref"`
+	}
+	err := tx.Get(&row, `SELECT k.path, `+docAddressSQL+` AS ref
+		FROM knowledge k JOIN project p ON p.id = k.project_id WHERE k.id = ?`, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return linkTarget{}, false, nil
+	}
+	if err != nil {
+		return linkTarget{}, false, err
+	}
+	raw, err := os.ReadFile(row.Path)
+	if errors.Is(err, os.ErrNotExist) {
+		return linkTarget{}, false, nil
+	}
+	if err != nil {
+		return linkTarget{}, false, err
+	}
+	_, body, err := splitDocFile(row.Path, raw)
+	if err != nil {
+		return linkTarget{}, false, err
+	}
+	lt := linkTarget{ref: row.Ref, anchors: anchorSet(body)}
+	t[id] = lt
+	return lt, true, nil
+}
+
+func anchorSet(body string) map[string]bool {
+	set := map[string]bool{}
+	for _, a := range HeadingAnchors(body) {
+		set[a] = true
+	}
+	return set
+}
+
+// addressFinding explains an absolute link target that names no knowledge
+// entry: a malformed address, or one in another collection.
+func addressFinding(d Knowledge, raw, target string) LintFinding {
+	f := LintFinding{Kind: "wrong_collection", Doc: d.Ref, Ref: raw,
+		Fix: "trellis knowledge edit " + d.Ref + " --body @file   # a wikilink names /KEY/knowledge/<slug>"}
+	if _, err := vpath.Parse(target); err != nil {
+		f.Kind = "bad_path"
+	}
+	return f
+}
+
+// stubFix says how to write the entry a stub is waiting for.
+func stubFix(ref Reference) string {
+	switch ref.ProjectKey {
+	case "":
+		return `trellis knowledge new --title "` + ref.Raw + `"`
+	case vpath.GlobalKey:
+		return `trellis knowledge new --title "` + ref.Slug + `"   # then a human escalates it`
+	}
+	return "trellis --project " + ref.ProjectKey + ` knowledge new --title "` + ref.Slug + `"`
 }

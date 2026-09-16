@@ -7,18 +7,36 @@ import (
 )
 
 func TestParseWikilinksFormsAndSkips(t *testing.T) {
-	body := "See [[design]] and [[XPSCTL/concurrency-model#parallel safety]].\n" +
+	body := "See [[design]] and [[/XPSCTL/knowledge/concurrency-model#parallel safety]].\n" +
 		"Alias [[design|the design]] is the same target.\n" +
 		"```\nnot a [[link]] in code\n```\n" +
-		"Nor `[[inline]]`.\n"
+		"Nor `[[inline]]`.\n" +
+		"A card is no entry: [[/XPSCTL/cards/XPSCTL-1]]. The old form: [[XPSCTL/design]].\n"
 	got := ParseWikilinks(body)
 	want := []Reference{
 		{Raw: "design", Slug: "design"},
-		{Raw: "XPSCTL/concurrency-model#parallel safety", ProjectKey: "XPSCTL",
+		{Raw: "/XPSCTL/knowledge/concurrency-model#parallel safety", ProjectKey: "XPSCTL",
 			Slug: "concurrency-model", Anchor: "parallel-safety"},
+		{Raw: "/XPSCTL/cards/XPSCTL-1", Slug: "/XPSCTL/cards/XPSCTL-1"},
+		{Raw: "XPSCTL/design", Slug: "xpsctl-design"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ParseWikilinks =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+func TestParseReference(t *testing.T) {
+	cases := map[string]Reference{
+		"design#Why Not":                  {Raw: "design#Why Not", Slug: "design", Anchor: "why-not"},
+		"a/b":                             {Raw: "a/b", Slug: "a-b"},
+		"/other/knowledge/runbook":        {Raw: "/other/knowledge/runbook", ProjectKey: "OTHER", Slug: "runbook"},
+		"/GLOBAL/knowledge/conventions#x": {Raw: "/GLOBAL/knowledge/conventions#x", ProjectKey: "GLOBAL", Slug: "conventions", Anchor: "x"},
+		"/bad_key/knowledge/x":            {Raw: "/bad_key/knowledge/x", Slug: "/bad_key/knowledge/x"},
+	}
+	for in, want := range cases {
+		if got := ParseReference(in); got != want {
+			t.Errorf("ParseReference(%q) = %+v, want %+v", in, got, want)
+		}
 	}
 }
 
