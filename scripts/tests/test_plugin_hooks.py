@@ -140,10 +140,13 @@ class HookTests(unittest.TestCase):
         self.assertEqual(set(json.loads(result.stdout)), {"systemMessage"})
         self.assertEqual(result.stderr, "")
 
-    def test_session_start_command_list_mentions_recall(self):
+    def test_session_start_mentions_judgment_skills(self):
         result = self.invoke()
         context = result["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("recall <text>", context)
+        self.assertIn("trellis skill for operations", context)
+        self.assertIn("when-to-use-trellis", context)
+        self.assertIn("writing-knowledge", context)
+        self.assertIn("coordinating", context)
 
     def test_config_commands_resolve_outside_plugin_directory(self):
         config = json.loads((ROOT / "plugin/hooks/hooks.json").read_text())
