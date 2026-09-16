@@ -113,6 +113,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/global/knowledge", s.handleGlobalKnowledgeList)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/knowledge", s.handleKnowledgeCreate)
 	s.mux.HandleFunc("PATCH /api/p/{key}/b/{board}/knowledge/{slug}", s.handleKnowledgeEdit)
+	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/knowledge/{slug}", s.handleDeleteKnowledge)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/graph/{entity}", s.handleGraph)
 	s.mux.HandleFunc("GET /api/p/{key}/labels", s.handleLabels)
 	s.mux.HandleFunc("POST /api/p/{key}/labels", s.handleCreateLabel)
@@ -1058,6 +1059,22 @@ func (s *Server) handleKnowledgeEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, doc)
+}
+
+func (s *Server) handleDeleteKnowledge(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, _, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
+	if err != nil {
+		s.error(w, http.StatusNotFound, err.Error())
+		return
+	}
+	slug := r.PathValue("slug")
+	if err := s.write.DeleteKnowledge(ctx, p.ID, slug); err != nil {
+		s.coreError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
