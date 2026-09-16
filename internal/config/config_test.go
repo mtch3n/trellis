@@ -117,9 +117,8 @@ func TestProjectConfigGetSetRoundTrip(t *testing.T) {
 
 	// Create a test project.
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO project (id, key, identity_kind, identity_value, name, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		projectID, "TEST", "path", "", "Test Project", 0)
+		`INSERT INTO project (id, key, name, created_at) VALUES (?, ?, ?, ?)`,
+		projectID, "TEST", "Test Project", 0)
 	if err != nil {
 		t.Fatalf("insert project: %v", err)
 	}
@@ -161,9 +160,8 @@ func TestProjectOverrideTakesPrecedence(t *testing.T) {
 
 	// Create a test project.
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO project (id, key, identity_kind, identity_value, name, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		projectID, "TEST", "path", "", "Test Project", 0)
+		`INSERT INTO project (id, key, name, created_at) VALUES (?, ?, ?, ?)`,
+		projectID, "TEST", "Test Project", 0)
 	if err != nil {
 		t.Fatalf("insert project: %v", err)
 	}
@@ -210,9 +208,8 @@ func TestListProjectConfigs(t *testing.T) {
 
 	// Create a test project.
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO project (id, key, identity_kind, identity_value, name, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		projectID, "TEST", "path", "", "Test Project", 0)
+		`INSERT INTO project (id, key, name, created_at) VALUES (?, ?, ?, ?)`,
+		projectID, "TEST", "Test Project", 0)
 	if err != nil {
 		t.Fatalf("insert project: %v", err)
 	}
@@ -256,13 +253,10 @@ func openTestDB(t *testing.T) *sqlx.DB {
 	// Create the minimal schema needed for tests.
 	schema := `
 	CREATE TABLE project (
-		id             TEXT PRIMARY KEY,
-		key            TEXT NOT NULL UNIQUE,
-		identity_kind  TEXT NOT NULL,
-		identity_value TEXT,
-		root_path      TEXT UNIQUE,
-		name           TEXT NOT NULL,
-		created_at     INTEGER NOT NULL
+		id         TEXT PRIMARY KEY,
+		key        TEXT NOT NULL UNIQUE,
+		name       TEXT NOT NULL,
+		created_at INTEGER NOT NULL
 	);
 
 	CREATE TABLE project_config (

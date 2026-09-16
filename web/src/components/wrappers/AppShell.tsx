@@ -1,6 +1,17 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { ChevronsUpDown } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Lamp } from '@/components/wrappers/Lamp'
 import { ProjectSwitcher } from '@/components/wrappers/ProjectSwitcher'
 import { useLiveStatus } from '@/lib/live-status'
@@ -14,7 +25,7 @@ export interface ProjectSummary {
   in_progress: number
   stale_leases: number
   recent_changes: number
-  boards: { name: string; slug: string }[]
+  boards: { name: string; slug: string; is_default?: boolean }[]
   columns: { name: string; card_count: number; is_done: boolean }[]
 }
 
@@ -44,6 +55,7 @@ export function AppShell({
   const { live } = useLiveStatus()
   const navigate = useNavigate()
   const location = useLocation()
+  const { boardSlug } = useParams<{ projectKey: string; boardSlug?: string }>()
   // No rule under the shell at rest. Once content scrolls beneath it, a
   // hairline appears so the sticky bar keeps an edge.
   const top = useRef<HTMLDivElement>(null)
@@ -86,13 +98,21 @@ export function AppShell({
     return cardCount(b) - cardCount(a)
   })
 
+  // The board on screen, else the one the project opens on, else the first.
+  // A slug in the URL that names no board falls through rather than emptying
+  // the switcher.
+  const pickBoard = (boards: ProjectSummary['boards']) =>
+    (boardSlug ? boards.find((board) => board.slug === boardSlug) : undefined) ??
+    boards.find((board) => board.is_default) ??
+    boards[0]
+
   const switchProject = (key: string) => {
     const target = projects.find((project) => project.key === key)
-    const board = target?.boards[0]?.slug
+    const board = pickBoard(target?.boards ?? [])
     // Switching keeps the section you are in, so comparing two projects'
     // boards or vaults is one step each.
     if (section === 'knowledge') navigate(`/p/${key}/knowledge`)
-    else if (section === 'board' && board) navigate(`/p/${key}/b/${board}`)
+    else if (section === 'board' && board) navigate(`/p/${key}/b/${board.slug}`)
     else navigate(`/p/${key}`)
   }
 
@@ -100,6 +120,8 @@ export function AppShell({
     'relative flex items-center px-4 text-sm text-muted-foreground transition-colors duration-150 hover:text-foreground ' +
     'after:absolute after:inset-x-4 after:bottom-2.5 after:h-0.5 after:scale-x-0 after:bg-foreground after:transition-transform after:duration-200 after:ease-settle ' +
     'aria-[current=page]:text-foreground aria-[current=page]:after:scale-x-100'
+
+  const selectedBoard = current ? pickBoard(current.boards) : undefined
 
   return (
     <>
@@ -113,7 +135,7 @@ export function AppShell({
         </Link>
 
         {projectKey && (
-          <div className="flex items-center">
+          <div className="flex items-center gap-3">
             <ProjectSwitcher
               current={projectKey}
               projects={ordered.map((project) => ({
@@ -124,6 +146,13 @@ export function AppShell({
               onSwitch={switchProject}
               onAll={() => navigate('/projects')}
             />
+            {current && current.boards.length > 1 && (
+              <BoardSwitcher
+                current={selectedBoard?.slug ?? ''}
+                boards={current.boards}
+                onSwitch={(slug) => navigate(`/p/${current.key}/b/${slug}`)}
+              />
+            )}
           </div>
         )}
 
@@ -136,7 +165,7 @@ export function AppShell({
             Overview
           </Link>
           <Link
-            to={current?.boards[0] ? `/p/${current.key}/b/${current.boards[0].slug}` : '/'}
+            to={selectedBoard ? `/p/${current?.key}/b/${selectedBoard.slug}` : '/'}
             aria-current={section === 'board' ? 'page' : undefined}
             className={tab}
           >
@@ -164,5 +193,46 @@ export function AppShell({
       </div>
       {children}
     </>
+  )
+}
+
+/**
+ * Which board of this project is open, and a way to another. A project
+ * usually has one, so this appears only when there are more; the tabs stay a
+ * fixed set of sections, and the scope controls sit together on the left.
+ */
+function BoardSwitcher({
+  current,
+  boards,
+  onSwitch,
+}: {
+  current: string
+  boards: ProjectSummary['boards']
+  onSwitch: (slug: string) => void
+}) {
+  const currentBoard = boards.find((board) => board.slug === current)
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={<Button variant="ghost" size="sm" className="gap-2 px-2" aria-label={`Board ${current}. Switch board`} />}
+      >
+        <span className="truncate">{currentBoard?.name ?? current}</span>
+        <ChevronsUpDown data-icon="inline-end" className="text-muted-foreground" />
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent sideOffset={6} className="w-60 p-1.5">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Boards</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={current} onValueChange={(slug: string) => { if (slug !== current) onSwitch(slug) }}>
+            {boards.map((board) => (
+              <DropdownMenuRadioItem key={board.slug} value={board.slug} className="gap-3 py-1.5" title={board.slug}>
+                <span className="truncate">{board.name}</span>
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

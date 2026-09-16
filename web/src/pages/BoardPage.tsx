@@ -120,6 +120,7 @@ export function BoardPage() {
   const [notes, setNotes] = useState<CardNote[]>([])
   const [history, setHistory] = useState<HistoryEvent[]>([])
   const [saving, setSaving] = useState(false)
+  const [labelOptions, setLabelOptions] = useState<string[]>([])
   const [view, setView] = useState('board')
   // While a card is in the hand, the board renders this layout instead of the
   // server's, so the landing slot moves with the pointer across columns.
@@ -244,7 +245,50 @@ export function BoardPage() {
     setHistory(detail.activity ?? [])
   }
 
-  const createCard = async (draft: { title: string; body: string; priority: string; column?: string }) => {
+  // A lease this person holds is theirs to edit, so the page needs to know
+  // which principal the server writes as.
+  const [me, setMe] = useState<string>()
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch('/api/me', { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((who: { actor: string } | null) => { if (who) setMe(who.actor) })
+      .catch(() => { /* without it every lease simply reads as someone else's */ })
+    return () => controller.abort()
+  }, [])
+
+  // The project's labels are its own vocabulary, so the card offers those and
+  // never invents one.
+  useEffect(() => {
+    if (!projectKey) return
+    const controller = new AbortController()
+    fetch(`/api/p/${projectKey}/labels`, { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : []))
+      .then((labels: { name: string }[]) => setLabelOptions(labels.map((label) => label.name)))
+      .catch(() => { /* the list is an offer, not a requirement */ })
+    return () => controller.abort()
+  }, [projectKey])
+
+  /** One label or tag added or removed, applied at once like status and priority. */
+  const chip = (field: 'labels' | 'tags') => async (change: { add?: string; remove?: string }) => {
+    if (!open) return
+    const ref = open.ref
+    const patch = change.add ? { [`add_${field}`]: [change.add] } : { [`remove_${field}`]: [change.remove] }
+    try {
+      const response = await fetch(`${base}/cards/${encodeURIComponent(ref)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      if (!response.ok) throw new Error(await response.text())
+    } catch (err) {
+      toast.add({ title: `Could not change the ${field} of ${ref}`, description: message(err), type: 'error' })
+    } finally {
+      await refreshDetail(ref)
+    }
+  }
+
+  const createCard = async (draft: { title: string; body: string; priority: string; column?: string; labels: string[]; tags: string[] }) => {
     setSaving(true)
     try {
       const response = await fetch(`${base}/cards`, {
@@ -604,6 +648,10 @@ export function BoardPage() {
         onCreate={createCard}
         onMove={(column) => (open ? moveCard(open.ref, column).then(() => refreshDetail(open.ref)) : Promise.resolve())}
         onPriority={setPriority}
+        labelOptions={labelOptions}
+        onLabel={chip('labels')}
+        onTag={chip('tags')}
+        me={me}
         onSteal={stealLease}
         onDelete={deleteCard}
       />

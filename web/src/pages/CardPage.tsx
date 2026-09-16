@@ -48,6 +48,7 @@ export function CardPage() {
   const [mode, setMode] = useState<CardMode>('read')
   const [source, setSource] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [labelOptions, setLabelOptions] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
 
@@ -132,6 +133,48 @@ export function CardPage() {
     }
   }
 
+  // A lease this person holds is theirs to edit, so the page needs to know
+  // which principal the server writes as.
+  const [me, setMe] = useState<string>()
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch('/api/me', { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((who: { actor: string } | null) => { if (who) setMe(who.actor) })
+      .catch(() => { /* without it every lease simply reads as someone else's */ })
+    return () => controller.abort()
+  }, [])
+
+  // The project's labels are its own vocabulary, so the card offers those and
+  // never invents one.
+  useEffect(() => {
+    if (!projectKey) return
+    const controller = new AbortController()
+    fetch(`/api/p/${projectKey}/labels`, { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : []))
+      .then((labels: { name: string }[]) => setLabelOptions(labels.map((label) => label.name)))
+      .catch(() => { /* the list is an offer, not a requirement */ })
+    return () => controller.abort()
+  }, [projectKey])
+
+  /** One label or tag added or removed, applied at once like status and priority. */
+  const chip = (field: 'labels' | 'tags') => async (change: { add?: string; remove?: string }) => {
+    if (!card || !board) return
+    const patch = change.add ? { [`add_${field}`]: [change.add] } : { [`remove_${field}`]: [change.remove] }
+    try {
+      const response = await fetch(`${base}/cards/${encodeURIComponent(card.ref)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      if (!response.ok) throw new Error(await response.text())
+    } catch (err) {
+      toast.add({ title: `Could not change the ${field}`, description: message(err), type: 'error' })
+    } finally {
+      await load()
+    }
+  }
+
   // A single field, so no version: the server asks for one only when a
   // title or body is replaced wholesale.
   const setPriority = async (priority: string) => {
@@ -207,9 +250,9 @@ export function CardPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={Boolean(card.owner)}
+                  disabled={Boolean(card.owner) && card.owner !== me}
                   onClick={() => changeMode('edit')}
-                  title={card.owner ? 'Held by an agent. Take the lease to edit.' : undefined}
+                  title={card.owner && card.owner !== me ? 'Held by an agent. Take the lease to edit.' : undefined}
                 >
                   <Pencil data-icon="inline-start" />
                   Edit
@@ -258,6 +301,10 @@ export function CardPage() {
               onCreate={async () => {}}
               onMove={move}
               onPriority={setPriority}
+              labelOptions={labelOptions}
+              onLabel={chip('labels')}
+              onTag={chip('tags')}
+              me={me}
               onSteal={steal}
             />
           </div>

@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
+	"os/user"
 	"strconv"
 	"strings"
 	"time"
@@ -22,12 +24,34 @@ import (
 
 // Server serves the trellis UI API and embedded frontend.
 type Server struct {
-	core   *core.Core
+	core *core.Core
+	// write is core as the person at the browser. Reads use core; anything a
+	// request changes uses this, so the event log names a human.
+	write *core.Core
+	// actor is who that is, which the browser needs: a card this identity
+	// holds is one the person at the browser may edit.
+	actor  string
 	db     *sqlx.DB
 	search *retrieval.Service
 	mux    *http.ServeMux
 	listen string
 	token  string
+}
+
+// webActor names whoever is at the browser. The daemon writes as
+// daemon:<pid>, which changes at every restart: a lease taken in the UI could
+// then never be released, because releasing one requires being its owner. A
+// person at this machine is the same principal across restarts. TRELLIS_AGENT
+// still wins where it is set, so a scripted UI keeps the identity it was
+// given.
+func webActor() string {
+	if actor := os.Getenv("TRELLIS_AGENT"); actor != "" {
+		return actor
+	}
+	if who, err := user.Current(); err == nil && who.Username != "" {
+		return "human:" + who.Username
+	}
+	return "human:web"
 }
 
 // NewServer creates a new UI server.
@@ -44,8 +68,11 @@ func NewServer(c *core.Core, db *sqlx.DB, listen string) *Server {
 // retrieval service and provider lifecycle.
 func NewServerWithSearch(c *core.Core, db *sqlx.DB, listen string, search *retrieval.Service) *Server {
 	c.SetKnowledgeChanged(search.ReconcileProject)
+	actor := webActor()
 	s := &Server{
 		core:   c,
+		write:  c.WithActor(actor),
+		actor:  actor,
 		db:     db,
 		listen: listen,
 		token:  rand.Text(),
@@ -58,6 +85,7 @@ func NewServerWithSearch(c *core.Core, db *sqlx.DB, listen string, search *retri
 
 func (s *Server) registerRoutes() {
 	// API routes
+	s.mux.HandleFunc("GET /api/me", s.handleMe)
 	s.mux.HandleFunc("GET /api/projects", s.handleProjects)
 	s.mux.HandleFunc("DELETE /api/p/{key}", s.handleDeleteProject)
 	s.mux.HandleFunc("GET /api/p/{key}/boards", s.handleBoards)
@@ -89,6 +117,14 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/activity", s.handleActivity)
 	// SPA fallback
 	s.mux.HandleFunc("/", s.handleSPA)
+}
+
+// handleMe says which principal this server writes as, so the browser can
+// tell a lease it holds from one an agent holds.
+func (s *Server) handleMe(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, struct {
+		Actor string `json:"actor"`
+	}{s.actor})
 }
 
 // projectInfo contains project info for the landing page.
@@ -186,7 +222,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 
 		boardInfos := make([]boardInfo, 0, len(boards))
 		for _, b := range boards {
-			boardInfos = append(boardInfos, boardInfo{Name: b.Name, Slug: b.Slug})
+			boardInfos = append(boardInfos, boardInfo{Name: b.Name, Slug: b.Slug, IsDefault: b.IsDefault})
 		}
 		result = append(result, projectInfo{
 			Key:           p.Key,
@@ -209,6 +245,8 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 type boardInfo struct {
 	Name string `json:"name"`
 	Slug string `json:"slug"`
+	// The board a project opens on, so the web UI lands where the CLI does.
+	IsDefault bool `json:"is_default"`
 }
 
 type activityInfo struct {
@@ -365,7 +403,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "retype the project key to confirm; nothing changed")
 		return
 	}
-	if err := s.core.DeleteProject(ctx, key); err != nil {
+	if err := s.write.DeleteProject(ctx, key); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -396,8 +434,9 @@ func (s *Server) handleBoards(w http.ResponseWriter, r *http.Request) {
 	var result []boardInfo
 	for _, b := range boards {
 		result = append(result, boardInfo{
-			Name: b.Name,
-			Slug: b.Slug,
+			Name:      b.Name,
+			Slug:      b.Slug,
+			IsDefault: b.IsDefault,
 		})
 	}
 
@@ -444,7 +483,7 @@ func (s *Server) handleCreateBoard(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "board name required")
 		return
 	}
-	b, err := s.core.CreateBoard(ctx, p.ID, in.Name, !in.NoColumns)
+	b, err := s.write.CreateBoard(ctx, p.ID, in.Name, !in.NoColumns)
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -714,7 +753,7 @@ func (s *Server) handleStealCard(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	claimed, err := s.core.ClaimCard(ctx, card.ID, 30*60*1000, true, in.Reason)
+	claimed, err := s.write.ClaimCard(ctx, card.ID, 30*60*1000, true, in.Reason)
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -778,7 +817,7 @@ func (s *Server) handleKnowledgeCreate(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "knowledge title required")
 		return
 	}
-	doc, err := s.core.CreateKnowledge(ctx, p.ID, core.NewKnowledge{
+	doc, err := s.write.CreateKnowledge(ctx, p.ID, core.NewKnowledge{
 		Title: in.Title, Body: in.Body, Summary: in.Summary, Template: in.Template,
 		Board: b.Name, Sources: in.Sources, Set: in.Set,
 	})
@@ -811,7 +850,7 @@ func (s *Server) handleKnowledgeEdit(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "invalid knowledge JSON")
 		return
 	}
-	doc, err := s.core.EditKnowledgeFields(ctx, p.ID, r.PathValue("slug"), core.KnowledgeEdit{
+	doc, err := s.write.EditKnowledgeFields(ctx, p.ID, r.PathValue("slug"), core.KnowledgeEdit{
 		Title: in.Title, Summary: in.Summary, Body: in.Body, IfVersion: in.Version,
 	})
 	if err != nil {
@@ -882,7 +921,7 @@ func (s *Server) handleLabelMerge(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "from and into labels required")
 		return
 	}
-	if err := s.core.MergeLabel(ctx, p.ID, in.From, in.Into); err != nil {
+	if err := s.write.MergeLabel(ctx, p.ID, in.From, in.Into); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -902,7 +941,7 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "card title required")
 		return
 	}
-	card, err := s.core.CreateCard(ctx, p.ID, b.ID, core.NewCard{
+	card, err := s.write.CreateCard(ctx, p.ID, b.ID, core.NewCard{
 		Title: in.Title, Body: in.Body, Column: in.Column, Priority: in.Priority,
 		Labels: in.Labels, Tags: in.Tags,
 	})
@@ -933,7 +972,7 @@ func (s *Server) handleDeleteCard(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusNotFound, "card not found on this board")
 		return
 	}
-	if err := s.core.DeleteCard(ctx, p.ID, ref); err != nil {
+	if err := s.write.DeleteCard(ctx, p.ID, ref); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -953,7 +992,7 @@ func (s *Server) handleUpdateCard(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "invalid card JSON")
 		return
 	}
-	card, err := s.core.EditCard(ctx, p.ID, core.ParseCardRef(r.PathValue("card")), core.CardEdit{
+	card, err := s.write.EditCard(ctx, p.ID, core.ParseCardRef(r.PathValue("card")), core.CardEdit{
 		Title: in.Title, Body: in.Body, Priority: in.Priority, IfVersion: in.IfVersion,
 		AddLabels: in.AddLabels, RemoveLabels: in.RemoveLabels,
 		AddTags: in.AddTags, RemoveTags: in.RemoveTags,
@@ -978,7 +1017,7 @@ func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "column required")
 		return
 	}
-	card, err := s.core.MoveCardBefore(ctx, p.ID, b.ID, core.ParseCardRef(r.PathValue("card")), in.Column, in.Before)
+	card, err := s.write.MoveCardBefore(ctx, p.ID, b.ID, core.ParseCardRef(r.PathValue("card")), in.Column, in.Before)
 	if err != nil {
 		s.coreError(w, err)
 		return

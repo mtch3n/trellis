@@ -73,5 +73,8 @@ function summary(event: HistoryEvent, statusLabel: string) {
   if (event.action === 'edited' && event.field === 'priority') return `Priority: ${from} to ${to}`
   if (event.action === 'edited' && event.field && TEXT_FIELDS.has(event.field)) return `${sentence(event.field)} edited`
   if (event.action === 'created') return 'Created'
+  // Labels and tags name themselves, so the value is the news, not the field.
+  if (event.action === 'labeled' || event.action === 'tagged') return `${sentence(event.field ?? '')} added: ${event.new_value}`
+  if (event.action === 'unlabeled' || event.action === 'untagged') return `${sentence(event.field ?? '')} removed: ${event.old_value}`
   return event.field ? `${sentence(event.action)} ${event.field}` : sentence(event.action)
 }

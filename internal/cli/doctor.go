@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -9,15 +10,18 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/home"
 	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/mtch3n/trellis/internal/service"
 	"github.com/mtch3n/trellis/internal/store"
 	"github.com/mtch3n/trellis/internal/version"
+	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 )
 
@@ -124,7 +128,7 @@ func runDoctor(ctx context.Context) []Check {
 	} else {
 		checks = append(checks, checkDaemon(status), checkService(status), checkWebUI(status, cfg), checkPort(status, cfg))
 	}
-	return append(checks, checkProject(), checkVectorSearch(cfg))
+	return append(checks, checkProject(), checkProjectKeys(), checkVectorSearch(cfg))
 }
 
 func checkBinary() Check {
@@ -283,16 +287,90 @@ func servingAddress(rawURL string) string {
 	return parsed.Host
 }
 
+// checkProject reports which project this directory acts on, and how that was
+// decided.
 func checkProject() Check {
+	switch {
+	case projectFlagKey != "":
+		return ok("project", strings.ToUpper(projectFlagKey)+" (from --project)")
+	case os.Getenv("TRELLIS_PROJECT") != "":
+		return ok("project", strings.ToUpper(os.Getenv("TRELLIS_PROJECT"))+" (from TRELLIS_PROJECT)")
+	}
 	dir, err := os.Getwd()
 	if err != nil {
 		return warn("project", "cannot read the working directory: "+err.Error(), "")
 	}
-	id, err := resolve.Identify(dir)
+	pin, found, err := resolve.FindPin(dir)
 	if err != nil {
-		return warn("project", "this directory resolves to no project: "+err.Error(), "trellis init --pin")
+		return warn("project", err.Error(), "trellis init --key <KEY>")
 	}
-	return ok("project", fmt.Sprintf("%s (resolved by %s)", id.SuggestedKey, id.Kind))
+	if !found {
+		return warn("project", "no .trellis pin in this directory or any parent", "trellis init --key <KEY>")
+	}
+	detail := fmt.Sprintf("%s (pin %s)", pin.Target, pin.Path)
+	path, err := home.DBPath()
+	if err != nil {
+		return warn("project", detail+", but the database cannot be located: "+err.Error(), "")
+	}
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return warn("project", detail+", but there is no database here yet", "trellis init")
+	} else if err != nil {
+		return warn("project", detail+", but the database cannot be read: "+err.Error(), "")
+	}
+	db, err := store.Open(path)
+	if err != nil {
+		return warn("project", detail+", but the database cannot be opened: "+err.Error(), "")
+	}
+	defer db.Close()
+	var n int
+	if err := db.Get(&n, `SELECT count(*) FROM project WHERE key = ?`, pin.Target.Project); err != nil {
+		return warn("project", detail+", but the database cannot be read: "+err.Error(), "")
+	}
+	if n == 0 {
+		return warn("project", detail+", but this database has no such project", "trellis init")
+	}
+	return ok("project", detail)
+}
+
+// checkProjectKeys lists projects whose key predates the key grammar. They
+// stay reachable with --project, but no pin can name them.
+func checkProjectKeys() Check {
+	db, err := openExistingDB()
+	if err != nil {
+		return ok("project keys", "no database yet")
+	}
+	defer db.Close()
+	var keys []string
+	if err := db.Select(&keys, `SELECT key FROM project ORDER BY key`); err != nil {
+		return warn("project keys", "cannot read project keys: "+err.Error(), "trellis maintenance")
+	}
+	bad := slices.DeleteFunc(keys, vpath.ValidKey)
+	if len(bad) == 0 {
+		return ok("project keys", "every key can be pinned")
+	}
+	return warn("project keys",
+		fmt.Sprintf("no pin can name %s: %s", plural(len(bad), "this project", "these projects"), strings.Join(bad, ", ")),
+		"trellis --project <KEY> ...   # still reachable by name")
+}
+
+// openExistingDB opens the database only when it already exists, so a check
+// never creates one.
+func openExistingDB() (*sqlx.DB, error) {
+	path, err := home.DBPath()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
+	return store.Open(path)
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // checkVectorSearch verifies the one part of search that depends on something

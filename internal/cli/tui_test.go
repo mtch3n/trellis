@@ -15,7 +15,7 @@ func TestTUIWorkflowAndConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	_, err = db.Exec(`INSERT INTO project (id,key,identity_kind,identity_value,root_path,name,created_at) VALUES ('p','TEST','remote','example/test','/tmp/test','test',1)`)
+	_, err = db.Exec(`INSERT INTO project (id, key, name, created_at) VALUES ('p', 'TEST', 'test', 1)`)
 	if err != nil {
 		t.Fatal(err)
 	}

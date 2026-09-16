@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/mtch3n/trellis/internal/store"
 )
 
@@ -24,7 +23,7 @@ func TestServerCardLifecycleAndEmbeddedSPA(t *testing.T) {
 	defer db.Close()
 
 	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test")
-	p, err := c.EnsureProject(context.Background(), resolve.Identity{Kind: "test", Value: "ui", SuggestedKey: "UITEST"})
+	p, err := c.CreateProject(context.Background(), "UITEST", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +102,7 @@ func TestServerKnowledgeGraphLabelsAndStealRoutes(t *testing.T) {
 	defer db.Close()
 
 	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-p5-test").WithKBRoot(t.TempDir())
-	p, err := c.EnsureProject(context.Background(), resolve.Identity{Kind: "test", Value: "p5", SuggestedKey: "P5TEST"})
+	p, err := c.CreateProject(context.Background(), "P5TEST", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +204,7 @@ func TestServerDeletesAProjectOnlyWhenTheKeyIsRetyped(t *testing.T) {
 
 	c := core.New(db, core.FixedClock{MS: 3_000_000}, "ui-delete-test").WithKBRoot(t.TempDir())
 	for _, key := range []string{"GONE", "KEPT"} {
-		p, err := c.EnsureProject(context.Background(), resolve.Identity{Kind: "test", Value: key, RootPath: "/tmp/" + key, SuggestedKey: key})
+		p, err := c.CreateProject(context.Background(), key, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -266,7 +265,7 @@ func TestServerBoardListsCardsByPriorityThenRank(t *testing.T) {
 	defer db.Close()
 
 	c := core.New(db, core.FixedClock{MS: 4_000_000}, "ui-order-test")
-	p, err := c.EnsureProject(context.Background(), resolve.Identity{Kind: "test", Value: "order", SuggestedKey: "ORDER"})
+	p, err := c.CreateProject(context.Background(), "ORDER", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +322,7 @@ func TestServerProjectEventsPageThroughCardAndKnowledgeHistory(t *testing.T) {
 	ctx := context.Background()
 	c := core.New(db, core.FixedClock{MS: 5_000_000}, "ui-events-test")
 	c.WithKBRoot(t.TempDir())
-	p, err := c.EnsureProject(ctx, resolve.Identity{Kind: "test", Value: "events", SuggestedKey: "EVT"})
+	p, err := c.CreateProject(ctx, "EVT", false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/mtch3n/trellis/internal/store"
 )
 
@@ -16,7 +15,7 @@ func TestArtifactStoresBytesOnDiskAndLinksToCard(t *testing.T) {
 	}
 	defer db.Close()
 	c := New(db, FixedClock{MS: 1_757_000_000_000}, "artifact-test").WithKBRoot(t.TempDir())
-	project, err := c.EnsureProject(t.Context(), resolve.Identity{Kind: "path", Value: "artifact-project", RootPath: t.TempDir(), SuggestedKey: "ARTIFACT"})
+	project, err := c.CreateProject(t.Context(), "ARTIFACT", false)
 	if err != nil {
 		t.Fatal(err)
 	}

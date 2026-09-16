@@ -15,7 +15,7 @@ TRELLIS_HOME/
     vectors.db
 ```
 
-Knowledge and artifact files are the source of truth for their content; SQLite stores metadata, relationships, and search indexes, never artifact bytes. Projects are identified by Git repository URL; a repository with no remote gets a local pin file.
+Knowledge and artifact files are the source of truth for their content; SQLite stores metadata, relationships, and search indexes, never artifact bytes. A project is a virtual namespace; a committed .trellis file pins a directory to it.
 
 ## Install
 
@@ -51,7 +51,7 @@ written install. Re-running the install script has the same effect.
 
 **Init**
 ```bash
-trellis init              # Enable trellis in the current git repository
+trellis init              # Pin this directory to a project (commit the .trellis it writes)
 ```
 
 **Interactive terminal**

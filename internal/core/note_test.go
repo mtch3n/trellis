@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/mtch3n/trellis/internal/store"
 )
 
@@ -21,14 +20,9 @@ func TestCreateNote(t *testing.T) {
 	core := New(db, FixedClock{MS: 1000000}, "test-actor")
 	ctx := context.Background()
 
-	id := resolve.Identity{
-		Kind:         "test",
-		Value:        "note-test",
-		SuggestedKey: "NOTE",
-	}
-	proj, err := core.EnsureProject(ctx, id)
+	proj, err := core.CreateProject(ctx, "NOTE", false)
 	if err != nil {
-		t.Fatalf("EnsureProject: %v", err)
+		t.Fatalf("CreateProject: %v", err)
 	}
 	board, err := core.CreateBoard(ctx, proj.ID, "default", true)
 	if err != nil {

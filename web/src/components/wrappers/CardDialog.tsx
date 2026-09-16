@@ -11,6 +11,7 @@ import {
   CardView,
   type CardDraft,
   type CardEdit,
+  type ChipChange,
   type CardInfo,
   type CardMode,
   type CardNote,
@@ -44,8 +45,12 @@ export function CardDialog({
   onCreate,
   onMove,
   onPriority,
+  labelOptions,
+  onLabel,
+  onTag,
   onSteal,
   onDelete,
+  me,
 }: {
   open: boolean
   card: CardInfo | null
@@ -61,8 +66,14 @@ export function CardDialog({
   onCreate: (draft: CardDraft) => Promise<void>
   onMove: (column: string) => Promise<void>
   onPriority: (priority: string) => Promise<void>
+  /** The labels this project defines. */
+  labelOptions: string[]
+  onLabel: (change: ChipChange) => Promise<void>
+  onTag: (change: ChipChange) => Promise<void>
   onSteal: (reason: string) => Promise<void>
   onDelete: () => Promise<boolean>
+  /** Who the server writes as; a card this person holds stays editable. */
+  me?: string
 }) {
   const [mode, setMode] = useState<CardMode>(startIn)
   const [source, setSource] = useState(false)
@@ -79,7 +90,7 @@ export function CardDialog({
     if (open) changeMode(startIn)
   }
 
-  const locked = Boolean(card?.owner)
+  const locked = Boolean(card?.owner) && card?.owner !== me
   // Reading, focus lands on the scrolling body itself, which moves nothing
   // and lets the arrow keys scroll. Writing, it lands in the title.
   const scroller = useRef<HTMLDivElement>(null)
@@ -166,6 +177,10 @@ export function CardDialog({
             onCreate={onCreate}
             onMove={onMove}
             onPriority={onPriority}
+            labelOptions={labelOptions}
+            onLabel={onLabel}
+            onTag={onTag}
+            me={me}
             onSteal={onSteal}
           />
           {/* A new card is a form to finish, so its commit sits at its end. */}

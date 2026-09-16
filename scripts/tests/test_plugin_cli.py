@@ -42,7 +42,7 @@ class PluginCLITest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 return json.loads(result.stdout) if result.stdout else None
 
-            cli("init", "--pin", "--key", "HOOKTEST")
+            cli("init", "--key", "HOOKTEST")
             start = hook("session-start", source="startup")
             self.assertIn(actor, start["hookSpecificOutput"]["additionalContext"])
             card = cli("card", "new", "--title", "Verify hook handoff")
@@ -56,3 +56,23 @@ class PluginCLITest(unittest.TestCase):
             self.assertIn("systemMessage", hook("stop"))
             cli("card", "note", card["ref"], "--body", "Integration handoff verified")
             self.assertIsNone(hook("stop"))
+
+            unpinned = Path(directory) / "unpinned"
+            unpinned.mkdir()
+            silent = subprocess.run(
+                [os.sys.executable, "-B", str(ROOT / "plugin/hooks/trellis_hook.py"), "session-start"],
+                input=json.dumps(dict(session_id=session, cwd=str(unpinned), source="startup")),
+                cwd=directory, env=env, text=True, capture_output=True, timeout=10,
+            )
+            self.assertEqual(silent.returncode, 0, silent.stderr)
+            self.assertEqual(silent.stdout, "")
+
+            ghost = Path(directory) / "ghost"
+            ghost.mkdir()
+            (ghost / ".trellis").write_text("/GHOST\n")
+            missing = subprocess.run(
+                [os.sys.executable, "-B", str(ROOT / "plugin/hooks/trellis_hook.py"), "session-start"],
+                input=json.dumps(dict(session_id=session, cwd=str(ghost), source="startup")),
+                cwd=directory, env=env, text=True, capture_output=True, timeout=10,
+            )
+            self.assertIn("unavailable", json.loads(missing.stdout)["hookSpecificOutput"]["additionalContext"])

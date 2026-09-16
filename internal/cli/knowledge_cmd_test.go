@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"context"
 	"encoding/json/v2"
 	"errors"
 	"os"
@@ -10,55 +9,15 @@ import (
 	"testing"
 
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/home"
-	"github.com/mtch3n/trellis/internal/resolve"
-	"github.com/mtch3n/trellis/internal/store"
 )
 
-// TRELLIS_PROJECT is the first branch of resolve.Identify, so it needs neither
-// a git repository nor a .trellis pin. TRELLIS_HOME keeps the vault and the
-// database inside the test's temp directory.
-//
-// Setting TRELLIS_PROJECT is not by itself enough to run a command, though:
-// currentBoard (internal/cli/root.go) treats any named project -- --project
-// or TRELLIS_PROJECT -- as a selection, not a resolution. It calls
-// core.ProjectByKey, which errors on a miss, rather than resolve.Identify +
-// EnsureProject, which is the only path that creates a project (and its
-// seeded default board). resolve.Identify's own env branch is therefore
-// never reached through the CLI in this mode -- it only fires on the
-// cwd-resolution path, which a named project skips entirely. So the project
-// has to be seeded here, through the identity resolve.Identify would itself
-// produce for TRELLIS_PROJECT, before any command runs.
+// projectEnv names the project through TRELLIS_PROJECT, so a command needs no
+// pin. A named project is looked up, never created, so it is seeded first.
 func projectEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("TRELLIS_HOME", t.TempDir())
 	t.Setenv("TRELLIS_PROJECT", "TEST")
-
-	path, err := home.DBPath()
-	if err != nil {
-		t.Fatalf("home.DBPath: %v", err)
-	}
-	db, err := store.Open(path)
-	if err != nil {
-		t.Fatalf("store.Open: %v", err)
-	}
-	// dir is unused: TRELLIS_PROJECT is already set, so Identify short-circuits
-	// before it ever looks at the filesystem.
-	id, err := resolve.Identify(".")
-	if err != nil {
-		db.Close()
-		t.Fatalf("resolve.Identify: %v", err)
-	}
-	if _, err := core.New(db, core.RealClock{}, "test").EnsureProject(context.Background(), id); err != nil {
-		db.Close()
-		t.Fatalf("EnsureProject: %v", err)
-	}
-	// Closed before any command opens its own handle on the same file: an
-	// open handle here would keep the database locked, and on Windows would
-	// keep the temp directory from being removed during t.TempDir() cleanup.
-	if err := db.Close(); err != nil {
-		t.Fatalf("db.Close: %v", err)
-	}
+	seedProject(t, "TEST")
 }
 
 func runCmd(t *testing.T, args ...string) string {

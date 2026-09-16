@@ -43,8 +43,8 @@ truthfully copy: those are authored by the people who read them.
   exchanged for a session cookie at `/`; a deep link opened without that cookie
   fails to load its data.
 - The board pushes live updates over SSE.
-- `internal/resolve` maps a working directory to a project via env, a `.trellis`
-  pin, git remote, then git root.
+- `internal/resolve` maps a working directory to a project via `--project`,
+  `TRELLIS_PROJECT`, then the nearest .trellis pin.
 - Agent sessions are short and fragmented: median 4 prompts, 36% end within 2,
   only 5% reach 50.
 

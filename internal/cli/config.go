@@ -3,8 +3,10 @@ package cli
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -12,7 +14,6 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/spf13/cobra"
 )
 
@@ -38,30 +39,18 @@ func currentProject() (*projectContext, error) {
 		return nil, err
 	}
 
-	var p core.Project
+	r, err := resolveProject(context.Background(), c)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	p := r.Project
+	// The repository file sits beside the pin that chose the project. A
+	// project named by --project or TRELLIS_PROJECT has no pin, so it reads
+	// no repository file.
 	var repoDir string
-	if key := projectKey(); key != "" {
-		// --project XPSCTL settings a project you are not standing in.
-		if p, err = c.ProjectByKey(context.Background(), key); err != nil {
-			db.Close()
-			return nil, err
-		}
-	} else {
-		dir, err := os.Getwd()
-		if err != nil {
-			db.Close()
-			return nil, err
-		}
-		id, err := resolve.Identify(dir)
-		if err != nil {
-			db.Close()
-			return nil, core.ErrUsage("unresolved", err.Error(), "trellis init --pin")
-		}
-		repoDir = id.RootPath
-		if p, err = c.EnsureProject(context.Background(), id); err != nil {
-			db.Close()
-			return nil, err
-		}
+	if r.Pin != nil {
+		repoDir = filepath.Dir(r.Pin.Path)
 	}
 
 	cfg, present, err := config.LoadWithPresence()
@@ -355,15 +344,12 @@ func formatConfigTable(rows []configRow) string {
 }
 
 // resolveConfigProject returns the project whose overrides apply, or nil when
-// there is none. A bad --project is an error; merely standing outside a
-// repository is not, because the global defaults are still a real answer.
+// no pin applies here: the global defaults are still a real answer. A bad
+// --project, a malformed pin, or a pin naming a missing project is an error.
 func resolveConfigProject() (*projectContext, error) {
 	pctx, err := currentProject()
-	if err != nil {
-		if projectKey() != "" {
-			return nil, err
-		}
+	if ce, ok := errors.AsType[*core.Error](err); ok && ce.Code == "unresolved" {
 		return nil, nil
 	}
-	return pctx, nil
+	return pctx, err
 }

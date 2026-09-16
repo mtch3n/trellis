@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -16,7 +17,6 @@ import (
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/core"
 	"github.com/mtch3n/trellis/internal/home"
-	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/mtch3n/trellis/internal/retrieval"
 	"github.com/mtch3n/trellis/internal/store"
 	"github.com/spf13/cobra"
@@ -39,8 +39,8 @@ var boardFlag string
 // help with a flag that has no effect there.
 var actorSuffix string
 
-// projectFlagKey holds --project; empty means "resolve from the working
-// directory". An agent working across several repositories in one session
+// projectFlagKey holds --project; empty means "resolve from the nearest
+// .trellis pin". An agent working across several repositories in one session
 // would otherwise have to cd before every call.
 var projectFlagKey string
 
@@ -83,57 +83,39 @@ func openCore() (*core.Core, *sqlx.DB, error) {
 	return c, db, nil
 }
 
-// currentBoard resolves the working directory to a project and then to a
-// board. There is no cwd fallback: outside a git repository with no pin this
-// exits 2 rather than silently creating a project.
+// currentBoard resolves the project and then the board. Standing where no pin
+// applies exits 2 rather than creating anything.
 func currentBoard() (*appCtx, error) {
 	c, db, err := openCore()
 	if err != nil {
 		return nil, err
 	}
-
-	key := projectKey()
-	var p core.Project
-	var repoDir string
-	if key != "" {
-		// Naming a project skips cwd resolution entirely: --project must work
-		// from outside any repository.
-		if p, err = c.ProjectByKey(context.Background(), key); err != nil {
-			db.Close()
-			return nil, err
-		}
-	} else {
-		dir, err := os.Getwd()
-		if err != nil {
-			db.Close()
-			return nil, err
-		}
-		// Identify returns a plain error: resolve cannot import core without an
-		// import cycle. Exit codes are a CLI concern, so the wrapping happens here.
-		id, err := resolve.Identify(dir)
-		if err != nil {
-			db.Close()
-			return nil, core.ErrUsage("unresolved", err.Error(), "trellis init --pin")
-		}
-		repoDir = id.RootPath
-		if p, err = c.EnsureProject(context.Background(), id); err != nil {
-			db.Close()
-			return nil, err
-		}
+	ctx := context.Background()
+	r, err := resolveProject(ctx, c)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	b, err := selectBoard(ctx, c, r)
+	if err != nil {
+		db.Close()
+		return nil, err
 	}
 
 	// openCore already primed the Core's lease TTL, default columns and
-	// label/tag requirements from the global file alone. Now that the
-	// project's directory (if any) is known, re-derive those same settings
-	// with the repository file layered in (ApplyRepoOverrides) and re-apply
-	// them: a repo-safe key wins over the global file, and a project
-	// override — which these three Core setters have never consulted — still
-	// does not apply here, unchanged from today.
-	cfg, present, cfgErr := config.LoadWithPresence()
-	if cfgErr != nil {
-		cfg, present = config.Defaults(), map[string]bool{}
+	// label/tag requirements from the global file alone. Now that the pin
+	// that chose the project (if any) is known, re-derive those settings with
+	// the repository file beside it layered in, and re-apply them: a
+	// repo-safe key wins over the global file. A project named by --project
+	// or TRELLIS_PROJECT has no pin and reads no repository file.
+	var repoDir string
+	if r.Pin != nil {
+		repoDir = filepath.Dir(r.Pin.Path)
 	}
-	_ = present
+	cfg, _, cfgErr := config.LoadWithPresence()
+	if cfgErr != nil {
+		cfg = config.Defaults()
+	}
 	repo, _, _, repoErr := config.LoadRepo(repoDir)
 	if repoErr != nil {
 		db.Close()
@@ -145,16 +127,7 @@ func currentBoard() (*appCtx, error) {
 	}
 	c.SetDefaultColumns(effective.Board.DefaultColumns)
 	c.SetCardRequirements(effective.Labels.RequireOnCard, effective.Tags.RequireOnCard)
-
-	// --board wins; otherwise TRELLIS_BOARD; otherwise the selection rules in
-	// core.SelectBoard (sole board, then the default, else exit 2).
-	requested := cmp.Or(boardFlag, os.Getenv("TRELLIS_BOARD"))
-	b, err := c.SelectBoard(context.Background(), p.ID, requested)
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-	return &appCtx{Core: c, Project: p, Board: b, db: db, cfg: effective}, nil
+	return &appCtx{Core: c, Project: r.Project, Board: b, db: db, cfg: effective}, nil
 }
 
 func newRootCmd() *cobra.Command {
@@ -174,7 +147,7 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().StringVar(&projectFlagKey, "project", "", "project key to act on, instead of the working directory")
 	// All commands registered here once; each lives in its own file so later
 	// parallel tasks never edit root.go.
-	root.AddCommand(newInitCmd(), newCardCmd(), newBoardCmd(), newColumnCmd(), newLabelCmd(), newUICmd(), newSearchCmd(), newRecallCmd(), newConfigCmd(), newAgentCmd(), newBackupCmd(), newVersionCmd(), newUpdateCmd(),
+	root.AddCommand(newInitCmd(), newProjectCmd(), newCardCmd(), newBoardCmd(), newColumnCmd(), newLabelCmd(), newUICmd(), newSearchCmd(), newRecallCmd(), newConfigCmd(), newAgentCmd(), newBackupCmd(), newVersionCmd(), newUpdateCmd(),
 		newKnowledgeCmd(), newArtifactCmd(), newLinkCmd(), newGraphCmd(), newVectorCmd(), newDaemonCmd(), newDoctorCmd(), newMaintenanceCmd(), newTUICmd(), newEventsCmd(), newExtensionCmd())
 	return root
 }
