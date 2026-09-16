@@ -96,11 +96,43 @@ func (c *Core) cardView(tx *sqlx.Tx, card *Card) error {
 	return nil
 }
 
+// checkCardProject refuses an address that names another project:
+// /OTHER/cards/X-12 typed while working in KEY. A ref's prefix is not checked
+// here. Refs are stored, and after a merge a card keeps the prefix it was born
+// with inside a project with another key; loadCard matches the stored ref and
+// explains a prefix that lives elsewhere.
+func (c *Core) checkCardProject(tx *sqlx.Tx, projectID string, ref CardRef) error {
+	if ref.Project == "" {
+		return nil
+	}
+	key, err := projectKeyOf(tx, projectID)
+	if err != nil {
+		return err
+	}
+	if ref.Project == key {
+		return nil
+	}
+	var exists int
+	if err := tx.Get(&exists, `SELECT COUNT(*) FROM project WHERE key = ?`, ref.Project); err != nil {
+		return err
+	}
+	if exists == 0 {
+		return ErrNotFound("card_not_found",
+			fmt.Sprintf("no card %s: there is no project %s", ref, ref.Project), "trellis project ls")
+	}
+	return ErrUsage("wrong_project",
+		fmt.Sprintf("%s is a card in project %s, not in %s", ref, ref.Project, key),
+		"trellis card show "+ref.String()+" --project "+ref.Project)
+}
+
 // loadCard fetches a card inside an existing transaction and fills computed fields.
 // A qualified ref is matched against the stored ref, so a card that arrived
 // through a merge is found under the prefix it was born with; a bare number
 // means this project's own prefix.
 func (c *Core) loadCard(tx *sqlx.Tx, projectID string, ref CardRef, out *Card) error {
+	if err := c.checkCardProject(tx, projectID, ref); err != nil {
+		return err
+	}
 	key, err := projectKeyOf(tx, projectID)
 	if err != nil {
 		return err
@@ -110,11 +142,11 @@ func (c *Core) loadCard(tx *sqlx.Tx, projectID string, ref CardRef, out *Card) e
 		err = tx.Get(out, `SELECT * FROM card WHERE id = ? AND project_id = ?`, ref.UUID, projectID)
 	case ref.Seq > 0:
 		want := ref.qualified()
-		if ref.Project() == "" {
+		if ref.ProjectKey == "" {
 			want = key + "-" + itoa(ref.Seq)
 		}
 		err = tx.Get(out, `SELECT * FROM card WHERE ref = ? AND project_id = ?`, want, projectID)
-		if errors.Is(err, sql.ErrNoRows) && ref.Project() != "" {
+		if errors.Is(err, sql.ErrNoRows) && ref.ProjectKey != "" {
 			return cardElsewhere(tx, want)
 		}
 	default:
@@ -161,13 +193,6 @@ func (c *Core) CardHolder(ctx context.Context, ref string) (Project, bool, error
 		return Project{}, false, nil
 	}
 	return p, err == nil, err
-}
-
-// projectKeyOf returns the key of a project given its ID.
-func projectKeyOf(tx *sqlx.Tx, projectID string) (string, error) {
-	var key string
-	err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, projectID)
-	return key, err
 }
 
 // CreateCard adds a card to a board. seq is allocated per PROJECT, not per

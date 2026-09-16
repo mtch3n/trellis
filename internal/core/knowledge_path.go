@@ -265,12 +265,21 @@ func (c *Core) resolveSlug(tx *sqlx.Tx, projectID, input string, includeGlobal b
 	}
 	// No project-local exact match; check global if allowed.
 	if includeGlobal {
-		err = tx.Get(&exact, `SELECT slug FROM knowledge WHERE slug = ? AND global = 1`, norm)
-		if err == nil {
-			return exact, nil
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
+		var gids []string
+		if err := tx.Select(&gids, `SELECT id FROM knowledge WHERE slug = ? AND global = 1`, norm); err != nil {
 			return "", err
+		}
+		switch len(gids) {
+		case 1:
+			return norm, nil
+		case 0:
+			// No global exact match; fall through to bare-leaf.
+		default:
+			return "", &Error{
+				Code: "ambiguous_slug", Exit: 2,
+				Msg: fmt.Sprintf("%q matches more than one global entry: %s", input, strings.Join(gids, ", ")),
+				Fix: "trellis knowledge rm <id>   # remove the extra ones, then refer to it by slug", Detail: gids,
+			}
 		}
 	}
 	// No exact match. Try bare-leaf matching if the input has no "/".

@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/vpath"
 )
 
 type Artifact struct {
@@ -29,6 +30,7 @@ type Artifact struct {
 	ContentHash string `db:"content_hash" json:"content_hash"`
 	CreatedAt   int64  `db:"created_at" json:"created_at"`
 	UpdatedAt   int64  `db:"updated_at" json:"updated_at"`
+	Ref         string `db:"-" json:"ref"` // /KEY/artifacts/<name>
 }
 
 // artifactDirPath is where a project's artifacts live. It does not create the
@@ -153,11 +155,14 @@ func (c *Core) CreateArtifact(ctx context.Context, projectID, source string) (Ar
 		}
 		path := filepath.Join(dir, name)
 		for n := 2; ; n++ {
-			taken, err := artifactNameTaken(tx, projectID, path)
-			if err != nil {
+			// The table is checked as well as the disk: a row can outlive its
+			// file, and its name is still its address.
+			var taken int
+			if err := tx.Get(&taken, `SELECT COUNT(*) FROM artifact WHERE project_id = ? AND name = ?`,
+				projectID, filepath.Base(path)); err != nil {
 				return err
 			}
-			if !taken {
+			if _, err := os.Stat(path); taken == 0 && errors.Is(err, os.ErrNotExist) {
 				break
 			}
 			path = filepath.Join(dir, fmt.Sprintf("%s-%d%s", strings.TrimSuffix(name, filepath.Ext(name)), n, filepath.Ext(name)))
@@ -178,6 +183,7 @@ func (c *Core) CreateArtifact(ctx context.Context, projectID, source string) (Ar
 		if _, err := tx.Exec(`INSERT INTO artifact (id, project_id, name, path, kind, mime, size, content_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, out.ID, out.ProjectID, out.Name, out.Path, out.Kind, out.MIME, out.Size, out.ContentHash, out.CreatedAt, out.UpdatedAt); err != nil {
 			return err
 		}
+		out.Ref = ArtifactAddress(key, out.Name)
 		// An entry may already name this artifact, written before it existed.
 		// The name is new to the project (artifactNameTaken made sure), so no
 		// stub it fills was ambiguous.
@@ -244,30 +250,53 @@ func (c *Core) LinkArtifactToCard(ctx context.Context, projectID string, cardID,
 	})
 }
 
-// ResolveArtifact finds an artifact by id or by name within a project. Ids are
-// UUIDs and names are filenames, so the two cannot be confused. A name shared by
-// several artifacts is an error that names them, never a guess.
-func (c *Core) ResolveArtifact(ctx context.Context, projectID, ref string) (Artifact, error) {
+// ResolveArtifact finds an artifact by id, by name, or by an address that
+// names projectID's project.
+func (c *Core) ResolveArtifact(ctx context.Context, projectID, arg string) (Artifact, error) {
+	arg = strings.TrimSpace(arg)
 	var out Artifact
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		err := tx.Get(&out, `SELECT * FROM artifact WHERE project_id = ? AND id = ?`, projectID, ref)
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
+		key, err := projectKeyOf(tx, projectID)
+		if err != nil {
 			return err
 		}
+
+		if isUUID(arg) {
+			err := tx.Get(&out, `SELECT * FROM artifact WHERE project_id = ? AND id = ?`, projectID, arg)
+			if err == nil {
+				out.Ref = ArtifactAddress(key, out.Name)
+				return nil
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			return ErrNotFound("artifact_not_found", "no artifact "+arg+" in project "+key, "trellis artifact ls")
+		}
+
+		name := arg
+		if strings.HasPrefix(arg, "/") {
+			p, err := ParseAddress(arg, vpath.CollectionArtifacts)
+			if err != nil {
+				return err
+			}
+			if p.Project != key {
+				return wrongProject(arg, p, key)
+			}
+			name = p.Name
+		}
+
 		var matches []Artifact
 		if err := tx.Select(&matches,
 			`SELECT * FROM artifact WHERE project_id = ? AND name = ? ORDER BY created_at`,
-			projectID, ref); err != nil {
+			projectID, name); err != nil {
 			return err
 		}
 		switch len(matches) {
 		case 0:
-			return ErrNotFound("artifact_not_found", "no artifact "+ref, "trellis artifact ls")
+			return ErrNotFound("artifact_not_found", "no artifact "+arg, "trellis artifact ls")
 		case 1:
 			out = matches[0]
+			out.Ref = ArtifactAddress(key, out.Name)
 			return nil
 		default:
 			ids := make([]string, len(matches))
@@ -275,7 +304,7 @@ func (c *Core) ResolveArtifact(ctx context.Context, projectID, ref string) (Arti
 				ids[i] = m.ID
 			}
 			return ErrUsage("artifact_ambiguous",
-				"more than one artifact is named "+ref+": "+strings.Join(ids, ", "),
+				"more than one artifact is named "+name+": "+strings.Join(ids, ", "),
 				"trellis artifact rm <id>   # remove the extra ones, then refer to it by name")
 		}
 	})
@@ -378,21 +407,33 @@ func namesAdded(before, after []string) []string {
 func (c *Core) ListArtifacts(ctx context.Context, projectID, cardID, docID string) ([]Artifact, error) {
 	out := []Artifact{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		var err error
 		switch {
 		case cardID != "":
-			return tx.Select(&out,
+			err = tx.Select(&out,
 				`SELECT a.* FROM artifact a JOIN link l ON l.to_type = 'artifact' AND l.to_id = a.id
 				 WHERE a.project_id = ? AND l.from_type = 'card' AND l.from_id = ?
 				 ORDER BY a.updated_at DESC`, projectID, cardID)
 		case docID != "":
-			return tx.Select(&out,
+			err = tx.Select(&out,
 				`SELECT a.* FROM artifact a JOIN link l ON l.to_type = 'artifact' AND l.to_id = a.id
 				 WHERE a.project_id = ? AND l.from_type = 'doc' AND l.from_id = ? AND l.rel = 'artifact'
 				 ORDER BY l.rowid`, projectID, docID)
 		default:
-			return tx.Select(&out,
+			err = tx.Select(&out,
 				`SELECT * FROM artifact WHERE project_id = ? ORDER BY updated_at DESC`, projectID)
 		}
+		if err != nil {
+			return err
+		}
+		key, err := projectKeyOf(tx, projectID)
+		if err != nil {
+			return err
+		}
+		for i := range out {
+			out[i].Ref = ArtifactAddress(key, out[i].Name)
+		}
+		return nil
 	})
 	return out, err
 }

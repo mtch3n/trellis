@@ -3,8 +3,6 @@ package ui
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,6 +14,9 @@ import (
 	"github.com/mtch3n/trellis/internal/store"
 )
 
+// An entry in a directory has a slug with a slash in it. The web client
+// sends that slash as %2F so the slug stays one path segment, and every
+// knowledge route has to accept it.
 func TestSlugWithSlashEncoded(t *testing.T) {
 	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
 	if err != nil {
@@ -23,105 +24,80 @@ func TestSlugWithSlashEncoded(t *testing.T) {
 	}
 	defer db.Close()
 
+	ctx := context.Background()
 	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test")
-	projKey := fmt.Sprintf("SLUG%d", rand.Intn(100000))
-	p, err := c.CreateProject(context.Background(), projKey, false)
+	p, err := c.CreateProject(ctx, "SLUG", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = c.CreateBoard(context.Background(), p.ID, "board1", true)
-	if err != nil {
+	if _, err := c.CreateBoard(ctx, p.ID, "board1", true); err != nil {
 		t.Fatal(err)
 	}
 
 	s := NewServer(c, db, "127.0.0.1:0")
-	request := func(method, path string, body string) *httptest.ResponseRecorder {
+	request := func(method, path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		s.mux.ServeHTTP(rec, req)
 		return rec
 	}
-
-	// Create knowledge entries
-	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/knowledge", `{"title":"Rollback Runbook","body":"How to rollback"}`)
-	if createResp.Code != http.StatusCreated {
-		t.Fatalf("create knowledge status = %d, body = %s", createResp.Code, createResp.Body)
+	// decode fails on the SPA's HTML, so a route that does not exist
+	// cannot pass as a 200 from the frontend fallback.
+	decode := func(name string, rec *httptest.ResponseRecorder, want int, v any) {
+		t.Helper()
+		if rec.Code != want {
+			t.Fatalf("%s status = %d, want %d, body = %s", name, rec.Code, want, rec.Body)
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), v); err != nil {
+			t.Fatalf("%s did not return JSON: %v, body = %.200s", name, err, rec.Body)
+		}
 	}
 
-	var doc core.Knowledge
-	if err := json.Unmarshal(createResp.Body.Bytes(), &doc); err != nil {
-		t.Fatal(err)
-	}
-
-	ctx := context.Background()
-	doc2, err := s.write.CreateKnowledge(ctx, p.ID, core.NewKnowledge{
-		Title:    "Deployment/Steps",
-		Body:     "How to deploy",
-		Summary:  "",
-		Template: "",
-		Board:    "board1",
+	doc, err := s.write.CreateKnowledge(ctx, p.ID, core.NewKnowledge{
+		Title: "Rollback Runbook",
+		Body:  "How to roll back.",
+		Board: "board1",
+		Dir:   "ops",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
-	}
-
-	// Test both documents, especially doc2 which has a slash in the title
-	// that will be converted to a slash in the slug
-	slug := doc.Slug
-	encodedSlug := url.PathEscape(slug)
-
-	// Test GET history with encoded slug
-	historyResp := request(http.MethodGet, "/api/p/"+projKey+"/b/board1/knowledge/"+encodedSlug+"/history", "")
-	if historyResp.Code != http.StatusOK {
-		t.Fatalf("get history status = %d, expected 200, body = %s", historyResp.Code, historyResp.Body)
-	}
-
-	// Test GET diff with encoded slug
-	diffResp := request(http.MethodGet, "/api/p/"+projKey+"/b/board1/knowledge/"+encodedSlug+"/diff", "")
-	if diffResp.Code != http.StatusOK {
-		t.Fatalf("get diff status = %d, expected 200, body = %s", diffResp.Code, diffResp.Body)
-	}
-
-	// Test PATCH edit with encoded slug
-	patchResp := request(http.MethodPatch, "/api/p/"+projKey+"/b/board1/knowledge/"+encodedSlug, `{"title":"Updated Title","version":1}`)
-	if patchResp.Code != http.StatusOK {
-		t.Fatalf("patch knowledge status = %d, expected 200, body = %s", patchResp.Code, patchResp.Body)
-	}
-
-	var updatedDoc core.Knowledge
-	if err := json.Unmarshal(patchResp.Body.Bytes(), &updatedDoc); err != nil {
 		t.Fatal(err)
 	}
-	if updatedDoc.Title != "Updated Title" {
-		t.Fatalf("expected updated title 'Updated Title', got %q", updatedDoc.Title)
+	if !strings.Contains(doc.Slug, "/") {
+		t.Fatalf("slug %q has no slash; the test needs one", doc.Slug)
+	}
+	enc := url.PathEscape(doc.Slug)
+	if !strings.Contains(enc, "%2F") {
+		t.Fatalf("escaped slug %q keeps a raw slash", enc)
+	}
+	project := "/api/p/SLUG/knowledge/" + enc
+	board := "/api/p/SLUG/b/board1/knowledge/" + enc
+
+	var edited core.Knowledge
+	decode("patch", request(http.MethodPatch, board, `{"body":"How to roll back safely.","version":1}`), http.StatusOK, &edited)
+	if edited.Slug != doc.Slug || edited.Version != 2 {
+		t.Fatalf("patched entry = %s v%d, want %s v2", edited.Slug, edited.Version, doc.Slug)
 	}
 
-	// Test DELETE with encoded slug
-	deleteResp := request(http.MethodDelete, "/api/p/"+projKey+"/b/board1/knowledge/"+encodedSlug, "")
-	if deleteResp.Code != http.StatusNoContent {
-		t.Fatalf("delete knowledge status = %d, expected 204, body = %s", deleteResp.Code, deleteResp.Body)
+	var got core.Knowledge
+	decode("get", request(http.MethodGet, project, ""), http.StatusOK, &got)
+	if got.Slug != doc.Slug {
+		t.Fatalf("get returned %q, want %q", got.Slug, doc.Slug)
 	}
 
-	// Now test with doc2's slug to see if encoding works with more complex slugs
-	// First update it
-	slug2 := doc2.Slug
-	encodedSlug2 := url.PathEscape(slug2)
-
-	patchResp2 := request(http.MethodPatch, "/api/p/"+projKey+"/b/board1/knowledge/"+encodedSlug2, `{"body":"Updated body","version":1}`)
-	if patchResp2.Code != http.StatusOK {
-		t.Fatalf("patch knowledge 2 status = %d, expected 200, body = %s", patchResp2.Code, patchResp2.Body)
+	var revs []json.RawMessage
+	decode("history", request(http.MethodGet, project+"/history", ""), http.StatusOK, &revs)
+	if len(revs) == 0 {
+		t.Fatal("history is empty after an edit")
 	}
 
-	// Test GET history for the second document
-	historyResp2 := request(http.MethodGet, "/api/p/"+projKey+"/b/board1/knowledge/"+encodedSlug2+"/history", "")
-	if historyResp2.Code != http.StatusOK {
-		t.Fatalf("get history 2 status = %d, expected 200, body = %s", historyResp2.Code, historyResp2.Body)
-	}
+	var diff map[string]any
+	decode("diff", request(http.MethodGet, project+"/diff", ""), http.StatusOK, &diff)
 
-	// Test GET diff for the second document
-	diffResp2 := request(http.MethodGet, "/api/p/"+projKey+"/b/board1/knowledge/"+encodedSlug2+"/diff", "")
-	if diffResp2.Code != http.StatusOK {
-		t.Fatalf("get diff 2 status = %d, expected 200, body = %s", diffResp2.Code, diffResp2.Body)
+	if rec := request(http.MethodDelete, board, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if rec := request(http.MethodGet, project, ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("get after delete status = %d, body = %s", rec.Code, rec.Body)
 	}
 }

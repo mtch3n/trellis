@@ -25,7 +25,7 @@ func TestLintReportsAnUnknownFrontmatterKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	found := findingsFor(t, c, p.ID, doc.Slug)
+	found := findingsFor(t, c, p.ID, doc)
 	var got *LintFinding
 	for i := range found {
 		if found[i].Kind == "unknown_field" {
@@ -54,7 +54,7 @@ func TestLintDoesNotReportAFieldATemplateNames(t *testing.T) {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
 
-	for _, f := range findingsFor(t, c, p.ID, doc.Slug) {
+	for _, f := range findingsFor(t, c, p.ID, doc) {
 		if f.Kind == "unknown_field" {
 			t.Errorf("owner was flagged as unknown, but the owned template names it: %+v", f)
 		}

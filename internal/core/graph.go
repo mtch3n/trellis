@@ -100,7 +100,11 @@ func (c *Core) Traverse(ctx context.Context, startID string, depth int, rels []s
 					if err := tx.Get(&artifact, `SELECT * FROM artifact WHERE id = ?`, r.ID); err != nil {
 						continue // a stub target: an id that resolves to nothing
 					}
-					node.Type, node.Ref, node.Title = "artifact", artifact.ID, artifact.Name
+					akey, err := projectKeyOf(tx, artifact.ProjectID)
+					if err != nil {
+						return err
+					}
+					node.Type, node.Ref, node.Title = "artifact", ArtifactAddress(akey, artifact.Name), artifact.Name
 				}
 			}
 			g.Nodes = append(g.Nodes, node)

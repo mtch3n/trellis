@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/vpath"
 )
 
 // syncDocRelations rewrites everything derived from a doc's text: its
@@ -91,25 +92,26 @@ func (c *Core) syncDocRelations(tx *sqlx.Tx, doc *Knowledge, fm Frontmatter, bod
 // unresolved link is listed by `knowledge lint`, never an error: writing a link
 // to something not yet written is how a vault gets built.
 //
-// A qualified reference to another project resolves only when that project is
-// GLOBAL (§10.6.1): search discovers across projects, links never depend across
-// them.
+// A relative reference resolves in the source's project first and in the
+// vault second, the order loadDoc uses for a relative argument. An address
+// resolves wherever it points, another project included: the link names its
+// target exactly, and reading that project by name is already allowed. A
+// project or entry that does not exist yet leaves a stub, which
+// resolveDocStubs fills in when the entry is created or escalated.
 func (c *Core) resolveDocRef(tx *sqlx.Tx, projectID string, ref Reference) (any, error) {
-	q := `SELECT id FROM knowledge WHERE slug = ? AND project_id = ?`
-	args := []any{ref.Slug, projectID}
+	var q string
+	var args []any
 	switch ref.ProjectKey {
 	case "":
+		q = `SELECT id FROM knowledge WHERE slug = ? AND (project_id = ? OR global = 1)
+		     ORDER BY global LIMIT 1`
+		args = []any{ref.Slug, projectID}
 	case GlobalKey:
-		q = `SELECT id FROM knowledge WHERE slug = ? AND global = 1`
-		args = []any{ref.Slug}
+		q, args = `SELECT id FROM knowledge WHERE slug = ? AND global = 1`, []any{ref.Slug}
 	default:
-		var key string
-		if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, projectID); err != nil {
-			return nil, err
-		}
-		if !strings.EqualFold(key, ref.ProjectKey) {
-			return nil, nil // another project: a stub, deliberately unresolvable
-		}
+		q = `SELECT k.id FROM knowledge k JOIN project p ON p.id = k.project_id
+		     WHERE k.slug = ? AND p.key = ? AND k.global = 0`
+		args = []any{ref.Slug, ref.ProjectKey}
 	}
 	var id string
 	err := tx.Get(&id, q, args...)
@@ -150,33 +152,39 @@ func (c *Core) Backlinks(ctx context.Context, docID string) ([]Backlink, error) 
 }
 
 // LinkCardToDoc is the structured card-to-doc relationship (§10.2):
-// trellis link XPSCTL-12 design#concurrency
+//
+//	trellis link XPSCTL-12 design#concurrency
+//	trellis link XPSCTL-12 /OTHER/knowledge/runbook#rollback
+//
+// The target may be in another project; link rows carry no foreign key, and
+// wikilinks cross projects too.
 func (c *Core) LinkCardToDoc(ctx context.Context, projectID string, cardRef CardRef, target string) error {
+	if t, _ := vpath.SplitAnchor(strings.TrimSpace(target)); strings.HasPrefix(strings.TrimSpace(t), "/") {
+		if _, err := ParseAddress(strings.TrimSpace(t), vpath.CollectionKnowledge); err != nil {
+			return err
+		}
+	}
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var card Card
 		if err := c.loadCard(tx, projectID, cardRef, &card); err != nil {
 			return err
 		}
-		slug, anchor, _ := strings.Cut(target, "#")
-		ref := Reference{Raw: target, Slug: Slugify(slug), Anchor: Slugify(anchor)}
-		if key, rest, ok := strings.Cut(slug, "/"); ok {
-			ref.ProjectKey, ref.Slug = strings.ToUpper(key), Slugify(rest)
-		}
+		ref := ParseReference(target)
 		toID, err := c.resolveDocRef(tx, projectID, ref)
 		if err != nil {
 			return err
 		}
 		if toID == nil {
-			return ErrNotFound("knowledge_not_found", "no knowledge entry "+slug,
+			return ErrNotFound("knowledge_not_found", "no knowledge entry "+ref.Raw,
 				`trellis knowledge new --title "..."`)
 		}
 		if _, err := tx.Exec(
 			`INSERT OR IGNORE INTO link (from_type, from_id, to_type, to_id, to_raw, anchor, rel)
 			 VALUES ('card', ?, 'doc', ?, ?, ?, 'documents')`,
-			card.ID, toID, target, nullIfEmpty(ref.Anchor)); err != nil {
+			card.ID, toID, ref.Raw, nullIfEmpty(ref.Anchor)); err != nil {
 			return err
 		}
-		return c.recordEvent(tx, "card", card.ID, "linked", "documents", "", target)
+		return c.recordEvent(tx, "card", card.ID, "linked", "documents", "", ref.Raw)
 	})
 }
 func dedupe(in []string) []string {

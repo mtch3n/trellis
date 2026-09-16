@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func findingsFor(t *testing.T, c *Core, projectID, slug string) []LintFinding {
+func findingsFor(t *testing.T, c *Core, projectID string, doc Knowledge) []LintFinding {
 	t.Helper()
 	all, err := c.Lint(t.Context(), projectID)
 	if err != nil {
@@ -13,7 +13,7 @@ func findingsFor(t *testing.T, c *Core, projectID, slug string) []LintFinding {
 	}
 	var out []LintFinding
 	for _, f := range all {
-		if f.Doc == slug {
+		if f.Doc == doc.Ref {
 			out = append(out, f)
 		}
 	}
@@ -38,7 +38,7 @@ func TestLintReportsAMissingArtifact(t *testing.T) {
 	doc := entryNaming(t, c, p.ID, "Absent", "absent.pdf")
 
 	var found bool
-	for _, f := range findingsFor(t, c, p.ID, doc.Slug) {
+	for _, f := range findingsFor(t, c, p.ID, doc) {
 		if f.Kind == "missing_artifact" && f.Ref == "absent.pdf" {
 			found = true
 			if !strings.Contains(f.Fix, "artifact add") {
@@ -61,7 +61,7 @@ func TestLintReportsAnAmbiguousArtifact(t *testing.T) {
 	doc := entryNaming(t, c, p.ID, "Twin", a.Name)
 
 	var found bool
-	for _, f := range findingsFor(t, c, p.ID, doc.Slug) {
+	for _, f := range findingsFor(t, c, p.ID, doc) {
 		if f.Kind == "missing_artifact" && f.Ref == a.Name {
 			found = true
 			if !strings.Contains(f.Fix, "artifact ls") {
@@ -78,7 +78,7 @@ func TestLintIsQuietAboutAResolvedArtifact(t *testing.T) {
 	c, p, _ := kbCore(t)
 	a := addArtifact(t, c, p.ID, "fine.png", "\x89PNG\r\n\x1a\nx")
 	doc := entryNaming(t, c, p.ID, "Fine", a.Name)
-	for _, f := range findingsFor(t, c, p.ID, doc.Slug) {
+	for _, f := range findingsFor(t, c, p.ID, doc) {
 		if f.Kind == "missing_artifact" {
 			t.Errorf("unexpected finding %+v", f)
 		}
@@ -91,7 +91,7 @@ func TestAnEntryLinkedOnlyToAnArtifactIsStillAnOrphan(t *testing.T) {
 	c, p, _ := kbCore(t)
 	a := addArtifact(t, c, p.ID, "alone.png", "\x89PNG\r\n\x1a\nx")
 	doc := entryNaming(t, c, p.ID, "Alone", a.Name)
-	for _, f := range findingsFor(t, c, p.ID, doc.Slug) {
+	for _, f := range findingsFor(t, c, p.ID, doc) {
 		if f.Kind == "orphan" {
 			return
 		}

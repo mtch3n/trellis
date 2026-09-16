@@ -406,13 +406,33 @@ func (c *Core) ReadKnowledge(ctx context.Context, projectID, slug string) (Knowl
 }
 
 func (c *Core) loadDoc(tx *sqlx.Tx, projectID, slug string, out *Knowledge) error {
-	resolved, err := c.resolveSlug(tx, projectID, slug, true)
+	key, err := projectKeyOf(tx, projectID)
 	if err != nil {
 		return err
 	}
-	err = tx.Get(out,
-		`SELECT * FROM knowledge WHERE slug = ? AND (project_id = ? OR global = 1) ORDER BY global LIMIT 1`,
-		resolved, projectID)
+	d, err := readDocArg(slug, key)
+	if err != nil {
+		return err
+	}
+	var exactSlug string
+	if projectID == "" || d.scope == docVault {
+		exactSlug, err = c.resolveSlug(tx, "", d.slug, true)
+	} else if d.scope == docOwn {
+		exactSlug, err = c.resolveSlug(tx, projectID, d.slug, false)
+	} else {
+		exactSlug, err = c.resolveSlug(tx, projectID, d.slug, true)
+	}
+	if err != nil {
+		return err
+	}
+
+	if projectID == "" || d.scope == docVault {
+		err = tx.Get(out, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, exactSlug)
+	} else if d.scope == docOwn {
+		err = tx.Get(out, `SELECT * FROM knowledge WHERE slug = ? AND project_id = ? AND global = 0`, exactSlug, projectID)
+	} else {
+		err = tx.Get(out, `SELECT * FROM knowledge WHERE slug = ? AND (project_id = ? OR global = 1) ORDER BY global LIMIT 1`, exactSlug, projectID)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return notFoundSlug(slug)
 	}
@@ -922,14 +942,28 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 	var doc Knowledge
 	var done bool
 	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
-		resolved, rerr := c.resolveSlug(tx, projectID, slug, false)
+		key, err := projectKeyOf(tx, projectID)
+		if err != nil {
+			return err
+		}
+		d, err := readDocArg(slug, key)
+		if err != nil {
+			return err
+		}
+		exactSlug, rerr := c.resolveSlug(tx, projectID, d.slug, d.scope == docVault)
 		if rerr != nil {
 			return rerr
 		}
-		if err := tx.Get(&doc,
-			`SELECT * FROM knowledge WHERE project_id = ? AND slug = ?`, projectID, resolved); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return notFoundSlug(slug)
+		q := `SELECT * FROM knowledge WHERE project_id = ? AND slug = ?`
+		switch d.scope {
+		case docOwn:
+			q += ` AND global = 0`
+		case docVault:
+			q += ` AND global = 1`
+		}
+		if err := tx.Get(&doc, q, projectID, exactSlug); err != nil {
+			if err.Error() == "sql: no rows in result set" {
+				return ErrNotFound("knowledge_not_found", "no knowledge entry "+slug+" owned by this project", "trellis knowledge ls")
 			}
 			return err
 		}

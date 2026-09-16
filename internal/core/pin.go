@@ -316,6 +316,11 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 			return err
 		}
 		doc.Global, doc.Path, doc.ReviewBy, doc.ReviewedAt = true, dest, &reviewBy, &now
+		// Links written to the vault address before the entry got there are
+		// stubs; escalating is what makes them resolvable.
+		if err := c.resolveDocStubs(tx, &doc); err != nil {
+			return err
+		}
 		if err := c.recordEvent(tx, "knowledge", doc.ID, "escalated", "", "", reason); err != nil {
 			return err
 		}
@@ -374,7 +379,15 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 			}
 		}()
 
-		gerr := tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, normalizeSlugPath(slug))
+		parsedSlug, err := vaultSlug(slug)
+		if err != nil {
+			return err
+		}
+		exactSlug, rerr := c.resolveSlug(tx, "", parsedSlug, true)
+		if rerr != nil {
+			return rerr
+		}
+		gerr := tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, exactSlug)
 		if errors.Is(gerr, sql.ErrNoRows) {
 			return ErrNotFound("not_global", "no global entry "+slug, "trellis knowledge ls --global")
 		}
@@ -406,6 +419,10 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 			return err
 		}
 		doc.Global, doc.Path, doc.ReviewBy = false, dest, nil
+		// Links to the project address resolve once the entry is back.
+		if err := c.resolveDocStubs(tx, &doc); err != nil {
+			return err
+		}
 		if err := c.recordEvent(tx, "knowledge", doc.ID, "demoted", "", "", reason); err != nil {
 			return err
 		}
@@ -440,7 +457,15 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 func (c *Core) VerifyKnowledge(ctx context.Context, slug string) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var doc Knowledge
-		err := tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, normalizeSlugPath(slug))
+		parsedSlug, err := vaultSlug(slug)
+		if err != nil {
+			return err
+		}
+		exactSlug, rerr := c.resolveSlug(tx, "", parsedSlug, true)
+		if rerr != nil {
+			return rerr
+		}
+		err = tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, exactSlug)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound("not_global", "no global entry "+slug, "trellis knowledge ls --global")
 		}
