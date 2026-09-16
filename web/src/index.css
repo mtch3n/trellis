@@ -2,98 +2,119 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "./typeset.css";
-@import "@fontsource-variable/geist";
-@import "@fontsource-variable/geist-mono";
 
 @source "./**/*.{js,ts,jsx,tsx}";
 
-@font-face {
-  font-family: 'Geist Variable';
-  font-style: normal;
-  font-display: swap;
-  font-weight: 100 900;
-  src: url('/fonts/geist-latin-wght-normal.woff2') format('woff2-variations');
-}
-
-@font-face {
-  font-family: 'Geist Mono Variable';
-  font-style: normal;
-  font-display: swap;
-  font-weight: 100 900;
-  src: url('/fonts/geist-mono-latin-wght-normal.woff2') format('woff2-variations');
-}
-
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Trellis has two halves and the palette follows them.
+ *
+ *   Boards are work in motion   -> instrument chrome. Amber is the only
+ *                                  accent; it means a lease is held.
+ *   Knowledge is what was kept  -> paper and ink, the one light surface.
+ *
+ * Three colours carry meaning and nothing else does: amber for held,
+ * red for an alarm, green for the live connection lamp. Everything
+ * else is achromatic, so a quiet board reads as quiet.
+ */
 :root {
   --font-geist: 'Geist Variable', sans-serif;
   --font-geist-mono: 'Geist Mono Variable', monospace;
-  --background: oklch(0.975 0.008 210);
-  --foreground: oklch(0.22 0.025 220);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.22 0.025 220);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.22 0.025 220);
-  --primary: oklch(0.43 0.095 190);
-  --primary-foreground: oklch(0.985 0.005 190);
-  --secondary: oklch(0.935 0.018 205);
-  --secondary-foreground: oklch(0.28 0.045 210);
-  --muted: oklch(0.945 0.012 210);
-  --muted-foreground: oklch(0.48 0.035 215);
-  --accent: oklch(0.92 0.05 190);
-  --accent-foreground: oklch(0.28 0.06 190);
-  --destructive: oklch(0.56 0.19 28);
-  --border: oklch(0.88 0.018 210);
-  --input: oklch(0.86 0.02 210);
-  --ring: oklch(0.55 0.1 190);
-  --chart-1: oklch(0.43 0.095 190);
-  --chart-2: oklch(0.58 0.08 160);
-  --chart-3: oklch(0.62 0.09 80);
-  --chart-4: oklch(0.55 0.12 35);
-  --chart-5: oklch(0.52 0.09 285);
-  --radius: 0.75rem;
-  --sidebar: oklch(0.96 0.012 210);
-  --sidebar-foreground: oklch(0.22 0.025 220);
-  --sidebar-primary: oklch(0.43 0.095 190);
-  --sidebar-primary-foreground: oklch(0.985 0.005 190);
-  --sidebar-accent: oklch(0.92 0.05 190);
-  --sidebar-accent-foreground: oklch(0.28 0.06 190);
-  --sidebar-border: oklch(0.88 0.018 210);
-  --sidebar-ring: oklch(0.55 0.1 190);
+
+  /* light: the paper surface becomes the ground */
+  --background: oklch(0.945 0.012 85);
+  --foreground: oklch(0.19 0.008 60);
+  --card: oklch(0.965 0.010 85);
+  --card-foreground: oklch(0.19 0.008 60);
+  --popover: oklch(0.975 0.008 85);
+  --popover-foreground: oklch(0.19 0.008 60);
+  /* The primary action is ink, not amber: amber is spent on held leases. */
+  --primary: oklch(0.19 0.008 60);
+  --primary-foreground: oklch(0.965 0.010 85);
+  --secondary: oklch(0.905 0.014 85);
+  --secondary-foreground: oklch(0.24 0.008 60);
+  --muted: oklch(0.905 0.014 85);
+  --muted-foreground: oklch(0.45 0.010 68);
+  --accent: oklch(0.905 0.014 85);
+  --accent-foreground: oklch(0.24 0.008 60);
+  --destructive: oklch(0.545 0.212 27);
+  --border: oklch(0.845 0.016 82);
+  --input: oklch(0.845 0.016 82);
+  --ring: oklch(0.45 0.010 68);
+  --radius: 0rem;
+
+  /* Trellis semantics. A lamp is the whole state vocabulary. */
+  --held: oklch(0.79 0.155 72);
+  --danger: oklch(0.545 0.212 27);
+  --live: oklch(0.72 0.17 155);
+  --paper: oklch(0.945 0.012 85);
+  --paper-2: oklch(0.905 0.014 85);
+  --ink: oklch(0.19 0.008 60);
+  --ink-2: oklch(0.45 0.010 68);
+  --rule-strong: oklch(0.70 0.014 78);
+  --wikilink: oklch(0.50 0.090 62);
+
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
 }
 
 .dark {
-  --background: oklch(0.18 0.025 220);
-  --foreground: oklch(0.95 0.012 205);
-  --card: oklch(0.22 0.025 220);
-  --card-foreground: oklch(0.95 0.012 205);
-  --popover: oklch(0.22 0.025 220);
-  --popover-foreground: oklch(0.95 0.012 205);
-  --primary: oklch(0.72 0.105 190);
-  --primary-foreground: oklch(0.18 0.025 220);
-  --secondary: oklch(0.29 0.035 220);
-  --secondary-foreground: oklch(0.95 0.012 205);
-  --muted: oklch(0.29 0.035 220);
-  --muted-foreground: oklch(0.72 0.035 210);
-  --accent: oklch(0.32 0.065 190);
-  --accent-foreground: oklch(0.92 0.05 190);
-  --destructive: oklch(0.68 0.16 28);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 16%);
-  --ring: oklch(0.72 0.105 190);
-  --sidebar: oklch(0.21 0.03 220);
-  --sidebar-foreground: oklch(0.95 0.012 205);
-  --sidebar-primary: oklch(0.72 0.105 190);
-  --sidebar-primary-foreground: oklch(0.18 0.025 220);
-  --sidebar-accent: oklch(0.32 0.065 190);
-  --sidebar-accent-foreground: oklch(0.92 0.05 190);
-  --sidebar-border: oklch(1 0 0 / 12%);
-  --sidebar-ring: oklch(0.72 0.105 190);
+  --background: oklch(0.155 0.006 265);
+  --foreground: oklch(0.925 0.004 265);
+  --card: oklch(0.185 0.007 265);
+  --card-foreground: oklch(0.925 0.004 265);
+  --popover: oklch(0.135 0.006 265);
+  --popover-foreground: oklch(0.925 0.004 265);
+  --primary: oklch(0.925 0.004 265);
+  --primary-foreground: oklch(0.155 0.006 265);
+  --secondary: oklch(0.225 0.008 265);
+  --secondary-foreground: oklch(0.925 0.004 265);
+  --muted: oklch(0.225 0.008 265);
+  --muted-foreground: oklch(0.615 0.012 265);
+  --accent: oklch(0.225 0.008 265);
+  --accent-foreground: oklch(0.925 0.004 265);
+  --destructive: oklch(0.638 0.223 27);
+  --border: oklch(0.255 0.009 265);
+  --input: oklch(0.300 0.010 265);
+  --ring: oklch(0.615 0.012 265);
+
+  --held: oklch(0.812 0.152 76);
+  --danger: oklch(0.638 0.223 27);
+  --live: oklch(0.795 0.175 157);
+  /* The reading surface is a warmer material than the chrome, never a
+     different theme. A cream sheet inside a dark app is a flashbang at the
+     desk this is used at, and it breaks the one-theme rule besides. */
+  --paper: oklch(0.212 0.010 70);
+  --paper-2: oklch(0.248 0.011 70);
+  --ink: oklch(0.905 0.010 80);
+  --ink-2: oklch(0.655 0.012 75);
+  --rule-strong: oklch(0.335 0.011 265);
+  --wikilink: oklch(0.80 0.105 74);
+
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
 }
 
 @theme inline {
   --font-sans: var(--font-geist);
   --font-mono: var(--font-geist-mono);
+  /* typeset.css reads --font-heading. Undefined, it made an invalid declaration
+     that inherited the body face and looked right by accident. One family,
+     stated. */
+  --font-heading: var(--font-geist);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -112,11 +133,6 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -125,19 +141,173 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --radius-sm: calc(var(--radius) * 0.65);
-  --radius-md: calc(var(--radius) * 0.8);
+
+  --color-held: var(--held);
+  --color-danger: var(--danger);
+  --color-live: var(--live);
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-rule-strong: var(--rule-strong);
+  --color-wikilink: var(--wikilink);
+
+  --radius-sm: var(--radius);
+  --radius-md: var(--radius);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.35);
+  --radius-xl: var(--radius);
+  --radius-2xl: var(--radius);
+  --radius-3xl: var(--radius);
+  --radius-4xl: var(--radius);
+
+  /* ── TYPE ──────────────────────────────────────────────────────────
+     One scale. Four sizes, seven roles, and nothing outside them; the
+     audit rejects any other size, tracking or uppercase utility.
+
+       text-title    24px  600  the one h1 on a screen: board, entry, card
+       text-heading  16px  600  an h2 inside a page: Notes, Results, Stubs
+       text-body     15px  400  reading: a summary, and the prose scale
+       text-sm       14px  400  the interface: rows, tiles, nav, controls
+       text-xs       12px  400  secondary words: kinds, captions, counts
+       text-label    12px  500  names of structure: a column, a group, a table head
+       text-meta     12px  mono identifiers: refs, slugs, agent ids, paths
+
+     Everything is sentence case. Nothing is tracked out, and nothing sits
+     above a title as a label: a title comes first, and the identifier it
+     belongs to lives beside it or in the facts. Hierarchy comes from
+     weight and colour before size. Prose headings sit between
+     text-heading and text-title so a body that opens with "# Title" never
+     competes with the title above it. text-meta is a utility below,
+     because a size token cannot carry a family. */
+  --text-title: 1.5rem;
+  --text-title--line-height: 1.2;
+  --text-title--letter-spacing: -0.025em;
+  --text-title--font-weight: 600;
+  --text-heading: 1rem;
+  --text-heading--line-height: 1.4;
+  --text-heading--letter-spacing: -0.011em;
+  --text-heading--font-weight: 600;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.65;
+  --text-label: 0.75rem;
+  --text-label--line-height: 1rem;
+  --text-label--font-weight: 500;
+
+  /* ── MOTION ────────────────────────────────────────────────────────
+     Two curves. Things arriving decelerate hard; things settling in
+     place ease out gently. Nothing bounces. */
+  --ease-arrive: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-settle: cubic-bezier(0.25, 1, 0.5, 1);
+  --animate-enter: enter 220ms var(--ease-arrive) both;
+
+  @keyframes enter {
+    from { opacity: 0; transform: translateY(4px); }
+  }
+
+  /* A held card refusing to move: a short, damped no. */
+  --animate-refuse: refuse 320ms var(--ease-settle);
+
+  @keyframes refuse {
+    20% { transform: translateX(-3px); }
+    45% { transform: translateX(3px); }
+    70% { transform: translateX(-1.5px); }
+  }
+
+  /* A lamp glows; it never sits under a generic shadow. */
+  --shadow-lamp-idle: inset 0 0 0 1px var(--rule-strong);
+  --shadow-lamp-held: 0 0 9px -1px var(--held);
+  --shadow-lamp-alarm: 0 0 9px -1px var(--danger);
+  --shadow-lamp-live: 0 0 8px var(--live);
+  /* The one lifted object: a card in the hand. Tinted by the ink, never black. */
+  --shadow-lift: 0 1px 2px color-mix(in oklch, var(--ink) 10%, transparent), 0 12px 32px -8px color-mix(in oklch, var(--ink) 28%, transparent);
+
+  --spacing-shell: 3.375rem;
+  /* Viewport minus the shell: the height a pane gets when it scrolls on its own. */
+  --spacing-under-shell: calc(100svh - 3.375rem);
+  /* Where a sticky rail rests: under the shell, level with the page padding. */
+  --spacing-shell-gap: 5.375rem;
+
+  /* The reading measure. Title, summary, rule and prose share one right edge. */
+  --container-measure: 42rem;
+  /* The measure, the facts rail and the gap between them. */
+  --container-entry: 60.5rem;
+
+  --grid-template-columns-doc: minmax(0, 1fr) 17rem;
+  /* Knowledge is a navigator, then a document and its facts centred in what
+     is left. Facts drop below the document before the measure gives way. */
+  --grid-template-columns-nav: 18rem minmax(0, 1fr);
+  --grid-template-columns-measure: minmax(0, 42rem);
+  --grid-template-columns-entry: minmax(0, 42rem) 15rem;
+  /* The overview is a dashboard, not a document: it takes the width. */
+  --container-overview: 96rem;
+  /* The overview: what is moving, then a rail of what is known. */
+  --grid-template-columns-overview: minmax(0, 1fr) 18rem;
+}
+
+@utility text-meta {
+  font-family: var(--font-geist-mono);
+  font-size: 0.75rem;
+  line-height: var(--tw-leading, 1rem);
+  letter-spacing: var(--tw-tracking, 0);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The project timeline. Lane names stay pinned at its left edge, so only
+   the far edge fades. Skipped quiet time lies over the lanes as a fine
+   vertical grain, so it reads as a jump, not as time that passed. */
+.timeline-scroll {
+  --scroll-fade-s-size: 0px;
+}
+.timeline-skip {
+  background-color: color-mix(in oklch, var(--background) 72%, transparent);
+  background-image: repeating-linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--muted-foreground) 22%, transparent) 0 1px,
+    transparent 1px 4px
+  );
+}
+
+/* A field edited in place. The wash reaches past the words on every side
+   and the negative margin pays for it, so the text stays exactly where the
+   reader saw it. It owns its own margin and padding: never pair it with a
+   spacing utility, wrap it instead. */
+@utility edit-surface {
+  margin: calc(var(--spacing) * -2) calc(var(--spacing) * -3);
+  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3);
+  background-color: color-mix(in oklch, var(--muted) 45%, transparent);
+  box-shadow: inset 0 0 0 1px transparent;
+  cursor: text;
+  transition: background-color 150ms var(--ease-settle), box-shadow 150ms var(--ease-settle);
+  &:hover {
+    background-color: color-mix(in oklch, var(--muted) 80%, transparent);
+  }
+  &:focus-within {
+    background-color: color-mix(in oklch, var(--muted) 80%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ring) 50%, transparent);
+  }
+}
+
+/* The same field at rest, while reading: nothing until pointed at, then the
+   wash an edit would show. Same geometry as edit-surface, so a click that
+   starts editing moves nothing. */
+@utility edit-hint {
+  margin: calc(var(--spacing) * -2) calc(var(--spacing) * -3);
+  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3);
+  cursor: text;
+  transition: background-color 150ms var(--ease-settle);
+  &:hover {
+    background-color: color-mix(in oklch, var(--muted) 45%, transparent);
+  }
 }
 
 .typeset-notes {
   --typeset-font-body: var(--font-geist);
   --typeset-font-heading: var(--font-geist);
   --typeset-font-mono: var(--font-geist-mono);
-  --typeset-size: 15px;
-  --typeset-leading: 1.75;
+  --typeset-size: 0.9375rem;
+  --typeset-leading: 1.65;
   --typeset-flow: 1.25em;
+  max-width: var(--container-measure);
 }
 
 @layer base {
@@ -154,6 +324,7 @@
     @apply min-h-svh bg-background text-foreground;
     margin: 0;
     font-synthesis: none;
+    font-variant-numeric: tabular-nums;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -161,5 +332,162 @@
 
   #root {
     min-height: 100svh;
+  }
+
+  /* The surfaces we did not draw still belong to the design. */
+  ::selection {
+    background: color-mix(in oklch, var(--foreground) 18%, transparent);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--rule-strong) transparent;
+  }
+  *::-webkit-scrollbar { width: 11px; height: 11px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: var(--rule-strong); }
+  *::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
+}
+
+@layer components {
+  /* A lamp is the whole state vocabulary, so its two live states get real
+     keyframes rather than a borrowed utility. animate-pulse belongs to
+     Skeleton and the audit reserves it. */
+  @keyframes trellis-lamp-live { 50% { opacity: 0.28; } }
+  @keyframes trellis-lamp-alarm { 50% { opacity: 0.22; } }
+
+  .lamp-live { animation: trellis-lamp-live 2.6s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+  .lamp-alarm { animation: trellis-lamp-alarm 1.15s steps(1) infinite; }
+}
+
+@layer components {
+  /* shadcn's typeset supplies the prose rules for both the reader and the
+     editor. Its heading steps are pulled in here so prose sits under the
+     type scale: h1 20px, h2 18px, h3 16px (text-heading), below the 24px
+     title rather than level with it. */
+  .typeset-notes :where(h1) { font-size: 1.3333em; line-height: 1.3; letter-spacing: -0.02em; }
+  .typeset-notes :where(h2) { font-size: 1.2em; line-height: 1.35; letter-spacing: -0.015em; }
+  .typeset-notes :where(h3) { font-size: 1.0667em; line-height: 1.4; letter-spacing: -0.011em; }
+
+  /* ForceGraph. Positions are written by the simulation, states by data
+     attributes, so hover and focus never re-render React. Everything is
+     achromatic: amber means a held lease, and nothing here is held. */
+  .force-graph {
+    --graph-k: 1;
+    touch-action: none;
+    cursor: grab;
+  }
+  .force-graph:active { cursor: grabbing; }
+
+  .force-graph .graph-edge {
+    stroke: var(--rule-strong);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+    transition: opacity 160ms var(--ease-settle), stroke 160ms var(--ease-settle);
+  }
+  .force-graph .graph-edge[data-stub] { stroke-dasharray: 3 3; }
+  .force-graph .graph-edge[data-active] { stroke: var(--muted-foreground); }
+
+  .force-graph .graph-node {
+    cursor: pointer;
+    outline: none;
+    transition: opacity 160ms var(--ease-settle);
+  }
+  .force-graph .graph-node[data-stub] { cursor: default; }
+  .force-graph .graph-glyph { scale: calc(1 / var(--graph-k)); }
+  .force-graph .graph-shape {
+    fill: var(--muted-foreground);
+    stroke: var(--card);
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: fill 160ms var(--ease-settle), scale 200ms var(--ease-arrive);
+  }
+  .force-graph .graph-node[data-stub] .graph-shape {
+    fill: var(--background);
+    stroke: var(--muted-foreground);
+    stroke-width: 1;
+    stroke-dasharray: 2 2;
+  }
+  .force-graph .graph-node[data-active] .graph-shape { fill: var(--foreground); }
+  .force-graph .graph-node:hover .graph-shape,
+  .force-graph .graph-node:focus-visible .graph-shape { fill: var(--foreground); scale: 1.25; }
+  .force-graph .graph-halo {
+    fill: none;
+    stroke: var(--foreground);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+    opacity: 0;
+    transition: opacity 160ms var(--ease-settle);
+  }
+  .force-graph .graph-node[data-active] .graph-halo,
+  .force-graph .graph-node:focus-visible .graph-halo { opacity: 1; }
+  .force-graph .graph-node:focus-visible .graph-halo { stroke: var(--ring); stroke-width: 2; }
+
+  .force-graph .graph-label {
+    fill: var(--muted-foreground);
+    font-family: var(--font-geist);
+    font-size: 0.6875rem;
+    paint-order: stroke;
+    stroke: var(--card);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+    pointer-events: none;
+    user-select: none;
+    transition: opacity 160ms var(--ease-settle), fill 160ms var(--ease-settle);
+  }
+  .force-graph .graph-node[data-stub] .graph-label { font-family: var(--font-geist-mono); }
+  .force-graph .graph-node[data-active] .graph-label { fill: var(--foreground); font-weight: 500; }
+
+  /* Zoomed out, only the nodes that matter carry a name. */
+  .force-graph[data-labels='quiet'] .graph-label { opacity: 0; }
+  .force-graph[data-labels='quiet'] .graph-node:is([data-active], [data-lit], :hover, :focus-visible) .graph-label { opacity: 1; }
+
+  /* Pointing at a node lights it and what it touches, and lowers the rest. */
+  .force-graph[data-lit] .graph-node:not([data-lit]) { opacity: 0.18; }
+  .force-graph[data-lit] .graph-edge:not([data-lit]) { opacity: 0.08; }
+  .force-graph[data-lit] .graph-edge[data-lit] { stroke: var(--foreground); }
+  .force-graph[data-lit] .graph-node[data-lit] .graph-label { fill: var(--foreground); }
+
+  .force-graph .graph-node[data-enter] { animation: graph-node-enter 360ms var(--ease-arrive) backwards; }
+  @keyframes graph-node-enter { from { opacity: 0; } }
+
+  .trellis-prosemirror .milkdown-prose {
+    outline: none;
+    caret-color: var(--foreground);
+  }
+  /* The editor fills its field, so a click anywhere in it lands in the text. */
+  .trellis-prosemirror > .milkdown {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+  }
+  .trellis-prosemirror .milkdown-prose {
+    position: relative;
+    flex: 1;
+  }
+  /* An empty body says what belongs in it. ProseMirror renders an empty
+     document as one paragraph holding a single trailing break. */
+  .trellis-prosemirror .milkdown-prose:has(> p:only-child > br:only-child)::before {
+    content: attr(data-placeholder);
+    position: absolute;
+    top: 0;
+    left: 0;
+    color: color-mix(in oklch, var(--muted-foreground) 55%, transparent);
+    pointer-events: none;
+  }
+  .trellis-prosemirror .milkdown-prose:focus-visible { outline: none; }
+}
+
+/* Every motion in the app is decoration on top of a state change that is
+   already visible, so reduced motion removes all of it. Script-driven
+   motion (the graph, drag and drop) checks the same query itself. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

@@ -1,111 +1,825 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, BookOpen, GripVertical, Plus, RefreshCw, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useParams } from 'react-router-dom'
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardCode,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  closestCenter,
+  defaultDropAnimationSideEffects,
+  getFirstCollision,
+  pointerWithin,
+  rectIntersection,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type Announcements,
+  type CollisionDetection,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+  type DropAnimation,
+  type UniqueIdentifier,
+} from '@dnd-kit/core'
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { Plus } from 'lucide-react'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Paged } from '@/components/wrappers/Paged'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { toast } from '@/components/ui/toast'
+import { Lamp } from '@/components/wrappers/Lamp'
+import { PageHeader } from '@/components/wrappers/PageHeader'
+import { useLiveStatus } from '@/lib/live-status'
+import { CardDialog } from '@/components/wrappers/CardDialog'
+import { type CardInfo, type CardNote } from '@/components/wrappers/CardView'
+import { PRIORITIES, PRIORITY_NUMBERS, shortActor } from '@/lib/cards'
+import type { HistoryEvent } from '@/components/wrappers/HistoryList'
+import { sentence } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
-interface CardInfo { id: string; ref: string; title: string; body: string; priority: string; version: number; owner?: string }
 interface ColumnCardsInfo { name: string; cards: CardInfo[] }
-interface CardDetail { card: CardInfo; notes: { id: string; actor: string; body: string; created_at: number }[]; activity: { seq: number; actor: string; action: string; field?: string }[] }
+interface CardDetail { card: CardInfo; notes: CardNote[]; activity?: HistoryEvent[] }
+/** Column name to the refs in it, in order: the board as the drag sees it. */
+type Layout = Record<string, string[]>
+
+const COLUMN = 'column:'
+
+function message(err: unknown) {
+  return err instanceof Error ? err.message : 'Unknown error'
+}
+
+/** The words of an edit that differ from the card, in the PATCH shape. */
+function changedFields(card: CardInfo, edit: { title: string; body: string }) {
+  const changes: { title?: string; body?: string } = {}
+  if (edit.title !== card.title) changes.title = edit.title
+  if (edit.body !== card.body) changes.body = edit.body
+  return changes
+}
+
+function reducedMotion() {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+// A column reads urgent, high, normal, low; within a priority, the manual
+// order holds. The server lists cards this way; the board keeps it while a
+// card is in the hand.
+const PRIORITY_WEIGHT: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 }
+
+function weight(card?: CardInfo) {
+  return PRIORITY_WEIGHT[card?.priority ?? 'normal'] ?? PRIORITY_WEIGHT.normal
+}
+
+function byPriority(refs: string[], cards: Map<string, CardInfo>) {
+  // Array sort is stable, so equal priorities keep their manual order.
+  return [...refs].sort((a, b) => weight(cards.get(a)) - weight(cards.get(b)))
+}
+
+/**
+ * The card a move should be placed before. The server orders by rank, and
+ * ranks interleave across priorities, so the anchor has to be the next card
+ * of the same priority. With none, the card goes to the end of the rank order,
+ * which is the end of its priority.
+ */
+function anchorAfter(order: string[], ref: string, cards: Map<string, CardInfo>) {
+  const next = order[order.indexOf(ref) + 1]
+  return next && weight(cards.get(next)) === weight(cards.get(ref)) ? next : ''
+}
+
+function layoutOf(columns: ColumnCardsInfo[]): Layout {
+  const cards = new Map(columns.flatMap((column) => column.cards.map((card) => [card.ref, card] as const)))
+  return Object.fromEntries(
+    columns.map((column) => [column.name, byPriority(column.cards.map((card) => card.ref), cards)]),
+  )
+}
+
+function columnOf(layout: Layout, id: UniqueIdentifier): string | undefined {
+  const key = String(id)
+  if (key.startsWith(COLUMN)) return key.slice(COLUMN.length)
+  return Object.keys(layout).find((name) => layout[name].includes(key))
+}
+
+const DROP: DropAnimation = {
+  duration: 220,
+  easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+  sideEffects: defaultDropAnimationSideEffects({ styles: { active: { opacity: '0' } } }),
+}
 
 export function BoardPage() {
   const { projectKey, boardSlug } = useParams<{ projectKey: string; boardSlug: string }>()
   const [columns, setColumns] = useState<ColumnCardsInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [draft, setDraft] = useState({ title: '', body: '', priority: 'normal' })
-  const [editing, setEditing] = useState<CardInfo | null>(null)
-  const [detail, setDetail] = useState<CardDetail | null>(null)
+  const [open, setOpen] = useState<CardInfo | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [notes, setNotes] = useState<CardNote[]>([])
+  const [history, setHistory] = useState<HistoryEvent[]>([])
   const [saving, setSaving] = useState(false)
-  const [stealReason, setStealReason] = useState('')
+  const [view, setView] = useState('board')
+  // While a card is in the hand, the board renders this layout instead of the
+  // server's, so the landing slot moves with the pointer across columns.
+  const [preview, setPreview] = useState<Layout | null>(null)
+  const [activeRef, setActiveRef] = useState<string | null>(null)
+  const [overColumn, setOverColumn] = useState<string | null>(null)
+  const origin = useRef<{ column: string; index: number } | null>(null)
+  const lastOver = useRef<UniqueIdentifier | null>(null)
+  const { setLive } = useLiveStatus()
 
-  const loadBoard = async () => {
+  const base = `/api/p/${projectKey}/b/${boardSlug}`
+
+  const loadBoard = useCallback(async (signal?: AbortSignal) => {
     if (!projectKey || !boardSlug) return
-    setLoading(true)
     try {
-      const response = await fetch(`/api/p/${projectKey}/b/${boardSlug}/cards`)
-      if (!response.ok) throw new Error('Could not load board')
+      const response = await fetch(`${base}/cards`, { signal })
+      if (!response.ok) throw new Error(await response.text())
       setColumns(await response.json())
       setError(null)
-    } catch (err) { setError(err instanceof Error ? err.message : 'Unknown error') } finally { setLoading(false) }
-  }
-  useEffect(() => { void loadBoard() }, [projectKey, boardSlug])
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      setError(message(err))
+    } finally {
+      if (!signal?.aborted) setLoading(false)
+    }
+  }, [projectKey, boardSlug, base])
+
   useEffect(() => {
     if (!projectKey || !boardSlug) return
-    const events = new EventSource(`/api/p/${projectKey}/b/${boardSlug}/events`)
-    events.addEventListener('changed', () => { void loadBoard() })
-    return () => events.close()
-  }, [projectKey, boardSlug])
-  const total = useMemo(() => columns.reduce((sum, column) => sum + column.cards.length, 0), [columns])
+    const controller = new AbortController()
+    void loadBoard(controller.signal)
+    return () => controller.abort()
+  }, [projectKey, boardSlug, loadBoard])
 
-  const createCard = async (event: FormEvent) => {
-    event.preventDefault()
-    if (!projectKey || !boardSlug || !draft.title.trim()) return
-    setSaving(true)
-    try {
-      const response = await fetch(`/api/p/${projectKey}/b/${boardSlug}/cards`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...draft, priority: { urgent: 0, high: 1, normal: 2, low: 3 }[draft.priority as 'urgent' | 'high' | 'normal' | 'low'] }) })
-      if (!response.ok) throw new Error(await response.text())
-      setDraft({ title: '', body: '', priority: 'normal' })
-      await loadBoard()
-    } catch (err) { setError(err instanceof Error ? err.message : 'Could not create card') } finally { setSaving(false) }
-  }
-
-  const saveCard = async (event: FormEvent) => {
-    event.preventDefault()
-    if (!projectKey || !boardSlug || !editing) return
-    setSaving(true)
-    try {
-      const priority = { urgent: 0, high: 1, normal: 2, low: 3 }[editing.priority as 'urgent' | 'high' | 'normal' | 'low']
-      const response = await fetch(`/api/p/${projectKey}/b/${boardSlug}/cards/${encodeURIComponent(editing.ref)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: editing.title, body: editing.body, priority, if_version: editing.version }) })
-      if (!response.ok) throw new Error(await response.text())
-      setEditing(null)
-      await loadBoard()
-    } catch (err) { setError(err instanceof Error ? err.message : 'Could not save card') } finally { setSaving(false) }
-  }
-
-  const moveCard = async (card: CardInfo, column: string, before = '') => {
+  useEffect(() => {
     if (!projectKey || !boardSlug) return
-    try {
-      const response = await fetch(`/api/p/${projectKey}/b/${boardSlug}/cards/${encodeURIComponent(card.ref)}/move`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ column, before }) })
-      if (!response.ok) throw new Error(await response.text())
-      await loadBoard()
-    } catch (err) { setError(err instanceof Error ? err.message : 'Could not move card') }
-  }
+    const events = new EventSource(`${base}/events`)
+    events.addEventListener('changed', () => { void loadBoard() })
+    events.onopen = () => setLive('connected')
+    events.onerror = () => setLive('disconnected')
+    return () => { events.close(); setLive('unknown') }
+  }, [projectKey, boardSlug, base, loadBoard, setLive])
 
-  const stealCard = async () => {
-    if (!projectKey || !boardSlug || !editing || !stealReason.trim()) return
-    setSaving(true)
-    try {
-      const response = await fetch(`/api/p/${projectKey}/b/${boardSlug}/cards/${encodeURIComponent(editing.ref)}/steal`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: stealReason }) })
-      if (!response.ok) throw new Error(await response.text())
-      setStealReason('')
-      await loadBoard()
-      const refreshed = await fetch(`/api/p/${projectKey}/b/${boardSlug}/cards/${encodeURIComponent(editing.ref)}`)
-      if (refreshed.ok) setDetail(await refreshed.json())
-    } catch (err) { setError(err instanceof Error ? err.message : 'Could not steal lease') } finally { setSaving(false) }
-  }
+  const byRef = useMemo(() => new Map(columns.flatMap((column) => column.cards.map((card) => [card.ref, card]))), [columns])
+  const layout = useMemo(() => preview ?? layoutOf(columns), [preview, columns])
+  const shown = useMemo(
+    () => columns.map((column) => ({
+      name: column.name,
+      cards: (layout[column.name] ?? []).flatMap((ref) => byRef.get(ref) ?? []),
+    })),
+    [columns, layout, byRef],
+  )
+
+  const columnNames = useMemo(() => columns.map((column) => column.name), [columns])
+  const openColumn = open ? columnOf(layoutOf(columns), open.ref) : undefined
+  const activeCard = activeRef ? byRef.get(activeRef) : undefined
+
+  const sensors = useSensors(
+    // A small distance keeps a click from registering as a drag, so opening a
+    // card to read it still works with a mouse. Touch waits for a press, so a
+    // swipe across the board still scrolls it.
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
+    // Space picks a card up; Enter stays free to open it.
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+      keyboardCodes: {
+        start: [KeyboardCode.Space],
+        cancel: [KeyboardCode.Esc],
+        end: [KeyboardCode.Space, KeyboardCode.Enter],
+      },
+    }),
+  )
+
+  // Pointer first, so the column under the cursor wins over a card that merely
+  // overlaps. Inside a column with cards, the nearest card is the target, so
+  // the slot follows the pointer rather than jumping to the end.
+  const collision: CollisionDetection = useCallback((args) => {
+    const hits = pointerWithin(args)
+    let overId = getFirstCollision(hits.length > 0 ? hits : rectIntersection(args), 'id')
+    if (overId == null) return lastOver.current ? [{ id: lastOver.current }] : []
+    const current = preview ?? layoutOf(columns)
+    const key = String(overId)
+    if (key.startsWith(COLUMN)) {
+      const refs = current[key.slice(COLUMN.length)] ?? []
+      if (refs.length > 0) {
+        const nearest = closestCenter({
+          ...args,
+          droppableContainers: args.droppableContainers.filter((container) => refs.includes(String(container.id))),
+        })
+        overId = nearest[0]?.id ?? overId
+      }
+    }
+    lastOver.current = overId
+    return [{ id: overId }]
+  }, [preview, columns])
 
   const openCard = async (card: CardInfo) => {
-    setEditing(card)
-    if (!projectKey || !boardSlug) return
+    setOpen(card)
+    setNotes([])
+    setHistory([])
     try {
-      const response = await fetch(`/api/p/${projectKey}/b/${boardSlug}/cards/${encodeURIComponent(card.ref)}`)
-      if (response.ok) setDetail(await response.json())
-    } catch { /* the editor remains useful when activity is temporarily unavailable */ }
+      const response = await fetch(`${base}/cards/${encodeURIComponent(card.ref)}`)
+      if (response.ok) {
+        const detail = (await response.json()) as CardDetail
+        setNotes(detail.notes ?? [])
+        setHistory(detail.activity ?? [])
+      }
+    } catch {
+      /* the card reads fine without its notes */
+    }
+  }
+
+  const refreshDetail = async (ref: string) => {
+    const response = await fetch(`${base}/cards/${encodeURIComponent(ref)}`)
+    if (!response.ok) return
+    const detail = (await response.json()) as CardDetail
+    // A move or a priority change bumps the version, and the next save of
+    // the words has to send the new one. Only the card still open is replaced.
+    setOpen((current) => (current?.ref === ref ? detail.card : current))
+    setNotes(detail.notes ?? [])
+    setHistory(detail.activity ?? [])
+  }
+
+  const createCard = async (draft: { title: string; body: string; priority: string; column?: string }) => {
+    setSaving(true)
+    try {
+      const response = await fetch(`${base}/cards`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...draft, priority: PRIORITY_NUMBERS[draft.priority as (typeof PRIORITIES)[number]] }),
+      })
+      if (!response.ok) throw new Error(await response.text())
+      setCreating(false)
+      await loadBoard()
+    } catch (err) {
+      toast.add({ title: 'Could not create card', description: message(err), type: 'error' })
+    } finally { setSaving(false) }
+  }
+
+  /** Resolves true once the card is saved, so the dialog can go back to reading. */
+  const saveCard = async (edit: { title: string; body: string }) => {
+    if (!open) return false
+    setSaving(true)
+    try {
+      // Only what changed is sent, so the history records edits, not saves.
+      const changes = changedFields(open, edit)
+      let saved = open
+      const response = Object.keys(changes).length === 0
+        ? null
+        : await fetch(`${base}/cards/${encodeURIComponent(open.ref)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...changes, if_version: open.version }),
+          })
+      if (response && !response.ok) {
+        const text = await response.text()
+        const refreshed = await fetch(`${base}/cards/${encodeURIComponent(open.ref)}`)
+        if (refreshed.ok) {
+          const detail = (await refreshed.json()) as CardDetail
+          setOpen(detail.card)
+          setNotes(detail.notes ?? [])
+          setHistory(detail.activity ?? [])
+        }
+        toast.add({ title: 'Card changed underneath you', description: `${text} It has been reloaded.`, type: 'error' })
+        return false
+      }
+      if (response) saved = (await response.json()) as CardInfo
+      setOpen(saved)
+      void refreshDetail(saved.ref)
+      await loadBoard()
+      return true
+    } catch (err) {
+      toast.add({ title: 'Could not save card', description: message(err), type: 'error' })
+      return false
+    } finally { setSaving(false) }
+  }
+
+  // A single field, so no version: the server asks for one only when a title
+  // or body is replaced wholesale.
+  const setPriority = async (priority: string) => {
+    if (!open) return
+    const ref = open.ref
+    try {
+      const response = await fetch(`${base}/cards/${encodeURIComponent(ref)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priority: PRIORITY_NUMBERS[priority as (typeof PRIORITIES)[number]] }),
+      })
+      if (!response.ok) throw new Error(await response.text())
+    } catch (err) {
+      toast.add({ title: `Could not change the priority of ${ref}`, description: message(err), type: 'error' })
+    } finally {
+      await refreshDetail(ref)
+      await loadBoard()
+    }
+  }
+
+  const moveCard = async (ref: string, column: string, before = '') => {
+    try {
+      const response = await fetch(`${base}/cards/${encodeURIComponent(ref)}/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ column, before }),
+      })
+      if (!response.ok) throw new Error(await response.text())
+    } catch (err) {
+      toast.add({ title: `Could not move ${ref}`, description: message(err), type: 'error' })
+    } finally {
+      await loadBoard()
+    }
+  }
+
+  const deleteCard = async () => {
+    if (!open) return false
+    try {
+      const response = await fetch(`${base}/cards/${encodeURIComponent(open.ref)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      if (!response.ok) throw new Error(await response.text())
+      toast.add({ title: `Deleted ${open.ref}`, type: 'success' })
+      setOpen(null)
+      setNotes([])
+    setHistory([])
+      await loadBoard()
+      return true
+    } catch (err) {
+      toast.add({ title: `Could not delete ${open.ref}`, description: message(err), type: 'error' })
+      return false
+    }
+  }
+
+  const stealLease = async (reason: string) => {
+    if (!open) return
+    setSaving(true)
+    try {
+      const response = await fetch(`${base}/cards/${encodeURIComponent(open.ref)}/steal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      })
+      if (!response.ok) throw new Error(await response.text())
+      await loadBoard()
+      const refreshed = await fetch(`${base}/cards/${encodeURIComponent(open.ref)}`)
+      if (refreshed.ok) {
+        const detail = (await refreshed.json()) as CardDetail
+        setOpen(detail.card)
+        setNotes(detail.notes ?? [])
+        setHistory(detail.activity ?? [])
+      }
+    } catch (err) {
+      toast.add({ title: 'Could not take the lease', description: message(err), type: 'error' })
+    } finally { setSaving(false) }
+  }
+
+  const endDrag = () => {
+    setPreview(null)
+    setActiveRef(null)
+    setOverColumn(null)
+    origin.current = null
+    lastOver.current = null
+  }
+
+  const onDragStart = ({ active }: DragStartEvent) => {
+    const start = layoutOf(columns)
+    const column = columnOf(start, active.id)
+    if (!column) return
+    origin.current = { column, index: start[column].indexOf(String(active.id)) }
+    setPreview(start)
+    setActiveRef(String(active.id))
+    setOverColumn(column)
+  }
+
+  // Crossing into another column moves the slot there immediately; ordering
+  // inside a column is left to the sortable strategy until the drop.
+  const onDragOver = ({ active, over }: DragOverEvent) => {
+    if (!over) return
+    const ref = String(active.id)
+    const below = active.rect.current.translated
+      ? active.rect.current.translated.top > over.rect.top + over.rect.height / 2
+      : false
+    setOverColumn(columnOf(layout, over.id) ?? null)
+    setPreview((current) => {
+      if (!current) return current
+      const from = columnOf(current, active.id)
+      const to = columnOf(current, over.id)
+      if (!from || !to || from === to) return current
+      const target = current[to]
+      const overIndex = target.indexOf(String(over.id))
+      const index = overIndex < 0 ? target.length : overIndex + (below ? 1 : 0)
+      return {
+        ...current,
+        [from]: current[from].filter((item) => item !== ref),
+        [to]: byPriority([...target.slice(0, index), ref, ...target.slice(index)], byRef),
+      }
+    })
+  }
+
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    const start = origin.current
+    const current = preview
+    endDrag()
+    if (!over || !current || !start) return
+
+    const ref = String(active.id)
+    const column = columnOf(current, active.id)
+    const overColumnName = columnOf(current, over.id)
+    if (!column || column !== overColumnName) return
+
+    let order = current[column]
+    const from = order.indexOf(ref)
+    const to = order.indexOf(String(over.id))
+    if (to >= 0 && from !== to) order = arrayMove(order, from, to)
+    // A drop outside the card's priority settles at the nearest end of it.
+    order = byPriority(order, byRef)
+    const index = order.indexOf(ref)
+    if (column === start.column && index === start.index) return
+
+    const before = anchorAfter(order, ref, byRef)
+    const next = { ...current, [column]: order }
+    setColumns((existing) =>
+      existing.map((item) => ({
+        ...item,
+        cards: (next[item.name] ?? []).flatMap((id) => byRef.get(id) ?? []),
+      })),
+    )
+    void moveCard(ref, column, before)
+  }
+
+  const announcements: Announcements = {
+    onDragStart: ({ active }) => {
+      const card = byRef.get(String(active.id))
+      return `Picked up ${active.id}${card ? `, ${card.title}` : ''}.`
+    },
+    onDragOver: ({ active, over }) => {
+      if (!over || !preview) return undefined
+      const column = columnOf(preview, over.id)
+      if (!column) return undefined
+      const position = preview[column].indexOf(String(active.id)) + 1
+      return `${active.id} is over ${column}${position > 0 ? `, position ${position} of ${preview[column].length}` : ''}.`
+    },
+    onDragEnd: ({ active, over }) => {
+      const column = over && preview ? columnOf(preview, over.id) : undefined
+      return column ? `${active.id} dropped in ${column}.` : `${active.id} was not moved.`
+    },
+    onDragCancel: ({ active }) => `Cancelled. ${active.id} is back where it was.`,
   }
 
   if (loading && columns.length === 0) return <LoadingBoard />
-  if (error && columns.length === 0) return <main className="mx-auto min-h-svh max-w-7xl px-5 py-10"><p className="text-destructive">{error}</p><Button className="mt-4" variant="outline" onClick={() => void loadBoard()}>Retry</Button></main>
 
-  return <main className="mx-auto min-h-svh max-w-7xl px-5 py-8 sm:px-8 lg:px-10">
-    <header className="mb-8 flex flex-wrap items-end justify-between gap-5 border-b border-border pb-6"><div><Link to="/" className="mb-5 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" />Projects</Link><p className="font-mono text-xs uppercase tracking-wide text-muted-foreground">{projectKey}</p><h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">{boardSlug}</h1><p className="mt-2 text-sm text-muted-foreground">{total} active card{total === 1 ? '' : 's'}</p></div><div className="flex gap-2"><Link to={`/p/${projectKey}/b/${boardSlug}/kb`}><Button variant="outline" size="sm"><BookOpen className="size-4" />Knowledge</Button></Link><Button variant="outline" size="sm" onClick={() => void loadBoard()}><RefreshCw className="size-4" />Refresh</Button></div></header>
-    {error && <div className="mb-5 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">{error}</div>}
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{columns.map((column) => <section key={column.name} data-testid={`board-column-${column.name}`} className="min-h-72 rounded-lg border border-border/80 bg-muted/20 p-3" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { const ref = event.dataTransfer.getData('text/plain'); const card = columns.flatMap((item) => item.cards).find((item) => item.ref === ref); if (card) void moveCard(card, column.name) }}><div className="mb-3 flex items-center justify-between px-1"><h2 className="text-sm font-semibold text-foreground">{column.name}</h2><span className="rounded-full bg-background px-2 py-0.5 font-mono text-xs text-muted-foreground">{column.cards.length}</span></div><div className="space-y-2">{column.cards.map((card) => <Card key={card.id} data-testid={`board-card-${card.ref}`} draggable onDragStart={(event) => event.dataTransfer.setData('text/plain', card.ref)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.stopPropagation(); const ref = event.dataTransfer.getData('text/plain'); const source = columns.flatMap((item) => item.cards).find((item) => item.ref === ref); if (source && source.ref !== card.ref) void moveCard(source, column.name, card.ref) }} onClick={() => void openCard(card)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') void openCard(card) }} role="button" tabIndex={0} className="cursor-grab border-border bg-background shadow-none transition-transform hover:-translate-y-px active:cursor-grabbing"><CardContent className="p-3"><div className="flex items-start gap-2"><GripVertical className="mt-0.5 size-4 shrink-0 text-muted-foreground/60" /><div className="min-w-0 flex-1"><div className="font-mono text-xs text-muted-foreground">{card.ref}</div><div className="mt-1 line-clamp-2 text-sm font-medium text-foreground">{card.title}</div><div className="mt-3 flex items-center justify-between gap-2 text-xs text-muted-foreground"><span className="capitalize">{card.priority}</span>{card.owner && <span className="truncate">{card.owner}</span>}</div></div></div></CardContent></Card>)}</div></section>)}</div>
-    <form onSubmit={createCard} className="mt-8 rounded-lg border border-border bg-background p-5"><div className="mb-4 flex items-center justify-between"><div><h2 className="font-semibold text-foreground">Add work</h2><p className="mt-1 text-sm text-muted-foreground">New cards start in the first column.</p></div><Plus className="size-5 text-muted-foreground" /></div><div className="grid gap-3 md:grid-cols-3"><Input aria-label="Card title" placeholder="Card title" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /><Input aria-label="Card body" placeholder="Context or acceptance notes" value={draft.body} onChange={(event) => setDraft({ ...draft, body: event.target.value })} /><Button type="submit" disabled={saving || !draft.title.trim()}>{saving ? 'Saving…' : 'Create card'}</Button></div><div className="mt-3 flex gap-2">{['urgent', 'high', 'normal', 'low'].map((priority) => <Button key={priority} type="button" size="xs" variant={draft.priority === priority ? 'default' : 'outline'} onClick={() => setDraft({ ...draft, priority })}>{priority}</Button>)}</div></form>
-    {editing && <div className="fixed inset-0 z-10 grid place-items-center bg-foreground/20 p-5" onMouseDown={() => { setEditing(null); setDetail(null) }}><form onSubmit={saveCard} onMouseDown={(event) => event.stopPropagation()} className="max-h-svh w-full max-w-lg overflow-y-auto rounded-lg border border-border bg-background p-6 shadow-lg"><div className="mb-5 flex items-start justify-between"><div><p className="font-mono text-xs text-muted-foreground">{editing.ref} · version {editing.version}</p><h2 className="mt-1 text-xl font-semibold text-foreground">Edit card</h2></div><Button type="button" size="icon" variant="ghost" aria-label="Close editor" onClick={() => { setEditing(null); setDetail(null) }}><X className="size-4" /></Button></div><div className="space-y-4"><label className="block text-sm font-medium text-foreground">Title<Input aria-label="Card title editor" className="mt-2" value={editing.title} onChange={(event) => setEditing({ ...editing, title: event.target.value })} /></label><label className="block text-sm font-medium text-foreground">Body<Textarea aria-label="Card body editor" className="mt-2" value={editing.body} onChange={(event) => setEditing({ ...editing, body: event.target.value })} /></label><div className="flex flex-wrap gap-2">{['urgent', 'high', 'normal', 'low'].map((priority) => <Button key={priority} type="button" size="xs" variant={editing.priority === priority ? 'default' : 'outline'} onClick={() => setEditing({ ...editing, priority })}>{priority}</Button>)}</div>{editing.owner && <div className="rounded-lg border border-border bg-muted/30 p-3"><p className="text-sm font-medium text-foreground">Lease held by {editing.owner}</p><div className="mt-2 flex gap-2"><Input aria-label="Steal reason" placeholder="Reason for taking over" value={stealReason} onChange={(event) => setStealReason(event.target.value)} /><Button type="button" variant="outline" disabled={saving || !stealReason.trim()} onClick={() => void stealCard()}>Steal lease</Button></div></div>}</div>{detail && <div className="mt-6 space-y-4 border-t border-border pt-5"><div><h3 className="text-sm font-semibold text-foreground">Notes</h3>{detail.notes.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">No notes yet.</p> : <div className="mt-2 space-y-2">{detail.notes.map((note) => <div key={note.id} className="rounded-lg bg-muted/50 p-3 text-sm"><p className="text-foreground">{note.body}</p><p className="mt-2 font-mono text-xs text-muted-foreground">{note.actor}</p></div>)}</div>}</div><div><h3 className="text-sm font-semibold text-foreground">Activity</h3><div className="mt-2 space-y-1 text-xs text-muted-foreground">{detail.activity.slice(0, 8).map((event) => <p key={event.seq}><span className="font-mono">#{event.seq}</span> {event.actor} {event.action}{event.field ? ` · ${event.field}` : ''}</p>)}</div></div></div>}<div className="mt-6 flex justify-end gap-2"><Button type="button" variant="ghost" onClick={() => { setEditing(null); setDetail(null) }}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</Button></div></form></div>}
-  </main>
+  // The board is a fixed frame under the shell: the header stays, the column
+  // strip scrolls sideways when the columns outgrow the screen, and each
+  // column scrolls its own cards. The page itself never scrolls.
+  return (
+    <main className="flex h-under-shell flex-col px-6 lg:px-8">
+      <Tabs value={view} onValueChange={(next) => setView(next ?? 'board')} className="min-h-0 flex-1 gap-3">
+        <PageHeader
+          title={boardSlug ?? 'Board'}
+          actions={
+            <>
+              <TabsList>
+                <TabsTrigger value="board">Board</TabsTrigger>
+                <TabsTrigger value="list">List</TabsTrigger>
+              </TabsList>
+              <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
+                <Plus data-icon="inline-start" />
+                New card
+              </Button>
+            </>
+          }
+        />
+
+        {error && (
+          <Alert variant="destructive">
+            <AlertTitle>Could not load the board</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        <TabsContent value="board" className="min-h-0">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={collision}
+            accessibility={{
+              announcements,
+              screenReaderInstructions: {
+                draggable:
+                  'Press Enter to open this card. To move it, press Space, use the arrow keys, then press Space again to drop it or Escape to cancel.',
+              },
+            }}
+            onDragStart={onDragStart}
+            onDragOver={onDragOver}
+            onDragEnd={onDragEnd}
+            onDragCancel={endDrag}
+          >
+            <div className="flex h-full scroll-fade-x gap-3 overflow-x-auto overscroll-x-contain pb-6">
+              {shown.map((column) => (
+                <BoardColumn
+                  key={column.name}
+                  column={column}
+                  dragging={activeRef !== null}
+                  over={overColumn === column.name}
+                  openRef={open?.ref}
+                  onOpen={openCard}
+                />
+              ))}
+            </div>
+            <DragOverlay dropAnimation={reducedMotion() ? null : DROP}>
+              {activeCard ? <CardTile card={activeCard} lifted /> : null}
+            </DragOverlay>
+          </DndContext>
+        </TabsContent>
+
+        <TabsContent value="list" className="min-h-0 scroll-fade-y overflow-y-auto">
+          <div className="flex flex-col gap-10 pb-10">
+            {columns.map((column) => (
+              <section key={column.name}>
+                <h2 className="flex items-baseline gap-3 text-heading">
+                  {sentence(column.name)}
+                  <span className="text-xs font-normal text-muted-foreground">{column.cards.length}</span>
+                </h2>
+                {column.cards.length === 0 ? (
+                  <p className="mt-3 text-sm text-muted-foreground">No cards</p>
+                ) : (
+                  <Paged items={column.cards} label={`${column.name} pages`}>
+                    {(page) => (
+                      <Table className="mt-3">
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-7" aria-label="State" />
+                            <TableHead className="w-28">Ref</TableHead>
+                            <TableHead>Card</TableHead>
+                            <TableHead className="w-32">Holder</TableHead>
+                            <TableHead className="w-24">Priority</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {page.map((card) => (
+                            <TableRow
+                              key={card.id}
+                              data-state={card.ref === open?.ref ? 'selected' : undefined}
+                              className="cursor-pointer"
+                              onClick={() => void openCard(card)}
+                            >
+                              <TableCell>
+                                <Lamp state={card.priority === 'urgent' ? 'alarm' : card.owner ? 'held' : 'idle'} />
+                              </TableCell>
+                              <TableCell className="text-meta text-muted-foreground">{card.ref}</TableCell>
+                              <TableCell>{card.title}</TableCell>
+                              <TableCell className={cn('text-meta', card.owner ? 'text-held' : 'text-muted-foreground')}>
+                                {shortActor(card.owner) ?? 'none'}
+                              </TableCell>
+                              <TableCell className={cn('text-xs', card.priority === 'urgent' ? 'text-danger' : 'text-muted-foreground')}>
+                                {sentence(card.priority)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </Paged>
+                )}
+              </section>
+            ))}
+          </div>
+        </TabsContent>
+      </Tabs>
+
+      <CardDialog
+        open={creating || open !== null}
+        card={creating ? null : open}
+        notes={creating ? [] : notes}
+        history={creating ? [] : history}
+        columns={columnNames}
+        currentColumn={openColumn}
+        startIn={creating ? 'create' : 'read'}
+        saving={saving}
+        onOpenChange={(next) => { if (!next) { setCreating(false); setOpen(null); setNotes([]); setHistory([]) } }}
+        onSave={saveCard}
+        onCreate={createCard}
+        onMove={(column) => (open ? moveCard(open.ref, column).then(() => refreshDetail(open.ref)) : Promise.resolve())}
+        onPriority={setPriority}
+        onSteal={stealLease}
+        onDelete={deleteCard}
+      />
+    </main>
+  )
 }
 
-function LoadingBoard() { return <main className="mx-auto min-h-svh max-w-7xl px-5 py-10"><div className="h-10 w-56 animate-pulse rounded-lg bg-muted" /><div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">{[1, 2, 3, 4].map((item) => <div className="h-64 animate-pulse rounded-lg bg-muted" key={item} />)}</div></main> }
+/**
+ * One column. The whole column is the drop target, not just its cards, so a
+ * drop below the last card or into an empty column lands. While a card is in
+ * the hand every column shows it can take it, and the one under the pointer
+ * says so more strongly.
+ */
+function BoardColumn({
+  column,
+  dragging,
+  over,
+  openRef,
+  onOpen,
+}: {
+  column: ColumnCardsInfo
+  dragging: boolean
+  over: boolean
+  openRef?: string
+  onOpen: (card: CardInfo) => void
+}) {
+  const { setNodeRef } = useDroppable({ id: `${COLUMN}${column.name}` })
+  const held = column.cards.filter((card) => card.owner).length
+  const refs = useMemo(() => column.cards.map((card) => card.ref), [column.cards])
+
+  return (
+    <section
+      ref={setNodeRef}
+      aria-label={`${column.name}, ${column.cards.length} cards`}
+      data-dragging={dragging || undefined}
+      data-over={over || undefined}
+      className="flex h-full w-72 shrink-0 flex-col bg-muted/50 transition-colors duration-150 data-over:bg-accent xl:w-auto xl:min-w-64 xl:flex-1"
+    >
+      <header className="flex h-11 shrink-0 items-center gap-2 px-3.5">
+        <h2 className="text-label">{sentence(column.name)}</h2>
+        {held > 0 && <span className="text-xs text-held">{held} held</span>}
+        <span className="ml-auto text-xs text-muted-foreground">{column.cards.length}</span>
+      </header>
+
+      <SortableContext items={refs} strategy={verticalListSortingStrategy}>
+        <ul className="flex min-h-0 flex-1 scroll-fade-y flex-col gap-2 overflow-y-auto overscroll-y-contain px-2 pb-2">
+          {column.cards.map((card) => (
+            <li key={card.id}>
+              <SortableCard card={card} selected={card.ref === openRef} onOpen={onOpen} />
+            </li>
+          ))}
+          {column.cards.length === 0 && (dragging ? (
+            // The slot only exists while something can land in it.
+            <li
+              className={cn(
+                'flex h-24 animate-enter items-center justify-center border border-dashed border-rule-strong text-xs text-muted-foreground transition-colors',
+                over && 'border-foreground text-foreground',
+              )}
+            >
+              Drop here
+            </li>
+          ) : (
+            <li className="px-1.5 py-2 text-xs text-muted-foreground">No cards</li>
+          ))}
+        </ul>
+      </SortableContext>
+    </section>
+  )
+}
+
+/**
+ * A card that can be picked up. While it is in the hand its place in the
+ * column becomes the landing slot: a dashed outline of the same height, so
+ * the drop target is visible before the drop.
+ *
+ * A held card does not drag: the lease is the concurrency contract, and a move
+ * the server would refuse should not look available. Trying anyway says why.
+ */
+function SortableCard({
+  card,
+  selected,
+  onOpen,
+}: {
+  card: CardInfo
+  selected: boolean
+  onOpen: (card: CardInfo) => void
+}) {
+  const locked = Boolean(card.owner)
+  // Held cards stay drop targets: a card may be placed beside one, and the
+  // server re-ranks the column without touching the lease.
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: card.ref,
+    disabled: { draggable: locked, droppable: false },
+  })
+  const refused = useRef<{ x: number; y: number; told: boolean } | null>(null)
+  const [shake, setShake] = useState(0)
+
+  const tryLocked = {
+    onPointerDown: (event: ReactPointerEvent) => { refused.current = { x: event.clientX, y: event.clientY, told: false } },
+    onPointerMove: (event: ReactPointerEvent) => {
+      const start = refused.current
+      if (!start || start.told || event.buttons === 0) return
+      if (Math.hypot(event.clientX - start.x, event.clientY - start.y) < 6) return
+      start.told = true
+      setShake((count) => count + 1)
+      toast.add({
+        title: `${card.ref} is held by ${shortActor(card.owner)}`,
+        description: 'Open it and take the lease before moving it.',
+      })
+    },
+    // A refused drag still ends in a click on the same card; it should not
+    // also open the card, because the reader was trying to move it.
+    onClickCapture: (event: ReactMouseEvent) => {
+      if (refused.current?.told) {
+        event.stopPropagation()
+        event.preventDefault()
+      }
+      refused.current = null
+    },
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className="relative"
+    >
+      <CardTile
+        key={shake}
+        card={card}
+        selected={selected}
+        placeholder={isDragging}
+        refused={shake > 0}
+        onOpen={onOpen}
+        {...(locked ? tryLocked : { ...attributes, ...listeners })}
+      />
+    </div>
+  )
+}
+
+/**
+ * The face of a card, shared by the column, the slot and the card in the hand.
+ * State is told once: the lamp and the ref colour carry it, not a stripe.
+ */
+function CardTile({
+  card,
+  selected = false,
+  placeholder = false,
+  lifted = false,
+  refused = false,
+  onOpen,
+  ...handlers
+}: {
+  card: CardInfo
+  selected?: boolean
+  placeholder?: boolean
+  lifted?: boolean
+  refused?: boolean
+  onOpen?: (card: CardInfo) => void
+} & React.HTMLAttributes<HTMLButtonElement>) {
+  const locked = Boolean(card.owner)
+  const urgent = card.priority === 'urgent'
+  const actor = shortActor(card.owner)
+
+  return (
+    <Button
+      variant="ghost"
+      onClick={() => onOpen?.(card)}
+      aria-current={selected ? 'true' : undefined}
+      aria-roledescription={locked ? 'held card' : 'draggable card'}
+      title={locked ? `Held by ${actor}. Take the lease to move it.` : undefined}
+      {...handlers}
+      className={cn(
+        'h-auto w-full flex-col items-stretch justify-start gap-0 border-border bg-card p-3 text-left whitespace-normal hover:border-rule-strong hover:bg-card active:not-aria-[haspopup]:translate-y-0',
+        locked ? 'cursor-pointer' : 'cursor-grab',
+        selected && 'border-foreground hover:border-foreground',
+        placeholder && 'border-dashed border-rule-strong bg-transparent hover:bg-transparent *:invisible',
+        lifted && 'scale-102 rotate-1 cursor-grabbing border-rule-strong shadow-lift',
+        refused && 'animate-refuse',
+      )}
+    >
+      <span className="block text-sm leading-snug text-foreground">{card.title}</span>
+      <span className="mt-2.5 flex w-full flex-wrap items-center gap-x-2 gap-y-1">
+        <Lamp state={urgent ? 'alarm' : locked ? 'held' : 'idle'} />
+        <span className="text-meta text-muted-foreground">{card.ref}</span>
+        {card.priority !== 'normal' && (
+          <span className={cn('text-xs', urgent ? 'text-danger' : 'text-muted-foreground')}>
+            {sentence(card.priority)}
+          </span>
+        )}
+        {actor && (
+          <span className="ml-auto text-xs text-held">
+            Held by <span className="text-meta">{actor}</span>
+          </span>
+        )}
+      </span>
+    </Button>
+  )
+}
+
+function LoadingBoard() {
+  return (
+    <main className="flex h-under-shell flex-col px-6 lg:px-8">
+      <div className="flex min-h-16 items-center py-4">
+        <Skeleton className="h-7 w-48" />
+      </div>
+      <div className="mt-3 flex min-h-0 flex-1 gap-3 overflow-hidden pb-6">
+        {[0, 1, 2, 3].map((column) => (
+          <div key={column} className="flex w-72 shrink-0 flex-col gap-2 bg-muted/50 p-2 xl:w-auto xl:min-w-64 xl:flex-1">
+            <Skeleton className="m-1.5 h-4 w-24" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+          </div>
+        ))}
+      </div>
+    </main>
+  )
+}

@@ -1,13 +1,17 @@
 """Shared Claude Code/Codex hook adapter. Requires Python 3 and trellis on PATH."""
 
 import hashlib
-import html
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
 import sys
+
+
+# Any spelling of the data delimiter, so project text cannot break out of it.
+DELIMITER = re.compile(r"</?\s*trellis_board_data\s*>?", re.IGNORECASE)
 
 
 def run_cli(args, cwd, env):
@@ -71,9 +75,11 @@ def handle(event, mode):
         registered = run_cli(args, cwd, env)
         if registered.returncode:
             env_warning += "Agent registration failed; retry with the session identity before claiming.\n"
-        # Escape project text so it cannot close the data delimiter. Bound
-        # injected bytes without relying on an English-only token estimate.
-        escaped = html.escape(brief.stdout).encode("utf-8")
+        # Neutralize only the delimiter itself. Escaping every quote and angle
+        # bracket would corrupt the brief's own command syntax, which the agent
+        # is meant to read verbatim. Bound injected bytes without relying on an
+        # English-only token estimate.
+        escaped = DELIMITER.sub("(redacted)", brief.stdout).encode("utf-8")
         brief_text = escaped[:1200].decode("utf-8", errors="ignore")
         if len(escaped) > 1200:
             brief_text += "\n[Brief truncated; run board show --brief for the rest.]"

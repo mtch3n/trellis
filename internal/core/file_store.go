@@ -167,9 +167,9 @@ type stagedRemoval struct {
 	trash string
 }
 
-// stageRemoval moves a file beside itself before a database transaction. The
-// move is recoverable: restore brings it back if the transaction rolls back,
-// while finalize removes the tombstone after commit.
+// stageRemoval moves a file or a directory beside itself before a database
+// transaction. The move is recoverable: restore brings it back if the
+// transaction rolls back, while finalize removes the tombstone after commit.
 func stageRemoval(path string) (*stagedRemoval, error) {
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		return &stagedRemoval{path: path}, nil
@@ -218,10 +218,9 @@ func (s *stagedRemoval) finalize() error {
 	if s == nil || s.trash == "" {
 		return nil
 	}
-	err := os.Remove(s.trash)
-	if errors.Is(err, os.ErrNotExist) {
-		err = nil
-	}
+	// RemoveAll, because a staged project directory is not empty. It returns
+	// nil for a path that is already gone.
+	err := os.RemoveAll(s.trash)
 	if err == nil {
 		err = syncDirectory(filepath.Dir(s.path))
 	}

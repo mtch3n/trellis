@@ -59,7 +59,9 @@ func NewServerWithSearch(c *core.Core, db *sqlx.DB, listen string, search *retri
 func (s *Server) registerRoutes() {
 	// API routes
 	s.mux.HandleFunc("GET /api/projects", s.handleProjects)
+	s.mux.HandleFunc("DELETE /api/p/{key}", s.handleDeleteProject)
 	s.mux.HandleFunc("GET /api/p/{key}/boards", s.handleBoards)
+	s.mux.HandleFunc("GET /api/p/{key}/events", s.handleProjectEvents)
 	s.mux.HandleFunc("POST /api/p/{key}/boards", s.handleCreateBoard)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/cards", s.handleBoardCards)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/events", s.handleBoardEvents)
@@ -67,6 +69,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/cards/{card}", s.handleCardDetail)
 	s.mux.HandleFunc("GET /api/p/{key}/cards/{card}", s.handleCardDetail)
 	s.mux.HandleFunc("PATCH /api/p/{key}/b/{board}/cards/{card}", s.handleUpdateCard)
+	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/cards/{card}", s.handleDeleteCard)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/move", s.handleMoveCard)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/steal", s.handleStealCard)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/knowledge", s.handleKnowledgeList)
@@ -215,6 +218,119 @@ type activityInfo struct {
 	ProjectKey string `db:"project_key" json:"project"`
 }
 
+// projectEvent is one entry of a project's history, as the timeline reads
+// it. Old and new values are kept only for column moves: those carry column
+// names, while a body or title edit would carry the text itself.
+type projectEvent struct {
+	Seq    int64  `json:"seq"`
+	TS     int64  `json:"ts"`
+	Actor  string `json:"actor"`
+	Kind   string `json:"kind"`
+	Ref    string `json:"ref"`
+	Action string `json:"action"`
+	Field  string `json:"field,omitempty"`
+	Old    string `json:"old,omitempty"`
+	New    string `json:"new,omitempty"`
+}
+
+const (
+	projectEventsPage    = 1000
+	projectEventsPageMax = 5000
+)
+
+// handleProjectEvents returns the events of a project's cards and knowledge,
+// oldest first, a page at a time. The event log only shrinks through
+// maintenance, so the caller pages forward with ?after=<next> and can poll the
+// same way for what is new. Events of deleted rows have nothing to join and
+// drop out.
+func (s *Server) handleProjectEvents(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	var p core.Project
+	if err := s.db.GetContext(ctx, &p, `SELECT * FROM project WHERE key = ?`, r.PathValue("key")); err != nil {
+		s.error(w, http.StatusNotFound, "project not found")
+		return
+	}
+	var after int64
+	if raw := r.URL.Query().Get("after"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			s.error(w, http.StatusBadRequest, "after must be a non-negative event seq")
+			return
+		}
+		after = parsed
+	}
+	limit := projectEventsPage
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 {
+			s.error(w, http.StatusBadRequest, "limit must be a positive number")
+			return
+		}
+		limit = min(parsed, projectEventsPageMax)
+	}
+
+	var rows []struct {
+		Seq        int64   `db:"seq"`
+		TS         int64   `db:"ts"`
+		Actor      string  `db:"actor"`
+		EntityType string  `db:"entity_type"`
+		Action     string  `db:"action"`
+		Field      string  `db:"field"`
+		Old        string  `db:"old_value"`
+		New        string  `db:"new_value"`
+		CardSeq    *int64  `db:"card_seq"`
+		Slug       *string `db:"slug"`
+		Global     *bool   `db:"global"`
+	}
+	// seq is the primary key, so the lower bound is a range scan and LIMIT
+	// stops it early, whatever the joins behind it cost per row.
+	if err := s.db.SelectContext(ctx, &rows, `
+		SELECT e.seq, e.ts, e.actor, e.entity_type, e.action,
+		       COALESCE(e.field, '') AS field,
+		       CASE WHEN e.field = 'column' THEN COALESCE(e.old_value, '') ELSE '' END AS old_value,
+		       CASE WHEN e.field = 'column' THEN COALESCE(e.new_value, '') ELSE '' END AS new_value,
+		       c.seq AS card_seq, k.slug AS slug, k.global AS global
+		FROM event e
+		LEFT JOIN card c ON e.entity_type = 'card' AND c.id = e.entity_id
+		LEFT JOIN knowledge k ON e.entity_type = 'knowledge' AND k.id = e.entity_id
+		WHERE e.seq > ? AND (c.project_id = ? OR k.project_id = ?)
+		ORDER BY e.seq
+		LIMIT ?`, after, p.ID, p.ID, limit); err != nil {
+		s.error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	events := make([]projectEvent, 0, len(rows))
+	for _, row := range rows {
+		event := projectEvent{
+			Seq: row.Seq, TS: row.TS, Actor: row.Actor, Kind: row.EntityType,
+			Action: row.Action, Field: row.Field, Old: row.Old, New: row.New,
+		}
+		switch {
+		case row.CardSeq != nil:
+			event.Ref = fmt.Sprintf("%s-%d", p.Key, *row.CardSeq)
+		case row.Slug != nil:
+			// The same form as Knowledge.Ref: a project entry and a global
+			// one may share a slug.
+			scope := p.Key
+			if row.Global != nil && *row.Global {
+				scope = core.GlobalKey
+			}
+			event.Ref = scope + "/" + *row.Slug
+		}
+		events = append(events, event)
+	}
+	var next *int64
+	if len(events) > 0 {
+		next = &events[len(events)-1].Seq
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Events []projectEvent `json:"events"`
+		Next   *int64         `json:"next"`
+	}{events, next})
+}
+
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -246,23 +362,60 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 			limit = parsed
 		}
 	}
-	var events []activityInfo
+	// A deleted entity has no row left to join, so its event falls back to the
+	// name it recorded when it went. project narrows the feed to one project's
+	// events, which is what an overview asks for.
+	project := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("project")))
+	events := []activityInfo{}
 	err := s.db.SelectContext(ctx, &events, `
-		SELECT e.seq, e.ts, e.actor, e.entity_type, e.action,
-		       COALESCE(e.field, '') AS field,
-		       COALESCE(c.title, k.title, e.entity_id) AS title,
-		       COALESCE(pc.key, pk.key, '') AS project_key
-		FROM event e
-		LEFT JOIN card c ON c.id = e.entity_id AND e.entity_type = 'card'
-		LEFT JOIN project pc ON pc.id = c.project_id
-		LEFT JOIN knowledge k ON k.id = e.entity_id AND e.entity_type = 'knowledge'
-		LEFT JOIN project pk ON pk.id = k.project_id
-		ORDER BY e.seq DESC LIMIT ?`, limit)
+		SELECT * FROM (
+			SELECT e.seq, e.ts, e.actor, e.entity_type, e.action,
+			       COALESCE(e.field, '') AS field,
+			       COALESCE(c.title, k.title, b.name, pp.key,
+			                CASE WHEN e.action = 'deleted' THEN NULLIF(e.old_value, '') END,
+			                e.entity_id) AS title,
+			       COALESCE(pc.key, pk.key, pb.key, pp.key, '') AS project_key
+			FROM event e
+			LEFT JOIN card c ON c.id = e.entity_id AND e.entity_type = 'card'
+			LEFT JOIN project pc ON pc.id = c.project_id
+			LEFT JOIN knowledge k ON k.id = e.entity_id AND e.entity_type = 'knowledge'
+			LEFT JOIN project pk ON pk.id = k.project_id
+			LEFT JOIN board b ON b.id = e.entity_id AND e.entity_type = 'board'
+			LEFT JOIN project pb ON pb.id = b.project_id
+			LEFT JOIN project pp ON pp.id = e.entity_id AND e.entity_type = 'project'
+		)
+		WHERE ? = '' OR project_key = ?
+		ORDER BY seq DESC LIMIT ?`, project, project, limit)
 	if err != nil {
 		s.error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, events)
+}
+
+type deleteProjectRequest struct {
+	Confirm string `json:"confirm"`
+}
+
+// handleDeleteProject removes a project. The caller must send the key back
+// retyped: a delete this large should never be one stray request away.
+func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	key := strings.ToUpper(r.PathValue("key"))
+	var in deleteProjectRequest
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	if strings.ToUpper(strings.TrimSpace(in.Confirm)) != key {
+		s.error(w, http.StatusBadRequest, "retype the project key to confirm; nothing changed")
+		return
+	}
+	if err := s.core.DeleteProject(ctx, key); err != nil {
+		s.coreError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleBoards returns boards in a project.
@@ -354,6 +507,10 @@ type cardInfo struct {
 	Priority string  `json:"priority"`
 	Version  int64   `json:"version"`
 	Owner    *string `json:"owner,omitempty"`
+	// Unix milliseconds, as the single-card endpoint reports them. The
+	// overview's timeline places each card on the day it was created.
+	CreatedAt int64 `json:"created_at"`
+	UpdatedAt int64 `json:"updated_at"`
 }
 
 // columnCardsInfo contains cards grouped by column.
@@ -387,16 +544,18 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 	for _, col := range columns {
 		// Get cards in this column
 		var cards []struct {
-			ID       string        `db:"id"`
-			Seq      int64         `db:"seq"`
-			Title    string        `db:"title"`
-			Body     string        `db:"body_md"`
-			Priority core.Priority `db:"priority"`
-			Owner    *string       `db:"owner"`
-			Version  int64         `db:"version"`
+			ID        string        `db:"id"`
+			Seq       int64         `db:"seq"`
+			Title     string        `db:"title"`
+			Body      string        `db:"body_md"`
+			Priority  core.Priority `db:"priority"`
+			Owner     *string       `db:"owner"`
+			Version   int64         `db:"version"`
+			CreatedAt int64         `db:"created_at"`
+			UpdatedAt int64         `db:"updated_at"`
 		}
 		if err := s.db.SelectContext(ctx, &cards,
-			`SELECT id, seq, title, body_md, priority, owner, version FROM card WHERE column_id = ? AND archived_at IS NULL ORDER BY rank`,
+			`SELECT id, seq, title, body_md, priority, owner, version, created_at, updated_at FROM card WHERE column_id = ? AND archived_at IS NULL ORDER BY priority, rank`,
 			col.ID); err != nil {
 			s.error(w, http.StatusInternalServerError, err.Error())
 			return
@@ -405,13 +564,15 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 		var cardInfos []cardInfo
 		for _, c := range cards {
 			cardInfos = append(cardInfos, cardInfo{
-				ID:       c.ID,
-				Ref:      p.Key + "-" + fmt.Sprintf("%d", c.Seq),
-				Title:    c.Title,
-				Body:     c.Body,
-				Priority: c.Priority.String(),
-				Owner:    c.Owner,
-				Version:  c.Version,
+				ID:        c.ID,
+				Ref:       p.Key + "-" + fmt.Sprintf("%d", c.Seq),
+				Title:     c.Title,
+				Body:      c.Body,
+				Priority:  c.Priority.String(),
+				Owner:     c.Owner,
+				Version:   c.Version,
+				CreatedAt: c.CreatedAt,
+				UpdatedAt: c.UpdatedAt,
 			})
 		}
 
@@ -796,6 +957,33 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, card)
+}
+
+// handleDeleteCard removes a card outright, the way `trellis card rm` does.
+// A card an agent holds right now is refused by core.
+func (s *Server) handleDeleteCard(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, b, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
+	if err != nil {
+		s.error(w, http.StatusNotFound, err.Error())
+		return
+	}
+	ref := core.ParseCardRef(r.PathValue("card"))
+	card, err := s.core.GetCard(ctx, p.ID, ref)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	if card.BoardID != b.ID {
+		s.error(w, http.StatusNotFound, "card not found on this board")
+		return
+	}
+	if err := s.core.DeleteCard(ctx, p.ID, ref); err != nil {
+		s.coreError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleUpdateCard(w http.ResponseWriter, r *http.Request) {
