@@ -35,9 +35,22 @@ func TestDaemonLifecycle(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start daemon: %v", err)
 	}
+	// Reap the child the moment it exits, in a goroutine rather than in
+	// Cleanup: on Unix, a process that has exited but not yet been reaped is
+	// a zombie, and a zombie's PID still answers kill(pid, 0) as alive. Since
+	// this test process is the child's parent, stopSelfManaged's new
+	// exit-polling (readDaemonPID -> processAlive) would see that zombie as
+	// still running until something calls Wait, and Cleanup does not run
+	// until after the test body — including every stopSelfManaged call in
+	// it — has already finished.
+	waitDone := make(chan struct{})
+	go func() {
+		_, _ = cmd.Process.Wait()
+		close(waitDone)
+	}()
 	t.Cleanup(func() {
 		_ = terminate(cmd.Process.Pid)
-		_, _ = cmd.Process.Wait()
+		<-waitDone
 	})
 	write(t, daemonPIDPath(root), strconv.Itoa(cmd.Process.Pid))
 

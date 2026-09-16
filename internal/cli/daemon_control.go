@@ -185,31 +185,54 @@ func spawnDaemon(ctx context.Context, root, bind string, port int) (int, error) 
 	return pid, nil
 }
 
-// waitForDaemon polls the health endpoint until it matches want or the budget
-// runs out. Polling beats a fixed sleep: a warm start answers immediately.
-func waitForDaemon(ctx context.Context, root string, want bool) error {
-	deadline := time.Now().Add(daemonSpawnWait)
+// pollUntil polls cond every 100ms until it reports true or deadline passes,
+// stopping early if ctx is cancelled. ok is false only when the deadline was
+// reached with cond still false; a non-nil err means ctx ended the wait.
+func pollUntil(ctx context.Context, deadline time.Time, cond func() bool) (ok bool, err error) {
 	for {
-		if _, ok := daemonHealth(ctx, root); ok == want {
-			return nil
+		if cond() {
+			return true, nil
 		}
 		if time.Now().After(deadline) {
-			if want {
-				return errors.New("timed out waiting for the daemon to start")
-			}
-			return errors.New("timed out waiting for the daemon to stop")
+			return false, nil
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return false, ctx.Err()
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
 }
 
-// stopSelfManaged terminates the detached child and waits for the socket to go
-// quiet. It asks politely first so the daemon releases its SQLite lock and
-// removes its socket on the way out.
+// waitForDaemon polls the health endpoint until it matches want or the budget
+// runs out. Polling beats a fixed sleep: a warm start answers immediately.
+func waitForDaemon(ctx context.Context, root string, want bool) error {
+	deadline := time.Now().Add(daemonSpawnWait)
+	ok, err := pollUntil(ctx, deadline, func() bool {
+		_, healthy := daemonHealth(ctx, root)
+		return healthy == want
+	})
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	if want {
+		return errors.New("timed out waiting for the daemon to start")
+	}
+	return errors.New("timed out waiting for the daemon to stop")
+}
+
+// stopSelfManaged terminates the detached child and waits for the process
+// itself to exit. It asks politely first so the daemon releases its SQLite
+// lock and removes its socket on the way out.
+//
+// This waits on process liveness (readDaemonPID), not the health endpoint:
+// daemonHealth carries its own 2-second probe timeout, so a daemon that is
+// merely slow to answer while shutting down under load looks identical to a
+// stopped one if a single failed health call is trusted. Polling the PID
+// instead means "stopped" only ever means the process is actually gone.
 func stopSelfManaged(ctx context.Context, root string) error {
 	pid, alive := readDaemonPID(root)
 	if !alive {
@@ -219,8 +242,16 @@ func stopSelfManaged(ctx context.Context, root string) error {
 	if err := terminate(pid); err != nil {
 		return fmt.Errorf("stop daemon %d: %w", pid, err)
 	}
-	if err := waitForDaemon(ctx, root, false); err != nil {
+	deadline := time.Now().Add(daemonSpawnWait)
+	exited, err := pollUntil(ctx, deadline, func() bool {
+		_, alive := readDaemonPID(root)
+		return !alive
+	})
+	if err != nil {
 		return err
+	}
+	if !exited {
+		return errors.New("timed out waiting for the daemon to stop")
 	}
 	_ = os.Remove(daemonPIDPath(root))
 	return nil
