@@ -349,7 +349,7 @@ func TestPinOnPrivateStoresNoRecap(t *testing.T) {
 	}
 	storesNothing("explicit recap")
 
-	pins, err := c.Pins(t.Context(), p.ID, "")
+	pins, err := c.Pins(t.Context(), p.ID, "", 0)
 	if err != nil {
 		t.Fatalf("Pins: %v", err)
 	}
@@ -602,7 +602,7 @@ func TestMarkingPrivatePurgesEveryLocalCopy(t *testing.T) {
 	// make UnpinKnowledge fail right after a privatise (see
 	// TestUnpinningAJustPrivatisedEntrySucceeds). The pin must survive and
 	// inject only a title/ref pointer, with an empty recap.
-	pins, err := c.Pins(t.Context(), p.ID, "")
+	pins, err := c.Pins(t.Context(), p.ID, "", 0)
 	if err != nil {
 		t.Fatalf("Pins: %v", err)
 	}
@@ -645,7 +645,7 @@ func TestUnpinningAJustPrivatisedEntrySucceeds(t *testing.T) {
 		t.Fatalf("UnpinKnowledge right after privatising: %v", err)
 	}
 
-	pins, err := c.Pins(t.Context(), p.ID, "")
+	pins, err := c.Pins(t.Context(), p.ID, "", 0)
 	if err != nil {
 		t.Fatalf("Pins: %v", err)
 	}
@@ -674,7 +674,7 @@ func TestPinsRedactAPrivateEntryWithNoPriorRead(t *testing.T) {
 
 	setPrivateInFile(t, doc.Path, true)
 
-	pins, err := c.Pins(t.Context(), p.ID, "")
+	pins, err := c.Pins(t.Context(), p.ID, "", 0)
 	if err != nil {
 		t.Fatalf("Pins: %v", err)
 	}
@@ -705,7 +705,7 @@ func TestPinsStillCarryAnOrdinaryRecap(t *testing.T) {
 		t.Fatalf("PinKnowledge: %v", err)
 	}
 
-	pins, err := c.Pins(t.Context(), p.ID, "")
+	pins, err := c.Pins(t.Context(), p.ID, "", 0)
 	if err != nil {
 		t.Fatalf("Pins: %v", err)
 	}
@@ -816,7 +816,7 @@ func TestPinsDoNotDiscloseAfterARolledBackPurge(t *testing.T) {
 			row.Private, row.Recap, recap)
 	}
 
-	pins, err := c.Pins(t.Context(), p.ID, "")
+	pins, err := c.Pins(t.Context(), p.ID, "", 0)
 	if err != nil {
 		t.Fatalf("Pins: %v", err)
 	}
@@ -904,7 +904,7 @@ func TestAPrivatePinIsNeverStale(t *testing.T) {
 	setPrivateInFile(t, doc.Path, true)
 
 	for read := 1; read <= 2; read++ {
-		pins, err := c.Pins(t.Context(), p.ID, "")
+		pins, err := c.Pins(t.Context(), p.ID, "", 0)
 		if err != nil {
 			t.Fatalf("read %d: Pins: %v", read, err)
 		}

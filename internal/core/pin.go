@@ -124,8 +124,9 @@ func (c *Core) UnpinKnowledge(ctx context.Context, projectID, slug, board string
 // Pins lists what would be injected, most recently pinned first. Staleness is
 // detected rather than guessed: recap_hash is the content hash at the moment the
 // recap was written, so a mismatch means the entry moved on and the recap may
-// now be confidently wrong.
-func (c *Core) Pins(ctx context.Context, projectID, boardID string) ([]Pin, error) {
+// now be confidently wrong. Limit controls how many pins are returned; 0 means
+// no limit.
+func (c *Core) Pins(ctx context.Context, projectID, boardID string, limit int) ([]Pin, error) {
 	pins := []Pin{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		q := `SELECT k.id, k.slug, k.title, COALESCE(k.recap, '') AS recap,
@@ -140,6 +141,10 @@ func (c *Core) Pins(ctx context.Context, projectID, boardID string) ([]Pin, erro
 			args = append(args, boardID)
 		}
 		q += " ORDER BY p.created_at DESC"
+		if limit > 0 {
+			q += " LIMIT ?"
+			args = append(args, limit)
+		}
 		if err := tx.Select(&pins, q, args...); err != nil {
 			return err
 		}
