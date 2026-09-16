@@ -68,6 +68,7 @@ func NewServer(c *core.Core, db *sqlx.DB, listen string) *Server {
 // retrieval service and provider lifecycle.
 func NewServerWithSearch(c *core.Core, db *sqlx.DB, listen string, search *retrieval.Service) *Server {
 	c.SetKnowledgeChanged(search.ReconcileProject)
+	c.SetDropDerived(search.DropProject)
 	actor := webActor()
 	s := &Server{
 		core:   c,
@@ -529,7 +530,7 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 	projectKey := r.PathValue("key")
 	boardSlug := r.PathValue("board")
 
-	p, b, err := s.projectAndBoard(ctx, projectKey, boardSlug)
+	_, b, err := s.projectAndBoard(ctx, projectKey, boardSlug)
 	if err != nil {
 		s.error(w, http.StatusNotFound, err.Error())
 		return
@@ -546,7 +547,7 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 	var allCards []struct {
 		ID        string        `db:"id"`
 		ColumnID  string        `db:"column_id"`
-		Seq       int64         `db:"seq"`
+		Ref       string        `db:"ref"`
 		Title     string        `db:"title"`
 		Body      string        `db:"body_md"`
 		Priority  core.Priority `db:"priority"`
@@ -556,7 +557,7 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt int64         `db:"updated_at"`
 	}
 	if err := s.db.SelectContext(ctx, &allCards,
-		`SELECT id, column_id, seq, title, body_md, priority, owner, version, created_at, updated_at FROM card WHERE board_id = ? AND archived_at IS NULL ORDER BY priority, rank`,
+		`SELECT id, column_id, ref, title, body_md, priority, owner, version, created_at, updated_at FROM card WHERE board_id = ? AND archived_at IS NULL ORDER BY priority, rank`,
 		b.ID); err != nil {
 		s.error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -652,7 +653,7 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 			}
 			cardInfos = append(cardInfos, cardInfo{
 				ID:        c.ID,
-				Ref:       p.Key + "-" + fmt.Sprintf("%d", c.Seq),
+				Ref:       c.Ref,
 				Title:     c.Title,
 				Body:      c.Body,
 				Priority:  c.Priority.String(),

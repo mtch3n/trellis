@@ -109,6 +109,7 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	c.SetHistoryKeep(cfg.History.EffectiveKeep())
 	search := retrieval.NewService(c, db, dbPath, cfg)
 	c.SetKnowledgeChanged(search.ReconcileProject)
+	c.SetDropDerived(search.DropProject)
 	address := net.JoinHostPort(bind, fmt.Sprint(port))
 	// ui.enabled off means the daemon is IPC-only: agents keep the shared
 	// database, search index and lease clock, and nothing binds a TCP port.

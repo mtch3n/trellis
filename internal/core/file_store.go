@@ -2,9 +2,11 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // writeTemp creates a temp file beside path in the "."+name+".tmp-" pattern,
@@ -226,4 +228,87 @@ func (s *stagedRemoval) finalize() error {
 		return err
 	}
 	return syncDirectory(filepath.Dir(s.path))
+}
+
+// fileStage records file operations made inside a database transaction, so
+// that a failed transaction can undo them, newest first. Every path is under
+// the storage root, so a move never crosses filesystems.
+type fileStage struct {
+	undo []func() error
+}
+
+// move publishes from at to with a hard link, which fails if anything is at
+// to -- even a file that appears after any check -- and then removes from.
+// writeAtomic publishes the same way. The undo is registered as soon as the
+// link exists, because every later step can fail.
+func (s *fileStage) move(from, to string) error {
+	if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
+		return err
+	}
+	if err := os.Link(from, to); err != nil {
+		return fmt.Errorf("cannot move %s to %s: %w", from, to, err)
+	}
+	s.undo = append(s.undo, func() error {
+		if _, err := os.Lstat(from); errors.Is(err, os.ErrNotExist) {
+			if err := os.Link(to, from); err != nil {
+				return err
+			}
+		}
+		return os.Remove(to)
+	})
+	if err := os.Remove(from); err != nil {
+		return err
+	}
+	if err := syncDirectory(filepath.Dir(to)); err != nil {
+		return err
+	}
+	return syncDirectory(filepath.Dir(from))
+}
+
+// rewrite replaces a file's content, keeping the old bytes for undo. The undo
+// is registered before the write: writeAtomic can replace the file and then
+// fail to sync its directory, and that file must still be restored. Undoing a
+// write that never happened rewrites the same bytes.
+func (s *fileStage) rewrite(path string, data []byte) error {
+	old, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	s.undo = append(s.undo, func() error { return writeAtomic(path, old, true) })
+	return writeAtomic(path, data, true)
+}
+
+// rollback undoes every recorded operation, newest first, and reports every
+// failure rather than stopping at the first.
+func (s *fileStage) rollback() error {
+	var errs []error
+	for i := len(s.undo) - 1; i >= 0; i-- {
+		errs = append(errs, s.undo[i]())
+	}
+	s.undo = nil
+	return errors.Join(errs...)
+}
+
+// copyUnder copies each file into dir at its path relative to root, and
+// returns the hash of every copy by source path. A file outside root is
+// refused: the copy is a backup of the storage root.
+func copyUnder(root, dir string, files []string) (map[string]string, error) {
+	hashes := make(map[string]string, len(files))
+	for _, f := range files {
+		rel, err := filepath.Rel(root, f)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("%s is outside the storage root %s", f, root)
+		}
+		dest := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+			return nil, err
+		}
+		if err := copyAtomic(dest, f); err != nil {
+			return nil, err
+		}
+		if hashes[f], err = fileHash(dest); err != nil {
+			return nil, err
+		}
+	}
+	return hashes, nil
 }

@@ -80,15 +80,11 @@ func (c *Core) Traverse(ctx context.Context, startID string, depth int, rels []s
 			node := GraphNode{ID: r.ID, Depth: r.Depth}
 			var card Card
 			if err := tx.Get(&card, `SELECT * FROM card WHERE id = ?`, r.ID); err == nil {
-				var key string
-				if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, card.ProjectID); err != nil {
-					return err
-				}
 				var done bool
 				if err := tx.Get(&done, `SELECT is_done FROM column_ WHERE id = ?`, card.ColumnID); err != nil {
 					return err
 				}
-				node.Type, node.Ref, node.Title, node.Done = "card", key+"-"+itoa(card.Seq), card.Title, done
+				node.Type, node.Ref, node.Title, node.Done = "card", card.Ref, card.Title, done
 			} else {
 				var doc Knowledge
 				if err := tx.Get(&doc, `SELECT * FROM knowledge WHERE id = ?`, r.ID); err == nil {

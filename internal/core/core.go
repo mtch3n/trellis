@@ -33,6 +33,10 @@ type Core struct {
 	// knowledgeChanged is a best-effort derived-state hook. Source writes do
 	// not fail when an optional embedding provider is unavailable.
 	knowledgeChanged func(context.Context, string) error
+
+	// dropDerivedFn releases derived state that is keyed by a project's key --
+	// the vector tables -- before the project is removed or merged away.
+	dropDerivedFn func(context.Context, string) error
 }
 
 // WithActor returns a copy that writes as another principal. It copies rather
@@ -78,6 +82,17 @@ func (c *Core) notifyKnowledgeChanged(ctx context.Context, projectID string) {
 	if c.knowledgeChanged != nil {
 		_ = c.knowledgeChanged(ctx, projectID)
 	}
+}
+
+func (c *Core) SetDropDerived(fn func(context.Context, string) error) { c.dropDerivedFn = fn }
+
+// dropDerived is best effort: the state it drops is rebuilt on demand, so a
+// failure is reported by the caller and never blocks the removal.
+func (c *Core) dropDerived(ctx context.Context, projectKey string) error {
+	if c.dropDerivedFn == nil {
+		return nil
+	}
+	return c.dropDerivedFn(ctx, projectKey)
 }
 
 // Tx runs fn inside one transaction. The DSN sets _txlock=immediate, so the

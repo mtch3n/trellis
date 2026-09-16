@@ -80,6 +80,7 @@ func openCore() (*core.Core, *sqlx.DB, error) {
 	c.SetHistoryKeep(cfg.History.EffectiveKeep())
 	search := retrieval.NewService(c, db, path, cfg)
 	c.SetKnowledgeChanged(search.ReconcileProject)
+	c.SetDropDerived(search.DropProject)
 	return c, db, nil
 }
 

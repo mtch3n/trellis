@@ -52,3 +52,16 @@ func (r CardRef) String() string {
 	}
 	return "<none>"
 }
+
+// Project returns the ProjectKey if set, else "".
+func (r CardRef) Project() string {
+	return r.ProjectKey
+}
+
+// qualified returns the ProjectKey-Seq form when ProjectKey is set, else "".
+func (r CardRef) qualified() string {
+	if r.ProjectKey != "" {
+		return r.ProjectKey + "-" + itoa(r.Seq)
+	}
+	return ""
+}

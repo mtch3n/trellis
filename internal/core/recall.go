@@ -178,7 +178,7 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 		var cards []RecallHit
 		if !narrowed {
 			if err := tx.Select(&cards, `
-			SELECT 'card' AS kind, c.id, p.key || '-' || c.seq AS ref, c.title, p.key AS project,
+			SELECT 'card' AS kind, c.id, c.ref, c.title, p.key AS project,
 			       col.name AS detail, '' AS recap
 			FROM card c
 			JOIN card_fts ON card_fts.rowid = c.rowid

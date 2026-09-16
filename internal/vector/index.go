@@ -533,3 +533,18 @@ func (i *Index) Reindex(ctx context.Context, dataset string) (string, error) {
 	}
 	return "invalidated; rebuilt lazily on next vector search", nil
 }
+
+// DropTables removes the virtual tables New created in db for the index at
+// dbPath. Their names derive from that path, so a project that is deleted or
+// merged away leaves them behind otherwise. Dropping is safe at any time: the
+// vectors live in dbPath, and New recreates both tables on demand.
+func DropTables(ctx context.Context, db *sql.DB, dbPath string) error {
+	virtual := tableName(dbPath)
+	admin := "vec_admin_" + strings.TrimPrefix(virtual, "vec_knowledge_")
+	for _, table := range []string{admin, virtual} {
+		if _, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS "+table); err != nil {
+			return fmt.Errorf("drop %s: %w", table, err)
+		}
+	}
+	return nil
+}

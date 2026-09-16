@@ -39,6 +39,13 @@ func (c *Core) ProjectByKey(ctx context.Context, key string) (Project, error) {
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		err := tx.Get(&p, `SELECT * FROM project WHERE key = ?`, strings.ToUpper(key))
 		if errors.Is(err, sql.ErrNoRows) {
+			into, merr := mergedTarget(tx, strings.ToUpper(key))
+			if merr != nil {
+				return merr
+			}
+			if into != "" {
+				return errProjectMerged(strings.ToUpper(key), into)
+			}
 			var keys []string
 			if err := tx.Select(&keys, `SELECT key FROM project ORDER BY key`); err != nil {
 				return err
@@ -73,6 +80,9 @@ const ownedEntities = `SELECT id FROM card WHERE project_id = ?
 // that directory creates a fresh, empty project.
 func (c *Core) DeleteProject(ctx context.Context, key string) error {
 	key = strings.ToUpper(strings.TrimSpace(key))
+	// Dropped first, while the vector file is still where the tables point.
+	// A refused or failed delete loses nothing: the tables come back on use.
+	_ = c.dropDerived(ctx, key)
 	var staged *stagedRemoval
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var p Project
@@ -195,6 +205,15 @@ func checkNewKey(key string) error {
 func (c *Core) createProject(tx *sqlx.Tx, key string) (Project, error) {
 	if err := checkNewKey(key); err != nil {
 		return Project{}, err
+	}
+	into, err := mergedTarget(tx, key)
+	if err != nil {
+		return Project{}, err
+	}
+	if into != "" {
+		return Project{}, ErrConflict("key_reserved",
+			fmt.Sprintf("%s was merged into %s, and its key stays reserved while cards still carry it", key, into),
+			"trellis init --key "+into)
 	}
 	var taken int
 	if err := tx.Get(&taken, `SELECT count(*) FROM project WHERE key = ?`, key); err != nil {
@@ -351,4 +370,28 @@ func pinExists(path string, target vpath.Path, flag string) error {
 	return ErrConflict("pin_exists",
 		fmt.Sprintf("%s already names %s, which %s contradicts", path, target, flag),
 		"edit or delete "+path+", then rerun trellis init")
+}
+
+// mergedTarget is the key of the project a retired key was merged into, or
+// "" when key was never merged away.
+func mergedTarget(tx *sqlx.Tx, key string) (string, error) {
+	var into string
+	err := tx.Get(&into,
+		`SELECT p.key FROM merged_project m JOIN project p ON p.id = m.into_id WHERE m.key = ?`, key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return into, err
+}
+
+// errProjectMerged is what naming a retired key gets. Detail carries the
+// survivor's key for callers that can build a better fix, such as the same
+// address in the survivor.
+func errProjectMerged(key, into string) error {
+	return &Error{
+		Code: "project_merged", Exit: 3,
+		Msg:    fmt.Sprintf("project %s was merged into %s", key, into),
+		Fix:    "trellis --project " + into + " <command>",
+		Detail: map[string]string{"into": into},
+	}
 }

@@ -85,11 +85,10 @@ func (c *Core) Blockers(ctx context.Context, cardID string) ([]Blocker, error) {
 	out := []Blocker{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		return tx.Select(&out,
-			`SELECT p.key || '-' || b.seq AS ref, b.title,
+			`SELECT b.ref, b.title,
 			        (col.is_done = 1) AS done
 			 FROM link l
 			 JOIN card b ON b.id = l.to_id
-			 JOIN project p ON p.id = b.project_id
 			 JOIN column_ col ON col.id = b.column_id
 			 WHERE l.from_id = ? AND l.rel = 'blocked_by'
 			 ORDER BY done, b.seq`, cardID)

@@ -297,3 +297,13 @@ func fuseHits(fts, semantic []core.SearchHit, limit int) []core.SearchHit {
 	}
 	return out
 }
+
+// DropProject forgets the vector tables of a project that is about to be
+// removed. Its files go with the project's directory.
+func (s *Service) DropProject(ctx context.Context, projectKey string) error {
+	path, err := home.VectorDBFile(projectKey)
+	if err != nil {
+		return err
+	}
+	return vector.DropTables(ctx, s.db.DB, path)
+}
