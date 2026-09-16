@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/mtch3n/trellis/internal/config"
+	"github.com/mtch3n/trellis/internal/home"
 	"github.com/mtch3n/trellis/internal/service"
+	"github.com/mtch3n/trellis/internal/store"
 )
 
 func TestCheckStorageRoot(t *testing.T) {
@@ -186,6 +189,95 @@ func TestCheckVectorSearch(t *testing.T) {
 	}
 }
 
+func TestCheckProjectFromAPin(t *testing.T) {
+	dir := pinEnv(t, "app")
+	seedProject(t, "APP")
+	writePin(t, dir, "/APP\n")
+	got := checkProject()
+	if got.Status != checkOK || !strings.Contains(got.Detail, "/APP (pin ") {
+		t.Errorf("check = %+v", got)
+	}
+}
+
+func TestCheckProjectWithoutAPinWarns(t *testing.T) {
+	pinEnv(t, "loose")
+	got := checkProject()
+	if got.Status != checkWarn || got.Fix != "trellis init --key <KEY>" {
+		t.Errorf("check = %+v", got)
+	}
+}
+
+func TestCheckProjectNamesItsSource(t *testing.T) {
+	pinEnv(t, "loose")
+	t.Setenv("TRELLIS_PROJECT", "envkey")
+	if got := checkProject(); !strings.Contains(got.Detail, "ENVKEY (from TRELLIS_PROJECT)") {
+		t.Errorf("env: %+v", got)
+	}
+	projectFlagKey = "flagkey"
+	t.Cleanup(func() { projectFlagKey = "" })
+	if got := checkProject(); !strings.Contains(got.Detail, "FLAGKEY (from --project)") {
+		t.Errorf("flag: %+v", got)
+	}
+}
+
+func TestCheckProjectWarnsWhenThePinnedProjectIsMissing(t *testing.T) {
+	dir := pinEnv(t, "clone")
+	seedProject(t, "OTHER")
+	writePin(t, dir, "/GHOST\n")
+	got := checkProject()
+	if got.Status != checkWarn || got.Fix != "trellis init" {
+		t.Errorf("check = %+v", got)
+	}
+}
+
+// A fresh clone: the pin is committed, and this machine has no database yet.
+func TestCheckProjectWithoutADatabaseWarns(t *testing.T) {
+	dir := pinEnv(t, "clone")
+	writePin(t, dir, "/APP\n")
+	got := checkProject()
+	if got.Status != checkWarn || got.Fix != "trellis init" || !strings.Contains(got.Detail, "no database here yet") {
+		t.Errorf("check = %+v", got)
+	}
+	path, err := home.DBPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("the check created a database: %v", err)
+	}
+}
+
+func TestCheckProjectKeysFlagsKeysAPinCannotName(t *testing.T) {
+	pinEnv(t, "anywhere")
+	seedProject(t, "GOOD")
+	path, err := home.DBPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The identity columns still exist in this task; the next one drops them.
+	_, err = db.Exec(`INSERT INTO project (id, key, identity_kind, identity_value, root_path, name, created_at)
+	                  VALUES ('x', 'MY_APP', 'pin', 'MY_APP', 'pin:MY_APP', 'MY_APP', 1)`)
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := checkProjectKeys()
+	if got.Status != checkWarn || !strings.Contains(got.Detail, "MY_APP") || strings.Contains(got.Detail, "GOOD") {
+		t.Errorf("check = %+v", got)
+	}
+}
+
+func TestCheckProjectKeysWithoutADatabase(t *testing.T) {
+	t.Setenv("TRELLIS_HOME", t.TempDir())
+	if got := checkProjectKeys(); got.Status != checkOK {
+		t.Errorf("check = %+v", got)
+	}
+}
+
 func TestRunDoctorCoversEveryAreaAndNeverPanics(t *testing.T) {
 	t.Setenv("TRELLIS_HOME", t.TempDir())
 	checks := runDoctor(context.Background())
@@ -198,7 +290,7 @@ func TestRunDoctorCoversEveryAreaAndNeverPanics(t *testing.T) {
 			t.Errorf("check %q has unknown status %q", c.Name, c.Status)
 		}
 	}
-	for _, name := range []string{"binary", "storage root", "database", "config", "daemon", "auto-start", "web ui", "http port", "project", "vector search"} {
+	for _, name := range []string{"binary", "storage root", "database", "config", "daemon", "auto-start", "web ui", "http port", "project", "project keys", "vector search"} {
 		if !seen[name] {
 			t.Errorf("doctor did not report a %q check", name)
 		}
