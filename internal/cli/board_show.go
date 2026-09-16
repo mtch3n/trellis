@@ -221,7 +221,9 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 
 	// PINNED: pin joined to knowledge, comparing recap_hash against
 	// content_hash. Ordered most recently pinned first.
-	pins, err := app.Core.Pins(ctx, app.Project.ID, app.Board.ID)
+	// Read MaxInjectedPins + 1 to know if there are more; the brief renders
+	// only MaxInjectedPins in full, then counts the rest.
+	pins, err := app.Core.Pins(ctx, app.Project.ID, app.Board.ID, core.MaxInjectedPins+1)
 	if err != nil {
 		return nil, err
 	}

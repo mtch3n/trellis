@@ -439,7 +439,7 @@ func newKnowledgePinsCmd() *cobra.Command {
 		Short: "List what session start injects",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withBoard(func(app *appCtx) error {
-				pins, err := app.Core.Pins(cmd.Context(), app.Project.ID, app.Board.ID)
+				pins, err := app.Core.Pins(cmd.Context(), app.Project.ID, app.Board.ID, 0)
 				if err != nil {
 					return err
 				}

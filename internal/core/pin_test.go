@@ -19,7 +19,7 @@ func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
 		t.Errorf("Recap = %q, want the frontmatter summary", pin.Recap)
 	}
 
-	pins, err := c.Pins(t.Context(), p.ID, "")
+	pins, err := c.Pins(t.Context(), p.ID, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
 	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "Rewritten entirely.\n", &doc.Version); err != nil {
 		t.Fatal(err)
 	}
-	pins, err = c.Pins(t.Context(), p.ID, "")
+	pins, err = c.Pins(t.Context(), p.ID, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
 	if err := c.UnpinKnowledge(t.Context(), p.ID, doc.Slug, ""); err != nil {
 		t.Fatal(err)
 	}
-	if pins, _ := c.Pins(t.Context(), p.ID, ""); len(pins) != 0 {
+	if pins, _ := c.Pins(t.Context(), p.ID, "", 0); len(pins) != 0 {
 		t.Errorf("Pins after unpin = %+v, want none", pins)
 	}
 }
