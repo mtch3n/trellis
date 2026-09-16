@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -347,22 +348,48 @@ func TestGlobalKnowledgeListExcludesBody(t *testing.T) {
 		return rec
 	}
 
-	// For now, just test that global knowledge list doesn't return bodies
-	// by checking an empty list doesn't crash
-	globalListResp := request(http.MethodGet, "/api/global/knowledge", "")
-	if globalListResp.Code != http.StatusOK {
-		t.Fatalf("global list status = %d, body = %s", globalListResp.Code, globalListResp.Body)
+	doc, err := c.CreateKnowledge(ctx, p.ID, core.NewKnowledge{Title: "Shared runbook", Summary: "restart order", Body: "the body\n"})
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	var globalDocs []core.Knowledge
-	if err := json.Unmarshal(globalListResp.Body.Bytes(), &globalDocs); err != nil {
+	global, err := c.EscalateKnowledge(ctx, p.ID, doc.Slug, "used everywhere")
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Verify bodies are empty even in empty list (just sanity check the structure)
-	for _, doc := range globalDocs {
-		if doc.BodyMD != "" {
-			t.Fatalf("global doc in list should not have body, got: %q", doc.BodyMD)
+	list := func() []core.Knowledge {
+		t.Helper()
+		rec := request(http.MethodGet, "/api/global/knowledge", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("global list status = %d, body = %s", rec.Code, rec.Body)
 		}
+		var docs []core.Knowledge
+		if err := json.Unmarshal(rec.Body.Bytes(), &docs); err != nil {
+			t.Fatal(err)
+		}
+		if len(docs) != 1 {
+			t.Fatalf("global list = %+v, want the one entry", docs)
+		}
+		return docs
+	}
+
+	docs := list()
+	if docs[0].BodyMD != "" || docs[0].Summary != "restart order" {
+		t.Fatalf("public global entry = %+v, want a summary and no body", docs[0])
+	}
+
+	// Marked private by hand: the mirror is stale until the file is read, and
+	// the list must go by the file.
+	raw, err := os.ReadFile(global.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marked := strings.Replace(string(raw), "---\n", "---\nprivate: true\n", 1)
+	if err := os.WriteFile(global.Path, []byte(marked), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	docs = list()
+	if docs[0].BodyMD != "" || docs[0].Summary != "" || docs[0].Recap != nil || !docs[0].Private {
+		t.Fatalf("hand-privatized global entry = %+v, want private with no body, summary or recap", docs[0])
 	}
 }

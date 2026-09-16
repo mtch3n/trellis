@@ -997,13 +997,10 @@ func (s *Server) handleProjectKnowledgeList(w http.ResponseWriter, r *http.Reque
 func (s *Server) handleGlobalKnowledgeList(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
-	var docs []core.Knowledge
-	if err := s.db.SelectContext(ctx, &docs, `SELECT * FROM knowledge WHERE global = 1 ORDER BY updated_at DESC`); err != nil {
-		s.error(w, http.StatusInternalServerError, err.Error())
+	docs, err := s.core.ListGlobalKnowledge(ctx)
+	if err != nil {
+		s.coreError(w, err)
 		return
-	}
-	for i := range docs {
-		docs[i].Ref = core.DocAddress("", true, docs[i].Slug)
 	}
 	withoutContent(docs)
 	writeJSON(w, http.StatusOK, docs)

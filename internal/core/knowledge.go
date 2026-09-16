@@ -609,6 +609,28 @@ func (c *Core) ListKnowledge(ctx context.Context, projectID string, f KnowledgeF
 	return docs, err
 }
 
+// ListGlobalKnowledge lists the global vault, each entry refreshed from its
+// file first: a caller that withholds private content must read the file's
+// flag, never a mirror that a hand edit has not reached yet.
+func (c *Core) ListGlobalKnowledge(ctx context.Context) ([]Knowledge, error) {
+	docs := []Knowledge{}
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		if err := tx.Select(&docs, `SELECT * FROM knowledge WHERE global = 1 ORDER BY updated_at DESC`); err != nil {
+			return err
+		}
+		for i := range docs {
+			if err := c.refreshFromFile(tx, &docs[i]); err != nil {
+				return err
+			}
+			if err := c.docView(tx, &docs[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return docs, err
+}
+
 // EditKnowledge replaces the body. The file is rewritten and the row follows.
 func (c *Core) EditKnowledge(ctx context.Context, projectID, slug, body string, ifVersion *int64) (Knowledge, error) {
 	return c.EditKnowledgeFields(ctx, projectID, slug, KnowledgeEdit{Body: &body, IfVersion: ifVersion})
