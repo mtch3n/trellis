@@ -17,6 +17,9 @@ const MaxInjectedPins = 5
 
 // Pin is a knowledge entry whose recap is injected at session start (§10.5).
 type Pin struct {
+	// ID is not part of the payload — callers address a pin by slug — but the
+	// disclosure refresh needs it. See privateAfterRefresh.
+	ID        string  `db:"id" json:"-"`
 	Slug      string  `db:"slug" json:"slug"`
 	Title     string  `db:"title" json:"title"`
 	Recap     string  `db:"recap" json:"recap"`
@@ -114,7 +117,7 @@ func (c *Core) UnpinKnowledge(ctx context.Context, projectID, slug, board string
 func (c *Core) Pins(ctx context.Context, projectID, boardID string) ([]Pin, error) {
 	pins := []Pin{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		q := `SELECT k.slug, k.title, COALESCE(k.recap, '') AS recap,
+		q := `SELECT k.id, k.slug, k.title, COALESCE(k.recap, '') AS recap,
 		             b.name AS board_name,
 		             (k.recap_hash IS NOT k.content_hash) AS stale, p.created_at
 		      FROM pin p JOIN knowledge k ON k.id = p.knowledge_id
@@ -126,7 +129,27 @@ func (c *Core) Pins(ctx context.Context, projectID, boardID string) ([]Pin, erro
 			args = append(args, boardID)
 		}
 		q += " ORDER BY p.created_at DESC"
-		return tx.Select(&pins, q, args...)
+		if err := tx.Select(&pins, q, args...); err != nil {
+			return err
+		}
+		ids := make([]string, 0, len(pins))
+		for _, pin := range pins {
+			ids = append(ids, pin.ID)
+		}
+		// The brief is injected without anyone asking for it, so the flag is
+		// read from the files rather than from the mirror, which is one read
+		// stale after a hand edit. Pins are curated, so this is a handful of
+		// stats and reads.
+		private, err := c.privateAfterRefresh(tx, ids)
+		if err != nil {
+			return err
+		}
+		for i := range pins {
+			if private[pins[i].ID] {
+				pins[i].Recap = ""
+			}
+		}
+		return nil
 	})
 	return pins, err
 }

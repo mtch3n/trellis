@@ -14,9 +14,9 @@ import "github.com/jmoiron/sqlx"
 // The pin itself is not one of these. A pin row is (id, knowledge_id,
 // board_id, created_at) — it holds no text — and it is left alone on purpose.
 // Deleting it was never about content; it was about stopping injection, and
-// injection is already stopped once recap is NULL: a later task makes Pins
-// decide what to inject from the file, so a surviving pin on a private entry
-// still injects only its ref and title.
+// injection is already stopped once recap is NULL: Pins decides what to
+// inject from the file, so a surviving pin on a private entry still injects
+// only its ref and title.
 //
 // Leaving the pin also keeps this transaction-safe. This runs inside the
 // caller's transaction, from refreshFromFile via loadDoc. UnpinKnowledge
@@ -32,11 +32,10 @@ import "github.com/jmoiron/sqlx"
 // its transaction, including the private mirror this function does not touch
 // directly (refreshFromFile sets it just before calling in). The next
 // successful read recomputes the false-to-true transition from the file and
-// re-attempts the purge. Recall does not disclose in the meantime: it decides
-// what to redact from the file, not from the recap column. The pin list does
-// not yet have that protection — Pins reads knowledge.recap directly, with no
-// check against the file — so a rolled-back purge can leave it returning a
-// stale recap until a later read purges again.
+// re-attempts the purge. Nothing discloses in the meantime: both Recall and
+// Pins decide what to redact from the file, not from the recap column, so a
+// rolled-back purge can leave knowledge.recap stale until a later read purges
+// again, but that stale value never reaches an agent.
 //
 // The vector index needs nothing here. Private entries are absent from the
 // corpus ListSearchKnowledge returns, and Reconcile builds both its upsert set

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -528,6 +529,104 @@ func TestUnpinningAJustPrivatisedEntrySucceeds(t *testing.T) {
 	for _, pin := range pins {
 		if pin.Slug == doc.Slug {
 			t.Error("still pinned after UnpinKnowledge succeeded")
+		}
+	}
+}
+
+// The session brief reads pins. Making Pins the very first call after the file
+// changed is the whole point: any test that loads the document first refreshes
+// the row as a side effect and proves nothing.
+func TestPinsRedactAPrivateEntryWithNoPriorRead(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Staging cluster access", Body: "initial\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.PinKnowledge(t.Context(), p.ID, doc.Slug, "hunter2 opens staging", ""); err != nil {
+		t.Fatalf("PinKnowledge: %v", err)
+	}
+
+	setPrivateInFile(t, doc.Path, true)
+
+	pins, err := c.Pins(t.Context(), p.ID, "")
+	if err != nil {
+		t.Fatalf("Pins: %v", err)
+	}
+	for _, pin := range pins {
+		if pin.Slug != doc.Slug {
+			continue
+		}
+		if strings.Contains(pin.Recap, "hunter2") {
+			t.Fatalf("recap = %q reached the brief after the file said private", pin.Recap)
+		}
+	}
+}
+
+// An ordinary pin still carries its recap into the brief.
+func TestPinsStillCarryAnOrdinaryRecap(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Recall ranking"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.PinKnowledge(t.Context(), p.ID, doc.Slug, "ranks are fused", ""); err != nil {
+		t.Fatalf("PinKnowledge: %v", err)
+	}
+
+	pins, err := c.Pins(t.Context(), p.ID, "")
+	if err != nil {
+		t.Fatalf("Pins: %v", err)
+	}
+	for _, pin := range pins {
+		if pin.Slug == doc.Slug && pin.Recap != "ranks are fused" {
+			t.Errorf("recap = %q, want the authored one", pin.Recap)
+		}
+	}
+}
+
+// A reviewer of Task 6 found this path: PinKnowledge's own recap_required
+// error rolls back the transaction that loadDoc's purge just ran inside, which
+// restores the old recap in the column. If Pins ever went back to reading
+// knowledge.recap directly, this is the sequence that would leak it — and it
+// does not require anyone to have read the document again first.
+func TestPinsDoNotDiscloseAfterARolledBackPurge(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Staging cluster access", Body: "initial\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.PinKnowledge(t.Context(), p.ID, doc.Slug, "hunter2 opens staging", ""); err != nil {
+		t.Fatalf("PinKnowledge: %v", err)
+	}
+
+	setPrivateInFile(t, doc.Path, true)
+
+	_, err = c.PinKnowledge(t.Context(), p.ID, doc.Slug, "", "")
+	if err == nil {
+		t.Fatal("PinKnowledge with an empty recap on a private entry succeeded, want recap_required")
+	}
+	var coreErr *Error
+	if !errors.As(err, &coreErr) || coreErr.Code != "recap_required" {
+		t.Fatalf("err = %v, want code recap_required", err)
+	}
+
+	pins, err := c.Pins(t.Context(), p.ID, "")
+	if err != nil {
+		t.Fatalf("Pins: %v", err)
+	}
+	for _, pin := range pins {
+		if pin.Slug != doc.Slug {
+			continue
+		}
+		if strings.Contains(pin.Recap, "hunter2") {
+			t.Fatalf("recap = %q reached the brief after a rolled-back purge restored the stale column", pin.Recap)
 		}
 	}
 }
