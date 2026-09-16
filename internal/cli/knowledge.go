@@ -227,7 +227,10 @@ func renderKnowledgeList(docs []core.Knowledge) string {
 		} else if d.Private {
 			mark = "private"
 		}
-		fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\n", indent, leaf, d.DocType, d.Provenance, mark, d.Title)
+		// Use a consistent column width for the mark field to prevent the title
+		// column from shifting when entries are private/missing vs public.
+		markCol := fmt.Sprintf("%-7s", mark)
+		fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\n", indent, leaf, d.DocType, d.Provenance, markCol, d.Title)
 	}
 	w.Flush()
 	return strings.TrimRight(b.String(), "\n")
