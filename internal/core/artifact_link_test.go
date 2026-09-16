@@ -223,3 +223,85 @@ func TestEditingTheBodyKeepsTheArtifactList(t *testing.T) {
 		t.Errorf("Artifacts = %+v after a body edit", got.Artifacts)
 	}
 }
+
+// A storage root that moved leaves rows whose files live elsewhere. Their
+// names still resolve entries, so a new artifact must not take one.
+func TestANameTakenInTheDatabaseIsNotReused(t *testing.T) {
+	c, p, _ := kbCore(t)
+	if _, err := c.db.Exec(
+		`INSERT INTO artifact (id, project_id, name, path, kind, mime, size, content_hash, created_at, updated_at)
+		 VALUES (?, ?, 'x.png', ?, 'image', 'image/png', 3, 'h', 1, 1)`,
+		NewCardID(), p.ID, filepath.Join(t.TempDir(), "x.png")); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	a := addArtifact(t, c, p.ID, "x.png", "\x89PNG\r\n\x1a\nx")
+	if a.Name != "x-2.png" {
+		t.Errorf("name = %q, want x-2.png: x.png is already a name in this project", a.Name)
+	}
+}
+
+func TestCreatingAnArtifactResolvesAnEarlierStub(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Later"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	setArtifactsInFile(t, doc.Path, "later.pdf")
+	// This read writes the stub row. Without it there would be nothing to
+	// backfill, and the resync on the next read would hide a missing backfill.
+	if _, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+
+	a := addArtifact(t, c, p.ID, "later.pdf", "%PDF-1.7\n")
+
+	// The file has not changed, so this read does not resync: the resolution
+	// can only have come from the backfill.
+	got, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	if err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+	if len(got.Artifacts) != 1 || got.Artifacts[0].Missing || got.Artifacts[0].Kind != a.Kind {
+		t.Errorf("Artifacts = %+v, want later.pdf resolved by the backfill", got.Artifacts)
+	}
+}
+
+func TestDeletingAnArtifactLeavesEntryLinksAsStubs(t *testing.T) {
+	c, p, b := kbCore(t)
+	a := addArtifact(t, c, p.ID, "evidence.png", "\x89PNG\r\n\x1a\nx")
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Evidence"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	setArtifactsInFile(t, doc.Path, a.Name)
+	if _, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "attach"})
+	if err != nil {
+		t.Fatalf("CreateCard: %v", err)
+	}
+	if err := c.LinkArtifactToCard(t.Context(), p.ID, card.ID, a.ID); err != nil {
+		t.Fatalf("LinkArtifactToCard: %v", err)
+	}
+
+	if err := c.DeleteArtifact(t.Context(), p.ID, a.ID); err != nil {
+		t.Fatalf("DeleteArtifact: %v", err)
+	}
+
+	got, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	if err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+	if len(got.Artifacts) != 1 || !got.Artifacts[0].Missing || got.Artifacts[0].Name != a.Name {
+		t.Errorf("Artifacts = %+v, want the entry's link kept as a stub", got.Artifacts)
+	}
+	var cardLinks int
+	if err := c.db.Get(&cardLinks,
+		`SELECT COUNT(*) FROM link WHERE from_type = 'card' AND from_id = ?`, card.ID); err != nil {
+		t.Fatal(err)
+	}
+	if cardLinks != 0 {
+		t.Errorf("%d card links remain, want 0: a card's link lives only in the database", cardLinks)
+	}
+}

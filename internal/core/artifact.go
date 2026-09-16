@@ -86,7 +86,11 @@ func (c *Core) CreateArtifact(ctx context.Context, projectID, source string) (Ar
 		}
 		path := filepath.Join(dir, name)
 		for n := 2; ; n++ {
-			if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			taken, err := artifactNameTaken(tx, projectID, path)
+			if err != nil {
+				return err
+			}
+			if !taken {
 				break
 			}
 			path = filepath.Join(dir, fmt.Sprintf("%s-%d%s", strings.TrimSuffix(name, filepath.Ext(name)), n, filepath.Ext(name)))
@@ -104,10 +108,43 @@ func (c *Core) CreateArtifact(ctx context.Context, projectID, source string) (Ar
 		}
 		now := c.clock.NowMS()
 		out = Artifact{ID: NewCardID(), ProjectID: projectID, Name: filepath.Base(path), Path: path, Kind: kind, MIME: mimeType, Size: actual.Size(), ContentHash: contentHash, CreatedAt: now, UpdatedAt: now}
-		_, err = tx.Exec(`INSERT INTO artifact (id, project_id, name, path, kind, mime, size, content_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, out.ID, out.ProjectID, out.Name, out.Path, out.Kind, out.MIME, out.Size, out.ContentHash, out.CreatedAt, out.UpdatedAt)
+		if _, err := tx.Exec(`INSERT INTO artifact (id, project_id, name, path, kind, mime, size, content_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, out.ID, out.ProjectID, out.Name, out.Path, out.Kind, out.MIME, out.Size, out.ContentHash, out.CreatedAt, out.UpdatedAt); err != nil {
+			return err
+		}
+		// An entry may already name this artifact, written before it existed.
+		// The name is new to the project (artifactNameTaken made sure), so no
+		// stub it fills was ambiguous.
+		_, err = tx.Exec(
+			`UPDATE link SET to_id = ?
+			 WHERE to_type = 'artifact' AND rel = 'artifact' AND to_id IS NULL AND to_raw = ?
+			   AND from_type = 'doc'
+			   AND from_id IN (SELECT id FROM knowledge WHERE project_id = ?)`,
+			out.ID, out.Name, projectID)
 		return err
 	})
 	return out, err
+}
+
+// artifactNameTaken reports whether a candidate path cannot be used: a file is
+// already there, or the project already has an artifact with that name. The
+// database check matters because names resolve entries' references, and a
+// storage root that has moved leaves rows whose files are elsewhere. An error
+// other than "no such file" stops the search rather than looping forever.
+func artifactNameTaken(tx *sqlx.Tx, projectID, path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	var n int
+	if err := tx.Get(&n,
+		`SELECT COUNT(*) FROM artifact WHERE project_id = ? AND name = ?`,
+		projectID, filepath.Base(path)); err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 func (c *Core) LinkArtifactToCard(ctx context.Context, projectID string, cardID, artifactID string) error {
@@ -147,6 +184,15 @@ func (c *Core) DeleteArtifact(ctx context.Context, projectID, artifactID string)
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		if err := tx.Get(&path, `SELECT path FROM artifact WHERE id = ? AND project_id = ?`, artifactID, projectID); err != nil {
 			return ErrNotFound("artifact_not_found", "artifact not found", "trellis artifact ls")
+		}
+		// An entry names its artifacts in its own file, so its link survives as
+		// a stub, the same as a wikilink to a deleted entry. Clearing to_id
+		// first keeps the DELETE below, and the artifact_links_ad trigger, from
+		// matching it. A card's link lives only in the database and goes.
+		if _, err := tx.Exec(
+			`UPDATE link SET to_id = NULL
+			 WHERE to_type = 'artifact' AND to_id = ? AND from_type = 'doc'`, artifactID); err != nil {
+			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM link WHERE (to_type = 'artifact' AND to_id = ?) OR (from_type = 'artifact' AND from_id = ?)`, artifactID, artifactID); err != nil {
 			return err
