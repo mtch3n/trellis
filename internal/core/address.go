@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"strings"
+	"uuid"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/mtch3n/trellis/internal/vpath"
@@ -101,4 +102,14 @@ func vaultSlug(arg string) (string, error) {
 		return "", ErrUsage("not_global", arg+" is a project entry, not a vault entry", "trellis knowledge show "+arg)
 	}
 	return p.Name, nil
+}
+
+// ArtifactAddress is an artifact's canonical address.
+func ArtifactAddress(key, name string) string {
+	return vpath.ArtifactPath(key, name).String()
+}
+
+func isUUID(s string) bool {
+	_, err := uuid.Parse(s)
+	return err == nil
 }
