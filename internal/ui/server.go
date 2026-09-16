@@ -71,6 +71,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/steal", s.handleStealCard)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/knowledge", s.handleKnowledgeList)
 	s.mux.HandleFunc("GET /api/p/{key}/knowledge", s.handleProjectKnowledgeList)
+	s.mux.HandleFunc("GET /api/p/{key}/artifacts/{name}", s.handleArtifact)
 	s.mux.HandleFunc("GET /api/global/knowledge", s.handleGlobalKnowledgeList)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/knowledge", s.handleKnowledgeCreate)
 	s.mux.HandleFunc("PATCH /api/p/{key}/b/{board}/knowledge/{slug}", s.handleKnowledgeEdit)
