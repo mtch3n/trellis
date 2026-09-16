@@ -756,6 +756,50 @@ func TestPinsDoNotDiscloseAfterARolledBackPurge(t *testing.T) {
 	}
 }
 
+// The cold listing is the other way `knowledge ls` reaches rows, and it must
+// report the flag the file holds even when it is the first read after a hand
+// edit. A file that is gone cannot be confirmed either way, so it reads as
+// private rather than failing the listing.
+func TestColdKnowledgeReadsTheFlagFromTheFile(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	marked, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Staging cluster access"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	gone, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Deleted by hand"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	open, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Recall ranking"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	setPrivateInFile(t, marked.Path, true)
+	if err := os.Remove(gone.Path); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	cold, err := c.ColdKnowledge(t.Context(), p.ID)
+	if err != nil {
+		t.Fatalf("ColdKnowledge: %v, want no error for a missing file", err)
+	}
+	want := map[string]bool{marked.Slug: true, gone.Slug: true, open.Slug: false}
+	for _, d := range cold {
+		private, ok := want[d.Slug]
+		if !ok {
+			continue
+		}
+		delete(want, d.Slug)
+		if d.Private != private {
+			t.Errorf("%s: Private = %v, want %v", d.Slug, d.Private, private)
+		}
+	}
+	for slug := range want {
+		t.Errorf("%s is missing from the cold listing", slug)
+	}
+}
+
 // Staleness describes a recap, and a private pin has none. It must not read as
 // stale on the first read after the flag is set by hand, when the row still
 // carries the old recap_hash, nor on any later read, when the purge has cleared

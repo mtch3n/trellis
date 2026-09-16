@@ -10,20 +10,22 @@ import (
 // them the file says are private.
 //
 // It exists because the private column is a mirror and is one read stale after
-// a file changes, and because the two callers — recall and the pin list — are
-// the paths that put text in front of a model without being asked. Deciding
-// from the mirror there means a document can be disclosed after its author
-// marked it private and before anything happened to refresh the row.
+// a file changes. Recall and the pin list put text in front of a model without
+// being asked, and the cold listing feeds `knowledge ls --cold`, whose JSON an
+// agent reads. Deciding from the mirror on any of them means a document can be
+// disclosed after its author marked it private and before anything happened to
+// refresh the row.
 //
-// Reading the files is affordable because both callers pass a bounded set: the
-// hits recall actually returns, o.Limit of them (five by default), not the
-// larger candidate pool it ranks over; pins are curated by hand.
+// Recall and the pin list pass a bounded set: the hits recall actually
+// returns, o.Limit of them (five by default), not the larger candidate pool it
+// ranks over; pins are curated by hand. The cold listing passes every entry it
+// lists, which is one file read each, the same as plain `knowledge ls`.
 //
 // A file that is gone cannot have its disclosure status confirmed, so it is
 // treated as private rather than disclosed or failed: the id comes back marked
-// private, and the caller's recall does not error out over an unrelated vault
-// file someone deleted. Any other failure to read or parse the file is a real
-// error and propagates.
+// private, and the caller does not error out over an unrelated vault file
+// someone deleted. Any other failure to read or parse the file is a real error
+// and propagates.
 func (c *Core) privateAfterRefresh(tx *sqlx.Tx, ids []string) (map[string]bool, error) {
 	out := map[string]bool{}
 	if len(ids) == 0 {

@@ -75,6 +75,11 @@ func readWindowMS() int64 { return int64(ReadWindowDays) * 24 * 60 * 60 * 1000 }
 
 // ColdKnowledge lists entries nothing has read inside the window. Cold is a
 // candidate for review, never for automatic deletion.
+//
+// Private comes from the files, not the mirror, so a caller that withholds a
+// private entry's content decides on what the author last wrote. An entry
+// whose file is gone is reported private: its status cannot be confirmed, and
+// one missing file must not fail the whole listing.
 func (c *Core) ColdKnowledge(ctx context.Context, projectID string) ([]Knowledge, error) {
 	docs := []Knowledge{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
@@ -88,7 +93,16 @@ func (c *Core) ColdKnowledge(ctx context.Context, projectID string) ([]Knowledge
 			ORDER BY k.updated_at`, projectID, c.clock.NowMS()-readWindowMS()); err != nil {
 			return err
 		}
+		ids := make([]string, 0, len(docs))
+		for _, d := range docs {
+			ids = append(ids, d.ID)
+		}
+		private, err := c.privateAfterRefresh(tx, ids)
+		if err != nil {
+			return err
+		}
 		for i := range docs {
+			docs[i].Private = private[docs[i].ID]
 			if err := c.docView(tx, &docs[i]); err != nil {
 				return err
 			}

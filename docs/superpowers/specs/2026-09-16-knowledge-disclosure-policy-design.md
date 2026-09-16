@@ -18,7 +18,7 @@ content is allowed. Trellis does not inspect, classify or judge what a body
 holds.
 
 What Trellis does owe the author is control over **where a body goes**. Today it
-offers none. Five routes carry a body somewhere the author did not choose, all
+offers none. Six routes carry a body somewhere the author did not choose, all
 verified against the code:
 
 | # | Route | Site | What leaves |
@@ -28,10 +28,15 @@ verified against the code:
 | 3 | Pin recap | `internal/core/pin.go:41` | falls back to `FirstParagraph(doc.BodyMD)`; the recap is injected at session start |
 | 4 | Recall recap | `internal/core/recall.go:169` | `COALESCE(NULLIF(k.recap, ''), k.summary)` — its own fallback, independent of pin |
 | 5 | Event log | `internal/core/knowledge.go:547` | `EditKnowledgeFields` writes the **entire edited body** into `event.new_value`, on every edit, permanently |
+| 6 | Listing | `internal/cli/knowledge.go`, `knowledge ls` | emits `[]core.Knowledge`, whose `BodyMD` is tagged `json:"body"`: every body in the vault, in one call, and agents always get the JSON form |
 
 Route 5 was missed in the first draft. It fires on every ordinary edit with no
 pin involved: a document that was never pinned and never embedded still has its
 full body in the event log.
+
+Route 6 was missed by every draft and found in the final review of the
+implementation. `knowledge ls --cold` also printed the stored summary and recap
+without reading the files.
 
 A sixth route was claimed in the second draft — that `internal/ui/server.go:535`
 serves `event.new_value` over HTTP — and **it does not exist**. That query is the
@@ -128,6 +133,7 @@ because these are precisely the paths that reach a model unasked.
 | Recap | may fall back to summary, then first paragraph | **none; a supplied recap is discarded** |
 | Session injection | recap | **pointer: ref + title** |
 | Event log content | body and summary recorded in `new_value` | **field name only, `new_value` empty** |
+| `knowledge ls` | metadata, summary and recap; **never the body** | **metadata only: no body, summary or recap** |
 | `knowledge show` | body | body |
 
 Presence is not what is being protected; automatic transmission is. A private
@@ -146,6 +152,14 @@ and the `pinned` event, ready to be injected the moment the flag was cleared.
 Pinning a private document therefore succeeds with or without `--recap`: a
 supplied recap is discarded, `recap` and `recap_hash` stay NULL, and the
 `pinned` event records no value.
+
+`knowledge ls` is a listing, not a read, and carries no body for any document.
+An agent always receives its JSON form, so a body there would hand the whole
+vault to the model in one call; `knowledge show` is where a body is read. A
+private document's summary and recap are withheld from the listing as well.
+Like recall and the pin list, the listing decides from a flag refreshed from
+the file, and that includes `knowledge ls --cold`, which reads rows through a
+different query from plain `ls`.
 
 Local FTS5 keeps indexing private documents, and this is safe because
 `rebuildKnowledgeFTS` (`internal/core/knowledge.go:632`) reads files directly
@@ -263,8 +277,9 @@ Stated here so they are not discovered later as surprises.
 
 ## Testing
 
-- Each of the five exposure routes, asserted closed for a private document and
-  open for a normal one.
+- Each of the six exposure routes, asserted closed for a private document and
+  open for a normal one. Route 6 is closed for every document, since a listing
+  carries no body at all.
 - Frontmatter is authoritative: create a document, set `private: true` by editing
   the file directly, and confirm the next read reflects it and purges. Then clear
   the flag in the file and confirm the document returns to the vector corpus —
@@ -286,6 +301,9 @@ Stated here so they are not discovered later as surprises.
   excerpt, through both the pin path and the recall path.
 - A purge rolled back by a failing caller discloses nothing, and the next
   successful read purges again.
+- `knowledge ls` and `knowledge ls --cold`, each as the first command after the
+  flag is set by hand, carry no body for any document and no summary or recap
+  for the private one, while the ordinary one keeps both.
 - An unrecognised `private` value fails the parse rather than defaulting.
 
 There is deliberately no "drop the database and rebuild from files" test. The

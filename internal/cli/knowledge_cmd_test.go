@@ -212,3 +212,66 @@ func TestBriefStillMarksAStaleRecap(t *testing.T) {
 		t.Errorf("pin line = %q, want the recap marked stale", line)
 	}
 }
+
+// Listing is not reading. Agents always receive the JSON form of `knowledge
+// ls`, so anything in it goes to the model: no entry's body is listed, and a
+// private entry's summary and recap are withheld too. The flag is set by hand
+// and the listing is the very next command, so the decision has to come from
+// the file; each mode gets a fresh project so neither refreshes for the other.
+func TestKnowledgeLsDisclosesNoContent(t *testing.T) {
+	for name, args := range map[string][]string{
+		"ls":      {"knowledge", "ls"},
+		"ls-cold": {"knowledge", "ls", "--cold"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			projectEnv(t)
+
+			newEntry(t, "--title", "Recall ranking", "--summary", "ranks are fused",
+				"--body", "fusion is positional\n")
+			runCmd(t, "knowledge", "pin", "recall-ranking", "--recap", "fused, not scored")
+
+			path := newEntry(t, "--title", "Staging credentials", "--summary", "swordfish opens staging",
+				"--body", "hunter2 is the password\n")
+			runCmd(t, "knowledge", "pin", "staging-credentials", "--recap", "rotated quarterly")
+			markPrivateByHand(t, path)
+
+			out := runCmd(t, args...)
+			for _, secret := range []string{"fusion is positional", "hunter2", "swordfish", "rotated quarterly"} {
+				if strings.Contains(out, secret) {
+					t.Errorf("the listing carries %q:\n%s", secret, out)
+				}
+			}
+
+			var listing struct {
+				Knowledge []map[string]any `json:"knowledge"`
+			}
+			if err := json.Unmarshal([]byte(out), &listing); err != nil {
+				t.Fatalf("decode %q: %v", out, err)
+			}
+			entries := map[string]map[string]any{}
+			for _, e := range listing.Knowledge {
+				slug, _ := e["slug"].(string)
+				entries[slug] = e
+				if _, ok := e["body"]; ok {
+					t.Errorf("%s: the listing carries a body", slug)
+				}
+			}
+
+			open, secret := entries["recall-ranking"], entries["staging-credentials"]
+			if open == nil || secret == nil {
+				t.Fatalf("both entries must be listed:\n%s", out)
+			}
+			if open["summary"] != "ranks are fused" || open["recap"] != "fused, not scored" {
+				t.Errorf("ordinary entry = %v, want its summary and recap", open)
+			}
+			if secret["private"] != true || secret["title"] != "Staging credentials" {
+				t.Errorf("private entry = %v, want it listed as private with its title", secret)
+			}
+			for _, field := range []string{"summary", "recap"} {
+				if v, ok := secret[field]; ok {
+					t.Errorf("private entry carries %s %q", field, v)
+				}
+			}
+		})
+	}
+}

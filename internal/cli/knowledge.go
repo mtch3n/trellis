@@ -110,6 +110,23 @@ func newKnowledgeShowCmd() *cobra.Command {
 	}
 }
 
+// withholdContent strips what a listing must not carry. Listing is not
+// reading: agents always receive the JSON form, so a body here would hand
+// every entry in the vault to the model at once, and `knowledge show` is where
+// a body is read. A private entry loses its summary and recap as well.
+//
+// docs must carry a Private flag refreshed from the file, as ListKnowledge and
+// ColdKnowledge both provide. The mirror alone is one read stale after a hand
+// edit, which is exactly when this matters.
+func withholdContent(docs []core.Knowledge) {
+	for i := range docs {
+		docs[i].BodyMD = ""
+		if docs[i].Private {
+			docs[i].Summary, docs[i].Recap = "", nil
+		}
+	}
+}
+
 // renderKnowledgeList is the text form of `knowledge ls`. It is a function
 // rather than a closure so it can be tested directly: Emit selects JSON
 // whenever stdout is captured.
@@ -139,13 +156,17 @@ func newKnowledgeLsCmd() *cobra.Command {
 				if thisBoard {
 					filter.BoardID = app.Board.ID
 				}
-				docs, err := app.Core.ListKnowledge(cmd.Context(), app.Project.ID, filter)
+				var docs []core.Knowledge
+				var err error
 				if cold {
 					docs, err = app.Core.ColdKnowledge(cmd.Context(), app.Project.ID)
+				} else {
+					docs, err = app.Core.ListKnowledge(cmd.Context(), app.Project.ID, filter)
 				}
 				if err != nil {
 					return err
 				}
+				withholdContent(docs)
 				return Emit(cmd, map[string]any{"knowledge": docs}, func() string {
 					return renderKnowledgeList(docs)
 				})
