@@ -30,8 +30,11 @@ type Frontmatter struct {
 	Board   string   `yaml:"board,omitempty"` // association, never ownership (§10.1)
 	Tags    []string `yaml:"tags,omitempty"`
 	Labels  []string `yaml:"labels,omitempty"`
-	Created string   `yaml:"created,omitempty"`
-	Updated string   `yaml:"updated,omitempty"`
+	// Artifacts names the files attached to this entry, by stored artifact
+	// name. The list is the record; link rows are derived from it.
+	Artifacts []string `yaml:"artifacts,omitempty"`
+	Created   string   `yaml:"created,omitempty"`
+	Updated   string   `yaml:"updated,omitempty"`
 }
 
 // SplitFrontmatter separates the YAML header from the body. A file without one

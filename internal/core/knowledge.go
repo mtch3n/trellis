@@ -51,10 +51,23 @@ type Knowledge struct {
 	UpdatedAt   int64  `db:"updated_at" json:"updated_at"`
 
 	// Computed for display.
-	Ref       string   `db:"-" json:"ref"`             // KEY/slug
-	BoardName string   `db:"-" json:"board,omitempty"` // association only
-	Tags      []string `db:"-" json:"tags,omitempty"`
-	Labels    []string `db:"-" json:"labels,omitempty"`
+	Ref       string        `db:"-" json:"ref"`             // KEY/slug
+	BoardName string        `db:"-" json:"board,omitempty"` // association only
+	Tags      []string      `db:"-" json:"tags,omitempty"`
+	Labels    []string      `db:"-" json:"labels,omitempty"`
+	Artifacts []ArtifactRef `db:"-" json:"artifacts,omitempty"`
+}
+
+// ArtifactRef is an artifact as an entry names it. A name that does not resolve
+// to exactly one artifact of the entry's project is Missing and carries nothing
+// but its name. Missing is always serialised, so a caller can test it without
+// guessing what an absent field means.
+type ArtifactRef struct {
+	Name    string `db:"name" json:"name"`
+	Kind    string `db:"kind" json:"kind,omitempty"`
+	MIME    string `db:"mime" json:"mime,omitempty"`
+	Size    int64  `db:"size" json:"size,omitempty"`
+	Missing bool   `db:"missing" json:"missing"`
 }
 
 // NewKnowledge is what `knowledge new` supplies.
@@ -406,9 +419,23 @@ func (c *Core) docView(tx *sqlx.Tx, doc *Knowledge) error {
 		return err
 	}
 	doc.Labels = []string{}
-	return tx.Select(&doc.Labels,
+	if err := tx.Select(&doc.Labels,
 		`SELECT l.name FROM label l JOIN knowledge_label kl ON kl.label_id = l.id WHERE kl.doc_id = ? ORDER BY l.name`,
-		doc.ID)
+		doc.ID); err != nil {
+		return err
+	}
+	// rowid order is the order syncDocRelations inserted the rows, which is
+	// the order the file lists the names.
+	doc.Artifacts = nil
+	return tx.Select(&doc.Artifacts,
+		`SELECT l.to_raw AS name,
+		        COALESCE(a.kind, '') AS kind,
+		        COALESCE(a.mime, '') AS mime,
+		        COALESCE(a.size, 0)  AS size,
+		        (l.to_id IS NULL)    AS missing
+		 FROM link l LEFT JOIN artifact a ON a.id = l.to_id
+		 WHERE l.from_type = 'doc' AND l.from_id = ? AND l.rel = 'artifact'
+		 ORDER BY l.rowid`, doc.ID)
 }
 
 // ListKnowledge returns the selected board's entries plus the unscoped ones

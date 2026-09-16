@@ -31,6 +31,27 @@ func (c *Core) syncDocRelations(tx *sqlx.Tx, doc *Knowledge, fm Frontmatter, bod
 		}
 	}
 
+	// Artifacts are named in the frontmatter and resolved by name within the
+	// entry's project. Replaced wholesale, like wikilinks, because the file is
+	// the record. The names are deduplicated here rather than by the UNIQUE
+	// constraint, which cannot collapse rows whose anchor is NULL.
+	if _, err := tx.Exec(
+		`DELETE FROM link WHERE from_type = 'doc' AND from_id = ? AND rel = 'artifact'`, doc.ID); err != nil {
+		return err
+	}
+	for _, name := range dedupeNames(fm.Artifacts) {
+		toID, err := c.resolveArtifactName(tx, doc.ProjectID, name)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO link (from_type, from_id, to_type, to_id, to_raw, rel)
+			 VALUES ('doc', ?, 'artifact', ?, ?, 'artifact')`,
+			doc.ID, toID, name); err != nil {
+			return err
+		}
+	}
+
 	// Tags come from both the frontmatter and the body; labels only from the
 	// frontmatter, because a label is a controlled vocabulary and inventing one
 	// mid-sentence is how vocabularies rot.
@@ -218,4 +239,36 @@ func (c *Core) resolveDocStubs(tx *sqlx.Tx, doc *Knowledge) error {
 		}
 	}
 	return nil
+}
+
+// resolveArtifactName returns the id of the one artifact in the project with
+// this name, or nil — a stub — when there is none or more than one. Picking one
+// of several would attach the wrong file without anyone noticing.
+func (c *Core) resolveArtifactName(tx *sqlx.Tx, projectID, name string) (any, error) {
+	var ids []string
+	if err := tx.Select(&ids,
+		`SELECT id FROM artifact WHERE project_id = ? AND name = ?`, projectID, name); err != nil {
+		return nil, err
+	}
+	if len(ids) != 1 {
+		return nil, nil
+	}
+	return ids[0], nil
+}
+
+// dedupeNames trims and deduplicates while keeping case and order. It must not
+// lower-case, unlike dedupe: an artifact name keeps its extension's case
+// ("photo.PNG"), and a lower-cased name would never resolve.
+func dedupeNames(in []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
