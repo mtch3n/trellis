@@ -535,6 +535,17 @@ func TestEditOnPrivateRecordsNoContent(t *testing.T) {
 	if edits == 0 {
 		t.Error("the edit was not recorded at all; the fact of the edit must survive")
 	}
+
+	// Body and summary should still be blank
+	var bodyValue string
+	if err := c.db.Get(&bodyValue,
+		`SELECT COALESCE(new_value, '') FROM event WHERE entity_id = ? AND action = 'edited' AND field = 'body'`,
+		doc.ID); err != nil {
+		t.Fatalf("read body from event: %v", err)
+	}
+	if bodyValue != "" {
+		t.Errorf("body in edited event = %q, want empty", bodyValue)
+	}
 }
 
 // Marking an existing entry private has to clean up behind itself. The event

@@ -782,9 +782,10 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 			}
 			// The value is the content. A private entry records that it was
 			// edited and nothing more, because an audit log holding whole
-			// bodies is a copy of them.
+			// bodies is a copy of them. However, titles are disclosed by design
+			// (like in created/deleted events), so keep them.
 			value := fields[field]
-			if doc.Private {
+			if doc.Private && field != "title" {
 				value = ""
 			}
 			if err := c.recordEvent(tx, "knowledge", doc.ID, "edited", field, "", value); err != nil {
