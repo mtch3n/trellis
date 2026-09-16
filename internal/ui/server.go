@@ -68,6 +68,7 @@ func NewServer(c *core.Core, db *sqlx.DB, listen string) *Server {
 // retrieval service and provider lifecycle.
 func NewServerWithSearch(c *core.Core, db *sqlx.DB, listen string, search *retrieval.Service) *Server {
 	c.SetKnowledgeChanged(search.ReconcileProject)
+	c.SetDropDerived(search.DropProject)
 	actor := webActor()
 	s := &Server{
 		core:   c,

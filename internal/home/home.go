@@ -58,11 +58,21 @@ func ProjectRoot(projectKey string) (string, error) {
 	return dir, nil
 }
 
-// VectorDBPath returns the disposable per-project vector index path.
-func VectorDBPath(projectKey string) (string, error) {
-	dir, err := ProjectRoot(projectKey)
+// VectorDBFile is where a project's vector index lives. It creates nothing:
+// removing a project needs the path only to name that index's tables.
+func VectorDBFile(projectKey string) (string, error) {
+	root, err := Root()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "vectors.db"), nil
+	return filepath.Join(root, "projects", projectKey, "vectors.db"), nil
+}
+
+// VectorDBPath returns the disposable per-project vector index path, creating
+// the project's directory.
+func VectorDBPath(projectKey string) (string, error) {
+	if _, err := ProjectRoot(projectKey); err != nil {
+		return "", err
+	}
+	return VectorDBFile(projectKey)
 }

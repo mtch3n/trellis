@@ -80,6 +80,9 @@ const ownedEntities = `SELECT id FROM card WHERE project_id = ?
 // that directory creates a fresh, empty project.
 func (c *Core) DeleteProject(ctx context.Context, key string) error {
 	key = strings.ToUpper(strings.TrimSpace(key))
+	// Dropped first, while the vector file is still where the tables point.
+	// A refused or failed delete loses nothing: the tables come back on use.
+	_ = c.dropDerived(ctx, key)
 	var staged *stagedRemoval
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var p Project
