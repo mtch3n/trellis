@@ -71,6 +71,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/steal", s.handleStealCard)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/knowledge", s.handleKnowledgeList)
 	s.mux.HandleFunc("GET /api/p/{key}/knowledge", s.handleProjectKnowledgeList)
+	s.mux.HandleFunc("GET /api/p/{key}/artifacts/{name}", s.handleArtifact)
 	s.mux.HandleFunc("GET /api/global/knowledge", s.handleGlobalKnowledgeList)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/knowledge", s.handleKnowledgeCreate)
 	s.mux.HandleFunc("PATCH /api/p/{key}/b/{board}/knowledge/{slug}", s.handleKnowledgeEdit)
@@ -614,7 +615,7 @@ func (s *Server) handleKnowledgeList(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, docs)
+	writeJSON(w, http.StatusOK, knowledgeItems(p.Key, docs))
 }
 
 func (s *Server) handleProjectKnowledgeList(w http.ResponseWriter, r *http.Request) {
@@ -630,7 +631,7 @@ func (s *Server) handleProjectKnowledgeList(w http.ResponseWriter, r *http.Reque
 		s.coreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, docs)
+	writeJSON(w, http.StatusOK, knowledgeItems(p.Key, docs))
 }
 
 func (s *Server) handleGlobalKnowledgeList(w http.ResponseWriter, r *http.Request) {

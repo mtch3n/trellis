@@ -66,7 +66,7 @@ type ArtifactRef struct {
 	Name    string `db:"name" json:"name"`
 	Kind    string `db:"kind" json:"kind,omitempty"`
 	MIME    string `db:"mime" json:"mime,omitempty"`
-	Size    int64  `db:"size" json:"size,omitempty"`
+	Size    int64  `db:"size" json:"size,omitzero"`
 	Missing bool   `db:"missing" json:"missing"`
 }
 
