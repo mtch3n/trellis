@@ -74,7 +74,7 @@ type docArg struct {
 func readDocArg(arg, projectKey string) (docArg, error) {
 	target, _ := vpath.SplitAnchor(strings.TrimSpace(arg))
 	if !strings.HasPrefix(target, "/") {
-		return docArg{Slugify(target), docRelative}, nil
+		return docArg{target, docRelative}, nil
 	}
 	p, err := ParseAddress(target, vpath.CollectionKnowledge)
 	if err != nil {
@@ -91,7 +91,7 @@ func readDocArg(arg, projectKey string) (docArg, error) {
 func vaultSlug(arg string) (string, error) {
 	target, _ := vpath.SplitAnchor(strings.TrimSpace(arg))
 	if !strings.HasPrefix(target, "/") {
-		return Slugify(target), nil
+		return target, nil
 	}
 	p, err := ParseAddress(target, vpath.CollectionKnowledge)
 	if err != nil {

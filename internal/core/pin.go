@@ -369,7 +369,15 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 			}
 		}()
 
-		gerr := tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, normalizeSlugPath(slug))
+		parsedSlug, err := vaultSlug(slug)
+		if err != nil {
+			return err
+		}
+		exactSlug, rerr := c.resolveSlug(tx, "", parsedSlug, true)
+		if rerr != nil {
+			return rerr
+		}
+		gerr := tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, exactSlug)
 		if errors.Is(gerr, sql.ErrNoRows) {
 			return ErrNotFound("not_global", "no global entry "+slug, "trellis knowledge ls --global")
 		}
@@ -435,7 +443,15 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 func (c *Core) VerifyKnowledge(ctx context.Context, slug string) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var doc Knowledge
-		err := tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, normalizeSlugPath(slug))
+		parsedSlug, err := vaultSlug(slug)
+		if err != nil {
+			return err
+		}
+		exactSlug, rerr := c.resolveSlug(tx, "", parsedSlug, true)
+		if rerr != nil {
+			return rerr
+		}
+		err = tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, exactSlug)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound("not_global", "no global entry "+slug, "trellis knowledge ls --global")
 		}
