@@ -29,13 +29,70 @@ type Artifact struct {
 	UpdatedAt   int64  `db:"updated_at" json:"updated_at"`
 }
 
-func (c *Core) artifactDir(projectKey string) (string, error) {
+// artifactDirPath is where a project's artifacts live. It does not create the
+// directory, because serving must not write.
+func (c *Core) artifactDirPath(projectKey string) (string, error) {
 	root, err := c.root()
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(root, "projects", projectKey, "artifacts")
+	return filepath.Join(root, "projects", projectKey, "artifacts"), nil
+}
+
+func (c *Core) artifactDir(projectKey string) (string, error) {
+	dir, err := c.artifactDirPath(projectKey)
+	if err != nil {
+		return "", err
+	}
 	return dir, os.MkdirAll(dir, 0o700)
+}
+
+// ArtifactFile resolves an artifact by name for serving and returns the path to
+// open. Every refusal is the same not-found error, so a caller learns nothing
+// about why.
+//
+// The stored path comes from the database, so it is checked against the
+// project's artifact directory after resolving symlinks on both sides. A row
+// edited or restored from elsewhere, or a symlink planted in the directory, must
+// not become a way to read an arbitrary file. The name itself is only ever a
+// lookup key and is never joined into a path.
+func (c *Core) ArtifactFile(ctx context.Context, projectID, name string) (Artifact, string, error) {
+	notFound := ErrNotFound("artifact_not_found", "no artifact "+name, "trellis artifact ls")
+	var key string
+	var matches []Artifact
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, projectID); err != nil {
+			return err
+		}
+		return tx.Select(&matches,
+			`SELECT * FROM artifact WHERE project_id = ? AND name = ?`, projectID, name)
+	})
+	if err != nil {
+		return Artifact{}, "", err
+	}
+	if len(matches) != 1 {
+		return Artifact{}, "", notFound
+	}
+	a := matches[0]
+
+	dirPath, err := c.artifactDirPath(key)
+	if err != nil {
+		return Artifact{}, "", err
+	}
+	dir, err := filepath.EvalSymlinks(dirPath)
+	if err != nil {
+		return Artifact{}, "", notFound
+	}
+	path, err := filepath.EvalSymlinks(a.Path)
+	if err != nil {
+		return Artifact{}, "", notFound
+	}
+	rel, err := filepath.Rel(dir, path)
+	if err != nil || rel == "." || filepath.IsAbs(rel) ||
+		rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return Artifact{}, "", notFound
+	}
+	return a, path, nil
 }
 
 // CreateArtifact copies a permitted artifact into Trellis storage. The blob
