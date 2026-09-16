@@ -252,7 +252,7 @@ func newKnowledgeEditCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Var(&body, "body", "new markdown body")
-	cmd.Flags().Int64Var(&ifVersion, "if-version", 0, "fail if the entry changed since you read it")
+	cmd.Flags().Int64Var(&ifVersion, "if-version", 0, "the version you read; required (knowledge show --json)")
 	return cmd
 }
 

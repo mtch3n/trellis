@@ -207,11 +207,12 @@ func TestEditingTheBodyKeepsTheArtifactList(t *testing.T) {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
 	setArtifactsInFile(t, doc.Path, a.Name)
-	if _, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+	loaded, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	if err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
 
-	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "a new body\n", nil); err != nil {
+	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "a new body\n", &loaded.Version); err != nil {
 		t.Fatalf("EditKnowledge: %v", err)
 	}
 	if got := artifactsInFile(t, doc.Path); !slices.Equal(got, []string{a.Name}) {
