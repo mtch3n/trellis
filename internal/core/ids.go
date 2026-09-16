@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 	"uuid"
+
+	"github.com/mtch3n/trellis/internal/vpath"
 )
 
 // NewCardID returns a uuid v7, which is time-ordered so card ids sort by creation.
@@ -18,12 +20,30 @@ func NewCardID() string { return uuid.NewV7().String() }
 type CardRef struct {
 	UUID       string
 	Seq        int64
-	ProjectKey string // set only when the reference was fully qualified
+	ProjectKey string // the ref's prefix, set when the reference was qualified
+	Project    string // the project an address names; "" for shorthand
 }
 
-// ParseCardRef accepts "12", "XPSCTL-12", or a uuid.
+// ParseCardRef accepts "12", "XPSCTL-12", "/XPSCTL/cards/XPSCTL-12", or a
+// uuid. An address keeps the project it names in Project, apart from the
+// ref's prefix: the two differ once projects are merged, and deciding what
+// that means is checkCardProject's job, not the parser's.
 func ParseCardRef(s string) CardRef {
 	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "/") {
+		p, err := vpath.Parse(s)
+		if err != nil || p.Collection != vpath.CollectionCards {
+			return CardRef{}
+		}
+		// vpath has checked the PREFIX-N shape; only the number can still
+		// fail, by overflowing.
+		key, num, _ := strings.CutLast(p.Name, "-")
+		n, err := strconv.ParseInt(num, 10, 64)
+		if err != nil {
+			return CardRef{}
+		}
+		return CardRef{Seq: n, ProjectKey: key, Project: p.Project}
+	}
 	if _, err := uuid.Parse(s); err == nil {
 		return CardRef{UUID: s}
 	}
@@ -40,13 +60,19 @@ func ParseCardRef(s string) CardRef {
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 
-// String renders a CardRef for error messages.
+// qualified is the PREFIX-N form of a qualified ref.
+func (r CardRef) qualified() string { return r.ProjectKey + "-" + itoa(r.Seq) }
+
+// String renders a CardRef for error messages. An address is shown as the
+// address the caller typed.
 func (r CardRef) String() string {
 	switch {
 	case r.UUID != "":
 		return r.UUID
+	case r.Project != "":
+		return vpath.CardPath(r.Project, r.qualified()).String()
 	case r.ProjectKey != "":
-		return r.ProjectKey + "-" + itoa(r.Seq)
+		return r.qualified()
 	case r.Seq > 0:
 		return itoa(r.Seq)
 	}

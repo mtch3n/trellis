@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"strconv"
 
 	"github.com/jmoiron/sqlx"
@@ -69,7 +70,11 @@ func (c *Core) ImportCards(ctx context.Context, projectID, boardID string, in []
 				blocker, ok := local[dep]
 				if !ok {
 					var existing Card
-					if err := c.loadCard(tx, projectID, ParseCardRef(dep), &existing); err != nil {
+					ref := ParseCardRef(dep)
+					if err := c.loadCard(tx, projectID, ref, &existing); err != nil {
+						if e, isCore := errors.AsType[*Error](err); isCore && e.Code == "wrong_project" {
+							return crossProjectBlock(err, ref)
+						}
 						return ErrUsage("unknown_blocker",
 							"card "+strconv.Itoa(i+1)+" is blocked by "+dep+", which is neither an id in this import nor an existing card",
 							`give the blocking entry an "id" and reference it, or pass an existing ref like XPSCTL-12`)

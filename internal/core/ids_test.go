@@ -65,3 +65,26 @@ func TestCardRefString(t *testing.T) {
 		}
 	}
 }
+
+func TestParseCardRefReadsACardAddress(t *testing.T) {
+	cases := map[string]CardRef{
+		"/xpsctl/cards/xpsctl-12": {Seq: 12, ProjectKey: "XPSCTL", Project: "XPSCTL"},
+		// The address's project and the ref's prefix are kept apart: after a
+		// merge they legitimately differ, and core decides what that means.
+		"/MONO/cards/MY_APP-3": {Seq: 3, ProjectKey: "MY_APP", Project: "MONO"},
+		"XPSCTL-12":            {Seq: 12, ProjectKey: "XPSCTL"},
+	}
+	for in, want := range cases {
+		if got := ParseCardRef(in); got != want {
+			t.Errorf("ParseCardRef(%q) = %+v, want %+v", in, got, want)
+		}
+	}
+	for _, s := range []string{"/XPSCTL/knowledge/design", "/XPSCTL/cards/12", "/XPSCTL", "/XPSCTL/cards/XPSCTL-99999999999999999999"} {
+		if got := ParseCardRef(s); got != (CardRef{}) {
+			t.Errorf("ParseCardRef(%q) = %+v, want the empty ref", s, got)
+		}
+	}
+	if got := ParseCardRef("/MONO/cards/MY_APP-3").String(); got != "/MONO/cards/MY_APP-3" {
+		t.Errorf("String() of an address = %q", got)
+	}
+}

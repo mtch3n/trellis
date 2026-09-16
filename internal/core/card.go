@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+
+	"github.com/mtch3n/trellis/internal/vpath"
 )
 
 type Card struct {
@@ -99,8 +101,46 @@ func (c *Core) cardView(tx *sqlx.Tx, card *Card) error {
 	return nil
 }
 
+// checkCardProject is the one place a card ref is held to the project it is
+// looked up in. OTHER-12 typed while working in KEY used to open KEY-12, and
+// /OTHER/cards/KEY-12 would have too. An address names its project, and so
+// does a ref's prefix; either one disagreeing with the current key is another
+// project. The project-merge layer replaces this check when refs become
+// stored data and a prefix no longer has to match its project.
+func (c *Core) checkCardProject(tx *sqlx.Tx, projectID string, ref CardRef) error {
+	if ref.Project == "" && ref.ProjectKey == "" {
+		return nil
+	}
+	key, err := projectKeyOf(tx, projectID)
+	if err != nil {
+		return err
+	}
+	named := ref.Project
+	if named == "" || named == key {
+		named = ref.ProjectKey
+	}
+	if named == key {
+		return nil
+	}
+	var exists int
+	if err := tx.Get(&exists, `SELECT COUNT(*) FROM project WHERE key = ?`, named); err != nil {
+		return err
+	}
+	if exists == 0 {
+		return ErrNotFound("card_not_found",
+			fmt.Sprintf("no card %s: there is no project %s", ref, named), "trellis project ls")
+	}
+	addr := vpath.CardPath(named, ref.qualified()).String()
+	return ErrUsage("wrong_project",
+		fmt.Sprintf("%s is a card in project %s, not in %s", ref, named, key),
+		"trellis card show "+addr)
+}
+
 // loadCard fetches a card inside an existing transaction and fills computed fields.
 func (c *Core) loadCard(tx *sqlx.Tx, projectID string, ref CardRef, out *Card) error {
+	if err := c.checkCardProject(tx, projectID, ref); err != nil {
+		return err
+	}
 	var err error
 	switch {
 	case ref.UUID != "":
