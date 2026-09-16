@@ -1032,10 +1032,14 @@ func (s *Server) handleKnowledgeCreate(w http.ResponseWriter, r *http.Request) {
 // knowledgePatch is a save from the editor. A field that is absent keeps its
 // value; one that is present replaces it.
 type knowledgePatch struct {
-	Title   *string `json:"title"`
-	Summary *string `json:"summary"`
-	Body    *string `json:"body"`
-	Version *int64  `json:"version"`
+	Title   *string   `json:"title"`
+	Summary *string   `json:"summary"`
+	Body    *string   `json:"body"`
+	DocType *string   `json:"type"`
+	Private *bool     `json:"private"`
+	Tags    *[]string `json:"tags"`
+	Labels  *[]string `json:"labels"`
+	Version *int64    `json:"version"`
 }
 
 func (s *Server) handleKnowledgeEdit(w http.ResponseWriter, r *http.Request) {
@@ -1053,6 +1057,7 @@ func (s *Server) handleKnowledgeEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	doc, err := s.write.EditKnowledgeFields(ctx, p.ID, r.PathValue("slug"), core.KnowledgeEdit{
 		Title: in.Title, Summary: in.Summary, Body: in.Body, IfVersion: in.Version,
+		DocType: in.DocType, Private: in.Private, Tags: in.Tags, Labels: in.Labels,
 	})
 	if err != nil {
 		s.coreError(w, err)

@@ -324,7 +324,8 @@ func newKnowledgeHealthCmd() *cobra.Command {
 
 func newKnowledgeEditCmd() *cobra.Command {
 	var body TextValue
-	var sources []string
+	var sources, tags, labels []string
+	var docType, private string
 	var ifVersion int64
 	cmd := &cobra.Command{
 		Use:   "edit <slug>",
@@ -332,7 +333,11 @@ func newKnowledgeEditCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			setSources := cmd.Flags().Changed("source")
-			if !body.Changed() && !setSources {
+			setTags := cmd.Flags().Changed("tag")
+			setLabels := cmd.Flags().Changed("label")
+			setDocType := cmd.Flags().Changed("type")
+			setPrivate := cmd.Flags().Changed("private")
+			if !body.Changed() && !setSources && !setTags && !setLabels && !setDocType && !setPrivate {
 				return core.ErrUsage("missing_body",
 					"--body replaces the whole body; --source replaces the source list",
 					"trellis knowledge edit "+args[0]+" --body @notes.md")
@@ -345,6 +350,33 @@ func newKnowledgeEditCmd() *cobra.Command {
 				}
 				if setSources {
 					edit.Sources = &sources
+				}
+				if setTags {
+					// Filter out empty strings (e.g., from --tag= to clear tags)
+					filtered := make([]string, 0, len(tags))
+					for _, t := range tags {
+						if t != "" {
+							filtered = append(filtered, t)
+						}
+					}
+					edit.Tags = &filtered
+				}
+				if setLabels {
+					// Filter out empty strings (e.g., from --label= to clear labels)
+					filtered := make([]string, 0, len(labels))
+					for _, l := range labels {
+						if l != "" {
+							filtered = append(filtered, l)
+						}
+					}
+					edit.Labels = &filtered
+				}
+				if setDocType {
+					edit.DocType = &docType
+				}
+				if setPrivate {
+					p := private == "true"
+					edit.Private = &p
 				}
 				if ifVersion > 0 {
 					edit.IfVersion = &ifVersion
@@ -359,6 +391,10 @@ func newKnowledgeEditCmd() *cobra.Command {
 	}
 	cmd.Flags().Var(&body, "body", "new markdown body")
 	cmd.Flags().StringArrayVar(&sources, "source", nil, "replace the source list; repeatable")
+	cmd.Flags().StringArrayVar(&tags, "tag", nil, "replace the tag list; repeatable")
+	cmd.Flags().StringArrayVar(&labels, "label", nil, "replace the label list; repeatable")
+	cmd.Flags().StringVar(&docType, "type", "", "change the template type")
+	cmd.Flags().StringVar(&private, "private", "", "mark private (true|false)")
 	cmd.Flags().Int64Var(&ifVersion, "if-version", 0, "the version you read; required (knowledge show --json)")
 	return cmd
 }
