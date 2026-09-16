@@ -102,6 +102,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/cards/{card}", s.handleDeleteCard)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/move", s.handleMoveCard)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/steal", s.handleStealCard)
+	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/claim", s.handleClaimCard)
+	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/release", s.handleReleaseCard)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/knowledge", s.handleKnowledgeList)
 	s.mux.HandleFunc("GET /api/p/{key}/knowledge", s.handleProjectKnowledgeList)
 	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}/history", s.handleKnowledgeHistory)
@@ -805,6 +807,9 @@ type moveRequest struct {
 type stealRequest struct {
 	Reason string `json:"reason"`
 }
+type claimRequest struct {
+	TTLMinutes *int64 `json:"ttl_minutes"`
+}
 type knowledgeRequest struct {
 	Title    string `json:"title"`
 	Body     string `json:"body"`
@@ -855,6 +860,68 @@ func (s *Server) handleStealCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, claimed)
+}
+
+func (s *Server) handleClaimCard(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, b, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
+	if err != nil {
+		s.error(w, http.StatusNotFound, err.Error())
+		return
+	}
+	var in claimRequest
+	decodeJSON(w, r, &in)
+	// TTL is optional; defaults to configured lease TTL
+	var ttlMS int64 = 0
+	if in.TTLMinutes != nil && *in.TTLMinutes > 0 {
+		ttlMS = *in.TTLMinutes * 60 * 1000
+	}
+	card, err := s.core.GetCard(ctx, p.ID, core.ParseCardRef(r.PathValue("card")))
+	if err != nil || card.BoardID != b.ID {
+		if err != nil {
+			s.coreError(w, err)
+		} else {
+			s.error(w, http.StatusNotFound, "card not found on this board")
+		}
+		return
+	}
+	claimed, err := s.write.ClaimCard(ctx, card.ID, ttlMS, false, "")
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, claimed)
+}
+
+func (s *Server) handleReleaseCard(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, b, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
+	if err != nil {
+		s.error(w, http.StatusNotFound, err.Error())
+		return
+	}
+	card, err := s.core.GetCard(ctx, p.ID, core.ParseCardRef(r.PathValue("card")))
+	if err != nil || card.BoardID != b.ID {
+		if err != nil {
+			s.coreError(w, err)
+		} else {
+			s.error(w, http.StatusNotFound, "card not found on this board")
+		}
+		return
+	}
+	if err := s.write.ReleaseCard(ctx, card.ID); err != nil {
+		s.coreError(w, err)
+		return
+	}
+	// Return the released card
+	released, err := s.core.GetCard(ctx, p.ID, core.ParseCardRef(r.PathValue("card")))
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, released)
 }
 
 func (s *Server) handleKnowledgeList(w http.ResponseWriter, r *http.Request) {
