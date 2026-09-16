@@ -26,6 +26,9 @@ import (
 // private, and the caller does not error out over an unrelated vault file
 // someone deleted. Any other failure to read or parse the file is a real error
 // and propagates.
+// privateAfterRefresh returns a map of entry IDs to whether they should be treated
+// as private for display purposes. Missing files are treated as private (content
+// is withheld), but the caller may want to distinguish them using missingAfterRefresh.
 func (c *Core) privateAfterRefresh(tx *sqlx.Tx, ids []string) (map[string]bool, error) {
 	out := map[string]bool{}
 	if len(ids) == 0 {
@@ -50,6 +53,35 @@ func (c *Core) privateAfterRefresh(tx *sqlx.Tx, ids []string) (map[string]bool, 
 		}
 		if docs[i].Private {
 			out[docs[i].ID] = true
+		}
+	}
+	return out, nil
+}
+
+// missingAfterRefresh returns a map of entry IDs to whether their files are missing.
+// Missing files have their content withheld like private entries, but should be
+// labeled differently in the UI.
+func (c *Core) missingAfterRefresh(tx *sqlx.Tx, ids []string) (map[string]bool, error) {
+	out := map[string]bool{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	q, args, err := sqlx.In(`SELECT * FROM knowledge WHERE id IN (?)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	var docs []Knowledge
+	if err := tx.Select(&docs, tx.Rebind(q), args...); err != nil {
+		return nil, err
+	}
+	for i := range docs {
+		if err := c.refreshFromFile(tx, &docs[i]); err != nil {
+			var coreErr *Error
+			if errors.As(err, &coreErr) && coreErr.Code == "file_missing" {
+				out[docs[i].ID] = true
+				continue
+			}
+			return nil, err
 		}
 	}
 	return out, nil

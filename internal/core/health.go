@@ -172,8 +172,13 @@ func (c *Core) ColdKnowledge(ctx context.Context, projectID string) ([]Knowledge
 		if err != nil {
 			return err
 		}
+		missing, err := c.missingAfterRefresh(tx, ids)
+		if err != nil {
+			return err
+		}
 		for i := range docs {
 			docs[i].Private = private[docs[i].ID]
+			docs[i].Missing = missing[docs[i].ID]
 			if err := c.docView(tx, &docs[i]); err != nil {
 				return err
 			}
