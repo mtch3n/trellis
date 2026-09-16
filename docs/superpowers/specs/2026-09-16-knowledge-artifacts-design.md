@@ -242,8 +242,17 @@ attribute.
 This adds no automatic route for a body. Artifacts are not embedded, not
 indexed and not injected, before or after this change.
 
-- A private document's artifact list is returned like any other metadata.
-  Presence is not what the disclosure design protects.
+- A private document's artifact list is returned like any other metadata on
+  an explicit read (`knowledge show`, `knowledge ls`, the knowledge list
+  endpoints). Presence is not what the disclosure design protects.
+- The event log is not an explicit read. For a private document,
+  `artifact_linked` and `artifact_unlinked` events are recorded with an empty
+  value, as edits are, and marking a document private blanks the names its
+  earlier artifact events recorded.
+- A file's type comes from its bytes. The extension is consulted only when
+  sniffing finds nothing, and never yields `application/pdf`: a real PDF always
+  sniffs as one, so that fallback would only ever label non-PDF bytes as the
+  one type served without `sandbox`.
 - An artifact's bytes leave only on an explicit request for that artifact — the
   same standing as `knowledge show`.
 - The UI is loopback-only and token-protected (see above), so serving bytes
