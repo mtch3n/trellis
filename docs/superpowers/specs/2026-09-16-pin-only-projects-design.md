@@ -1,15 +1,17 @@
 # Pin-only project resolution
 
 Date: 2026-09-16
-Status: design, not yet planned
+Status: design, planned in `docs/superpowers/plans/2026-09-16-pin-only-projects.md`
 Revised: 2026-09-16, after an adversarial review. The migration's integrity
 check now actually gates the commit. `init` became one transaction with a
 no-clobber pin write, no longer joins on an inferred key, and no longer creates
 boards. Old bindings are kept in the event log instead of relying on the user
 to copy them before an automatic migration.
-Layer 1 of 3: pin-only resolution (this spec), then `project merge`, then
-virtual path addressing. Each later layer gets its own spec; the shape already
-agreed for them is recorded under "Follow-up layers".
+Layer 1 of 3: pin-only resolution (this spec), then virtual path addressing
+(`2026-09-16-virtual-paths-design.md`), then `project merge`
+(`2026-09-16-project-merge-design.md`). The order of the last two was swapped
+when planning: merge rewrites references, and it should rewrite them once, in
+their final syntax.
 
 ## Problem
 
@@ -71,8 +73,9 @@ Its content is one virtual path, with surrounding whitespace trimmed:
 ```
 
 - The key is matched case-insensitively and always written upper-case.
-- The board segment is a board **slug**: non-empty, and unchanged by
-  `Slugify`. `SelectBoard` matches on name today
+- The board segment is a board **slug**, in the shape `slugify` gives one
+  (`internal/core/board.go:38`): lower-case Unicode letters and digits joined
+  by single hyphens. `SelectBoard` matches on name today
   (`internal/core/board.go:146`); the pin's board is matched on slug.
 - Anything else is a hard usage error, `bad_pin`, that names the file and shows
   the accepted shapes. That covers an empty file, more than one line, extra
@@ -82,8 +85,10 @@ Its content is one virtual path, with surrounding whitespace trimmed:
   message for it says to replace the content with `/TRELLIS`, or to delete the
   file and run `trellis init --key TRELLIS`.
 
-The parser lives in a new package, `internal/vpath`. It accepts only these two
-shapes now; layer 3 extends the same parser rather than adding a second one.
+The parser lives in a new package, `internal/vpath`. Its `Path` type is general
+from the start, `{Project, Collection, Name}`, and `ParsePin` accepts only these
+two shapes. Path addressing adds a general parser beside it without reshaping
+the type.
 
 **Pins are meant to be committed.** A committed pin travels with every clone and
 every worktree; `git worktree add` does not copy untracked files, so an
@@ -248,6 +253,8 @@ tx-scoped variant, because each public `Core` method opens its own transaction
 **No-clobber pin write.** After the commit, `InitProject` publishes the pin
 with `writeAtomic(path, data, false)` (`internal/core/file_store.go:13`): a
 synced temporary file, then a hard link that fails if `.trellis` already exists.
+`writeAtomic` creates files with mode 0600. git records only the executable
+bit, so clones get the usual mode.
 
 If another `init` wrote the pin first, the new pin is read back:
 
@@ -274,15 +281,20 @@ Layer 2 adds `project merge` here.
 
 `EnsureProject` and `resolve.Identity` are removed. `InitProject` and
 `project new` share a tx-scoped create, which is today's create branch of
-`EnsureProject`. `internal/core` stops importing `internal/resolve`, which also
-retires the import-cycle note at `internal/resolve/resolve.go:26`.
+`EnsureProject`. `internal/core` still imports `internal/resolve`, but only to
+read a pin back when the no-clobber write finds one already there.
+`internal/resolve` never imports core, so the import-cycle note at
+`internal/resolve/resolve.go:26` goes away with `Identify`.
 
 ### `trellis doctor`
 
-- **Where the project came from:** `TRELLIS (pin <path>)`,
+- **`project` check, where the project came from:** `/TRELLIS (pin <path>)`,
   `(from --project)` or `(from TRELLIS_PROJECT)`.
 - **No pin:** a warning that suggests `trellis init --key <KEY>`.
-- **Keys that fail the key grammar:** a warning that lists them.
+- **Pin names a project this database does not have:** a warning that suggests
+  `trellis init`.
+- **`project keys` check:** a warning that lists every key failing the key
+  grammar. Neither check creates a database.
 
 ## Schema
 
@@ -311,10 +323,11 @@ after `COMMIT` would also be too late to roll back.
 with the embedded SQL ones (`migrate.go:303`). It follows SQLite's documented
 table-rebuild procedure:
 
-1. `PRAGMA foreign_keys = OFF` on the connection. The store holds exactly one
-   connection (`internal/store/db.go:76`), so the transaction below runs on that
-   same connection. Every statement goes through the transaction, because a
-   statement issued through the pool would wait forever for the only connection.
+1. Pin a connection with `db.Conn`, and run `PRAGMA foreign_keys = OFF` on it.
+   The store's pool has exactly one connection (`internal/store/db.go:76`).
+   Every statement goes through that pinned connection and its transaction; a
+   statement issued through the pool would wait forever for the only
+   connection.
 2. Begin a transaction.
 3. For each project, insert an `event` row with `entity_type = 'project'`,
    `action = 'unbound'` and `actor = 'migration'`. Record `root_path`, and the
@@ -397,58 +410,13 @@ to replace the content or delete the file first.
 
 ## Follow-up layers
 
-These get their own specs. The shape below is what was agreed in discussion.
+Each has its own spec:
 
-### Layer 2: `trellis project merge SRC --into DST`
-
-- Prints a plan by default. `--apply` takes a backup first, then merges.
-- Boards move and stay separate. A slug collision gets the source key as a
-  prefix. DST's default board stays the default.
-- **Cards keep their refs**: `SRC-12` stays `SRC-12` inside DST, so commit
-  messages, notes and links stay valid with no text rewriting. That needs a
-  per-card ref prefix and `UNIQUE (ref_key, seq)`. This choice was defaulted
-  while the author was away; confirm it in that spec.
-- Knowledge merges directly when paths do not collide. Identical bytes at the
-  same path collapse to one document. Differing content at the same path stops
-  the merge, lists each conflict, and prints the `knowledge mv` that clears it.
-  Inbound links are rewritten in the same transaction.
-- Artifacts follow the knowledge rule, compared by content hash. Labels merge
-  by name. DST's config wins, and the differences are listed in the plan. A
-  card held under a lease refuses the merge, as `DeleteProject` does. Vectors
-  are derived and rebuilt.
-- SRC is recorded as merged into DST and stays reserved. A pin or path naming
-  it fails with a hint pointing to DST. The merge rewrites pins in the current
-  repository: `/SRC` becomes `/DST/boards/<moved board>`, so a session in that
-  subdirectory still opens the same board. The rewrite replaces an existing
-  file, so it uses the replacing form of the atomic write.
-- Merge is also the path for a project whose key fails the key grammar: SRC is
-  named through `--project`-style lookup and needs no grammar check.
-
-### Layer 3: virtual path addressing
-
-- Canonical addresses: `/KEY/boards/<slug>`, `/KEY/cards/<ref>`,
-  `/KEY/knowledge/<path>`, `/KEY/artifacts/<name>`, `/GLOBAL/knowledge/<path>`.
-  The card segment is the full ref because merged cards keep a foreign prefix.
-- The noun commands stay. A path names an object and a command names an
-  operation; claim, lease, note, block and `--if-version` have no file-verb
-  equivalent. There is no generic `ls`/`cat`/`mv`.
-- Wherever a command takes a reference it also takes a path. A relative
-  argument is relative to that command's collection in the current project, so
-  `knowledge show deployment/rollback` is unchanged. An absolute path must name
-  the command's own collection, and a mismatch names the right command.
-- `KEY-N` remains the card shorthand.
-- Output carries canonical addresses, so search results teach the tree.
-- Cross-project wikilinks (`[[/OTHER/knowledge/x]]`) resolve. Today they are
-  deliberately left unresolved (`internal/core/doc_relations.go:90`).
-  - This discloses nothing new: `--project OTHER` already reads that project.
-    Recall still stays scoped to the current project plus `GLOBAL`, and never
-    follows a link into another project.
-  - A link to a project or document that does not exist yet stays a stub and is
-    backfilled when the target appears, under the dangling-link invariant in
-    CLAUDE.md.
-- Artifacts get unique names per project, with the same suffix rule as slugs.
-- This supersedes the `[[GLOBAL:x]]` syntax in
-  `2026-09-16-knowledge-paths-design.md` and ships with that spec.
+- **Layer 2, virtual path addressing:**
+  `docs/superpowers/specs/2026-09-16-virtual-paths-design.md`.
+- **Layer 3, `project merge`:**
+  `docs/superpowers/specs/2026-09-16-project-merge-design.md`. A key that fails
+  the key grammar is folded into a valid one here.
 
 ## Testing
 
