@@ -55,10 +55,44 @@ func (c *Core) Health(ctx context.Context, projectID string) ([]HealthLine, erro
 			projectID, c.clock.NowMS()-readWindowMS()); err != nil {
 			return err
 		}
-		return tx.Get(&stale, `
-			SELECT COUNT(*) FROM pin p JOIN knowledge k ON k.id = p.knowledge_id
-			WHERE k.project_id = ? AND k.recap_hash IS NOT NULL
-			  AND k.recap_hash IS NOT k.content_hash`, projectID)
+
+		// Count stale pins: either a pin with a recap that's out of date,
+		// or a non-private pin with no recap. A private pin is never stale.
+		var pinRows []struct {
+			ID       string `db:"id"`
+			RecapSet bool   `db:"recap_set"`
+			Stale    bool   `db:"stale"`
+		}
+		q := `SELECT k.id,
+		             (k.recap_hash IS NOT NULL) AS recap_set,
+		             (k.recap_hash IS NOT k.content_hash) AS stale
+		      FROM pin p JOIN knowledge k ON k.id = p.knowledge_id
+		      WHERE k.project_id = ?`
+		if err := tx.Select(&pinRows, q, projectID); err != nil {
+			return err
+		}
+
+		ids := make([]string, 0, len(pinRows))
+		for _, row := range pinRows {
+			ids = append(ids, row.ID)
+		}
+		private, perr := c.privateAfterRefresh(tx, ids)
+		if perr != nil {
+			return perr
+		}
+
+		stale = 0
+		for _, row := range pinRows {
+			isPrivate := private[row.ID]
+			// A private pin is never stale.
+			// A non-private pin is stale if:
+			// - it has a recap and the recap is out of date, OR
+			// - it has no recap (needs one)
+			if !isPrivate && (row.Stale || !row.RecapSet) {
+				stale++
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err

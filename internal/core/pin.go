@@ -195,13 +195,11 @@ func (c *Core) Pins(ctx context.Context, projectID, boardID string) ([]Pin, erro
 		for i := range pins {
 			if private[pins[i].ID] {
 				pins[i].Recap = ""
-			}
-			// Decided after the refresh, not in the SELECT. A purged row has
-			// a NULL recap_hash, which the SELECT reads as stale, but the
-			// SELECT sees each row as it was before this refresh, so the
-			// read that runs the purge would say the opposite.
-			if pins[i].Recap == "" {
+				// A private pin is never stale.
 				pins[i].Stale = false
+			} else if pins[i].Recap == "" {
+				// A non-private pin without a recap is stale: the entry needs one.
+				pins[i].Stale = true
 			}
 		}
 		return nil
