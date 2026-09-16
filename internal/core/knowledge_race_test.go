@@ -11,7 +11,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/mtch3n/trellis/internal/store"
 )
 
@@ -264,9 +263,9 @@ func TestAFailedEditPutsTheFileBack(t *testing.T) {
 // TestEscalateRefusesASlugTheGlobalVaultHas is R7.
 func TestEscalateRefusesASlugTheGlobalVaultHas(t *testing.T) {
 	c, p, _ := kbCore(t)
-	other, err := c.EnsureProject(t.Context(), resolve.Identity{Kind: "test", Value: "other", SuggestedKey: "OTHER"})
+	other, err := c.CreateProject(t.Context(), "OTHER", false)
 	if err != nil {
-		t.Fatalf("EnsureProject: %v", err)
+		t.Fatalf("CreateProject: %v", err)
 	}
 
 	first, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Deploy"})

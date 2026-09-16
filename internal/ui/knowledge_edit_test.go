@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/mtch3n/trellis/internal/store"
 )
 
@@ -23,7 +22,7 @@ func TestKnowledgeEditWritesTitleAndSummary(t *testing.T) {
 	defer db.Close()
 	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-edit-test").WithKBRoot(t.TempDir())
 	ctx := context.Background()
-	p, err := c.EnsureProject(ctx, resolve.Identity{Kind: "test", Value: "edit", SuggestedKey: "EDIT"})
+	p, err := c.CreateProject(ctx, "EDIT", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +97,7 @@ func TestKnowledgeCreateCarriesSources(t *testing.T) {
 	defer db.Close()
 	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-create-test").WithKBRoot(t.TempDir())
 	ctx := context.Background()
-	p, err := c.EnsureProject(ctx, resolve.Identity{Kind: "test", Value: "create", SuggestedKey: "CREATE"})
+	p, err := c.CreateProject(ctx, "CREATE", false)
 	if err != nil {
 		t.Fatal(err)
 	}

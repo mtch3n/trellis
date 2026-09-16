@@ -14,81 +14,13 @@ import (
 	"github.com/mtch3n/trellis/internal/vpath"
 )
 
+// Project is a virtual namespace, named by its key. No directory belongs to
+// it; a .trellis pin is how a directory reaches it.
 type Project struct {
-	ID            string `db:"id" json:"id"`
-	Key           string `db:"key" json:"key"`
-	IdentityKind  string `db:"identity_kind" json:"identity_kind"`
-	IdentityValue string `db:"identity_value" json:"identity_value"`
-	RootPath      string `db:"root_path" json:"root_path"`
-	Name          string `db:"name" json:"name"`
-	CreatedAt     int64  `db:"created_at" json:"created_at"`
-}
-
-// EnsureProject finds the project for an identity, rebinding or creating it.
-//
-// Rebinding is the important case: a repository with no remote gets a "path"
-// identity, and adding a remote later would otherwise resolve to nothing and
-// create a second, empty board. Matching on root_path and updating the identity
-// in place keeps the cards.
-func (c *Core) EnsureProject(ctx context.Context, id resolve.Identity) (Project, error) {
-	var p Project
-	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		// 1. exact identity match
-		err := tx.Get(&p, `SELECT * FROM project WHERE identity_value = ?`, id.Value)
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-
-		// 2. same root path, different identity: rebind in place
-		if id.RootPath != "" {
-			err = tx.Get(&p, `SELECT * FROM project WHERE root_path = ?`, id.RootPath)
-			if err == nil {
-				old := p.IdentityValue
-				if _, err := tx.Exec(
-					`UPDATE project SET identity_kind = ?, identity_value = ? WHERE id = ?`,
-					id.Kind, id.Value, p.ID); err != nil {
-					return err
-				}
-				p.IdentityKind, p.IdentityValue = id.Kind, id.Value
-				return c.recordEvent(tx, "project", p.ID, "rebound", "identity_value", old, id.Value)
-			}
-			if !errors.Is(err, sql.ErrNoRows) {
-				return err
-			}
-		}
-
-		// 3. create
-		var taken int
-		if err := tx.Get(&taken, `SELECT count(*) FROM project WHERE key = ?`, id.SuggestedKey); err != nil {
-			return err
-		}
-		if taken > 0 {
-			return ErrUsage("key_collision",
-				fmt.Sprintf("project key %q is already used by another repository", id.SuggestedKey),
-				"trellis init --key <UNIQUE-KEY>")
-		}
-
-		p = Project{
-			ID: NewCardID(), Key: id.SuggestedKey, IdentityKind: id.Kind,
-			IdentityValue: id.Value, RootPath: id.RootPath,
-			Name: id.SuggestedKey, CreatedAt: c.clock.NowMS(),
-		}
-		if _, err := tx.Exec(
-			`INSERT INTO project (id, key, identity_kind, identity_value, root_path, name, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			p.ID, p.Key, p.IdentityKind, p.IdentityValue, p.RootPath, p.Name, p.CreatedAt); err != nil {
-			return err
-		}
-		if err := c.recordEvent(tx, "project", p.ID, "created", "", "", p.Key); err != nil {
-			return err
-		}
-		_, err = c.createBoard(tx, p.ID, strings.ToLower(p.Key), true, true)
-		return err
-	})
-	return p, err
+	ID        string `db:"id" json:"id"`
+	Key       string `db:"key" json:"key"`
+	Name      string `db:"name" json:"name"`
+	CreatedAt int64  `db:"created_at" json:"created_at"`
 }
 
 // ListProjects returns every project, newest first.
@@ -136,8 +68,9 @@ const ownedEntities = `SELECT id FROM card WHERE project_id = ?
 // names its origin project, so it would be deleted with it.
 //
 // The directory is staged before the transaction and restored if it fails, so
-// a failed delete never leaves rows without their files. Running trellis in
-// the repository again creates a fresh, empty project.
+// a failed delete never leaves rows without their files. A pin that still
+// names the deleted key then fails with project_not_found; trellis init in
+// that directory creates a fresh, empty project.
 func (c *Core) DeleteProject(ctx context.Context, key string) error {
 	key = strings.ToUpper(strings.TrimSpace(key))
 	var staged *stagedRemoval
@@ -269,13 +202,9 @@ func (c *Core) createProject(tx *sqlx.Tx, key string) (Project, error) {
 			fmt.Sprintf("project %s already exists", key), "trellis project ls")
 	}
 	p := Project{ID: NewCardID(), Key: key, Name: key, CreatedAt: c.clock.NowMS()}
-	// The identity columns stay until migration 0013 drops them. Project still
-	// scans them as strings, so none may be NULL, and root_path is UNIQUE:
-	// each gets a placeholder derived from the key.
 	if _, err := tx.Exec(
-		`INSERT INTO project (id, key, identity_kind, identity_value, root_path, name, created_at)
-		 VALUES (?, ?, 'pin', ?, ?, ?, ?)`,
-		p.ID, p.Key, p.Key, "pin:"+p.Key, p.Name, p.CreatedAt); err != nil {
+		`INSERT INTO project (id, key, name, created_at) VALUES (?, ?, ?, ?)`,
+		p.ID, p.Key, p.Name, p.CreatedAt); err != nil {
 		return Project{}, err
 	}
 	if err := c.recordEvent(tx, "project", p.ID, "created", "", "", p.Key); err != nil {

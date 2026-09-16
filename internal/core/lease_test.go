@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/mtch3n/trellis/internal/store"
 )
 
@@ -119,14 +118,9 @@ func TestConcurrentClaimNoLostCards(t *testing.T) {
 	ctx := context.Background()
 
 	// Create project and board.
-	id := resolve.Identity{
-		Kind:         "test",
-		Value:        "concurrent-claim",
-		SuggestedKey: "CLAIM",
-	}
-	proj, err := core.EnsureProject(ctx, id)
+	proj, err := core.CreateProject(ctx, "CLAIM", false)
 	if err != nil {
-		t.Fatalf("EnsureProject: %v", err)
+		t.Fatalf("CreateProject: %v", err)
 	}
 	board, err := core.CreateBoard(ctx, proj.ID, "default", true)
 	if err != nil {
@@ -237,14 +231,9 @@ func TestClaimSpecificCard(t *testing.T) {
 	core := New(db, FixedClock{MS: 1000000}, "test-actor")
 	ctx := context.Background()
 
-	id := resolve.Identity{
-		Kind:         "test",
-		Value:        "claim-specific",
-		SuggestedKey: "CLAIMSPEC",
-	}
-	proj, err := core.EnsureProject(ctx, id)
+	proj, err := core.CreateProject(ctx, "CLAIMSPEC", false)
 	if err != nil {
-		t.Fatalf("EnsureProject: %v", err)
+		t.Fatalf("CreateProject: %v", err)
 	}
 	board, err := core.CreateBoard(ctx, proj.ID, "default", true)
 	if err != nil {
@@ -318,14 +307,9 @@ func TestReleaseCard(t *testing.T) {
 	core := New(db, FixedClock{MS: 1000000}, "test-actor")
 	ctx := context.Background()
 
-	id := resolve.Identity{
-		Kind:         "test",
-		Value:        "release-test",
-		SuggestedKey: "RELEASE",
-	}
-	proj, err := core.EnsureProject(ctx, id)
+	proj, err := core.CreateProject(ctx, "RELEASE", false)
 	if err != nil {
-		t.Fatalf("EnsureProject: %v", err)
+		t.Fatalf("CreateProject: %v", err)
 	}
 	board, err := core.CreateBoard(ctx, proj.ID, "default", true)
 	if err != nil {
@@ -377,14 +361,9 @@ func TestMoveToDonereleaseLease(t *testing.T) {
 	core := New(db, FixedClock{MS: 1000000}, "test-actor")
 	ctx := context.Background()
 
-	id := resolve.Identity{
-		Kind:         "test",
-		Value:        "done-release",
-		SuggestedKey: "DONEREL",
-	}
-	proj, err := core.EnsureProject(ctx, id)
+	proj, err := core.CreateProject(ctx, "DONEREL", false)
 	if err != nil {
-		t.Fatalf("EnsureProject: %v", err)
+		t.Fatalf("CreateProject: %v", err)
 	}
 	board, err := core.CreateBoard(ctx, proj.ID, "default", true)
 	if err != nil {

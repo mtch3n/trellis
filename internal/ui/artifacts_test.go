@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/mtch3n/trellis/internal/store"
 )
 
@@ -25,7 +24,7 @@ func artifactTestServer(t *testing.T) (*Server, *core.Core, core.Project) {
 	}
 	t.Cleanup(func() { db.Close() })
 	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-artifact-test").WithKBRoot(t.TempDir())
-	p, err := c.EnsureProject(t.Context(), resolve.Identity{Kind: "test", Value: "art", SuggestedKey: "ART"})
+	p, err := c.CreateProject(t.Context(), "ART", false)
 	if err != nil {
 		t.Fatal(err)
 	}

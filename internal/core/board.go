@@ -175,7 +175,7 @@ func boardNames(boards []Board) []string {
 }
 
 // CreateBoard adds a board to an existing project. It is never the default --
-// the first board of a project is created by EnsureProject, which marks that
+// the first board of a project is created by createProject, which marks that
 // one. seedColumns controls whether the board is seeded with the default column
 // set (backlog, in-progress, review, done).
 func (c *Core) CreateBoard(ctx context.Context, projectID, name string, seedColumns bool) (Board, error) {

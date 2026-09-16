@@ -258,9 +258,7 @@ func TestCheckProjectKeysFlagsKeysAPinCannotName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The identity columns still exist in this task; the next one drops them.
-	_, err = db.Exec(`INSERT INTO project (id, key, identity_kind, identity_value, root_path, name, created_at)
-	                  VALUES ('x', 'MY_APP', 'pin', 'MY_APP', 'pin:MY_APP', 'MY_APP', 1)`)
+	_, err = db.Exec(`INSERT INTO project (id, key, name, created_at) VALUES ('x', 'MY_APP', 'MY_APP', 1)`)
 	db.Close()
 	if err != nil {
 		t.Fatal(err)
