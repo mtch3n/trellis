@@ -37,6 +37,11 @@ func (c *Core) PinKnowledge(ctx context.Context, projectID, slug, recap, board s
 			return err
 		}
 		text := strings.TrimSpace(recap)
+		if text == "" && doc.Private {
+			return ErrUsage("recap_required",
+				"a private entry needs a recap written on purpose; trellis will not lift one from the body",
+				`trellis knowledge pin `+doc.Slug+` --recap "one line an agent can act on"`)
+		}
 		if text == "" {
 			text = cmpOr(doc.Summary, FirstParagraph(doc.BodyMD))
 		}

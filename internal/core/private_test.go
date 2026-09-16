@@ -228,3 +228,49 @@ func TestListKnowledgeStillReturnsPrivate(t *testing.T) {
 	}
 	t.Errorf("ListKnowledge dropped the private entry %q; it is local and must stay listed", secret.Slug)
 }
+
+func TestPinOnPrivateRefusesTheBodyFallback(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Staging credentials", Private: true,
+		Body: "hunter2 is the staging database password.\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+
+	_, err = c.PinKnowledge(t.Context(), p.ID, doc.Slug, "", "")
+	if err == nil {
+		t.Fatal("PinKnowledge fell back to the body for a private entry")
+	}
+	if strings.Contains(err.Error(), "hunter2") {
+		t.Fatalf("the error itself leaked the body: %v", err)
+	}
+
+	pin, err := c.PinKnowledge(t.Context(), p.ID, doc.Slug, "staging DB access, rotated quarterly", "")
+	if err != nil {
+		t.Fatalf("PinKnowledge with an explicit recap: %v", err)
+	}
+	if strings.Contains(pin.Recap, "hunter2") {
+		t.Errorf("recap = %q, want only what the author wrote", pin.Recap)
+	}
+}
+
+func TestPinOnNormalStillFallsBack(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Recall ranking", Body: "Ranks are fused, not scored.\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	pin, err := c.PinKnowledge(t.Context(), p.ID, doc.Slug, "", "")
+	if err != nil {
+		t.Fatalf("PinKnowledge: %v", err)
+	}
+	if !strings.Contains(pin.Recap, "fused") {
+		t.Errorf("recap = %q, want the first paragraph", pin.Recap)
+	}
+}
