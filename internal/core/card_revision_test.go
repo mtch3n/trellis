@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -166,5 +167,46 @@ func TestDeletingACardRemovesItsRevisions(t *testing.T) {
 	}
 	if n := cardRevisionCount(t, c, card.ID); n != 0 {
 		t.Fatalf("%d card_revision rows after delete, want 0 (ON DELETE CASCADE)", n)
+	}
+}
+
+func TestListCardRevisionsCarriesTheActor(t *testing.T) {
+	c, p, b := kbCore(t)
+	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Ship"})
+	if err != nil {
+		t.Fatalf("CreateCard: %v", err)
+	}
+	revs, err := c.ListCardRevisions(t.Context(), p.ID, CardRef{UUID: card.ID})
+	if err != nil {
+		t.Fatalf("ListCardRevisions: %v", err)
+	}
+	if len(revs) != 1 || revs[0].Actor != c.actor {
+		t.Fatalf("revs = %+v, want one revision by %s", revs, c.actor)
+	}
+}
+
+func TestDiffCardRendersTitleAndBody(t *testing.T) {
+	c, p, b := kbCore(t)
+	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Ship", Body: "draft"})
+	if err != nil {
+		t.Fatalf("CreateCard: %v", err)
+	}
+	newBody := "final"
+	edited, err := c.EditCard(t.Context(), p.ID, CardRef{UUID: card.ID}, CardEdit{Body: &newBody, IfVersion: &card.Version})
+	if err != nil {
+		t.Fatalf("EditCard: %v", err)
+	}
+	diff, err := c.DiffCard(t.Context(), p.ID, CardRef{UUID: card.ID}, 0, 0)
+	if err != nil {
+		t.Fatalf("DiffCard: %v", err)
+	}
+	if diff.From != card.Version || diff.To != edited.Version {
+		t.Errorf("from/to = %d/%d, want %d/%d", diff.From, diff.To, card.Version, edited.Version)
+	}
+	if !strings.Contains(diff.Diff, "-draft") || !strings.Contains(diff.Diff, "+final") {
+		t.Errorf("diff = %q, want draft removed and final added", diff.Diff)
+	}
+	if !strings.Contains(diff.Diff, "# Ship") {
+		t.Errorf("diff = %q, want the rendering to include the title", diff.Diff)
 	}
 }

@@ -1,12 +1,16 @@
 package core
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/aymanbagabas/go-udiff"
 )
 
 // revisionDir is the hidden directory beside an entry's file that holds its
@@ -207,4 +211,113 @@ func copyDirAtomic(dest, src string) error {
 		}
 	}
 	return syncDirectory(dest)
+}
+
+// RevisionInfo is one retained version of a knowledge entry, newest first.
+type RevisionInfo struct {
+	Version   int64 `json:"version"`
+	Timestamp int64 `json:"timestamp"`
+}
+
+// RevisionDiff is a unified diff between two retained versions.
+type RevisionDiff struct {
+	From int64  `json:"from"`
+	To   int64  `json:"to"`
+	Diff string `json:"diff"`
+}
+
+// resolveDiffRange picks the two versions a diff compares, from a sorted
+// (ascending) list of retained versions. With neither from nor to given, to
+// is the latest retained version and from is the one immediately before it.
+// Given only one, the other is resolved the same way relative to it: --to 8
+// alone diffs the version before 8 against 8; --from 5 alone diffs 5 against
+// the current latest.
+func resolveDiffRange(versions []int64, from, to int64, historyCmd string) (int64, int64, error) {
+	retained := func(v int64) bool {
+		_, ok := slices.BinarySearch(versions, v)
+		return ok
+	}
+	rangeMsg := func() string {
+		if len(versions) == 0 {
+			return "no revisions are retained"
+		}
+		return fmt.Sprintf("the retained range is %d-%d", versions[0], versions[len(versions)-1])
+	}
+	if to != 0 {
+		if !retained(to) {
+			return 0, 0, ErrUsage("revision_not_retained",
+				fmt.Sprintf("version %d is not retained; %s", to, rangeMsg()), historyCmd)
+		}
+	} else {
+		if len(versions) == 0 {
+			return 0, 0, ErrUsage("no_revisions", "no revisions are retained", historyCmd)
+		}
+		to = versions[len(versions)-1]
+	}
+	if from != 0 {
+		if !retained(from) {
+			return 0, 0, ErrUsage("revision_not_retained",
+				fmt.Sprintf("version %d is not retained; %s", from, rangeMsg()), historyCmd)
+		}
+	} else {
+		idx, _ := slices.BinarySearch(versions, to)
+		if idx == 0 {
+			return 0, 0, ErrUsage("no_earlier_revision",
+				fmt.Sprintf("version %d has no earlier retained revision; %s", to, rangeMsg()), historyCmd)
+		}
+		from = versions[idx-1]
+	}
+	return from, to, nil
+}
+
+// ListKnowledgeRevisions lists an entry's retained versions, newest first.
+// Knowledge revisions carry no actor: the entry file has no author field, and
+// a direct edit has no Trellis actor at all.
+func (c *Core) ListKnowledgeRevisions(ctx context.Context, projectID, slug string) ([]RevisionInfo, error) {
+	doc, err := c.LoadKnowledge(ctx, projectID, slug)
+	if err != nil {
+		return nil, err
+	}
+	versions, err := sortedRevisionVersions(revisionDir(doc.Path))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RevisionInfo, len(versions))
+	for i, v := range versions {
+		st, err := os.Stat(revisionFilePath(doc.Path, v))
+		if err != nil {
+			return nil, err
+		}
+		out[len(versions)-1-i] = RevisionInfo{Version: v, Timestamp: st.ModTime().UnixMilli()}
+	}
+	return out, nil
+}
+
+// DiffKnowledge returns a unified diff between two retained versions of an
+// entry's whole file, frontmatter included.
+func (c *Core) DiffKnowledge(ctx context.Context, projectID, slug string, from, to int64) (RevisionDiff, error) {
+	doc, err := c.LoadKnowledge(ctx, projectID, slug)
+	if err != nil {
+		return RevisionDiff{}, err
+	}
+	versions, err := sortedRevisionVersions(revisionDir(doc.Path))
+	if err != nil {
+		return RevisionDiff{}, err
+	}
+	from, to, err = resolveDiffRange(versions, from, to, "trellis knowledge history "+doc.Slug)
+	if err != nil {
+		return RevisionDiff{}, err
+	}
+	fromRaw, err := os.ReadFile(revisionFilePath(doc.Path, from))
+	if err != nil {
+		return RevisionDiff{}, err
+	}
+	toRaw, err := os.ReadFile(revisionFilePath(doc.Path, to))
+	if err != nil {
+		return RevisionDiff{}, err
+	}
+	diff := udiff.Unified(
+		fmt.Sprintf("%s@v%d", doc.Slug, from), fmt.Sprintf("%s@v%d", doc.Slug, to),
+		string(fromRaw), string(toRaw))
+	return RevisionDiff{From: from, To: to, Diff: diff}, nil
 }

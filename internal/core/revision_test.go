@@ -394,3 +394,72 @@ func TestAFailedDeleteRestoresTheRevisionDirectory(t *testing.T) {
 		t.Errorf("revision directory not restored at %s: %v", dir, err)
 	}
 }
+
+func TestListKnowledgeRevisionsNewestFirst(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Log", Body: "v1\n"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	version := doc.Version
+	for i := 2; i <= 3; i++ {
+		edited, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, fmt.Sprintf("v%d\n", i), &version)
+		if err != nil {
+			t.Fatalf("EditKnowledge v%d: %v", i, err)
+		}
+		version = edited.Version
+	}
+	revs, err := c.ListKnowledgeRevisions(t.Context(), p.ID, doc.Slug)
+	if err != nil {
+		t.Fatalf("ListKnowledgeRevisions: %v", err)
+	}
+	if len(revs) != 3 {
+		t.Fatalf("%d revisions, want 3", len(revs))
+	}
+	for i, want := range []int64{3, 2, 1} {
+		if revs[i].Version != want {
+			t.Errorf("revs[%d].Version = %d, want %d (newest first)", i, revs[i].Version, want)
+		}
+	}
+}
+
+func TestDiffKnowledgeDefaultsToPreviousAgainstLatest(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Notes", Body: "line one\n"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "line one\nline two\n", &doc.Version); err != nil {
+		t.Fatalf("EditKnowledge: %v", err)
+	}
+	diff, err := c.DiffKnowledge(t.Context(), p.ID, doc.Slug, 0, 0)
+	if err != nil {
+		t.Fatalf("DiffKnowledge: %v", err)
+	}
+	if diff.From != 1 || diff.To != 2 {
+		t.Errorf("from/to = %d/%d, want 1/2", diff.From, diff.To)
+	}
+	if !strings.Contains(diff.Diff, "+line two") {
+		t.Errorf("diff = %q, want it to add line two", diff.Diff)
+	}
+}
+
+func TestDiffKnowledgeRejectsAnUnretainedVersion(t *testing.T) {
+	c, p, _ := kbCore(t)
+	c.historyKeep = 1
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Tight", Body: "v1\n"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "v2\n", &doc.Version); err != nil {
+		t.Fatalf("EditKnowledge: %v", err)
+	}
+	_, err = c.DiffKnowledge(t.Context(), p.ID, doc.Slug, 1, 2)
+	e, ok := errors.AsType[*Error](err)
+	if !ok || e.Code != "revision_not_retained" {
+		t.Fatalf("err = %v, want revision_not_retained", err)
+	}
+	if !strings.Contains(err.Error(), "2-2") {
+		t.Errorf("error %q does not name the retained range", err.Error())
+	}
+}

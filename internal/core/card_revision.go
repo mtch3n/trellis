@@ -1,6 +1,10 @@
 package core
 
 import (
+	"context"
+	"fmt"
+
+	"github.com/aymanbagabas/go-udiff"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -45,4 +49,60 @@ func trimCardRevisions(tx *sqlx.Tx, cardID string, keep int) error {
 	}
 	_, err := tx.Exec(`DELETE FROM card_revision WHERE card_id = ? AND version <= ?`, cardID, versions[keep])
 	return err
+}
+
+// CardRevisionInfo is one retained version of a card, newest first.
+type CardRevisionInfo struct {
+	Version   int64  `db:"version" json:"version"`
+	Timestamp int64  `db:"created_at" json:"timestamp"`
+	Actor     string `db:"actor" json:"actor"`
+}
+
+// ListCardRevisions lists a card's retained versions, newest first.
+func (c *Core) ListCardRevisions(ctx context.Context, projectID string, ref CardRef) ([]CardRevisionInfo, error) {
+	var card Card
+	out := []CardRevisionInfo{}
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
+			return err
+		}
+		return tx.Select(&out,
+			`SELECT version, created_at, actor FROM card_revision WHERE card_id = ? ORDER BY version DESC`, card.ID)
+	})
+	return out, err
+}
+
+// DiffCard returns a unified diff between two retained versions of a card,
+// each rendered as "# <title>\n\n<body>".
+func (c *Core) DiffCard(ctx context.Context, projectID string, ref CardRef, from, to int64) (RevisionDiff, error) {
+	var card Card
+	var rows []struct {
+		Version int64  `db:"version"`
+		Title   string `db:"title"`
+		Body    string `db:"body_md"`
+	}
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
+			return err
+		}
+		return tx.Select(&rows,
+			`SELECT version, title, body_md FROM card_revision WHERE card_id = ? ORDER BY version`, card.ID)
+	})
+	if err != nil {
+		return RevisionDiff{}, err
+	}
+	versions := make([]int64, len(rows))
+	rendered := map[int64]string{}
+	for i, r := range rows {
+		versions[i] = r.Version
+		rendered[r.Version] = "# " + r.Title + "\n\n" + r.Body
+	}
+	from, to, err = resolveDiffRange(versions, from, to, "trellis card history "+card.Ref)
+	if err != nil {
+		return RevisionDiff{}, err
+	}
+	diff := udiff.Unified(
+		fmt.Sprintf("%s@v%d", card.Ref, from), fmt.Sprintf("%s@v%d", card.Ref, to),
+		rendered[from], rendered[to])
+	return RevisionDiff{From: from, To: to, Diff: diff}, nil
 }
