@@ -112,6 +112,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("PATCH /api/p/{key}/b/{board}/knowledge/{slug}", s.handleKnowledgeEdit)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/graph/{entity}", s.handleGraph)
 	s.mux.HandleFunc("GET /api/p/{key}/labels", s.handleLabels)
+	s.mux.HandleFunc("POST /api/p/{key}/labels", s.handleCreateLabel)
+	s.mux.HandleFunc("DELETE /api/p/{key}/labels/{name}", s.handleDeleteLabel)
 	s.mux.HandleFunc("POST /api/p/{key}/labels/merge", s.handleLabelMerge)
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
 	s.mux.HandleFunc("GET /api/activity", s.handleActivity)
@@ -820,6 +822,11 @@ type labelMergeRequest struct {
 	Into string `json:"into"`
 }
 
+type labelCreateRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
 func (s *Server) handleStealCard(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -998,6 +1005,43 @@ func (s *Server) handleLabels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, labels)
+}
+
+func (s *Server) handleCreateLabel(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	var p core.Project
+	if err := s.db.GetContext(ctx, &p, `SELECT * FROM project WHERE key = ?`, r.PathValue("key")); err != nil {
+		s.error(w, http.StatusNotFound, "project not found")
+		return
+	}
+	var in labelCreateRequest
+	if !decodeJSON(w, r, &in) || in.Name == "" {
+		s.error(w, http.StatusBadRequest, "label name required")
+		return
+	}
+	label, err := s.write.CreateLabel(ctx, p.ID, in.Name, in.Description)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, label)
+}
+
+func (s *Server) handleDeleteLabel(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	var p core.Project
+	if err := s.db.GetContext(ctx, &p, `SELECT * FROM project WHERE key = ?`, r.PathValue("key")); err != nil {
+		s.error(w, http.StatusNotFound, "project not found")
+		return
+	}
+	name := r.PathValue("name")
+	if err := s.write.DeleteLabel(ctx, p.ID, name); err != nil {
+		s.coreError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleLabelMerge(w http.ResponseWriter, r *http.Request) {
