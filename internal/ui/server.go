@@ -614,7 +614,7 @@ func (s *Server) handleKnowledgeList(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, docs)
+	writeJSON(w, http.StatusOK, knowledgeItems(p.Key, docs))
 }
 
 func (s *Server) handleProjectKnowledgeList(w http.ResponseWriter, r *http.Request) {
@@ -630,7 +630,7 @@ func (s *Server) handleProjectKnowledgeList(w http.ResponseWriter, r *http.Reque
 		s.coreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, docs)
+	writeJSON(w, http.StatusOK, knowledgeItems(p.Key, docs))
 }
 
 func (s *Server) handleGlobalKnowledgeList(w http.ResponseWriter, r *http.Request) {
