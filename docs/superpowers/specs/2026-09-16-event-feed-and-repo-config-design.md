@@ -1,7 +1,7 @@
 # Event feed and repository config
 
 Date: 2026-09-16
-Status: design, pending the user's review
+Status: approved 2026-09-16
 
 ## Problem
 
