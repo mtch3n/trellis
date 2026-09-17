@@ -22,7 +22,7 @@ import { ConfirmDialog } from '@/components/wrappers/ConfirmDialog'
  * Which lifecycle acts appear follows the entry, not the reader: a project
  * entry can be promoted, a global one demoted or verified.
  */
-export function EntryMenu({ slug, href, global = false, pinned = false, onDelete, onHistory, onPin, onUnpin, onPromote, onDemote, onVerify }: {
+export function EntryMenu({ slug, href, global = false, pinned = false, onDelete, onHistory, onGraph, onPin, onUnpin, onPromote, onDemote, onVerify }: {
   slug: string
   /** The entry's path inside the app, for Copy link. */
   href: string
@@ -31,6 +31,8 @@ export function EntryMenu({ slug, href, global = false, pinned = false, onDelete
   pinned?: boolean
   onDelete: () => Promise<boolean>
   onHistory: () => void
+  /** Opens the graph walked from this entry. */
+  onGraph: () => void
   onPin: () => void
   onUnpin: () => void
   /** Opens the promote dialog, which asks for the name and a reason. */
@@ -75,6 +77,7 @@ export function EntryMenu({ slug, href, global = false, pinned = false, onDelete
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuItem onClick={() => void copyLink()}>Copy link</DropdownMenuItem>
           <DropdownMenuItem onClick={onHistory}>History</DropdownMenuItem>
+          <DropdownMenuItem onClick={onGraph}>Walk the graph</DropdownMenuItem>
           {pinned ? (
             <DropdownMenuItem onClick={onUnpin}>Unpin</DropdownMenuItem>
           ) : (

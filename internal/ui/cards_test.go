@@ -286,3 +286,62 @@ func TestMultipartIsRefusedOutsideTheUploadRoute(t *testing.T) {
 		t.Errorf("a multipart card create = %d, want 415: %s", rec.Code, rec.Body)
 	}
 }
+
+// The graph walk takes what the CLI takes: how far, which kinds of link, and
+// which way. A card blocked by another is a chain one hop cannot see.
+func TestGraphWalkOptions(t *testing.T) {
+	f := newCardFixture(t, "WALK")
+	made := decode[[]core.Card](t, f.request(http.MethodPost, "/api/p/WALK/b/default/cards/import",
+		`[{"id":"a","title":"first"},{"id":"b","title":"second","blocked_by":["a"]},{"id":"c","title":"third","blocked_by":["b"]}]`))
+	if len(made) != 3 {
+		t.Fatalf("import returned %+v", made)
+	}
+	third := made[2].Ref
+
+	// Outbound from the last card: it is blocked by the second, which is
+	// blocked by the first.
+	walk := decode[core.Graph](t, f.request(http.MethodGet, "/api/p/WALK/graph/"+third+"?depth=2&rel=blocked_by", ""))
+	if len(walk.Nodes) != 3 {
+		t.Errorf("depth 2 reached %d nodes, want 3: %+v", len(walk.Nodes), walk.Nodes)
+	}
+	near := decode[core.Graph](t, f.request(http.MethodGet, "/api/p/WALK/graph/"+third+"?depth=1&rel=blocked_by", ""))
+	if len(near.Nodes) != 2 {
+		t.Errorf("depth 1 reached %d nodes, want 2: %+v", len(near.Nodes), near.Nodes)
+	}
+	// A relation nothing uses reaches only the card itself.
+	none := decode[core.Graph](t, f.request(http.MethodGet, "/api/p/WALK/graph/"+third+"?rel=cites", ""))
+	if len(none.Nodes) != 1 {
+		t.Errorf("rel=cites reached %+v, want only the card", none.Nodes)
+	}
+	// Reverse from the first card answers "what waits on this".
+	back := decode[core.Graph](t, f.request(http.MethodGet, "/api/p/WALK/graph/"+made[0].Ref+"?depth=2&reverse=1&rel=blocked_by", ""))
+	if len(back.Nodes) != 3 {
+		t.Errorf("the reverse walk reached %d nodes, want 3: %+v", len(back.Nodes), back.Nodes)
+	}
+}
+
+// Search takes a method and a project scope; an unknown method is refused
+// rather than quietly ignored.
+func TestSearchOptions(t *testing.T) {
+	f := newCardFixture(t, "FIND")
+	if rec := f.request(http.MethodGet, "/api/search?q=deploy", ""); rec.Code != http.StatusOK {
+		t.Fatalf("search = %d: %s", rec.Code, rec.Body)
+	}
+	hits := decode[[]core.SearchHit](t, f.request(http.MethodGet, "/api/search?q=deploy&project=FIND&method=fts&limit=5", ""))
+	if len(hits) != 1 || hits[0].Ref != f.card.Ref {
+		t.Errorf("scoped search = %+v", hits)
+	}
+	// Scoped to another project, the card is not a hit.
+	if _, err := f.core.CreateProject(context.Background(), "OTHER", false); err != nil {
+		t.Fatal(err)
+	}
+	if hits := decode[[]core.SearchHit](t, f.request(http.MethodGet, "/api/search?q=deploy&project=OTHER", "")); len(hits) != 0 {
+		t.Errorf("another project's search = %+v, want none", hits)
+	}
+	if rec := f.request(http.MethodGet, "/api/search?q=deploy&method=telepathy", ""); rec.Code != http.StatusBadRequest {
+		t.Errorf("an unknown method = %d, want 400: %s", rec.Code, rec.Body)
+	}
+	if rec := f.request(http.MethodGet, "/api/search?q=deploy&project=NOPE", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("an unknown project = %d, want 404: %s", rec.Code, rec.Body)
+	}
+}

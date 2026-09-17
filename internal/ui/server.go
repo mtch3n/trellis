@@ -180,6 +180,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("PATCH /api/p/{key}/b/{board}/vault/{slug}", s.handleEntryEdit)
 	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/vault/{slug}", s.handleDeleteEntry)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/graph/{entity}", s.handleGraph)
+	s.mux.HandleFunc("GET /api/p/{key}/graph/{entity}", s.handleGraph)
 	s.mux.HandleFunc("GET /api/p/{key}/labels", s.handleLabels)
 	s.mux.HandleFunc("POST /api/p/{key}/labels", s.handleCreateLabel)
 	s.mux.HandleFunc("GET /api/p/{key}/labels/{name}", s.handleLabel)
@@ -389,7 +390,27 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			limit = parsed
 		}
 	}
-	hits, err := s.search.Search(ctx, "", query, core.SearchOpts{Limit: limit, AllProjects: true, Label: r.URL.Query().Get("label")})
+	// Scope: every project by default, which is what a discovery search
+	// wants; naming one narrows it, and then refs come back unqualified.
+	projectID, allProjects := "", true
+	if key := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("project"))); key != "" {
+		p, err := s.projectByKey(ctx, key)
+		if err != nil {
+			s.coreError(w, err)
+			return
+		}
+		projectID, allProjects = p.ID, false
+	}
+	method := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("method")))
+	switch method {
+	case "", "fts", "vector", "hybrid":
+	default:
+		s.error(w, http.StatusBadRequest, "method must be fts, vector or hybrid")
+		return
+	}
+	hits, err := s.search.Search(ctx, projectID, query, core.SearchOpts{
+		Limit: limit, AllProjects: allProjects, Label: r.URL.Query().Get("label"), Method: method,
+	})
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -1430,12 +1451,16 @@ func (s *Server) handleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleGraph walks the links out of (or into) one card, entry or artifact.
+// The board in the path is only where the walk was started from, and a graph
+// crosses boards, so it is not required: the project-scoped path serves a
+// deep link that does not know a board slug.
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
-	p, _, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
+	p, err := s.projectByKey(ctx, r.PathValue("key"))
 	if err != nil {
-		s.error(w, http.StatusNotFound, err.Error())
+		s.coreError(w, err)
 		return
 	}
 	entity := r.PathValue("entity")
@@ -1454,7 +1479,16 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 			depth = parsed
 		}
 	}
-	graph, err := s.core.Traverse(ctx, startID, depth, nil, false)
+	// rel keeps the walk to some kinds of link (blocked_by, cites,
+	// wikilink); reverse walks inbound edges, which is how "what breaks if I
+	// change this" gets answered.
+	var rels []string
+	for _, kind := range strings.Split(r.URL.Query().Get("rel"), ",") {
+		if kind = strings.TrimSpace(kind); kind != "" {
+			rels = append(rels, kind)
+		}
+	}
+	graph, err := s.core.Traverse(ctx, startID, depth, rels, truthy(r.URL.Query().Get("reverse")))
 	if err != nil {
 		s.coreError(w, err)
 		return

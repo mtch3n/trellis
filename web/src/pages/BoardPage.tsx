@@ -641,6 +641,7 @@ export function BoardPage() {
         onDelete={deleteCard}
         onArchive={archiveCard}
         onHistory={() => { if (open) setHistory(open.ref) }}
+        onGraph={() => { if (open) navigate(`/p/${projectKey}/graph/${encodeURIComponent(open.ref)}`) }}
       />
 
       <LabelsDialog

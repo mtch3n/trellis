@@ -52,6 +52,7 @@ export function CardDialog({
   onDelete,
   onArchive,
   onHistory,
+  onGraph,
   me,
   cardOptions,
 }: {
@@ -78,6 +79,8 @@ export function CardDialog({
   onDelete: () => Promise<boolean>
   onArchive: (archived: boolean) => Promise<boolean>
   onHistory: () => void
+  /** Opens the graph walked from this card. */
+  onGraph: () => void
   /** Who the server writes as; a card this person holds stays editable. */
   me?: string
   /** The board's cards, to relate this one to. */
@@ -154,6 +157,7 @@ export function CardDialog({
                 onDelete={onDelete}
                 onArchive={onArchive}
                 onHistory={onHistory}
+                onGraph={onGraph}
               />
             )}
             {card && (

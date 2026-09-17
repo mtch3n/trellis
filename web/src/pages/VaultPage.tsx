@@ -532,6 +532,7 @@ export function VaultPage() {
                     pinned={pinned !== undefined}
                     onDelete={remove}
                     onHistory={() => setHistory(true)}
+                    onGraph={() => navigate(`/p/${projectKey}/graph/${encodeURIComponent(entry.slug)}`)}
                     onPin={() => setLifecycle('pin')}
                     onUnpin={() => void actions.unpin(entry.slug)}
                     onPromote={() => setLifecycle('promote')}

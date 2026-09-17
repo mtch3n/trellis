@@ -220,6 +220,7 @@ export function CardPage() {
                 onDelete={remove}
                 onArchive={(archived) => actions.archive(card.ref, archived)}
                 onHistory={() => setHistory(true)}
+                onGraph={() => navigate(`/p/${projectKey}/graph/${encodeURIComponent(card.ref)}`)}
               />
             </div>
           )}

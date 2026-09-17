@@ -20,7 +20,7 @@ import { ConfirmDialog } from '@/components/wrappers/ConfirmDialog'
  * disabled with the reason shown. The caller reports success or failure, so
  * the confirmation closes only once the card is gone.
  */
-export function CardMenu({ cardRef, href, archived = false, disabledReason, onDelete, onArchive, onHistory }: {
+export function CardMenu({ cardRef, href, archived = false, disabledReason, onDelete, onArchive, onHistory, onGraph }: {
   cardRef: string
   /** The card page's path inside the app, e.g. /p/KEY/card/KEY-1. */
   href: string
@@ -33,6 +33,8 @@ export function CardMenu({ cardRef, href, archived = false, disabledReason, onDe
   onArchive?: (archived: boolean) => Promise<boolean>
   /** Opens the card's revisions. Absent where there is nowhere to show them. */
   onHistory?: () => void
+  /** Opens the graph walked from this card: what it waits on, and what waits on it. */
+  onGraph?: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -82,6 +84,11 @@ export function CardMenu({ cardRef, href, archived = false, disabledReason, onDe
           {onHistory && (
             <DropdownMenuItem onClick={onHistory}>
               History
+            </DropdownMenuItem>
+          )}
+          {onGraph && (
+            <DropdownMenuItem onClick={onGraph}>
+              Walk the graph
             </DropdownMenuItem>
           )}
           {onArchive && (

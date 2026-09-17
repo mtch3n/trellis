@@ -5,6 +5,7 @@ import { ProjectsPage } from './pages/ProjectsPage'
 import { BoardPage } from './pages/BoardPage'
 import { VaultPage } from './pages/VaultPage'
 import { HealthPage } from './pages/HealthPage'
+import { GraphPage } from './pages/GraphPage'
 import { OverviewPage } from './pages/OverviewPage'
 import { CardPage } from './pages/CardPage'
 import { SearchPage } from './pages/SearchPage'
@@ -58,6 +59,12 @@ function App() {
         <Route
           path="/p/:projectKey/vault/:slug"
           element={<Shelled section="vault"><VaultPage /></Shelled>}
+        />
+        {/* A walk from one card, entry or artifact: its controls live in the
+            URL, so a walk worth showing someone is a link. */}
+        <Route
+          path="/p/:projectKey/graph/:entity"
+          element={<Shelled section="board"><GraphPage /></Shelled>}
         />
         {/* The vault's own state, under the Vault section: health, what wants
             promoting, and whether recall is paying off. */}
