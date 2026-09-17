@@ -129,9 +129,8 @@ func (c *Core) resolveDocRef(tx *sqlx.Tx, projectID string, ref Reference) (any,
 	// condition — every non-absolute reference reaching this point is
 	// unqualified by construction.
 	if ref.ProjectKey == "" && !strings.Contains(ref.Slug, "/") {
-		var matches []string
-		if err := tx.Select(&matches,
-			`SELECT id FROM knowledge WHERE project_id = ? AND slug LIKE '%/' || ?`, projectID, ref.Slug); err != nil {
+		matches, err := entriesWithLeaf(tx, projectID, ref.Slug)
+		if err != nil {
 			return nil, err
 		}
 		if len(matches) == 1 {
@@ -139,6 +138,15 @@ func (c *Core) resolveDocRef(tx *sqlx.Tx, projectID string, ref Reference) (any,
 		}
 	}
 	return nil, nil
+}
+
+// entriesWithLeaf lists the project's entries inside a directory whose last
+// path segment is leaf.
+func entriesWithLeaf(tx *sqlx.Tx, projectID, leaf string) ([]string, error) {
+	ids := []string{}
+	err := tx.Select(&ids, `SELECT id FROM knowledge
+		WHERE project_id = ? AND substr(slug, -(length(?) + 1)) = '/' || ?`, projectID, leaf, leaf)
+	return ids, err
 }
 
 // Backlink is one inbound reference to a doc.

@@ -214,13 +214,11 @@ func linkFinding(tx *sqlx.Tx, targets linkTargets, d Knowledge, raw string,
 		kind, fix := "stub", stubFix(ref)
 		leaf, _, _ := strings.Cut(ref.Raw, "#")
 		if leaf = normalizeSlugPath(leaf); !strings.Contains(leaf, "/") {
-			var n int
-			if err := tx.Get(&n,
-				`SELECT COUNT(*) FROM knowledge WHERE project_id = ? AND slug LIKE '%/' || ?`,
-				d.ProjectID, leaf); err != nil {
+			matches, err := entriesWithLeaf(tx, d.ProjectID, leaf)
+			if err != nil {
 				return LintFinding{}, false, err
 			}
-			if n > 1 {
+			if len(matches) > 1 {
 				kind, fix = "ambiguous_link", "trellis knowledge show <full path>   # "+ref.Raw+" matches more than one entry"
 			}
 		}

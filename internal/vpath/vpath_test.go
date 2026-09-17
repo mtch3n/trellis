@@ -122,6 +122,7 @@ func TestParseEachCollection(t *testing.T) {
 		{"/trellis/cards/trellis-12", Path{"TRELLIS", CollectionCards, "TRELLIS-12"}},
 		{"/TRELLIS/knowledge/concurrency-model", Path{"TRELLIS", CollectionKnowledge, "concurrency-model"}},
 		{"/GLOBAL/knowledge/pain-point-analysis", Path{"GLOBAL", CollectionKnowledge, "pain-point-analysis"}},
+		{"/TRELLIS/knowledge/ops/deploy/rollback", Path{"TRELLIS", CollectionKnowledge, "ops/deploy/rollback"}},
 		{"/global/knowledge/pain-point-analysis", Path{"GLOBAL", CollectionKnowledge, "pain-point-analysis"}},
 		{"/TRELLIS/artifacts/photo.PNG", Path{"TRELLIS", CollectionArtifacts, "photo.PNG"}},
 	}
@@ -147,6 +148,10 @@ func TestParseRejectsMalformedAddresses(t *testing.T) {
 		"not/absolute/at/all",
 		"/TRELLIS/knowledge/",
 		"/TRELLIS/knowledge",
+		"/TRELLIS/knowledge/ops/",
+		"/TRELLIS/knowledge/ops//rollback",
+		"/TRELLIS/cards/TRELLIS-1/extra",
+		"/TRELLIS/artifacts/dir/photo.png",
 	}
 	for _, s := range bad {
 		if _, err := Parse(s); err == nil {

@@ -54,15 +54,9 @@ func moveRevisionDirIfExists(oldDocPath, newDocPath string) (moved bool, err err
 // existing one (see refuseResemblingDir), and it moves the entry's revision
 // directory if one exists.
 //
-// It does not yet rewrite inbound wikilinks that name the old path -- that
-// needs the directory-aware wikilink syntax Task 9 of this plan adds, which
-// itself needs the virtual-paths layer. Until Task 9 lands, an existing
-// inbound link keeps resolving correctly (link rows point at the entry's id,
-// not its slug), but the referring document's stored text still names the
-// old path; the next Trellis edit that re-syncs that document's wikilinks
-// will find the old path gone and turn the link into a stub, which
-// `knowledge lint` already reports -- the same way a deleted entry's inbound
-// links do today.
+// Wikilinks that resolve to the entry, in any entry of the project including
+// itself, are rewritten to name the new path in the same transaction (see
+// rewriteInboundWikilinks), and undone with the move.
 func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string, newDir bool) (Knowledge, error) {
 	newSlug, err := SlugifyPath(newPath)
 	if err != nil {
@@ -75,6 +69,7 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 	var doc Knowledge
 	var src, dest string
 	var revMoved bool
+	var rewrites []fileWrite
 	var done bool
 	err = c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
 		// A failure, or a panic, after the move undoes it before this closure
@@ -83,7 +78,19 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		// defer without ever reaching the closure's own return statement, so
 		// a named result would still read nil and the undo would be skipped.
 		defer func() {
-			if !done && dest != "" {
+			if done {
+				return
+			}
+			// Newest first: a rewrite of the entry itself sits at dest and is
+			// restored there before the entry moves back.
+			for i := len(rewrites) - 1; i >= 0; i-- {
+				w := rewrites[i]
+				if uerr := undoWrite(w.path, w.old, w.written); uerr != nil {
+					err = errors.Join(err, uerr)
+				}
+			}
+			rewrites = nil
+			if dest != "" {
 				if _, merr := moveFileTo(dest, src); merr != nil {
 					err = errors.Join(err, merr)
 				}
@@ -153,10 +160,10 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		if err := c.recordEvent(tx, "knowledge", doc.ID, "moved", "", oldSlug, newSlug); err != nil {
 			return err
 		}
-		if err := c.docView(tx, &doc); err != nil {
+		if err := c.rewriteInboundWikilinks(tx, &doc, key, oldSlug, &rewrites); err != nil {
 			return err
 		}
-		if err := c.rewriteInboundWikilinks(tx, &doc, oldSlug); err != nil {
+		if err := c.docView(tx, &doc); err != nil {
 			return err
 		}
 		done = true
@@ -187,85 +194,150 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 	return doc, err
 }
 
-// rewriteInboundWikilinks updates every doc whose body contains a wikilink to
-// oldSlug so it names doc.Slug instead, and resyncs that doc's derived rows
-// from the rewritten file. It runs inside knowledge mv's own transaction:
-// leaving this for later would mean the move quietly erodes the link graph
-// the moment the referring document is next edited and its wikilinks are
-// re-resolved against a slug that no longer exists. Only from_type = 'doc'
-// links are rewritten: a card's structured link (trellis link) stores its
-// own to_raw text in the link table and is never parsed from the card's
-// body, so there is no card file to rewrite.
+// fileWrite is a file a transaction replaced, with what it held before, so
+// the transaction can put it back if it does not complete.
+type fileWrite struct {
+	path    string
+	old     []byte
+	written string // content hash of what was written
+}
+
+// rewriteInboundWikilinks rewrites every wikilink that resolves to doc so it
+// names doc's new slug. Which links those are comes from the link rows, by
+// their stored text, so a link that merely looks alike -- or a bare leaf that
+// resolves to another entry -- is left alone. An address stays an address.
 //
-// If the revision-history feature has landed by the time this is
-// implemented, this write must capture a revision for each referring
-// document exactly as EditKnowledgeFields does before it replaces a file --
-// check that function's current shape before writing this one.
-func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, oldSlug string) error {
-	var fromIDs []string
-	if err := tx.Select(&fromIDs,
-		`SELECT DISTINCT from_id FROM link
-		 WHERE to_type = 'doc' AND to_id = ? AND from_type = 'doc' AND rel = 'wikilink'`, doc.ID); err != nil {
+// Each rewrite is a Trellis write of the referring entry: its prior content
+// is kept as a revision, its row follows the file, and the event log records
+// the edit. Every file is appended to undo as soon as it is written, so the
+// caller can restore it if anything later fails. A referring entry whose file
+// is gone is skipped; lint reports its links.
+func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, oldSlug string, undo *[]fileWrite) error {
+	var rows []struct {
+		FromID string `db:"from_id"`
+		Raw    string `db:"to_raw"`
+	}
+	if err := tx.Select(&rows, `SELECT from_id, to_raw FROM link
+		WHERE from_type = 'doc' AND to_type = 'doc' AND rel = 'wikilink' AND to_id = ?
+		ORDER BY from_id`, doc.ID); err != nil {
 		return err
 	}
-	for _, fromID := range fromIDs {
+	raws := map[string]map[string]bool{}
+	var order []string
+	for _, r := range rows {
+		if raws[r.FromID] == nil {
+			raws[r.FromID] = map[string]bool{}
+			order = append(order, r.FromID)
+		}
+		raws[r.FromID][r.Raw] = true
+	}
+	newTarget := func(old string) string {
+		if strings.HasPrefix(old, "/") {
+			return DocAddress(projectKey, false, doc.Slug)
+		}
+		return doc.Slug
+	}
+	for _, fromID := range order {
 		var from Knowledge
 		if err := tx.Get(&from, `SELECT * FROM knowledge WHERE id = ?`, fromID); err != nil {
+			return err
+		}
+		if err := c.refreshFromFile(tx, &from); err != nil {
+			if e, ok := errors.AsType[*Error](err); ok && e.Code == "file_missing" {
+				continue
+			}
 			return err
 		}
 		raw, err := os.ReadFile(from.Path)
 		if err != nil {
 			return err
 		}
+		if ContentHash(string(raw)) != from.ContentHash {
+			return changedOnDisk(from.Slug)
+		}
 		fm, body, err := splitDocFile(from.Path, raw)
 		if err != nil {
 			return err
 		}
-		newBody := rewriteWikilinkTargets(body, oldSlug, doc.Slug)
+		newBody := rewriteWikilinkTargets(body, raws[fromID], newTarget)
 		if newBody == body {
 			continue
 		}
-		out := RenderDoc(fm, newBody)
-		if err := replaceIfUnchanged(from.Path, []byte(out), ContentHash(string(raw))); err != nil {
+		if err := c.captureKnowledgeRevision(from.Path, from.Version, raw); err != nil {
 			return err
 		}
-		from.BodyMD = newBody
+		now := c.clock.NowMS()
+		fm.Updated = msToRFC3339(now)
+		out := RenderDoc(fm, newBody)
+		if err := replaceIfUnchanged(from.Path, []byte(out), from.ContentHash); err != nil {
+			if errors.Is(err, errFileChanged) {
+				return changedOnDisk(from.Slug)
+			}
+			return err
+		}
+		*undo = append(*undo, fileWrite{path: from.Path, old: raw, written: ContentHash(out)})
+		st, err := os.Stat(from.Path)
+		if err != nil {
+			return err
+		}
+		from.BodyMD, from.ContentHash = newBody, ContentHash(out)
+		from.MTime, from.Size = st.ModTime().UnixMilli(), st.Size()
+		from.Version++
+		from.UpdatedAt = now
+		if _, err := tx.Exec(`UPDATE knowledge SET content_hash = ?, mtime = ?, size = ?, version = ?, updated_at = ?
+			WHERE id = ?`, from.ContentHash, from.MTime, from.Size, from.Version, from.UpdatedAt, from.ID); err != nil {
+			return err
+		}
 		if err := c.syncDocRelations(tx, &from, fm, newBody); err != nil {
 			return err
 		}
+		value := newBody
+		if from.Private {
+			value = ""
+		}
+		if err := c.recordEvent(tx, "knowledge", from.ID, "edited", "body", "", value); err != nil {
+			return err
+		}
+		if from.ID == doc.ID {
+			doc.BodyMD, doc.ContentHash, doc.MTime, doc.Size = from.BodyMD, from.ContentHash, from.MTime, from.Size
+			doc.Version, doc.UpdatedAt = from.Version, from.UpdatedAt
+		}
 	}
-	if len(fromIDs) > 0 {
+	if len(*undo) > 0 {
 		return c.rebuildKnowledgeFTS(tx)
 	}
 	return nil
 }
 
-// rewriteWikilinkTargets replaces the target of every [[target#anchor|alias]]
-// wikilink whose slug is oldSlug with newSlug, leaving the anchor, the alias
-// and everything outside a fenced code block exactly as written.
-func rewriteWikilinkTargets(body, oldSlug, newSlug string) string {
-	fences := fenceRE.FindAllStringIndex(body, -1)
-	inFence := func(pos int) bool {
-		for _, f := range fences {
+// rewriteWikilinkTargets replaces the target of each wikilink outside code
+// whose text (target and #anchor, as the link rows store it) is in raws,
+// keeping the anchor and any |alias exactly as written.
+func rewriteWikilinkTargets(body string, raws map[string]bool, newTarget func(old string) string) string {
+	code := fenceRE.FindAllStringIndex(body, -1)
+	inCode := func(pos int) bool {
+		for _, f := range code {
 			if pos >= f[0] && pos < f[1] {
 				return true
 			}
 		}
 		return false
 	}
-	matches := wikiLinkRE.FindAllStringSubmatchIndex(body, -1)
 	var b strings.Builder
 	last := 0
-	for _, m := range matches {
-		if inFence(m[0]) {
+	for _, m := range wikiLinkRE.FindAllStringSubmatchIndex(body, -1) {
+		if inCode(m[0]) {
 			continue
 		}
-		target := body[m[2]:m[3]]
-		if normalizeSlugPath(strings.TrimSpace(target)) != oldSlug {
+		target := strings.TrimSpace(body[m[2]:m[3]])
+		anchor := ""
+		if m[4] >= 0 {
+			anchor = body[m[4]:m[5]]
+		}
+		if !raws[strings.TrimSpace(target+anchor)] {
 			continue
 		}
 		b.WriteString(body[last:m[2]])
-		b.WriteString(newSlug)
+		b.WriteString(newTarget(target))
 		last = m[3]
 	}
 	b.WriteString(body[last:])

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -695,5 +696,103 @@ func TestMoveKnowledgeRewritesInboundWikilinks(t *testing.T) {
 	}
 	if len(back) != 1 {
 		t.Fatalf("Backlinks = %+v, want the link to survive the move", back)
+	}
+}
+
+// Only links that resolve to the moved entry change, whatever form they
+// take, and the referring entry is written the way any Trellis edit is.
+func TestMoveKnowledgeRewritesOnlyLinksToTheEntry(t *testing.T) {
+	c, p, _ := kbCore(t)
+	ctx := t.Context()
+	target, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Rollback", Dir: "ops"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Other"}); err != nil {
+		t.Fatal(err)
+	}
+	body := "See [[ops/rollback#steps|the steps]], [[/" + p.Key + "/knowledge/ops/rollback]] and [[rollback]].\n" +
+		"Not [[other]], and not `[[ops/rollback]]` in code.\n"
+	referrer, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Index", Body: body})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := c.MoveKnowledge(ctx, p.ID, target.Slug, "deploy/rollback-plan", false); err != nil {
+		t.Fatalf("MoveKnowledge: %v", err)
+	}
+
+	got, err := c.LoadKnowledge(ctx, p.ID, referrer.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "See [[deploy/rollback-plan#steps|the steps]], [[/" + p.Key + "/knowledge/deploy/rollback-plan]] and [[deploy/rollback-plan]].\n" +
+		"Not [[other]], and not `[[ops/rollback]]` in code.\n"
+	if !strings.Contains(got.BodyMD, want) {
+		t.Fatalf("body = %q, want it to contain %q", got.BodyMD, want)
+	}
+	if got.Version != referrer.Version+1 {
+		t.Errorf("referrer version = %d, want %d", got.Version, referrer.Version+1)
+	}
+	revs, err := c.ListKnowledgeRevisions(ctx, p.ID, referrer.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revs) == 0 {
+		t.Error("no revision kept of the referrer's prior content")
+	}
+	findings, err := c.Lint(ctx, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Kind == "stub" || f.Kind == "ambiguous_link" {
+			t.Errorf("lint after the move: %+v", f)
+		}
+	}
+}
+
+// A move that fails after rewriting a referrer puts the referrer back.
+func TestMoveKnowledgeFailureRestoresRewrittenReferrers(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a directory the process cannot write")
+	}
+	c, p, _ := kbCore(t)
+	ctx := t.Context()
+	target, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Rollback"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "First", Body: "[[rollback]]\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Second", Body: "[[rollback]]\n", Dir: "locked"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstRaw, err := os.ReadFile(first.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockedDir := filepath.Dir(second.Path)
+	if err := os.Chmod(lockedDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(lockedDir, 0o700) })
+
+	if _, err := c.MoveKnowledge(ctx, p.ID, target.Slug, "deploy/rollback", false); err == nil {
+		t.Fatal("MoveKnowledge succeeded; the locked referrer should have failed it")
+	}
+
+	if raw, err := os.ReadFile(first.Path); err != nil || string(raw) != string(firstRaw) {
+		t.Errorf("first referrer = %q (%v), want it restored", raw, err)
+	}
+	if _, err := os.Stat(target.Path); err != nil {
+		t.Errorf("the entry did not move back: %v", err)
+	}
+	back, err := c.LoadKnowledge(ctx, p.ID, target.Slug)
+	if err != nil || back.Slug != "rollback" {
+		t.Errorf("entry after the failed move = %+v, %v", back.Slug, err)
 	}
 }
