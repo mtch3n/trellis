@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"text/tabwriter"
 
@@ -38,7 +39,7 @@ func newCardCmd() *cobra.Command {
 	cmd.AddCommand(
 		newCardNewCmd(), newCardShowCmd(), newCardLsCmd(), newCardMoveCmd(), newCardEditCmd(), newCardRmCmd(),
 		newCardClaimCmd(), newCardReleaseCmd(), newCardRenewCmd(), newCardNextCmd(), newCardNoteCmd(),
-		newCardArchiveCmd(), newCardBlockCmd(), newCardImportCmd(), newCardHistoryCmd(), newCardDiffCmd())
+		newCardArchiveCmd(), newCardBlockCmd(), newCardRelateCmd(), newCardImportCmd(), newCardHistoryCmd(), newCardDiffCmd())
 	return cmd
 }
 
@@ -101,14 +102,24 @@ func newCardShowCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				relations, err := app.Core.CardRelations(cmd.Context(), card.ID)
+				if err != nil {
+					return err
+				}
 				view := struct {
 					core.Card
-					BlockedBy []core.Blocker `json:"blocked_by,omitempty"`
-				}{Card: card, BlockedBy: blockers}
+					BlockedBy []core.Blocker      `json:"blocked_by,omitempty"`
+					Relations []core.CardRelation `json:"relations,omitempty"`
+				}{Card: card, BlockedBy: blockers, Relations: relations}
 				return Emit(cmd, view, func() string {
 					head := card.Ref + "  [" + card.ColumnName + "/" + card.PriorityName + "]  " + card.Title
 					if len(blockers) > 0 {
 						head += "\nblocked by: " + blockerLine(blockers)
+					}
+					// Blockers have their own line above.
+					others := slices.DeleteFunc(relations, func(r core.CardRelation) bool { return r.Rel == "blocked_by" })
+					if len(others) > 0 {
+						head += "\nrelations:" + renderRelations(others)
 					}
 					return head + "\n\n" + card.BodyMD
 				})
