@@ -81,7 +81,7 @@ func (c *Core) ListEventConsumers(ctx context.Context) ([]ConsumerStatus, error)
 			return err
 		}
 		var count int
-		var newest, oldest int64
+		var newest, oldest, maxEver int64
 		if err := tx.Get(&count, `SELECT COUNT(*) FROM event`); err != nil {
 			return err
 		}
@@ -91,12 +91,15 @@ func (c *Core) ListEventConsumers(ctx context.Context) ([]ConsumerStatus, error)
 		if err := tx.Get(&oldest, `SELECT COALESCE(MIN(seq), 0) FROM event`); err != nil {
 			return err
 		}
+		if err := tx.Get(&maxEver, `SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'event'), 0)`); err != nil {
+			return err
+		}
 		for _, ec := range consumers {
 			out = append(out, ConsumerStatus{
 				Name:   ec.Name,
 				Cursor: ec.Cursor,
 				Lag:    newest - ec.Cursor,
-				Gap:    gapExists(ec.Cursor, count, oldest),
+				Gap:    gapExists(ec.Cursor, count, oldest, maxEver),
 			})
 		}
 		return nil
@@ -114,22 +117,34 @@ func (c *Core) DeleteEventConsumer(ctx context.Context, name string) error {
 }
 
 // gapExists is the one rule EventGapAfter and ListEventConsumers both apply:
-// a cursor that has never acked (0) never has a gap, and otherwise there is
-// one when every event is gone (count == 0) or the oldest surviving one is
-// past what the cursor already saw. If prune has removed every event,
-// MIN(seq) has nothing to report and COALESCE would default oldest to 0 --
-// indistinguishable from "nothing has ever been pruned; the log starts at
-// seq 0" -- so count is checked separately rather than folded into oldest.
-func gapExists(cursor int64, count int, oldest int64) bool {
-	return cursor > 0 && (count == 0 || oldest > cursor+1)
+// a cursor that has never acked (0) never has a gap. If events remain, there
+// is a gap once the oldest surviving one is past what the cursor already
+// saw. If prune has removed every event, MIN(seq) has nothing to report, so
+// that comparison cannot be used -- instead the cursor is compared against
+// maxEver, the highest seq the event table's AUTOINCREMENT has ever handed
+// out (from sqlite_sequence, which a DELETE never rewinds). A consumer whose
+// cursor already reached maxEver was caught up before the prune and missed
+// nothing, even though every event is now gone.
+func gapExists(cursor int64, count int, oldest, maxEver int64) bool {
+	if cursor <= 0 {
+		return false
+	}
+	if count == 0 {
+		return maxEver > cursor
+	}
+	return oldest > cursor+1
 }
 
 // EventGapAfter reports whether resuming a read from after (a consumer's
 // stored cursor) would skip events that maintenance prune already removed.
 func (c *Core) EventGapAfter(ctx context.Context, after int64) (gap bool, oldest int64, err error) {
 	var count int
+	var maxEver int64
 	err = c.Tx(ctx, func(tx *sqlx.Tx) error {
 		if err := tx.Get(&count, `SELECT COUNT(*) FROM event`); err != nil {
+			return err
+		}
+		if err := tx.Get(&maxEver, `SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'event'), 0)`); err != nil {
 			return err
 		}
 		return tx.Get(&oldest, `SELECT COALESCE(MIN(seq), 0) FROM event`)
@@ -137,5 +152,5 @@ func (c *Core) EventGapAfter(ctx context.Context, after int64) (gap bool, oldest
 	if err != nil {
 		return false, 0, err
 	}
-	return gapExists(after, count, oldest), oldest, nil
+	return gapExists(after, count, oldest, maxEver), oldest, nil
 }
