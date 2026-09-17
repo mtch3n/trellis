@@ -1,9 +1,11 @@
 package core
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
@@ -278,4 +280,63 @@ func dedupeNames(in []string) []string {
 		out = append(out, s)
 	}
 	return out
+}
+
+// KnowledgeLink is a link out of a knowledge entry. From and To are
+// canonical addresses; To is nil for a stub.
+type KnowledgeLink struct {
+	From   string  `json:"from"`
+	To     *string `json:"to"`
+	Raw    string  `json:"raw"`
+	Anchor string  `json:"anchor"`
+}
+
+// KnowledgeLinks lists the links out of a project's knowledge entries,
+// including the ones it escalated to the vault, ordered by source and then raw
+// target. A private entry's links are left out: where it links says what it
+// is about. The flag is read from the files, not the mirror.
+func (c *Core) KnowledgeLinks(ctx context.Context, projectID string) ([]KnowledgeLink, error) {
+	links := []KnowledgeLink{}
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		var rows []struct {
+			FromID string  `db:"from_id"`
+			From   string  `db:"from_addr"`
+			To     *string `db:"to_addr"`
+			Raw    string  `db:"to_raw"`
+			Anchor string  `db:"anchor"`
+		}
+		if err := tx.Select(&rows, `
+			SELECT l.from_id,
+			       '/' || CASE WHEN f.global = 1 THEN '`+GlobalKey+`' ELSE fp.key END || '/knowledge/' || f.slug AS from_addr,
+			       CASE WHEN t.id IS NULL THEN NULL
+			            ELSE '/' || CASE WHEN t.global = 1 THEN '`+GlobalKey+`' ELSE tp.key END || '/knowledge/' || t.slug
+			       END AS to_addr,
+			       l.to_raw, COALESCE(l.anchor, '') AS anchor
+			FROM link l
+			JOIN knowledge f ON f.id = l.from_id
+			JOIN project fp ON fp.id = f.project_id
+			LEFT JOIN knowledge t ON t.id = l.to_id
+			LEFT JOIN project tp ON tp.id = t.project_id
+			WHERE l.from_type = 'doc' AND l.to_type = 'doc' AND f.project_id = ?`, projectID); err != nil {
+			return err
+		}
+		ids := make([]string, 0, len(rows))
+		for _, r := range rows {
+			ids = append(ids, r.FromID)
+		}
+		private, _, err := c.privateAfterRefresh(tx, slices.Compact(slices.Sorted(slices.Values(ids))))
+		if err != nil {
+			return err
+		}
+		for _, r := range rows {
+			if !private[r.FromID] {
+				links = append(links, KnowledgeLink{From: r.From, To: r.To, Raw: r.Raw, Anchor: r.Anchor})
+			}
+		}
+		return nil
+	})
+	slices.SortFunc(links, func(a, b KnowledgeLink) int {
+		return cmp.Or(strings.Compare(a.From, b.From), strings.Compare(a.Raw, b.Raw))
+	})
+	return links, err
 }
