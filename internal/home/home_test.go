@@ -69,3 +69,14 @@ func TestRootCreatesDirectory(t *testing.T) {
 		t.Errorf("DBPath() = %q, want it inside %q", dbPath, got)
 	}
 }
+
+// A test that does not set TRELLIS_HOME must not reach the user's real home.
+func TestRootRefusesTheRealHomeUnderTest(t *testing.T) {
+	t.Setenv("TRELLIS_HOME", "")
+	outside := filepath.Join(string(filepath.Separator), "not-a-temp-dir-"+t.Name())
+	t.Setenv("HOME", outside)
+	t.Setenv("LOCALAPPDATA", outside)
+	if got, err := Root(); err == nil {
+		t.Fatalf("Root() = %q, want a refusal", got)
+	}
+}

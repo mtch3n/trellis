@@ -14,8 +14,9 @@ import (
 )
 
 func TestDefaultsLoadWithNoFile(t *testing.T) {
-	// Temporarily override the config path to a non-existent file.
-	// Since Load() checks os.ErrNotExist, this should return defaults.
+	// An empty home has no config file, so Load returns the defaults. The
+	// user's own ~/.trellis/config.yaml must not decide this test.
+	t.Setenv("TRELLIS_HOME", t.TempDir())
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() with missing file: %v", err)
