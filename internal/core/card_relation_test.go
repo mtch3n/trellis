@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -150,5 +151,48 @@ func TestCardRelationsListDoneStateAndOrder(t *testing.T) {
 	}
 	if field != "resolved_by" || value != d1.Ref {
 		t.Errorf("related event = %s %s, want resolved_by %s", field, value, d1.Ref)
+	}
+}
+
+func TestCardRelationsSortsNumerically(t *testing.T) {
+	c := testCore(t)
+	p := seededProject(t, c)
+	b := seededBoard(t, c, p)
+	// Seqs 2 and 10: as strings, "-10" sorts before "-2".
+	var cards []Card
+	for i := 1; i <= 10; i++ {
+		card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: fmt.Sprint("card ", i)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cards = append(cards, card)
+	}
+	a, x2, x10 := cards[0], cards[1], cards[9]
+	if x2.Seq != 2 || x10.Seq != 10 {
+		t.Fatalf("seqs = %d, %d; want 2, 10", x2.Seq, x10.Seq)
+	}
+
+	// Relate a to both x2 and x10 with the same relation
+	if err := c.RelateCards(t.Context(), p.ID, CardRef{Seq: a.Seq}, "relates_to", CardRef{Seq: x10.Seq}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RelateCards(t.Context(), p.ID, CardRef{Seq: a.Seq}, "relates_to", CardRef{Seq: x2.Seq}); err != nil {
+		t.Fatal(err)
+	}
+
+	rels, err := c.CardRelations(t.Context(), a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify x2 comes before x10 (numeric sort, not string sort where X-10 < X-2)
+	if len(rels) != 2 {
+		t.Fatalf("expected 2 relations, got %d: %+v", len(rels), rels)
+	}
+	if rels[0].Ref != x2.Ref {
+		t.Errorf("first relation ref = %q, want %q (numeric seq %d < %d)", rels[0].Ref, x2.Ref, x2.Seq, x10.Seq)
+	}
+	if rels[1].Ref != x10.Ref {
+		t.Errorf("second relation ref = %q, want %q", rels[1].Ref, x10.Ref)
 	}
 }
