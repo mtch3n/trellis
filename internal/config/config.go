@@ -660,7 +660,7 @@ type KeyInfo struct {
 // something that lives for the process: the listener (ui.*) and the
 // retrieval service's search method and vector settings, both captured at
 // daemon startup and never re-read. It is false for the five keys the daemon
-// re-applies to its Core on every settings change (Core.ApplyGlobalConfig) and for
+// re-applies to its Core on every settings change (Core.ApplyConfig) and for
 // card.ls_limit, which the CLI alone reads fresh on each invocation.
 func Describe() []KeyInfo {
 	return []KeyInfo{

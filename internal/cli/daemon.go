@@ -112,7 +112,7 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	// built-in 30-minute lease and web card creation skips
 	// labels.require_on_card / tags.require_on_card, whatever the config
 	// file or a project override says.
-	c.ApplyGlobalConfig(cfg)
+	c.ApplyConfig(cfg)
 	search := retrieval.NewService(c, db, dbPath, cfg)
 	c.SetKnowledgeChanged(search.ReconcileProject)
 	c.SetDropDerived(search.DropProject)

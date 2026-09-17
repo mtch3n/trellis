@@ -72,7 +72,7 @@ func openCore() (*core.Core, *sqlx.DB, error) {
 	if cfgErr != nil {
 		cfg = config.Defaults()
 	}
-	c.ApplyGlobalConfig(cfg)
+	c.ApplyConfig(cfg)
 	search := retrieval.NewService(c, db, path, cfg)
 	c.SetKnowledgeChanged(search.ReconcileProject)
 	c.SetDropDerived(search.DropProject)
@@ -115,15 +115,18 @@ func boardForCore(ctx context.Context, c *core.Core, db *sqlx.DB) (*appCtx, erro
 }
 
 // applyRepoConfig loads the repository file beside r's pin, if any, layers it
-// over the global config, applies the effective lease TTL, default columns
-// and card requirements to c, and returns the effective config for app.cfg.
+// over the global config, applies the effective settings to c, and returns
+// the effective config for app.cfg.
 //
-// openCore already primed the Core's lease TTL, default columns and
-// label/tag requirements from the global file alone. Once the pin that chose
-// the project (if any) is known, this re-derives those settings with the
-// repository file beside it layered in, and re-applies them: a repo-safe key
-// wins over the global file. A project named by --project or TRELLIS_PROJECT
-// has no pin and reads no repository file.
+// openCore already applied the Core's lease TTL, default columns, label/tag
+// requirements and history retention from the global file alone. Once the
+// pin that chose the project (if any) is known, this re-derives the same
+// settings with the repository file beside it layered in, and re-applies
+// them with the same c.ApplyConfig openCore used: a repo-safe key wins over
+// the global file. history.keep is not repo-safe, so ApplyConfig's call here
+// re-applies the value the global file already gave -- a no-op, not a second
+// source of truth. A project named by --project or TRELLIS_PROJECT has no
+// pin and reads no repository file.
 func applyRepoConfig(c *core.Core, r resolvedProject) (config.Config, error) {
 	var repoDir string
 	if r.Pin != nil {
@@ -138,11 +141,7 @@ func applyRepoConfig(c *core.Core, r resolvedProject) (config.Config, error) {
 		return config.Config{}, core.ErrUsage("bad_repo_config", repoErr.Error(), "fix the file .trellis.yaml/.trellis.yml names")
 	}
 	effective := config.ApplyRepoOverrides(cfg, repo)
-	if ttl, err := time.ParseDuration(effective.Lease.TTL); err == nil {
-		c.SetLeaseTTL(ttl.Milliseconds())
-	}
-	c.SetDefaultColumns(effective.Board.DefaultColumns)
-	c.SetCardRequirements(effective.Labels.RequireOnCard, effective.Tags.RequireOnCard)
+	c.ApplyConfig(effective)
 	return effective, nil
 }
 

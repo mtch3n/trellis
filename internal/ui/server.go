@@ -38,7 +38,7 @@ type Server struct {
 	listen string
 	token  string
 	// liveConfig re-applies the settings the daemon keeps live (see
-	// core.ApplyGlobalConfig) to both core and write after a successful
+	// core.ApplyConfig) to both core and write after a successful
 	// PATCH /api/settings write. Both need it independently: WithActor
 	// copied core's state once at construction, so core and write are
 	// separate Core values from then on.
@@ -88,8 +88,8 @@ func NewServerWithSearch(c *core.Core, db *sqlx.DB, listen string, search *retri
 		mux:    http.NewServeMux(),
 	}
 	s.liveConfig = func(cfg config.Config) {
-		s.core.ApplyGlobalConfig(cfg)
-		s.write.ApplyGlobalConfig(cfg)
+		s.core.ApplyConfig(cfg)
+		s.write.ApplyConfig(cfg)
 	}
 	s.registerRoutes()
 	return s
