@@ -32,7 +32,9 @@ class PluginCLITest(unittest.TestCase):
                    if not key.startswith(("TRELLIS_", "CLAUDE_"))}
             env.update(TRELLIS_HOME=str(Path(directory) / "data"),
                        PATH=str(bin_dir) + os.pathsep + env.get("PATH", ""))
-            self.assertEqual(Path(shutil.which("trellis", path=env["PATH"])).resolve(), trellis.resolve())
+            found = shutil.which("trellis", path=env["PATH"])
+            self.assertIsNotNone(found, f"no trellis on PATH {env['PATH']}")
+            self.assertEqual(Path(found).resolve(), trellis.resolve())
             session = "plugin-integration-session"
             actor = "agent:" + hashlib.sha256(session.encode()).hexdigest()[:32]
 

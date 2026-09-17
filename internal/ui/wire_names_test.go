@@ -31,11 +31,14 @@ func TestAPIResponsesUseTheGlossary(t *testing.T) {
 	for _, tc := range []struct {
 		path string
 		want []string
+		// retired is spelled out only where the vocabulary test cannot see
+		// it: this word breaks none of its rules.
+		retired []string
 	}{
-		{"/api/projects", []string{`"expired_claims":`}},
-		{"/api/p/WIRE/b/default/cards", []string{`"claimed_by":"ui-test"`}},
-		{"/api/p/WIRE/cards/" + card.Ref, []string{`"claimed_by":"ui-test"`, `"events":[{`}},
-		{"/api/p/WIRE/events", []string{`"entity":"card"`}},
+		{"/api/projects", []string{`"expired_claims":`}, nil},
+		{"/api/p/WIRE/b/default/cards", []string{`"claimed_by":"ui-test"`}, nil},
+		{"/api/p/WIRE/cards/" + card.Ref, []string{`"claimed_by":"ui-test"`, `"events":[{`}, []string{`"activity"`}},
+		{"/api/p/WIRE/events", []string{`"entity":"card"`}, nil},
 	} {
 		rec := request(t, s, http.MethodGet, tc.path, "")
 		if rec.Code != http.StatusOK {
@@ -44,6 +47,11 @@ func TestAPIResponsesUseTheGlossary(t *testing.T) {
 		for _, want := range tc.want {
 			if !strings.Contains(rec.Body.String(), want) {
 				t.Errorf("%s: no %s in %s", tc.path, want, rec.Body)
+			}
+		}
+		for _, retired := range tc.retired {
+			if strings.Contains(rec.Body.String(), retired) {
+				t.Errorf("%s: retired %s in %s", tc.path, retired, rec.Body)
 			}
 		}
 	}

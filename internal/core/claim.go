@@ -217,22 +217,35 @@ func (c *Core) ClaimCard(ctx context.Context, cardID string, ttl int64, steal bo
 	return &card, err
 }
 
+// loadMyClaim loads a card and refuses unless this actor's claim is the one in
+// force. Which refusal it is follows the card, not the caller: checkCardClaim
+// answers contention while another actor's claim is live, and what is left --
+// an unclaimed card, or one whose claim has expired -- is not_yours. Release
+// and renew ask through here; the writing paths call checkCardClaim directly,
+// so all five agree about the same card.
+func (c *Core) loadMyClaim(tx *sqlx.Tx, cardID string) (Card, error) {
+	var card Card
+	if err := tx.Get(&card, `SELECT * FROM card WHERE id = ?`, cardID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return card, ErrNotFound("card_not_found", "card not found", "")
+		}
+		return card, err
+	}
+	if err := c.checkCardClaim(card); err != nil {
+		return card, err
+	}
+	if card.ClaimedBy == nil || *card.ClaimedBy != c.actor {
+		return card, ErrConflict("not_yours", "you do not claim "+card.Ref,
+			"trellis card claim "+card.Ref)
+	}
+	return card, nil
+}
+
 // ReleaseCard releases a card's claim.
 func (c *Core) ReleaseCard(ctx context.Context, cardID string) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
-		// Verify we own it.
-		var claimant *string
-		if err := tx.Get(&claimant, `SELECT claimed_by FROM card WHERE id = ?`, cardID); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return ErrNotFound("card_not_found", "card not found", "")
-			}
+		if _, err := c.loadMyClaim(tx, cardID); err != nil {
 			return err
-		}
-
-		if claimant == nil || *claimant != c.actor {
-			return ErrConflict("not_yours",
-				fmt.Sprintf("you do not claim this card (claimed by %v)", claimant),
-				fmt.Sprintf("trellis card show %s", cardID))
 		}
 
 		now := c.clock.NowMS()
@@ -260,19 +273,8 @@ func (c *Core) RenewClaim(ctx context.Context, cardID string, ttl int64) error {
 	claimUntil := now + ttl
 
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
-		// Verify we own it.
-		var claimant *string
-		if err := tx.Get(&claimant, `SELECT claimed_by FROM card WHERE id = ?`, cardID); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return ErrNotFound("card_not_found", "card not found", "")
-			}
+		if _, err := c.loadMyClaim(tx, cardID); err != nil {
 			return err
-		}
-
-		if claimant == nil || *claimant != c.actor {
-			return ErrConflict("not_yours",
-				fmt.Sprintf("you do not claim this card (claimed by %v)", claimant),
-				fmt.Sprintf("trellis card show %s", cardID))
 		}
 
 		if _, err := tx.Exec(

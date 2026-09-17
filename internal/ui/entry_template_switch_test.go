@@ -51,6 +51,23 @@ func TestEntryTemplateSwitchFromTheWeb(t *testing.T) {
 	if entry.Slug != "ops/rollback" {
 		t.Fatalf("slug = %q, want ops/rollback", entry.Slug)
 	}
+
+	// That field's retired name is an unknown key like any other: it places
+	// nothing, and the entry lands in the vault root. The check lives here,
+	// beside the helper, because spelling the route out again would put
+	// another retired word in the tree.
+	retired := send(http.MethodPost, "", `{"title":"Retired key","dir":"ops","body":"plain\n"}`)
+	if retired.Code != http.StatusCreated {
+		t.Fatalf("create with the retired key: %d %s", retired.Code, retired.Body)
+	}
+	var ignored core.Entry
+	if err := json.Unmarshal(retired.Body.Bytes(), &ignored); err != nil {
+		t.Fatal(err)
+	}
+	if ignored.Slug != "retired-key" {
+		t.Errorf("slug = %q, want retired-key: the retired key must place nothing", ignored.Slug)
+	}
+
 	path := "/ops%2Frollback"
 
 	rec = send(http.MethodPatch, path, `{"template":"decision","version":1}`)

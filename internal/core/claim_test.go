@@ -90,53 +90,91 @@ func TestUnregisteredClaimantStillHoldsTheCard(t *testing.T) {
 	}
 }
 
-// A refused claim operation says whose claim is in the way: contention when
-// another actor holds the card, not_yours when the caller holds nothing to
-// release or renew.
+// errCodeOf names the refusal, or says what came back instead.
+func errCodeOf(err error) string {
+	if e, ok := errors.AsType[*Error](err); ok {
+		return e.Code
+	}
+	if err == nil {
+		return ""
+	}
+	return fmt.Sprint(err)
+}
+
+// A refusal follows the card's state, not which function asked: contention
+// while another actor's claim is live, not_yours when the card is unclaimed or
+// the claim has expired. An expired claim stops nobody, so the writing paths
+// go through in the first two states.
 func TestClaimRefusalsNameWhoseClaimItIs(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
 	b := seededBoard(t, c, p)
 	ctx := t.Context()
-	card, err := c.CreateCard(ctx, p.ID, b.ID, NewCard{Title: "claimed elsewhere"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	code := func(err error) string {
-		if e, ok := errors.AsType[*Error](err); ok {
-			return e.Code
-		}
-		return fmt.Sprint(err)
-	}
-
-	if got := code(c.ReleaseCard(ctx, card.ID)); got != "not_yours" {
-		t.Errorf("release of an unclaimed card = %s, want not_yours", got)
-	}
-	if got := code(c.RenewClaim(ctx, card.ID, 0)); got != "not_yours" {
-		t.Errorf("renew of an unclaimed card = %s, want not_yours", got)
-	}
-
 	claimant := New(c.db, c.clock, "sess:claimant", c.root)
-	if _, err := claimant.ClaimCard(ctx, card.ID, 60_000, false, ""); err != nil {
-		t.Fatal(err)
+
+	states := []struct {
+		name string
+		// setUp leaves the card in this state; refuse is what release and
+		// renew must answer, contend what the writing paths must answer.
+		setUp   func(t *testing.T, cardID string)
+		refuse  string
+		contend string
+	}{
+		{"unclaimed", func(*testing.T, string) {}, "not_yours", ""},
+		{"whose claim expired", func(t *testing.T, cardID string) {
+			t.Helper()
+			if _, err := claimant.ClaimCard(ctx, cardID, 60_000, false, ""); err != nil {
+				t.Fatal(err)
+			}
+			// No test clock can move a claim into the past.
+			if _, err := c.db.Exec(`UPDATE card SET claim_until = 1 WHERE id = ?`, cardID); err != nil {
+				t.Fatal(err)
+			}
+		}, "not_yours", ""},
+		{"claimed by another actor", func(t *testing.T, cardID string) {
+			t.Helper()
+			if _, err := claimant.ClaimCard(ctx, cardID, 60_000, false, ""); err != nil {
+				t.Fatal(err)
+			}
+		}, "contention", "contention"},
 	}
-	if got := code(c.ReleaseCard(ctx, card.ID)); got != "not_yours" {
-		t.Errorf("release of another actor's claim = %s, want not_yours", got)
+	paths := []struct {
+		name  string
+		write bool // goes through checkCardClaim rather than the claim itself
+		run   func(Card) error
+	}{
+		{"release", false, func(card Card) error { return c.ReleaseCard(ctx, card.ID) }},
+		{"renew", false, func(card Card) error { return c.RenewClaim(ctx, card.ID, 0) }},
+		{"claim", true, func(card Card) error {
+			_, err := c.ClaimCard(ctx, card.ID, 60_000, false, "")
+			return err
+		}},
+		{"edit", true, func(card Card) error {
+			_, err := c.EditCard(ctx, p.ID, CardRef{UUID: card.ID}, CardEdit{AddTags: []string{"seen"}})
+			return err
+		}},
+		{"archive", true, func(card Card) error {
+			_, err := c.ArchiveCard(ctx, p.ID, CardRef{UUID: card.ID})
+			return err
+		}},
 	}
-	if got := code(c.RenewClaim(ctx, card.ID, 0)); got != "not_yours" {
-		t.Errorf("renew of another actor's claim = %s, want not_yours", got)
-	}
-	_, err = c.ClaimCard(ctx, card.ID, 60_000, false, "")
-	if got := code(err); got != "contention" {
-		t.Errorf("claim of another actor's card = %s, want contention", got)
-	}
-	_, err = c.EditCard(ctx, p.ID, CardRef{UUID: card.ID}, CardEdit{Title: new("edited")})
-	if got := code(err); got != "contention" {
-		t.Errorf("edit of another actor's card = %s, want contention", got)
-	}
-	_, err = c.ArchiveCard(ctx, p.ID, CardRef{UUID: card.ID})
-	if got := code(err); got != "contention" {
-		t.Errorf("archive of another actor's card = %s, want contention", got)
+
+	for _, state := range states {
+		for _, path := range paths {
+			// A fresh card per case: claiming or archiving changes the state.
+			card, err := c.CreateCard(ctx, p.ID, b.ID, NewCard{Title: path.name + " a card " + state.name})
+			if err != nil {
+				t.Fatal(err)
+			}
+			state.setUp(t, card.ID)
+			want := state.refuse
+			if path.write {
+				want = state.contend
+			}
+			if got := errCodeOf(path.run(card)); got != want {
+				t.Errorf("%s of a card %s = %q, want %q", path.name, state.name, got, want)
+			}
+		}
 	}
 }
 

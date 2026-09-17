@@ -32,24 +32,32 @@ func TestJSONOutputUsesTheGlossary(t *testing.T) {
 	for _, tc := range []struct {
 		args []string
 		want []string
+		// retired is spelled out only where the vocabulary test cannot see
+		// it: these two words break none of its rules.
+		retired []string
 	}{
-		{[]string{"card", "show", card.Ref}, []string{`"claimed_by":"agent:wire"`, `"claim_until":`}},
-		{[]string{"agent", "remind"}, []string{`"claimed_without_comment":`}},
-		{[]string{"vault", "lint"}, []string{`"diagnostics":`, `"entry":"/TEST/vault/wire-entry"`}},
-		{[]string{"vault", "health", "--duplicates"}, []string{`"duplicate_clusters":`}},
-		{[]string{"vault", "template", "check", "decision", "wire-entry"}, []string{`"diagnostics":`}},
-		{[]string{"vault", "nominations"}, []string{`"nominations":1`}},
-		{[]string{"vault", "show", "/GLOBAL/vault/stale-wire-entry"}, []string{`"unverified":true`}},
-		{[]string{"vector", "status"}, []string{`"configured_entries":0`, `"indexed_entries":0`, `"unindexed_entries":0`}},
-		{[]string{"search", "wire"}, []string{`"unverified":true`}},
-		{[]string{"graph", "wire-entry"}, []string{`"type":"entry"`}},
-		{[]string{"artifact", "link", "wire.png", "--entry", "wire-entry"}, []string{`"entry":"wire-entry"`}},
-		{[]string{"artifact", "unlink", "wire.png", "--entry", "wire-entry"}, []string{`"entry":"wire-entry"`}},
+		{[]string{"card", "show", card.Ref}, []string{`"claimed_by":"agent:wire"`, `"claim_until":`}, nil},
+		{[]string{"agent", "remind"}, []string{`"claimed_without_comment":`}, nil},
+		{[]string{"vault", "lint"}, []string{`"diagnostics":`, `"entry":"/TEST/vault/wire-entry"`}, nil},
+		{[]string{"vault", "health", "--duplicates"}, []string{`"duplicate_clusters":`}, []string{`"clusters"`}},
+		{[]string{"vault", "template", "check", "decision", "wire-entry"}, []string{`"diagnostics":`}, []string{`"violations"`}},
+		{[]string{"vault", "nominations"}, []string{`"nominations":1`}, nil},
+		{[]string{"vault", "show", "/GLOBAL/vault/stale-wire-entry"}, []string{`"unverified":true`}, nil},
+		{[]string{"vector", "status"}, []string{`"configured_entries":0`, `"indexed_entries":0`, `"unindexed_entries":0`}, nil},
+		{[]string{"search", "wire"}, []string{`"unverified":true`}, nil},
+		{[]string{"graph", "wire-entry"}, []string{`"type":"entry"`}, nil},
+		{[]string{"artifact", "link", "wire.png", "--entry", "wire-entry"}, []string{`"entry":"wire-entry"`}, nil},
+		{[]string{"artifact", "unlink", "wire.png", "--entry", "wire-entry"}, []string{`"entry":"wire-entry"`}, nil},
 	} {
 		out := runCmd(t, append(tc.args, "--json")...)
 		for _, want := range tc.want {
 			if !strings.Contains(out, want) {
 				t.Errorf("%v: no %s in\n%s", tc.args, want, out)
+			}
+		}
+		for _, retired := range tc.retired {
+			if strings.Contains(out, retired) {
+				t.Errorf("%v: retired %s in\n%s", tc.args, retired, out)
 			}
 		}
 	}
