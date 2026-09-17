@@ -81,6 +81,7 @@ func (m *merger) planArtifacts() error {
 			if movable(s, name) {
 				m.artMoves = append(m.artMoves, artifactMove{row: s, name: name})
 				out.Renamed = append(out.Renamed, Rename{From: s.Name, To: name})
+				m.artRenamed[s.Name] = name
 			}
 		}
 	}
@@ -100,16 +101,37 @@ func freeArtifactName(name, suffix string, taken map[string]bool) string {
 }
 
 // moveArtifacts carries out planArtifacts. A collapsed artifact's card links
-// move to DST's copy; deleting its row fires artifact_links_ad, which removes
-// any link that already pointed at both. Its file stays in SRC's directory,
-// which is kept with the backup.
+// move to DST's copy; deleting its row fires artifact_links_ad, a safety net
+// that finds nothing left, since every link naming it was already re-pointed.
+// Its file stays in SRC's directory, which is kept with the backup.
 func (m *merger) moveArtifacts() error {
 	dir := filepath.Join(m.root, "projects", m.dst.Key, "artifacts")
 	for _, mv := range m.artMoves {
 		a := mv.row
 		if mv.into != "" {
+			// link's UNIQUE constraint includes anchor, which a card->artifact
+			// link never sets, so SQLite never treats two such rows as equal
+			// (the same gap 0019 closed for card->card links). A card already
+			// linked straight to DST's copy would end up with two identical
+			// rows once SRC's copy is re-pointed at the same id; drop SRC's
+			// side of that pair first.
 			if _, err := m.tx.Exec(
-				`UPDATE OR IGNORE link SET to_id = ?, to_raw = ? WHERE to_type = 'artifact' AND to_id = ?`,
+				`DELETE FROM link WHERE from_type = 'card' AND to_type = 'artifact' AND to_id = ? AND rel = 'artifact'
+				 AND from_id IN (
+				     SELECT from_id FROM link
+				     WHERE from_type = 'card' AND to_type = 'artifact' AND to_id = ? AND rel = 'artifact')`,
+				a.ID, mv.into); err != nil {
+				return err
+			}
+			// A card link's to_raw is the artifact id and must follow it to
+			// the new one. A doc link's to_raw is the artifact's name,
+			// resolved within the document's own project by
+			// resolveArtifactName, and renaming the id underneath it must not
+			// change what the document typed.
+			if _, err := m.tx.Exec(
+				`UPDATE OR IGNORE link SET to_id = ?,
+				        to_raw = CASE WHEN from_type = 'card' THEN ? ELSE to_raw END
+				 WHERE to_type = 'artifact' AND to_id = ?`,
 				mv.into, mv.into, a.ID); err != nil {
 				return err
 			}
@@ -134,4 +156,28 @@ func (m *merger) moveArtifacts() error {
 		m.plan.Artifacts.Moved++
 	}
 	return nil
+}
+
+// rewriteArtifactNames replaces a renamed artifact's old name with its new
+// one wherever text's `artifacts:` frontmatter list names it. planArtifacts
+// renames only the artifact's file and row, never the SRC documents that name
+// it; left alone, such a name would resolve after the merge to whatever DST
+// already has under it (doc_relations.go's resolveArtifactName is scoped to
+// the document's own project, which is DST's by the time this runs).
+func (m *merger) rewriteArtifactNames(path, text string) (string, error) {
+	fm, body, err := splitDocFile(path, []byte(text))
+	if err != nil {
+		return "", err
+	}
+	changed := false
+	for i, name := range fm.Artifacts {
+		if to, ok := m.artRenamed[name]; ok {
+			fm.Artifacts[i] = to
+			changed = true
+		}
+	}
+	if !changed {
+		return text, nil
+	}
+	return RenderDoc(fm, body), nil
 }

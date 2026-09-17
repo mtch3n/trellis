@@ -3,6 +3,7 @@ package core
 import (
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -83,6 +84,98 @@ func TestMergeArtifactConflicts(t *testing.T) {
 		if err != nil || readFile(t, a.Path) != content {
 			t.Errorf("%s = %+v, %v", name, a, err)
 		}
+	}
+}
+
+// A chain of merges, or a link written outside Trellis, can leave a card
+// linked straight to both SRC's artifact and DST's byte-identical copy. Once
+// the collapse re-points SRC's side at DST's id, the two rows must not
+// survive as duplicates.
+func TestMergeCollapsedArtifactDoesNotDuplicateACardLink(t *testing.T) {
+	f := newMergeFixture(t)
+	ctx := t.Context()
+	card := f.card(f.api, f.apiBoard, "has files", nil, nil)
+	logo := f.artifact(f.api, "logo.png", "same logo")
+	monoLogo := f.artifact(f.mono, "logo.png", "same logo")
+	if err := f.c.LinkArtifactToCard(ctx, f.api.ID, card.ID, logo.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.exec(`INSERT INTO link (from_type, from_id, to_type, to_id, to_raw, rel) VALUES ('card', ?, 'artifact', ?, ?, 'artifact')`,
+		card.ID, monoLogo.ID, monoLogo.ID)
+
+	f.merge(MergeOptions{Apply: true})
+
+	items, err := f.c.ListArtifacts(ctx, f.mono.ID, card.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].ID != monoLogo.ID {
+		t.Fatalf("card's artifacts after the merge = %+v, want exactly one link to %s", items, monoLogo.ID)
+	}
+	if n := f.count(`SELECT count(*) FROM link
+		WHERE from_type = 'card' AND from_id = ? AND to_type = 'artifact' AND to_id = ?`,
+		card.ID, monoLogo.ID); n != 1 {
+		t.Errorf("card->artifact link rows = %d, want 1", n)
+	}
+}
+
+// A doc names its artifacts by name (doc_relations.go), so collapsing the
+// artifact it names must leave that name in place, not the id underneath it.
+func TestMergeCollapsedArtifactKeepsADocLinksName(t *testing.T) {
+	f := newMergeFixture(t)
+	ctx := t.Context()
+	logo := f.artifact(f.api, "logo.png", "same logo")
+	monoLogo := f.artifact(f.mono, "logo.png", "same logo")
+	doc := f.doc(f.api, "Design", "design doc\n")
+	if _, err := f.c.LinkArtifactToDoc(ctx, f.api.ID, doc.Slug, logo.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	f.merge(MergeOptions{Apply: true})
+
+	var toRaw string
+	if err := f.c.db.Get(&toRaw,
+		`SELECT to_raw FROM link WHERE from_type = 'doc' AND to_type = 'artifact' AND to_id = ?`, monoLogo.ID); err != nil {
+		t.Fatal(err)
+	}
+	if toRaw != "logo.png" {
+		t.Errorf("doc link to_raw = %q, want the artifact's name", toRaw)
+	}
+	items, err := f.c.ListArtifacts(ctx, f.mono.ID, "", doc.ID)
+	if err != nil || len(items) != 1 || items[0].ID != monoLogo.ID {
+		t.Errorf("doc's artifacts after the merge = %+v, %v", items, err)
+	}
+}
+
+// A SRC document naming a renamed artifact must follow it: left alone, the
+// old name resolves, after the merge, to whatever DST already has under it --
+// a different file with the same name, never the one the document meant.
+func TestMergeRenamedArtifactRewritesTheDocumentThatNamesIt(t *testing.T) {
+	f := newMergeFixture(t)
+	ctx := t.Context()
+	f.artifact(f.mono, "shot.png", "mono pixels")
+	shot := f.artifact(f.api, "shot.png", "api pixels")
+	doc := f.doc(f.api, "Design", "design doc\n")
+	if _, err := f.c.LinkArtifactToDoc(ctx, f.api.ID, doc.Slug, shot.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := f.merge(MergeOptions{Apply: true, RenameConflicts: true})
+
+	if !slices.Equal(plan.Artifacts.Renamed, []Rename{{From: "shot.png", To: "shot-api.png"}}) {
+		t.Fatalf("renamed = %+v", plan.Artifacts.Renamed)
+	}
+	moved, err := f.c.ReadKnowledge(ctx, f.mono.ID, "design")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := readFile(t, moved.Path)
+	if !strings.Contains(raw, "shot-api.png") || strings.Contains(raw, "\n- shot.png\n") {
+		t.Errorf("design's frontmatter after the merge:\n%s", raw)
+	}
+	items, err := f.c.ListArtifacts(ctx, f.mono.ID, "", moved.ID)
+	if err != nil || len(items) != 1 || items[0].ID != shot.ID || items[0].Name != "shot-api.png" {
+		t.Errorf("design's artifacts after the merge = %+v, %v", items, err)
 	}
 }
 

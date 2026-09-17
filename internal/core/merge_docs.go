@@ -202,7 +202,7 @@ func (m *merger) references() error {
 		if err != nil {
 			return err
 		}
-		if len(m.renamed) > 0 {
+		if len(m.renamed) > 0 || len(m.artRenamed) > 0 {
 			for id := range m.fromSrc {
 				ids = append(ids, id)
 			}
@@ -291,6 +291,13 @@ func (m *merger) rewriteDoc(id string) error {
 		}
 		return "", false
 	})
+	if fromSrc && len(m.artRenamed) > 0 {
+		next, err := m.rewriteArtifactNames(current, text)
+		if err != nil {
+			return err
+		}
+		text = next
+	}
 	if text == string(raw) {
 		return nil
 	}
