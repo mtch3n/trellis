@@ -1,4 +1,35 @@
 /** Card vocabulary shared by the board, the card views and the overview. */
+import type { CardInfo } from '@/components/wrappers/CardView'
+import type { CardComment, CardEvent } from '@/components/wrappers/CardTimeline'
+import type { Relation } from '@/components/wrappers/RelationsEditor'
+import type { CardLink } from '@/components/wrappers/EntryLinksEditor'
+import type { Artifact } from '@/components/wrappers/ArtifactList'
+
+/**
+ * One card as its detail route answers: the card, and beside it everything
+ * that is about the card rather than in it.
+ */
+export interface CardDetail {
+  card: CardInfo
+  comments?: CardComment[]
+  events?: CardEvent[]
+  relations?: Relation[]
+  links?: CardLink[]
+  artifacts?: Artifact[]
+}
+
+/**
+ * The card with what sits beside it folded in, which is how the views read
+ * it: a card carries its own relations, citations and files.
+ */
+export function withDetail(detail: CardDetail): CardInfo {
+  return {
+    ...detail.card,
+    relations: detail.relations ?? [],
+    links: detail.links ?? [],
+    artifacts: detail.artifacts ?? [],
+  }
+}
 
 export const PRIORITIES = ['urgent', 'high', 'normal', 'low'] as const
 export const PRIORITY_NUMBERS: Record<(typeof PRIORITIES)[number], number> = {

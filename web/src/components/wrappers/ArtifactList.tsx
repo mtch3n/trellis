@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { Skeleton } from '@/components/ui/skeleton'
 import { IconButton } from '@/components/wrappers/IconButton'
 import { bytes, sentence } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
 export type ArtifactKind = 'image' | 'audio' | 'video' | 'document' | 'text' | 'archive'
 
@@ -37,7 +38,13 @@ const TEXT_LIMIT = 256 * 1024
  * entry names but nobody stored reads as a broken reference, not as an
  * error.
  */
-export function ArtifactList({ artifacts }: { artifacts: Artifact[] }) {
+export function ArtifactList({ artifacts, onRemove, removeLabel }: {
+  artifacts: Artifact[]
+  /** Set where a row can be taken off what it is on, such as a card. */
+  onRemove?: (artifact: Artifact) => void
+  /** What removing means here: "Remove" unlinks, it does not delete the file. */
+  removeLabel?: string
+}) {
   const [open, setOpen] = useState<Artifact | null>(null)
 
   return (
@@ -69,11 +76,11 @@ export function ArtifactList({ artifacts }: { artifacts: Artifact[] }) {
             </>
           )
           return (
-            <li key={artifact.name}>
+            <li key={artifact.name} className="group/artifact relative">
               {artifact.kind === 'archive' ? (
                 <Button
                   variant="ghost"
-                  className="w-full justify-start gap-2 px-2 font-normal"
+                  className={cn('w-full justify-start gap-2 px-2 font-normal', onRemove && 'pr-8')}
                   render={<a href={artifact.url} download={artifact.name} />}
                   nativeButton={false}
                 >
@@ -82,11 +89,23 @@ export function ArtifactList({ artifacts }: { artifacts: Artifact[] }) {
               ) : (
                 <Button
                   variant="ghost"
-                  className="w-full justify-start gap-2 px-2 font-normal"
+                  className={cn('w-full justify-start gap-2 px-2 font-normal', onRemove && 'pr-8')}
                   onClick={() => setOpen(artifact)}
                 >
                   {row}
                 </Button>
+              )}
+              {/* Beside the row, not in it: a button cannot hold another. */}
+              {onRemove && (
+                <IconButton
+                  label={`${removeLabel ?? 'Remove'} ${artifact.name}`}
+                  size="icon-xs"
+                  side="left"
+                  className="absolute top-1.5 right-1 opacity-0 transition-opacity group-hover/artifact:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+                  onClick={() => onRemove(artifact)}
+                >
+                  <X />
+                </IconButton>
               )}
             </li>
           )

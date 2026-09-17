@@ -261,6 +261,8 @@
   --grid-template-columns-overview: minmax(0, 1fr) 18rem;
   /* Settings: the section menu, then the section. */
   --grid-template-columns-settings: 12.5rem minmax(0, 1fr);
+  /* History: the list of revisions, then what one of them changed. */
+  --grid-template-columns-history: 11rem minmax(0, 1fr);
 }
 
 @utility text-meta {

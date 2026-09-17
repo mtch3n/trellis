@@ -12,10 +12,12 @@ import {
   CardView,
   type CardDraft,
   type CardEdit,
-  type ChipChange,
   type CardInfo,
   type CardMode,
 } from '@/components/wrappers/CardView'
+import type { Artifact } from '@/components/wrappers/ArtifactList'
+import type { EntryOption } from '@/components/wrappers/EntryLinksEditor'
+import type { CardActions } from '@/lib/card-actions'
 import { shortActor } from '@/lib/cards'
 
 /**
@@ -43,18 +45,15 @@ export function CardDialog({
   onOpenChange,
   onSave,
   onCreate,
-  onMove,
-  onPriority,
+  actions,
   labelOptions,
-  onLabel,
-  onTag,
-  onSteal,
+  entryOptions,
+  storedArtifacts,
   onDelete,
+  onArchive,
+  onHistory,
   me,
   cardOptions,
-  onRelate,
-  onUnrelate,
-  onComment,
 }: {
   open: boolean
   card: CardInfo | null
@@ -68,21 +67,21 @@ export function CardDialog({
   /** Resolves true when saved; the dialog then returns to reading the card. */
   onSave: (edit: CardEdit) => Promise<boolean>
   onCreate: (draft: CardDraft) => Promise<void>
-  onMove: (column: string) => Promise<void>
-  onPriority: (priority: string) => Promise<void>
+  /** Every write this card supports, shared with the board and the card page. */
+  actions: CardActions
   /** The labels this project defines. */
   labelOptions: string[]
-  onLabel: (change: ChipChange) => Promise<void>
-  onTag: (change: ChipChange) => Promise<void>
-  onSteal: (reason: string) => Promise<void>
+  /** The entries this card could cite. */
+  entryOptions: EntryOption[]
+  /** Every artifact the project holds, for linking one that is already here. */
+  storedArtifacts?: Artifact[]
   onDelete: () => Promise<boolean>
+  onArchive: (archived: boolean) => Promise<boolean>
+  onHistory: () => void
   /** Who the server writes as; a card this person holds stays editable. */
   me?: string
   /** The board's cards, to relate this one to. */
   cardOptions: CardOption[]
-  onRelate: (relation: { rel: string; ref: string }) => Promise<boolean>
-  onUnrelate: (relation: { rel: string; ref: string }) => Promise<void>
-  onComment: (body: string) => Promise<boolean>
 }) {
   const [mode, setMode] = useState<CardMode>(startIn)
   const [source, setSource] = useState(false)
@@ -150,8 +149,11 @@ export function CardDialog({
               <CardMenu
                 cardRef={card.ref}
                 href={`/p/${projectKey}/card/${encodeURIComponent(card.ref)}`}
-                deleteDisabledReason={locked ? `Claimed by ${shortActor(card.claimed_by)}. Steal the claim to delete it.` : undefined}
+                archived={Boolean(card.archived_at)}
+                disabledReason={card.claimed_by ? `Claimed by ${shortActor(card.claimed_by)}. Steal the claim first.` : undefined}
                 onDelete={onDelete}
+                onArchive={onArchive}
+                onHistory={onHistory}
               />
             )}
             {card && (
@@ -184,18 +186,13 @@ export function CardDialog({
             onModeChange={changeMode}
             onSave={async (edit) => { if (await onSave(edit)) changeMode('read') }}
             onCreate={onCreate}
-            onMove={onMove}
-            onPriority={onPriority}
+            actions={actions}
             labelOptions={labelOptions}
-            onLabel={onLabel}
-            onTag={onTag}
+            entryOptions={entryOptions}
+            storedArtifacts={storedArtifacts}
             me={me}
             base={`/p/${projectKey}`}
             cardOptions={cardOptions}
-            onRelate={onRelate}
-            onUnrelate={onUnrelate}
-            onComment={onComment}
-            onSteal={onSteal}
           />
           {/* A new card is a form to finish, so its commit sits at its end. */}
           {mode === 'create' && (

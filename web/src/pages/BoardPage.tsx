@@ -25,9 +25,11 @@ import {
 } from '@dnd-kit/core'
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Plus } from 'lucide-react'
+import { Plus, Upload } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Paged } from '@/components/wrappers/Paged'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -37,33 +39,30 @@ import { Lamp } from '@/components/wrappers/Lamp'
 import { PageHeader } from '@/components/wrappers/PageHeader'
 import { useLiveStatus } from '@/lib/live-status'
 import { CardDialog } from '@/components/wrappers/CardDialog'
+import { HistoryDialog } from '@/components/wrappers/HistoryDialog'
+import { ImportCardsDialog } from '@/components/wrappers/ImportCardsDialog'
 import { type CardInfo } from '@/components/wrappers/CardView'
-import { PRIORITIES, PRIORITY_NUMBERS, shortActor } from '@/lib/cards'
+import { PRIORITIES, PRIORITY_NUMBERS, shortActor, withDetail, type CardDetail } from '@/lib/cards'
+import { cardActions } from '@/lib/card-actions'
+import type { Artifact } from '@/components/wrappers/ArtifactList'
 import type { CardComment, CardEvent } from '@/components/wrappers/CardTimeline'
+import type { Entry } from '@/lib/entry'
 import { sentence } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { readError } from '@/lib/api'
 
 interface ColumnCardsInfo { name: string; cards: CardInfo[] }
-interface CardDetail { card: CardInfo; comments?: CardComment[]; events?: CardEvent[]; relations?: CardInfo['relations'] }
 
-/** The detail carries a card's relations beside it; the views read them on the card. */
-const withRelations = (detail: CardDetail): CardInfo => ({ ...detail.card, relations: detail.relations ?? [] })
 /** Column name to the refs in it, in order: the board as the drag sees it. */
 type Layout = Record<string, string[]>
 
 const COLUMN = 'column:'
 
+/** The filters' "no filter" value. A Select needs a value for "everything". */
+const ALL = 'all'
+
 function message(err: unknown) {
   return err instanceof Error ? err.message : 'Unknown error'
-}
-
-/** The words of an edit that differ from the card, in the PATCH shape. */
-function changedFields(card: CardInfo, edit: { title: string; body: string }) {
-  const changes: { title?: string; body?: string } = {}
-  if (edit.title !== card.title) changes.title = edit.title
-  if (edit.body !== card.body) changes.body = edit.body
-  return changes
 }
 
 function reducedMotion() {
@@ -129,7 +128,16 @@ export function BoardPage() {
   const [events, setEvents] = useState<CardEvent[]>([])
   const [saving, setSaving] = useState(false)
   const [labelOptions, setLabelOptions] = useState<string[]>([])
+  const [entryOptions, setEntryOptions] = useState<Entry[]>([])
+  const [storedArtifacts, setStoredArtifacts] = useState<Artifact[]>([])
   const [view, setView] = useState('board')
+  // Filters narrow what the board shows without changing what it holds:
+  // label and priority over the cards already loaded, archived by asking the
+  // server for the other set.
+  const [label, setLabel] = useState(ALL)
+  const [priority, setPriority] = useState(ALL)
+  const [importing, setImporting] = useState(false)
+  const [history, setHistory] = useState<string | null>(null)
   // While a card is in the hand, the board renders this layout instead of the
   // server's, so the landing slot moves with the pointer across columns.
   const [preview, setPreview] = useState<Layout | null>(null)
@@ -140,11 +148,12 @@ export function BoardPage() {
   const { setLive } = useLiveStatus()
 
   const base = `/api/p/${projectKey}/b/${boardSlug}`
+  const archived = view === 'archived'
 
   const loadBoard = useCallback(async (signal?: AbortSignal) => {
     if (!projectKey || !boardSlug) return
     try {
-      const response = await fetch(`${base}/cards`, { signal })
+      const response = await fetch(`${base}/cards${archived ? '?archived=1' : ''}`, { signal })
       if (!response.ok) throw new Error(await readError(response))
       setColumns(await response.json())
       setError(null)
@@ -154,7 +163,7 @@ export function BoardPage() {
     } finally {
       if (!signal?.aborted) setLoading(false)
     }
-  }, [projectKey, boardSlug, base])
+  }, [projectKey, boardSlug, base, archived])
 
   useEffect(() => {
     if (!projectKey || !boardSlug) return
@@ -172,14 +181,26 @@ export function BoardPage() {
     return () => { events.close(); setLive('unknown') }
   }, [projectKey, boardSlug, base, loadBoard, setLive])
 
-  const byRef = useMemo(() => new Map(columns.flatMap((column) => column.cards.map((card) => [card.ref, card]))), [columns])
-  const layout = useMemo(() => preview ?? layoutOf(columns), [preview, columns])
-  const shown = useMemo(
+  // The filters are read over the cards the server sent: a board is a page of
+  // work, not a query, so narrowing it needs no round trip.
+  const visible = useMemo(
     () => columns.map((column) => ({
+      name: column.name,
+      cards: column.cards.filter((card) =>
+        (label === ALL || (card.labels ?? []).includes(label)) &&
+        (priority === ALL || card.priority === priority)),
+    })),
+    [columns, label, priority],
+  )
+  const filtering = label !== ALL || priority !== ALL
+  const byRef = useMemo(() => new Map(visible.flatMap((column) => column.cards.map((card) => [card.ref, card]))), [visible])
+  const layout = useMemo(() => preview ?? layoutOf(visible), [preview, visible])
+  const shown = useMemo(
+    () => visible.map((column) => ({
       name: column.name,
       cards: (layout[column.name] ?? []).flatMap((ref) => byRef.get(ref) ?? []),
     })),
-    [columns, layout, byRef],
+    [visible, layout, byRef],
   )
 
   const columnNames = useMemo(() => columns.map((column) => column.name), [columns])
@@ -210,7 +231,7 @@ export function BoardPage() {
     const hits = pointerWithin(args)
     let overId = getFirstCollision(hits.length > 0 ? hits : rectIntersection(args), 'id')
     if (overId == null) return lastOver.current ? [{ id: lastOver.current }] : []
-    const current = preview ?? layoutOf(columns)
+    const current = preview ?? layoutOf(visible)
     const key = String(overId)
     if (key.startsWith(COLUMN)) {
       const refs = current[key.slice(COLUMN.length)] ?? []
@@ -224,7 +245,7 @@ export function BoardPage() {
     }
     lastOver.current = overId
     return [{ id: overId }]
-  }, [preview, columns])
+  }, [preview, visible])
 
   const openCard = async (card: CardInfo) => {
     setOpen(card)
@@ -248,7 +269,7 @@ export function BoardPage() {
     const detail = (await response.json()) as CardDetail
     // A move or a priority change bumps the version, and the next save of
     // the words has to send the new one. Only the card still open is replaced.
-    setOpen((current) => (current?.ref === ref ? withRelations(detail) : current))
+    setOpen((current) => (current?.ref === ref ? withDetail(detail) : current))
     setComments(detail.comments ?? [])
     setEvents(detail.events ?? [])
   }
@@ -265,92 +286,52 @@ export function BoardPage() {
     return () => controller.abort()
   }, [])
 
-  // The project's labels are its own vocabulary, so the card offers those and
-  // never invents one.
+  // What a card can point at: the project's labels, which are its own
+  // vocabulary and never invented; the entries it could cite; and the files
+  // already stored. Each is an offer, so failing to read one leaves the rest
+  // working.
   useEffect(() => {
     if (!projectKey) return
     const controller = new AbortController()
-    fetch(`/api/p/${projectKey}/labels`, { signal: controller.signal })
-      .then((response) => (response.ok ? response.json() : []))
-      .then((labels: { name: string }[]) => setLabelOptions(labels.map((label) => label.name)))
-      .catch(() => { /* the list is an offer, not a requirement */ })
+    const signal = controller.signal
+    const read = async <T,>(url: string, fallback: T): Promise<T> => {
+      try {
+        const response = await fetch(url, { signal })
+        return response.ok ? ((await response.json()) as T) : fallback
+      } catch {
+        return fallback
+      }
+    }
+    void (async () => {
+      const [labels, project, vault, artifacts] = await Promise.all([
+        read<{ name: string }[]>(`/api/p/${projectKey}/labels`, []),
+        read<Entry[]>(`/api/p/${projectKey}/vault`, []),
+        read<Entry[]>('/api/global/vault', []),
+        read<Artifact[]>(`/api/p/${projectKey}/artifacts`, []),
+      ])
+      if (signal.aborted) return
+      setLabelOptions(labels.map((label) => label.name))
+      setEntryOptions([...project, ...vault])
+      setStoredArtifacts(artifacts)
+    })()
     return () => controller.abort()
   }, [projectKey])
 
-  /** One label or tag added or removed, applied at once like status and priority. */
-  // Relating applies at once. The server answers with the new relations, but
-  // the whole detail is read back so the card's version stays current too.
-  // A comment is posted and the detail read back, so it lands in the timeline
-  // with everything else that happened.
-  const comment = async (body: string) => {
-    if (!open) return false
-    const ref = open.ref
-    try {
-      const response = await fetch(`${base}/cards/${encodeURIComponent(ref)}/comments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body }),
-      })
-      if (!response.ok) throw new Error(await readError(response))
-      await refreshDetail(ref)
-      return true
-    } catch (err) {
-      toast.add({ title: `Could not comment on ${ref}`, description: message(err), type: 'error' })
-      return false
-    }
-  }
-
-  const relate = async (relation: { rel: string; ref: string }) => {
-    if (!open) return false
-    const ref = open.ref
-    try {
-      const response = await fetch(`${base}/cards/${encodeURIComponent(ref)}/relations`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(relation),
-      })
-      if (!response.ok) throw new Error(await readError(response))
-      await refreshDetail(ref)
-      return true
-    } catch (err) {
-      toast.add({ title: `Could not relate ${ref} to ${relation.ref}`, description: message(err), type: 'error' })
-      return false
-    }
-  }
-
-  const unrelate = async (relation: { rel: string; ref: string }) => {
-    if (!open) return
-    const ref = open.ref
-    try {
-      const response = await fetch(
-        `${base}/cards/${encodeURIComponent(ref)}/relations/${encodeURIComponent(relation.rel)}/${encodeURIComponent(relation.ref)}`,
-        { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: '{}' },
-      )
-      if (!response.ok) throw new Error(await readError(response))
-    } catch (err) {
-      toast.add({ title: `Could not remove the relation to ${relation.ref}`, description: message(err), type: 'error' })
-    } finally {
-      await refreshDetail(ref)
-    }
-  }
-
-  const chip = (field: 'labels' | 'tags') => async (change: { add?: string; remove?: string }) => {
-    if (!open) return
-    const ref = open.ref
-    const patch = change.add ? { [`add_${field}`]: [change.add] } : { [`remove_${field}`]: [change.remove] }
-    try {
-      const response = await fetch(`${base}/cards/${encodeURIComponent(ref)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch),
-      })
-      if (!response.ok) throw new Error(await readError(response))
-    } catch (err) {
-      toast.add({ title: `Could not change the ${field} of ${ref}`, description: message(err), type: 'error' })
-    } finally {
-      await refreshDetail(ref)
-    }
-  }
+  // Every write a card supports, shared with the card page. The board says
+  // what to bring up to date: its columns always, and the open card's detail
+  // when one is open.
+  const actions = useMemo(
+    () => cardActions({
+      base,
+      refresh: async (ref: string) => {
+        await loadBoard()
+        if (ref) await refreshDetail(ref)
+      },
+    }),
+    // refreshDetail closes over nothing that changes between renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [base, loadBoard],
+  )
 
   const createCard = async (draft: { title: string; body: string; priority: string; column?: string; labels: string[]; tags: string[] }) => {
     setSaving(true)
@@ -372,117 +353,30 @@ export function BoardPage() {
   const saveCard = async (edit: { title: string; body: string }) => {
     if (!open) return false
     setSaving(true)
-    try {
-      // Only what changed is sent, so the timeline records edits, not saves.
-      const changes = changedFields(open, edit)
-      let saved = open
-      const response = Object.keys(changes).length === 0
-        ? null
-        : await fetch(`${base}/cards/${encodeURIComponent(open.ref)}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...changes, if_version: open.version }),
-          })
-      if (response && !response.ok) {
-        const text = await readError(response)
-        const refreshed = await fetch(`${base}/cards/${encodeURIComponent(open.ref)}`)
-        if (refreshed.ok) {
-          const detail = (await refreshed.json()) as CardDetail
-          setOpen(withRelations(detail))
-          setComments(detail.comments ?? [])
-          setEvents(detail.events ?? [])
-        }
-        toast.add({ title: 'Card changed underneath you', description: `${text} It has been reloaded.`, type: 'error' })
-        return false
-      }
-      if (response) saved = (await response.json()) as CardInfo
-      setOpen(saved)
-      void refreshDetail(saved.ref)
-      await loadBoard()
-      return true
-    } catch (err) {
-      toast.add({ title: 'Could not save card', description: message(err), type: 'error' })
-      return false
-    } finally { setSaving(false) }
-  }
-
-  // A single field, so no version: the server asks for one only when a title
-  // or body is replaced wholesale.
-  const setPriority = async (priority: string) => {
-    if (!open) return
-    const ref = open.ref
-    try {
-      const response = await fetch(`${base}/cards/${encodeURIComponent(ref)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ priority: PRIORITY_NUMBERS[priority as (typeof PRIORITIES)[number]] }),
-      })
-      if (!response.ok) throw new Error(await readError(response))
-    } catch (err) {
-      toast.add({ title: `Could not change the priority of ${ref}`, description: message(err), type: 'error' })
-    } finally {
-      await refreshDetail(ref)
-      await loadBoard()
-    }
-  }
-
-  const moveCard = async (ref: string, column: string, before = '') => {
-    try {
-      const response = await fetch(`${base}/cards/${encodeURIComponent(ref)}/move`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ column, before }),
-      })
-      if (!response.ok) throw new Error(await readError(response))
-    } catch (err) {
-      toast.add({ title: `Could not move ${ref}`, description: message(err), type: 'error' })
-    } finally {
-      await loadBoard()
-    }
+    const saved = await actions.save(open, edit)
+    setSaving(false)
+    return saved
   }
 
   const deleteCard = async () => {
     if (!open) return false
-    try {
-      const response = await fetch(`${base}/cards/${encodeURIComponent(open.ref)}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      })
-      if (!response.ok) throw new Error(await readError(response))
-      toast.add({ title: `Deleted ${open.ref}`, type: 'success' })
+    const deleted = await actions.remove(open.ref)
+    if (deleted) {
       setOpen(null)
       setComments([])
-    setEvents([])
+      setEvents([])
       await loadBoard()
-      return true
-    } catch (err) {
-      toast.add({ title: `Could not delete ${open.ref}`, description: message(err), type: 'error' })
-      return false
     }
+    return deleted
   }
 
-  const stealClaim = async (reason: string) => {
-    if (!open) return
-    setSaving(true)
-    try {
-      const response = await fetch(`${base}/cards/${encodeURIComponent(open.ref)}/steal`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason }),
-      })
-      if (!response.ok) throw new Error(await readError(response))
-      await loadBoard()
-      const refreshed = await fetch(`${base}/cards/${encodeURIComponent(open.ref)}`)
-      if (refreshed.ok) {
-        const detail = (await refreshed.json()) as CardDetail
-        setOpen(withRelations(detail))
-        setComments(detail.comments ?? [])
-        setEvents(detail.events ?? [])
-      }
-    } catch (err) {
-      toast.add({ title: 'Could not steal the claim', description: message(err), type: 'error' })
-    } finally { setSaving(false) }
+  const archiveCard = async (shelve: boolean) => {
+    if (!open) return false
+    const done = await actions.archive(open.ref, shelve)
+    // An archived card is no longer on the board it was read from, so the
+    // dialog closes with it.
+    if (done && shelve !== archived) setOpen(null)
+    return done
   }
 
   const endDrag = () => {
@@ -494,7 +388,7 @@ export function BoardPage() {
   }
 
   const onDragStart = ({ active }: DragStartEvent) => {
-    const start = layoutOf(columns)
+    const start = layoutOf(visible)
     const column = columnOf(start, active.id)
     if (!column) return
     origin.current = { column, index: start[column].indexOf(String(active.id)) }
@@ -556,7 +450,7 @@ export function BoardPage() {
         cards: (next[item.name] ?? []).flatMap((id) => byRef.get(id) ?? []),
       })),
     )
-    void moveCard(ref, column, before)
+    void actions.move(ref, column, before)
   }
 
   const announcements: Announcements = {
@@ -588,12 +482,25 @@ export function BoardPage() {
       <Tabs value={view} onValueChange={(next) => setView(next ?? 'board')} className="min-h-0 flex-1 gap-3">
         <PageHeader
           title={boardSlug ?? 'Board'}
+          facts={filtering ? [{ label: 'Shown', value: `${visible.reduce((total, column) => total + column.cards.length, 0)} of ${columns.reduce((total, column) => total + column.cards.length, 0)}` }] : []}
           actions={
             <>
+              <BoardFilters
+                labels={labelOptions}
+                label={label}
+                priority={priority}
+                onLabel={setLabel}
+                onPriority={setPriority}
+              />
               <TabsList>
                 <TabsTrigger value="board">Board</TabsTrigger>
                 <TabsTrigger value="list">List</TabsTrigger>
+                <TabsTrigger value="archived">Archived</TabsTrigger>
               </TabsList>
+              <Button variant="outline" size="sm" onClick={() => setImporting(true)}>
+                <Upload data-icon="inline-start" />
+                Import
+              </Button>
               <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
                 <Plus data-icon="inline-start" />
                 New card
@@ -643,60 +550,17 @@ export function BoardPage() {
           </DndContext>
         </TabsContent>
 
+        {/* Archived cards read as a list: they are a shelf, not work in
+            motion, and nothing about them is dragged. */}
+        <TabsContent value="archived" className="min-h-0 scroll-fade-y overflow-y-auto">
+          <CardRows columns={visible} openRef={open?.ref} onOpen={openCard} empty="Nothing archived" />
+        </TabsContent>
+
         <TabsContent value="list" className="min-h-0 scroll-fade-y overflow-y-auto">
-          <div className="flex flex-col gap-10 pb-10">
-            {columns.map((column) => (
-              <section key={column.name}>
-                <h2 className="flex items-baseline gap-3 text-heading">
-                  {sentence(column.name)}
-                  <span className="text-xs font-normal text-muted-foreground">{column.cards.length}</span>
-                </h2>
-                {column.cards.length === 0 ? (
-                  <p className="mt-3 text-sm text-muted-foreground">No cards</p>
-                ) : (
-                  <Paged items={column.cards} label={`${column.name} pages`}>
-                    {(page) => (
-                      <Table className="mt-3">
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-7" aria-label="State" />
-                            <TableHead className="w-28">Ref</TableHead>
-                            <TableHead>Card</TableHead>
-                            <TableHead className="w-32">Claimed by</TableHead>
-                            <TableHead className="w-24">Priority</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {page.map((card) => (
-                            <TableRow
-                              key={card.id}
-                              data-state={card.ref === open?.ref ? 'selected' : undefined}
-                              className="cursor-pointer"
-                              onClick={() => void openCard(card)}
-                            >
-                              <TableCell>
-                                <Lamp state={card.priority === 'urgent' ? 'alarm' : card.claimed_by ? 'claimed' : 'idle'} />
-                              </TableCell>
-                              <TableCell className="text-meta text-muted-foreground">{card.ref}</TableCell>
-                              <TableCell>{card.title}</TableCell>
-                              <TableCell className={cn('text-meta', card.claimed_by ? 'text-claimed' : 'text-muted-foreground')}>
-                                {shortActor(card.claimed_by) ?? 'none'}
-                              </TableCell>
-                              <TableCell className={cn('text-xs', card.priority === 'urgent' ? 'text-danger' : 'text-muted-foreground')}>
-                                {sentence(card.priority)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    )}
-                  </Paged>
-                )}
-              </section>
-            ))}
-          </div>
+          <CardRows columns={visible} openRef={open?.ref} onOpen={openCard} empty="No cards" />
         </TabsContent>
       </Tabs>
+
 
       <CardDialog
         open={creating || open !== null}
@@ -710,19 +574,31 @@ export function BoardPage() {
         onOpenChange={(next) => { if (!next) { setCreating(false); setOpen(null); setComments([]); setEvents([]) } }}
         onSave={saveCard}
         onCreate={createCard}
-        onMove={(column) => (open ? moveCard(open.ref, column).then(() => refreshDetail(open.ref)) : Promise.resolve())}
-        onPriority={setPriority}
+        actions={actions}
         labelOptions={labelOptions}
-        onLabel={chip('labels')}
-        onTag={chip('tags')}
+        entryOptions={entryOptions}
+        storedArtifacts={storedArtifacts}
         me={me}
         cardOptions={cardOptions}
-        onRelate={relate}
-        onUnrelate={unrelate}
-        onComment={comment}
-        onSteal={stealClaim}
         onDelete={deleteCard}
+        onArchive={archiveCard}
+        onHistory={() => { if (open) setHistory(open.ref) }}
       />
+
+      <ImportCardsDialog
+        open={importing}
+        onOpenChange={setImporting}
+        onImport={actions.importCards}
+      />
+
+      {history && (
+        <HistoryDialog
+          open
+          title={history}
+          base={`/api/p/${projectKey}/cards/${encodeURIComponent(history)}`}
+          onOpenChange={(next) => { if (!next) setHistory(null) }}
+        />
+      )}
     </main>
   )
 }
@@ -905,6 +781,23 @@ function CardTile({
       )}
     >
       <span className="block text-sm leading-snug text-foreground">{card.title}</span>
+      {/* The words a card is filed under, above the facts line: a label is
+          the project's own vocabulary, a tag is anyone's, so a label reads on
+          a surface and a tag only in outline. */}
+      {(card.labels?.length || card.tags?.length) ? (
+        <span className="mt-2 flex w-full flex-wrap items-center gap-1">
+          {card.labels?.map((name) => (
+            <Badge key={`label-${name}`} variant="secondary" className="max-w-full font-normal">
+              <span className="truncate">{name}</span>
+            </Badge>
+          ))}
+          {card.tags?.map((name) => (
+            <Badge key={`tag-${name}`} variant="outline" className="max-w-full font-normal text-muted-foreground">
+              <span className="truncate">{name}</span>
+            </Badge>
+          ))}
+        </span>
+      ) : null}
       <span className="mt-2.5 flex w-full flex-wrap items-center gap-x-2 gap-y-1">
         <Lamp state={urgent ? 'alarm' : locked ? 'claimed' : 'idle'} />
         <span className="text-meta text-muted-foreground">{card.ref}</span>
@@ -940,5 +833,112 @@ function LoadingBoard() {
         ))}
       </div>
     </main>
+  )
+}
+
+/**
+ * Cards as rows, grouped by column: the shape the list and the archived shelf
+ * share. A row opens the card; nothing here is dragged, so the rows carry the
+ * facts a tile shows in its footer instead.
+ */
+function CardRows({ columns, openRef, onOpen, empty }: {
+  columns: ColumnCardsInfo[]
+  openRef?: string
+  onOpen: (card: CardInfo) => void
+  empty: string
+}) {
+  return (
+    <div className="flex flex-col gap-10 pb-10">
+      {columns.map((column) => (
+        <section key={column.name}>
+          <h2 className="flex items-baseline gap-3 text-heading">
+            {sentence(column.name)}
+            <span className="text-xs font-normal text-muted-foreground">{column.cards.length}</span>
+          </h2>
+          {column.cards.length === 0 ? (
+            <p className="mt-3 text-sm text-muted-foreground">{empty}</p>
+          ) : (
+            <Paged items={column.cards} label={`${column.name} pages`}>
+              {(page) => (
+                <Table className="mt-3">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-7" aria-label="State" />
+                      <TableHead className="w-28">Ref</TableHead>
+                      <TableHead>Card</TableHead>
+                      <TableHead className="w-32">Claimed by</TableHead>
+                      <TableHead className="w-24">Priority</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {page.map((card) => (
+                      <TableRow
+                        key={card.id}
+                        data-state={card.ref === openRef ? 'selected' : undefined}
+                        className="cursor-pointer"
+                        onClick={() => onOpen(card)}
+                      >
+                        <TableCell>
+                          <Lamp state={card.priority === 'urgent' ? 'alarm' : card.claimed_by ? 'claimed' : 'idle'} />
+                        </TableCell>
+                        <TableCell className="text-meta text-muted-foreground">{card.ref}</TableCell>
+                        <TableCell>{card.title}</TableCell>
+                        <TableCell className={cn('text-meta', card.claimed_by ? 'text-claimed' : 'text-muted-foreground')}>
+                          {shortActor(card.claimed_by) ?? 'none'}
+                        </TableCell>
+                        <TableCell className={cn('text-xs', card.priority === 'urgent' ? 'text-danger' : 'text-muted-foreground')}>
+                          {sentence(card.priority)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </Paged>
+          )}
+        </section>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * What the board is showing, narrowed: one of the project's labels, and one
+ * priority. Both read over the cards already loaded, so they answer at once;
+ * "All" is the absence of a filter rather than a value.
+ */
+function BoardFilters({ labels, label, priority, onLabel, onPriority }: {
+  labels: string[]
+  label: string
+  priority: string
+  onLabel: (label: string) => void
+  onPriority: (priority: string) => void
+}) {
+  const labelItems = [{ value: ALL, label: 'All labels' }, ...labels.map((name) => ({ value: name, label: name }))]
+  const priorityItems = [
+    { value: ALL, label: 'All priorities' },
+    ...PRIORITIES.map((value) => ({ value, label: sentence(value) })),
+  ]
+  return (
+    <>
+      {labels.length > 0 && (
+        <Select items={labelItems} value={label} onValueChange={(value) => { if (value) onLabel(value) }}>
+          <SelectTrigger size="sm" aria-label="Filter by label" className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {labelItems.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      )}
+      <Select items={priorityItems} value={priority} onValueChange={(value) => { if (value) onPriority(value) }}>
+        <SelectTrigger size="sm" aria-label="Filter by priority" className="w-36">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {priorityItems.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </>
   )
 }

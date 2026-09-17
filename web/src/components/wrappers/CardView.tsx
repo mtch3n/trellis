@@ -5,7 +5,10 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { MarkdownContent } from '@/components/wrappers/MarkdownContent'
+import { ArtifactsEditor } from '@/components/wrappers/ArtifactsEditor'
+import type { Artifact } from '@/components/wrappers/ArtifactList'
 import { ChipEditor } from '@/components/wrappers/ChipEditor'
+import { EntryLinksEditor, type CardLink, type EntryOption } from '@/components/wrappers/EntryLinksEditor'
 import { RelationsEditor, type CardOption, type Relation } from '@/components/wrappers/RelationsEditor'
 import { EditForm, InPlaceText } from '@/components/wrappers/EditInPlace'
 import { Lamp } from '@/components/wrappers/Lamp'
@@ -13,8 +16,10 @@ import { MarkdownEditor } from '@/components/wrappers/MarkdownEditor'
 import { CommentBox } from '@/components/wrappers/CommentBox'
 import { CardTimeline, type CardComment, type CardEvent } from '@/components/wrappers/CardTimeline'
 import { MetaFacts, MetaGroup, MetaPanel } from '@/components/wrappers/MetaPanel'
-import { sentence } from '@/lib/format'
+import { ago, sentence } from '@/lib/format'
+import type { CardActions } from '@/lib/card-actions'
 import { meaningfulEvents } from '@/lib/card-events'
+import { useNow } from '@/lib/clock'
 import { PRIORITIES, shortActor } from '@/lib/cards'
 
 export interface CardInfo {
@@ -25,11 +30,19 @@ export interface CardInfo {
   priority: string
   version: number
   claimed_by?: string
+  /** When the claim runs out. A claim past its time no longer holds the card. */
+  claim_until?: number
+  /** Set while the card is archived: off the board, not deleted. */
+  archived_at?: number
   created_at?: number
   updated_at?: number
   labels?: string[]
   tags?: string[]
   relations?: Relation[]
+  /** The entries this card cites. */
+  links?: CardLink[]
+  /** The files linked to this card. */
+  artifacts?: Artifact[]
 }
 
 
@@ -66,6 +79,16 @@ function apply(values: string[], change: ChipChange) {
   return change.add && !kept.includes(change.add) ? [...kept, change.add] : kept
 }
 
+/** How long is left, in the same few words `ago` uses. */
+function until(timestamp: number, now = Date.now()) {
+  const minutes = Math.round((timestamp - now) / 60000)
+  if (minutes < 1) return 'in under a minute'
+  if (minutes < 60) return `in ${minutes} min`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `in ${hours} h`
+  return `on ${new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+}
+
 const stamp = (ms: number) => new Date(ms).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 /**
@@ -97,18 +120,13 @@ export function CardView({
   onModeChange,
   onSave,
   onCreate,
-  onMove,
-  onPriority,
+  actions,
   labelOptions,
-  onLabel,
-  onTag,
-  onSteal,
+  entryOptions,
+  storedArtifacts = [],
   me,
   base,
   cardOptions,
-  onRelate,
-  onUnrelate,
-  onComment,
 }: {
   card: CardInfo | null
   /** The card's comments, oldest first, as the card detail returns them. */
@@ -125,24 +143,20 @@ export function CardView({
   onModeChange: (mode: CardMode) => void
   onSave: (edit: CardEdit) => Promise<void>
   onCreate: (draft: CardDraft) => Promise<void>
-  onMove: (column: string) => Promise<void>
-  onPriority: (priority: string) => Promise<void>
+  /** Every write this card supports, shared with the board and the card page. */
+  actions: CardActions
   /** The labels this project defines. Labels are picked, never invented. */
   labelOptions: string[]
-  onLabel: (change: ChipChange) => Promise<void>
-  onTag: (change: ChipChange) => Promise<void>
-  onSteal: (reason: string) => Promise<void>
+  /** The entries this card could cite: this project's and the vault's. */
+  entryOptions: EntryOption[]
+  /** Every artifact the project holds, for linking one that is already here. */
+  storedArtifacts?: Artifact[]
   /** Who the server writes as, so a claim this person holds reads as theirs. */
   me?: string
   /** The project's path in the app, for links to related cards. */
   base: string
   /** The board's cards, to relate this one to. */
   cardOptions: CardOption[]
-  /** Resolves true when the relation was recorded. */
-  onRelate: (relation: { rel: string; ref: string }) => Promise<boolean>
-  onUnrelate: (relation: { rel: string; ref: string }) => Promise<void>
-  /** Resolves true when the comment was posted. */
-  onComment: (body: string) => Promise<boolean>
 }) {
   // Priority and status are only drafted for a card that does not exist yet.
   const initial = () => ({ title: card?.title ?? '', priority: 'normal', column: columns[0] ?? '', labels: [] as string[], tags: [] as string[] })
@@ -164,12 +178,21 @@ export function CardView({
     setReason('')
   }
 
+  const ref = card?.ref ?? ''
+  // A claim past its time no longer holds the card: the server lets the next
+  // caller claim it, so the interface must not pretend otherwise. The
+  // expiry is a wall-clock moment, so the view watches the clock.
+  const now = useNow()
+  const expired = Boolean(card?.claimed_by) && card?.claim_until !== undefined && card.claim_until < now
   // A claim this person holds is not a lock: they are the actor the server
   // will check, so the card is theirs to change.
   const mine = Boolean(card?.claimed_by) && card?.claimed_by === me
-  const locked = Boolean(card?.claimed_by) && !mine
+  const locked = Boolean(card?.claimed_by) && !mine && !expired
   const claimant = shortActor(card?.claimed_by)
   const changes = meaningfulEvents(events)
+  // base is the project's path in the app (/p/KEY), which is where a cited
+  // entry is opened from.
+  const projectKey = base.split('/').pop() ?? ''
   const editing = mode !== 'read'
   const creating = mode === 'create'
   // A claimed card's column and priority wait for its claim.
@@ -265,7 +288,7 @@ export function CardView({
               <span className="text-xs font-normal text-muted-foreground">{changes.length + comments.length}</span>
             </h2>
             <div className="mt-4">
-              <CommentBox onSubmit={onComment} />
+              <CommentBox onSubmit={(body) => actions.comment(ref, body)} />
             </div>
             <div className="mt-6">
               <CardTimeline events={changes} comments={comments} />
@@ -285,7 +308,7 @@ export function CardView({
             onValueChange={(value) => {
               if (!value || value === status) return
               if (creating) setDraft({ ...draft, column: value })
-              else void onMove(value)
+              else void actions.move(ref, value)
             }}
           >
             <SelectTrigger
@@ -311,7 +334,7 @@ export function CardView({
             onValueChange={(value) => {
               if (!value || value === priority) return
               if (creating) setDraft({ ...draft, priority: value })
-              else void onPriority(value)
+              else void actions.priority(ref, value)
             }}
           >
             <SelectTrigger
@@ -341,7 +364,7 @@ export function CardView({
             placeholder="Label"
             disabledReason={fixed ? `Claimed by ${claimant}. Steal the claim to change its labels.` : undefined}
             onChange={(change) => {
-              if (!creating) { void onLabel(change); return }
+              if (!creating) { void actions.chip(ref, 'labels', change); return }
               setDraft({ ...draft, labels: apply(draft.labels, change) })
             }}
           />
@@ -354,7 +377,7 @@ export function CardView({
             placeholder="Tag"
             disabledReason={fixed ? `Claimed by ${claimant}. Steal the claim to change its tags.` : undefined}
             onChange={(change) => {
-              if (!creating) { void onTag(change); return }
+              if (!creating) { void actions.chip(ref, 'tags', change); return }
               setDraft({ ...draft, tags: apply(draft.tags, change) })
             }}
           />
@@ -367,8 +390,8 @@ export function CardView({
               cards={cardOptions.filter((option) => option.ref !== card.ref)}
               base={base}
               disabledReason={fixed ? `Claimed by ${claimant}. Steal the claim to change its relations.` : undefined}
-              onAdd={onRelate}
-              onRemove={onUnrelate}
+              onAdd={(relation) => actions.relate(ref, relation)}
+              onRemove={(relation) => actions.unrelate(ref, relation)}
             />
           </MetaGroup>
         )}
@@ -390,10 +413,20 @@ export function CardView({
         {!creating && card && (
           <MetaGroup label="Claim">
             {mine ? (
-              <p className="flex items-center gap-2 text-sm">
-                <Lamp state="claimed" />
-                Claimed by you
-              </p>
+              <>
+                <p className="flex items-center gap-2 text-sm">
+                  <Lamp state="claimed" />
+                  Claimed by you
+                </p>
+                {card.claim_until !== undefined && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {expired ? `Expired ${ago(card.claim_until, now)}` : `Runs out ${until(card.claim_until, now)}`}
+                  </p>
+                )}
+                <Button size="sm" variant="outline" className="mt-3 w-full" onClick={() => void actions.release(ref)}>
+                  Release it
+                </Button>
+              </>
             ) : locked ? (
               <>
                 <p className="flex items-center gap-2 text-sm">
@@ -406,7 +439,7 @@ export function CardView({
                     onSubmit={async (event) => {
                       event.preventDefault()
                       if (!reason.trim()) return
-                      await onSteal(reason.trim())
+                      await actions.steal(ref, reason.trim())
                       setStealing(false)
                       setReason('')
                     }}
@@ -430,8 +463,45 @@ export function CardView({
                 )}
               </>
             ) : (
-              <p className="text-sm text-muted-foreground">Not claimed. Any agent can claim it.</p>
+              <>
+                <p className="text-sm text-muted-foreground">
+                  {expired
+                    ? `The claim ${shortActor(card.claimed_by)} had expired ${ago(card.claim_until ?? 0, now)}.`
+                    : 'Not claimed. Any agent can claim it.'}
+                </p>
+                <Button size="sm" variant="outline" className="mt-3 w-full" onClick={() => void actions.claim(ref)}>
+                  Claim it
+                </Button>
+              </>
             )}
+          </MetaGroup>
+        )}
+
+        {/* What this card leans on, and what is filed with it. Both apply at
+            once, like the facts above them. */}
+        {!creating && card && (
+          <MetaGroup label="Entries" count={card.links?.length || undefined}>
+            <EntryLinksEditor
+              links={card.links ?? []}
+              entries={entryOptions}
+              projectKey={projectKey}
+              disabledReason={fixed ? `Claimed by ${claimant}. Steal the claim to change what it cites.` : undefined}
+              onAdd={(target) => actions.link(ref, target)}
+              onRemove={(target) => actions.unlink(ref, target)}
+            />
+          </MetaGroup>
+        )}
+
+        {!creating && card && (
+          <MetaGroup label="Files" count={card.artifacts?.length || undefined}>
+            <ArtifactsEditor
+              artifacts={card.artifacts ?? []}
+              stored={storedArtifacts}
+              disabledReason={fixed ? `Claimed by ${claimant}. Steal the claim to change its files.` : undefined}
+              onUpload={(file) => actions.upload(ref, file)}
+              onLink={(name) => actions.linkArtifact(ref, name)}
+              onRemove={(name) => actions.unlinkArtifact(ref, name)}
+            />
           </MetaGroup>
         )}
 

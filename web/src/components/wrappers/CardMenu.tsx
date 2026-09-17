@@ -13,18 +13,26 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { ConfirmDialog } from '@/components/wrappers/ConfirmDialog'
 
 /**
- * A card's secondary actions, behind one button in its action row: copying a
- * link to the card, and deleting it. Delete is confirmed and names the card,
- * and while an agent holds the card it is disabled with the reason shown. The
- * caller reports success or failure; the confirmation closes only on success.
+ * A card's secondary actions, behind one button in its action row, the way a
+ * tracker keeps them: copy a link to the card, read its history, take it off
+ * the board or put it back, and delete it. Delete is confirmed and names the
+ * card; while an agent holds the card, the actions the server would refuse are
+ * disabled with the reason shown. The caller reports success or failure, so
+ * the confirmation closes only once the card is gone.
  */
-export function CardMenu({ cardRef, href, deleteDisabledReason, onDelete }: {
+export function CardMenu({ cardRef, href, archived = false, disabledReason, onDelete, onArchive, onHistory }: {
   cardRef: string
   /** The card page's path inside the app, e.g. /p/KEY/card/KEY-1. */
   href: string
-  /** Set when the card cannot be deleted right now, e.g. an agent holds it. */
-  deleteDisabledReason?: string
+  /** The card is off the board, so the action is to restore it. */
+  archived?: boolean
+  /** Set when another actor's claim stops the card being archived or deleted. */
+  disabledReason?: string
   onDelete: () => Promise<boolean>
+  /** Archiving takes the card off the board and releases its claim. */
+  onArchive?: (archived: boolean) => Promise<boolean>
+  /** Opens the card's revisions. Absent where there is nowhere to show them. */
+  onHistory?: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -71,17 +79,30 @@ export function CardMenu({ cardRef, href, deleteDisabledReason, onDelete }: {
           <DropdownMenuItem onClick={() => void copyLink()}>
             Copy link
           </DropdownMenuItem>
+          {onHistory && (
+            <DropdownMenuItem onClick={onHistory}>
+              History
+            </DropdownMenuItem>
+          )}
+          {onArchive && (
+            <DropdownMenuItem
+              disabled={Boolean(disabledReason)}
+              onClick={() => void onArchive(!archived)}
+            >
+              {archived ? 'Restore to the board' : 'Archive card'}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             variant="destructive"
-            disabled={Boolean(deleteDisabledReason)}
+            disabled={Boolean(disabledReason)}
             onClick={() => setConfirming(true)}
           >
             Delete card
           </DropdownMenuItem>
-          {deleteDisabledReason && (
+          {disabledReason && (
             <p className="px-2 pb-1.5 text-xs text-muted-foreground">
-              {deleteDisabledReason}
+              {disabledReason}
             </p>
           )}
         </DropdownMenuContent>

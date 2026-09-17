@@ -10,27 +10,29 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/components/ui/toast'
 import { EditActions } from '@/components/wrappers/EditInPlace'
 import { ActionRow } from '@/components/wrappers/ActionRow'
 import { CardMenu } from '@/components/wrappers/CardMenu'
+import { HistoryDialog } from '@/components/wrappers/HistoryDialog'
 import {
   CardView,
   type CardEdit,
   type CardInfo,
   type CardMode,
 } from '@/components/wrappers/CardView'
-import { PRIORITIES, PRIORITY_NUMBERS, shortActor } from '@/lib/cards'
+import { shortActor } from '@/lib/cards'
+import { cardActions } from '@/lib/card-actions'
 import type { CardComment, CardEvent } from '@/components/wrappers/CardTimeline'
 import { readError } from '@/lib/api'
+import { withDetail, type CardDetail } from '@/lib/cards'
+import type { Entry } from '@/lib/entry'
+import type { Artifact } from '@/components/wrappers/ArtifactList'
 
 interface ColumnCardsInfo { name: string; cards: CardInfo[] }
-interface CardDetail { card: CardInfo; comments?: CardComment[]; events?: CardEvent[]; relations?: CardInfo['relations'] }
-
-/** The detail carries a card's relations beside it; the views read them on the card. */
-const withRelations = (detail: CardDetail): CardInfo => ({ ...detail.card, relations: detail.relations ?? [] })
 
 function message(err: unknown) {
   return err instanceof Error ? err.message : 'Unknown error'
@@ -56,6 +58,9 @@ export function CardPage() {
   const [source, setSource] = useState(false)
   const [saving, setSaving] = useState(false)
   const [labelOptions, setLabelOptions] = useState<string[]>([])
+  const [entryOptions, setEntryOptions] = useState<Entry[]>([])
+  const [storedArtifacts, setStoredArtifacts] = useState<Artifact[]>([])
+  const [history, setHistory] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
 
@@ -71,13 +76,19 @@ export function CardPage() {
       const detail = await fetch(`/api/p/${projectKey}/cards/${encodeURIComponent(cardRef)}`, { signal })
       if (!detail.ok) throw new Error(await readError(detail))
       const data = (await detail.json()) as CardDetail
-      setCard(withRelations(data))
+      setCard(withDetail(data))
       setComments(data.comments ?? [])
       setEvents(data.events ?? [])
       setError(null)
 
       if (slug) {
-        const onBoard = await fetch(`/api/p/${projectKey}/b/${slug}/cards`, { signal })
+        // An archived card is not on the live board, so its columns are read
+        // from the archived view instead; either way the page needs the
+        // column names and the cards it could be related to.
+        const onBoard = await fetch(
+          `/api/p/${projectKey}/b/${slug}/cards${data.card.archived_at ? '?archived=1' : ''}`,
+          { signal },
+        )
         if (onBoard.ok) setColumns((await onBoard.json()) as ColumnCardsInfo[])
       }
     } catch (err) {
@@ -95,48 +106,21 @@ export function CardPage() {
   const base = `/api/p/${projectKey}/b/${board}`
   const currentColumn = columns.find((c) => c.cards.some((item) => item.ref === card?.ref))?.name
 
+  // Every write a card supports, shared with the board; the page only says
+  // what to bring up to date afterwards.
+  const actions = useMemo(
+    () => cardActions({ base, refresh: async () => { await load() } }),
+    [base, load],
+  )
+
   const save = async (edit: CardEdit) => {
     if (!card || !board) return
     setSaving(true)
-    try {
-      // Only what changed is sent, so the timeline records edits, not saves.
-      const changes: { title?: string; body?: string } = {}
-      if (edit.title !== card.title) changes.title = edit.title
-      if (edit.body !== card.body) changes.body = edit.body
-      const response = Object.keys(changes).length === 0
-        ? null
-        : await fetch(`${base}/cards/${encodeURIComponent(card.ref)}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...changes, if_version: card.version }),
-          })
-      if (response && !response.ok) {
-        const text = await readError(response)
-        await load()
-        toast.add({ title: 'Card changed underneath you', description: `${text} It has been reloaded.`, type: 'error' })
-        return
-      }
-      // Reload rather than patch in the response, so the timeline shows the edit.
-      await load()
+    const saved = await actions.save(card, edit)
+    setSaving(false)
+    if (saved) {
       changeMode('read')
       toast.add({ title: `Saved ${card.ref}`, type: 'success' })
-    } catch (err) {
-      toast.add({ title: 'Could not save card', description: message(err), type: 'error' })
-    } finally { setSaving(false) }
-  }
-
-  const move = async (column: string) => {
-    if (!card || !board) return
-    try {
-      const response = await fetch(`${base}/cards/${encodeURIComponent(card.ref)}/move`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ column, before: '' }),
-      })
-      if (!response.ok) throw new Error(await readError(response))
-      await load()
-    } catch (err) {
-      toast.add({ title: 'Could not move card', description: message(err), type: 'error' })
     }
   }
 
@@ -152,145 +136,47 @@ export function CardPage() {
     return () => controller.abort()
   }, [])
 
-  // The project's labels are its own vocabulary, so the card offers those and
-  // never invents one.
+  // What the card can point at: the project's labels, the entries it could
+  // cite, and the files already stored. Each is an offer, so a failure to read
+  // one leaves the card working without it.
   useEffect(() => {
     if (!projectKey) return
     const controller = new AbortController()
-    fetch(`/api/p/${projectKey}/labels`, { signal: controller.signal })
-      .then((response) => (response.ok ? response.json() : []))
-      .then((labels: { name: string }[]) => setLabelOptions(labels.map((label) => label.name)))
-      .catch(() => { /* the list is an offer, not a requirement */ })
+    const signal = controller.signal
+    const read = async <T,>(url: string, fallback: T): Promise<T> => {
+      try {
+        const response = await fetch(url, { signal })
+        return response.ok ? ((await response.json()) as T) : fallback
+      } catch {
+        return fallback
+      }
+    }
+    void (async () => {
+      const [labels, project, vault, artifacts] = await Promise.all([
+        read<{ name: string }[]>(`/api/p/${projectKey}/labels`, []),
+        read<Entry[]>(`/api/p/${projectKey}/vault`, []),
+        read<Entry[]>('/api/global/vault', []),
+        read<Artifact[]>(`/api/p/${projectKey}/artifacts`, []),
+      ])
+      if (signal.aborted) return
+      setLabelOptions(labels.map((label) => label.name))
+      setEntryOptions([...project, ...vault])
+      setStoredArtifacts(artifacts)
+    })()
     return () => controller.abort()
   }, [projectKey])
-
-  /** One label or tag added or removed, applied at once like status and priority. */
-  // Relating applies at once. The server answers with the new relations, but
-  // the whole detail is read back so the card's version stays current too.
-  // A comment is posted and the detail read back, so it lands in the timeline
-  // with everything else that happened.
-  const comment = async (body: string) => {
-    if (!card || !board) return false
-    const ref = card.ref
-    try {
-      const response = await fetch(`${base}/cards/${encodeURIComponent(ref)}/comments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body }),
-      })
-      if (!response.ok) throw new Error(await readError(response))
-      await load()
-      return true
-    } catch (err) {
-      toast.add({ title: `Could not comment on ${ref}`, description: message(err), type: 'error' })
-      return false
-    }
-  }
-
-  const relate = async (relation: { rel: string; ref: string }) => {
-    if (!card || !board) return false
-    const ref = card.ref
-    try {
-      const response = await fetch(`${base}/cards/${encodeURIComponent(ref)}/relations`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(relation),
-      })
-      if (!response.ok) throw new Error(await readError(response))
-      await load()
-      return true
-    } catch (err) {
-      toast.add({ title: `Could not relate ${ref} to ${relation.ref}`, description: message(err), type: 'error' })
-      return false
-    }
-  }
-
-  const unrelate = async (relation: { rel: string; ref: string }) => {
-    if (!card || !board) return
-    const ref = card.ref
-    try {
-      const response = await fetch(
-        `${base}/cards/${encodeURIComponent(ref)}/relations/${encodeURIComponent(relation.rel)}/${encodeURIComponent(relation.ref)}`,
-        { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: '{}' },
-      )
-      if (!response.ok) throw new Error(await readError(response))
-    } catch (err) {
-      toast.add({ title: `Could not remove the relation to ${relation.ref}`, description: message(err), type: 'error' })
-    } finally {
-      await load()
-    }
-  }
-
-  const chip = (field: 'labels' | 'tags') => async (change: { add?: string; remove?: string }) => {
-    if (!card || !board) return
-    const patch = change.add ? { [`add_${field}`]: [change.add] } : { [`remove_${field}`]: [change.remove] }
-    try {
-      const response = await fetch(`${base}/cards/${encodeURIComponent(card.ref)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch),
-      })
-      if (!response.ok) throw new Error(await readError(response))
-    } catch (err) {
-      toast.add({ title: `Could not change the ${field}`, description: message(err), type: 'error' })
-    } finally {
-      await load()
-    }
-  }
-
-  // A single field, so no version: the server asks for one only when a
-  // title or body is replaced wholesale.
-  const setPriority = async (priority: string) => {
-    if (!card || !board) return
-    try {
-      const response = await fetch(`${base}/cards/${encodeURIComponent(card.ref)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ priority: PRIORITY_NUMBERS[priority as (typeof PRIORITIES)[number]] }),
-      })
-      if (!response.ok) throw new Error(await readError(response))
-    } catch (err) {
-      toast.add({ title: 'Could not change the priority', description: message(err), type: 'error' })
-    } finally {
-      await load()
-    }
-  }
-
-  const steal = async (reason: string) => {
-    if (!card || !board) return
-    setSaving(true)
-    try {
-      const response = await fetch(`${base}/cards/${encodeURIComponent(card.ref)}/steal`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason }),
-      })
-      if (!response.ok) throw new Error(await readError(response))
-      await load()
-    } catch (err) {
-      toast.add({ title: 'Could not steal the claim', description: message(err), type: 'error' })
-    } finally { setSaving(false) }
-  }
 
   const back = board ? `/p/${projectKey}/b/${board}` : '/'
 
   const remove = async () => {
-    if (!card || !board) return false
-    try {
-      const response = await fetch(`${base}/cards/${encodeURIComponent(card.ref)}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      })
-      if (!response.ok) throw new Error(await readError(response))
-      toast.add({ title: `Deleted ${card.ref}`, type: 'success' })
-      navigate(back, { replace: true })
-      return true
-    } catch (err) {
-      toast.add({ title: `Could not delete ${card.ref}`, description: message(err), type: 'error' })
-      return false
-    }
+    if (!card) return false
+    const deleted = await actions.remove(card.ref)
+    if (deleted) navigate(back, { replace: true })
+    return deleted
   }
+
+  const claimed = Boolean(card?.claimed_by) && card?.claimed_by !== me
+  const editable = card && !claimed
 
   return (
     <main className="px-6 pb-24 lg:px-8">
@@ -307,15 +193,18 @@ export function CardPage() {
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
+          {/* An archived card says so here: it is not on the board, and every
+              action on it still works. */}
+          {card?.archived_at && <Badge variant="outline">Archived</Badge>}
           {card && (
             <div className="ml-auto flex items-center gap-1.5">
               {mode === 'read' ? (
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={Boolean(card.claimed_by) && card.claimed_by !== me}
+                  disabled={!editable}
                   onClick={() => changeMode('edit')}
-                  title={card.claimed_by && card.claimed_by !== me ? 'Claimed by an agent. Steal the claim to edit.' : undefined}
+                  title={claimed ? 'Claimed by an agent. Steal the claim to edit.' : undefined}
                 >
                   <Pencil data-icon="inline-start" />
                   Edit
@@ -326,8 +215,11 @@ export function CardPage() {
               <CardMenu
                 cardRef={card.ref}
                 href={`/p/${projectKey}/card/${encodeURIComponent(card.ref)}`}
-                deleteDisabledReason={card.claimed_by ? `Claimed by ${shortActor(card.claimed_by)}. Steal the claim to delete it.` : undefined}
+                archived={Boolean(card.archived_at)}
+                disabledReason={card.claimed_by ? `Claimed by ${shortActor(card.claimed_by)}. Steal the claim first.` : undefined}
                 onDelete={remove}
+                onArchive={(archived) => actions.archive(card.ref, archived)}
+                onHistory={() => setHistory(true)}
               />
             </div>
           )}
@@ -362,20 +254,24 @@ export function CardPage() {
               onModeChange={changeMode}
               onSave={save}
               onCreate={async () => {}}
-              onMove={move}
-              onPriority={setPriority}
+              actions={actions}
               labelOptions={labelOptions}
-              onLabel={chip('labels')}
-              onTag={chip('tags')}
+              entryOptions={entryOptions}
+              storedArtifacts={storedArtifacts}
               me={me}
               base={`/p/${projectKey}`}
               cardOptions={cardOptions}
-              onRelate={relate}
-              onUnrelate={unrelate}
-              onComment={comment}
-              onSteal={steal}
             />
           </div>
+        )}
+
+        {card && (
+          <HistoryDialog
+            open={history}
+            title={card.ref}
+            base={`/api/p/${projectKey}/cards/${encodeURIComponent(card.ref)}`}
+            onOpenChange={setHistory}
+          />
         )}
       </div>
     </main>
