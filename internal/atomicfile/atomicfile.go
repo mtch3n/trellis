@@ -43,7 +43,7 @@ func WriteTemp(dir, name string, data []byte) (string, error) {
 
 // Write replaces path only after the complete contents have been written and
 // synced. When replace is false, the final link is created with
-// O_EXCL-like semantics, which keeps a stale orphan from being overwritten.
+// O_EXCL-like semantics, which keeps a leftover file from being overwritten.
 func Write(path string, data []byte, replace bool) error {
 	dir := filepath.Dir(path)
 	tmpName, err := WriteTemp(dir, filepath.Base(path), data)
