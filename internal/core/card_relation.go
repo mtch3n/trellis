@@ -192,7 +192,13 @@ func (c *Core) CardRelations(ctx context.Context, cardID string) ([]CardRelation
 		out = append(out, r.CardRelation)
 	}
 	slices.SortFunc(out, func(a, b CardRelation) int {
-		return cmp.Or(strings.Compare(a.Rel, b.Rel), strings.Compare(a.Ref, b.Ref))
+		aRef := ParseCardRef(a.Ref)
+		bRef := ParseCardRef(b.Ref)
+		return cmp.Or(
+			strings.Compare(a.Rel, b.Rel),
+			strings.Compare(aRef.ProjectKey, bRef.ProjectKey),
+			cmp.Compare(aRef.Seq, bRef.Seq),
+		)
 	})
 	return out, nil
 }

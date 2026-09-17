@@ -152,3 +152,36 @@ func TestCardRelationsListDoneStateAndOrder(t *testing.T) {
 		t.Errorf("related event = %s %s, want resolved_by %s", field, value, d1.Ref)
 	}
 }
+
+func TestCardRelationsSortsNumerically(t *testing.T) {
+	c := testCore(t)
+	p := seededProject(t, c)
+	b := seededBoard(t, c, p)
+	a, _ := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"})
+	x2, _ := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "x2"})
+	x10, _ := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "x10"})
+
+	// Relate a to both x2 and x10 with the same relation
+	if err := c.RelateCards(t.Context(), p.ID, CardRef{Seq: a.Seq}, "relates_to", CardRef{Seq: x10.Seq}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RelateCards(t.Context(), p.ID, CardRef{Seq: a.Seq}, "relates_to", CardRef{Seq: x2.Seq}); err != nil {
+		t.Fatal(err)
+	}
+
+	rels, err := c.CardRelations(t.Context(), a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify x2 comes before x10 (numeric sort, not string sort where X-10 < X-2)
+	if len(rels) != 2 {
+		t.Fatalf("expected 2 relations, got %d: %+v", len(rels), rels)
+	}
+	if rels[0].Ref != x2.Ref {
+		t.Errorf("first relation ref = %q, want %q (numeric seq %d < %d)", rels[0].Ref, x2.Ref, x2.Seq, x10.Seq)
+	}
+	if rels[1].Ref != x10.Ref {
+		t.Errorf("second relation ref = %q, want %q", rels[1].Ref, x10.Ref)
+	}
+}
