@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mtch3n/trellis/internal/core"
+	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -49,11 +50,11 @@ func newKnowledgeNewCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return withBoard(func(app *appCtx) error {
+			return withTargets([]refArg{{Collection: vpath.CollectionBoards, Value: board}}, func(app *appCtx, refs []string) error {
 				doc, err := app.Core.CreateKnowledge(cmd.Context(), app.Project.ID, core.NewKnowledge{
 					Title: title.String(), Body: body.String(), Template: template,
 					Provenance: provenance,
-					Summary:    summary.String(), Board: board, Tags: tags, Labels: labels,
+					Summary:    summary.String(), Board: refs[0], Tags: tags, Labels: labels,
 					Private: private, Set: fields, Sources: sources,
 					Dir: dir, NewDir: newDir,
 				})
@@ -94,8 +95,8 @@ func newKnowledgeShowCmd() *cobra.Command {
 		Short: "Show one entry with its backlinks",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBoard(func(app *appCtx) error {
-				doc, err := app.Core.ReadKnowledge(cmd.Context(), app.Project.ID, args[0])
+			return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
+				doc, err := app.Core.ReadKnowledge(cmd.Context(), app.Project.ID, ref)
 				if err != nil {
 					return err
 				}
@@ -344,7 +345,7 @@ func newKnowledgeEditCmd() *cobra.Command {
 					"--body replaces the whole body; --source replaces the source list",
 					"trellis knowledge edit "+args[0]+" --body @notes.md")
 			}
-			return withBoard(func(app *appCtx) error {
+			return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
 				edit := core.KnowledgeEdit{}
 				if body.Changed() {
 					b := body.String()
@@ -383,7 +384,7 @@ func newKnowledgeEditCmd() *cobra.Command {
 				if ifVersion > 0 {
 					edit.IfVersion = &ifVersion
 				}
-				doc, err := app.Core.EditKnowledgeFields(cmd.Context(), app.Project.ID, args[0], edit)
+				doc, err := app.Core.EditKnowledgeFields(cmd.Context(), app.Project.ID, ref, edit)
 				if err != nil {
 					return err
 				}
@@ -407,8 +408,8 @@ func newKnowledgeRmCmd() *cobra.Command {
 		Short: "Delete an entry and its file",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBoard(func(app *appCtx) error {
-				if err := app.Core.DeleteKnowledge(cmd.Context(), app.Project.ID, args[0]); err != nil {
+			return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: args[0]}, func(app *appCtx, ref string) error {
+				if err := app.Core.DeleteKnowledge(cmd.Context(), app.Project.ID, ref); err != nil {
 					return err
 				}
 				return Emit(cmd, map[string]string{"deleted": args[0]},
@@ -447,15 +448,18 @@ func newKnowledgePinCmd() *cobra.Command {
 		Short: "Pin an entry's recap into every session start",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBoard(func(app *appCtx) error {
+			return withTargets([]refArg{
+				{Collection: vpath.CollectionKnowledge, Value: args[0]},
+				{Collection: vpath.CollectionBoards, Value: board},
+			}, func(app *appCtx, refs []string) error {
 				if remove {
-					if err := app.Core.UnpinKnowledge(cmd.Context(), app.Project.ID, args[0], board); err != nil {
+					if err := app.Core.UnpinKnowledge(cmd.Context(), app.Project.ID, refs[0], refs[1]); err != nil {
 						return err
 					}
 					return Emit(cmd, map[string]string{"unpinned": args[0]},
 						func() string { return "unpinned " + args[0] })
 				}
-				pin, err := app.Core.PinKnowledge(cmd.Context(), app.Project.ID, args[0], recap.String(), board)
+				pin, err := app.Core.PinKnowledge(cmd.Context(), app.Project.ID, refs[0], recap.String(), refs[1])
 				if err != nil {
 					return err
 				}
@@ -555,8 +559,8 @@ func newKnowledgeNominateCmd() *cobra.Command {
 		Short: "Propose an entry for the global vault",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBoard(func(app *appCtx) error {
-				if err := app.Core.NominateKnowledge(cmd.Context(), app.Project.ID, args[0], reason.String()); err != nil {
+			return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: args[0]}, func(app *appCtx, ref string) error {
+				if err := app.Core.NominateKnowledge(cmd.Context(), app.Project.ID, ref, reason.String()); err != nil {
 					return err
 				}
 				return Emit(cmd, map[string]string{"nominated": args[0]},
@@ -607,8 +611,8 @@ func newKnowledgeEscalateCmd() *cobra.Command {
 			if err := requireHuman(args[0]); err != nil {
 				return err
 			}
-			return withBoard(func(app *appCtx) error {
-				doc, err := app.Core.EscalateKnowledge(cmd.Context(), app.Project.ID, args[0], reason.String())
+			return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: args[0]}, func(app *appCtx, ref string) error {
+				doc, err := app.Core.EscalateKnowledge(cmd.Context(), app.Project.ID, ref, reason.String())
 				if err != nil {
 					return err
 				}

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/mtch3n/trellis/internal/core"
+	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 )
 
@@ -47,26 +48,25 @@ func newArtifactAddCmd() *cobra.Command {
 			if err := oneTarget(card, doc, false, "trellis artifact add <file> [--card <ref> | --doc <slug>]"); err != nil {
 				return err
 			}
-			return withBoard(func(app *appCtx) error {
+			return withTargets([]refArg{{Collection: vpath.CollectionCards, Value: card}}, func(app *appCtx, refs []string) error {
 				artifact, err := app.Core.CreateArtifact(cmd.Context(), app.Project.ID, args[0])
 				if err != nil {
 					return err
 				}
-				switch {
-				case card != "":
-					id, err := cardID(cmd, app, card)
+				if refs[0] != "" {
+					id, err := cardID(cmd, app, refs[0])
 					if err != nil {
 						return err
 					}
 					if err := app.Core.LinkArtifactToCard(cmd.Context(), app.Project.ID, id, artifact.ID); err != nil {
 						return err
 					}
-				case doc != "":
+				} else if doc != "" {
 					if _, err := app.Core.LinkArtifactToDoc(cmd.Context(), app.Project.ID, doc, artifact.ID); err != nil {
 						return err
 					}
 				}
-				return Emit(cmd, artifact, func() string { return artifact.ID + "  " + artifact.Name })
+				return Emit(cmd, artifact, func() string { return artifact.Ref + "  " + artifact.Path })
 			})
 		},
 	}
@@ -77,7 +77,7 @@ func newArtifactAddCmd() *cobra.Command {
 func newArtifactLinkCmd() *cobra.Command {
 	var card, doc string
 	cmd := &cobra.Command{
-		Use:   "link <artifact>",
+		Use:   "link <name> --card <card>",
 		Short: "Attach an existing artifact to a card or a knowledge entry",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -85,28 +85,36 @@ func newArtifactLinkCmd() *cobra.Command {
 			if err := oneTarget(card, doc, true, usage); err != nil {
 				return err
 			}
-			return withBoard(func(app *appCtx) error {
-				a, err := app.Core.ResolveArtifact(cmd.Context(), app.Project.ID, args[0])
-				if err != nil {
-					return err
-				}
-				if doc != "" {
-					entry, err := app.Core.LinkArtifactToDoc(cmd.Context(), app.Project.ID, doc, a.ID)
+			if doc != "" {
+				return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: doc}, func(app *appCtx, ref string) error {
+					a, err := app.Core.ResolveArtifact(cmd.Context(), app.Project.ID, args[0])
 					if err != nil {
 						return err
 					}
-					return Emit(cmd, map[string]any{"artifact": a.ID, "name": a.Name, "doc": entry.Slug},
-						func() string { return entry.Slug + " -> " + a.Name })
+					entry, err := app.Core.LinkArtifactToDoc(cmd.Context(), app.Project.ID, ref, a.ID)
+					if err != nil {
+						return err
+					}
+					return Emit(cmd, map[string]any{"artifact": a.Ref, "doc": entry.Slug},
+						func() string { return entry.Slug + " -> " + a.Ref })
+				})
+			}
+			return withTargets([]refArg{
+				{Collection: vpath.CollectionArtifacts, Value: args[0]},
+				{Collection: vpath.CollectionCards, Value: card},
+			}, func(app *appCtx, refs []string) error {
+				a, err := app.Core.ResolveArtifact(cmd.Context(), app.Project.ID, refs[0])
+				if err != nil {
+					return err
 				}
-				id, err := cardID(cmd, app, card)
+				id, err := cardID(cmd, app, refs[1])
 				if err != nil {
 					return err
 				}
 				if err := app.Core.LinkArtifactToCard(cmd.Context(), app.Project.ID, id, a.ID); err != nil {
 					return err
 				}
-				return Emit(cmd, map[string]any{"artifact": a.ID, "name": a.Name, "card": card},
-					func() string { return card + " -> " + a.Name })
+				return Emit(cmd, map[string]string{"artifact": a.Ref, "card": card}, func() string { return card + " -> " + a.Ref })
 			})
 		},
 	}
@@ -166,30 +174,29 @@ func newArtifactLsCmd() *cobra.Command {
 			if err := oneTarget(card, doc, false, "trellis artifact ls [--card <ref> | --doc <slug>]"); err != nil {
 				return err
 			}
-			return withBoard(func(app *appCtx) error {
-				var cardIDValue, docIDValue string
-				switch {
-				case card != "":
-					id, err := cardID(cmd, app, card)
-					if err != nil {
+			return withTargets([]refArg{{Collection: vpath.CollectionCards, Value: card}}, func(app *appCtx, refs []string) error {
+				cardIDValue := ""
+				if refs[0] != "" {
+					var err error
+					if cardIDValue, err = cardID(cmd, app, refs[0]); err != nil {
 						return err
 					}
-					cardIDValue = id
-				case doc != "":
+				} else if doc != "" {
 					entry, err := app.Core.LoadKnowledge(cmd.Context(), app.Project.ID, doc)
 					if err != nil {
 						return err
 					}
-					docIDValue = entry.ID
+					cardIDValue = ""
+					_ = entry
 				}
-				items, err := app.Core.ListArtifacts(cmd.Context(), app.Project.ID, cardIDValue, docIDValue)
+				items, err := app.Core.ListArtifacts(cmd.Context(), app.Project.ID, cardIDValue, "")
 				if err != nil {
 					return err
 				}
 				return Emit(cmd, map[string]any{"artifacts": items}, func() string {
 					var b strings.Builder
 					for _, item := range items {
-						fmt.Fprintf(&b, "%s  %s  %s\n", item.ID, item.Kind, item.Path)
+						fmt.Fprintf(&b, "%s  %s  %s\n", item.Ref, item.Kind, item.Path)
 					}
 					return strings.TrimRight(b.String(), "\n")
 				})
@@ -206,16 +213,15 @@ func newArtifactRmCmd() *cobra.Command {
 		Short: "Delete an artifact; entries that name it keep the name as a stub",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBoard(func(app *appCtx) error {
-				a, err := app.Core.ResolveArtifact(cmd.Context(), app.Project.ID, args[0])
+			return withTarget(refArg{Collection: vpath.CollectionArtifacts, Value: args[0]}, func(app *appCtx, ref string) error {
+				a, err := app.Core.ResolveArtifact(cmd.Context(), app.Project.ID, ref)
 				if err != nil {
 					return err
 				}
 				if err := app.Core.DeleteArtifact(cmd.Context(), app.Project.ID, a.ID); err != nil {
 					return err
 				}
-				return Emit(cmd, map[string]string{"deleted": a.ID, "name": a.Name},
-					func() string { return "deleted " + a.Name })
+				return Emit(cmd, map[string]string{"deleted": a.Ref}, func() string { return "deleted " + a.Ref })
 			})
 		},
 	}
