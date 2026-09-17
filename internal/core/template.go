@@ -349,9 +349,13 @@ func frontmatterFields(fm Frontmatter) map[string][]string {
 
 // TemplateInfo is one template's summary for `template ls`.
 type TemplateInfo struct {
-	Name    string `json:"name"`
-	Enforce string `json:"enforce"`
-	BuiltIn bool   `json:"builtin"`
+	Name     string              `json:"name"`
+	Enforce  string              `json:"enforce"`
+	BuiltIn  bool                `json:"builtin"`
+	Required []string            `json:"required"`
+	Choices  map[string][]string `json:"choices"`
+	// Sections are the "## " headings an entry must keep.
+	Sections []string `json:"sections"`
 }
 
 // ListTemplates lists every template in <root>/templates, alphabetically.
@@ -375,7 +379,10 @@ func (c *Core) ListTemplates(ctx context.Context) ([]TemplateInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, TemplateInfo{Name: name, Enforce: t.Enforce, BuiltIn: slices.Contains(builtins, name)})
+		out = append(out, TemplateInfo{
+			Name: name, Enforce: t.Enforce, BuiltIn: slices.Contains(builtins, name),
+			Required: t.Required, Choices: t.Choices, Sections: requiredSections(t.Body),
+		})
 	}
 	slices.SortFunc(out, func(a, b TemplateInfo) int { return strings.Compare(a.Name, b.Name) })
 	return out, nil

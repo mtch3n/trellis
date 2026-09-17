@@ -88,6 +88,7 @@ func (s *Server) registerRoutes() {
 	// API routes
 	s.mux.HandleFunc("GET /api/me", s.handleMe)
 	s.mux.HandleFunc("GET /api/projects", s.handleProjects)
+	s.mux.HandleFunc("GET /api/templates", s.handleTemplates)
 	s.mux.HandleFunc("DELETE /api/p/{key}", s.handleDeleteProject)
 	s.mux.HandleFunc("GET /api/p/{key}/boards", s.handleBoards)
 	s.mux.HandleFunc("GET /api/p/{key}/events", s.handleProjectEvents)
@@ -1089,6 +1090,19 @@ func (s *Server) handleKnowledgeLinks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, links)
+}
+
+// handleTemplates lists every knowledge template, built-in and the user's.
+// Templates belong to the Trellis home, not to a project.
+func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	templates, err := s.core.ListTemplates(ctx)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, templates)
 }
 
 func (s *Server) handleGlobalKnowledgeList(w http.ResponseWriter, r *http.Request) {
