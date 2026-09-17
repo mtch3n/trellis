@@ -326,6 +326,21 @@ func (m *merger) rewriteDoc(id string) error {
 			return err
 		}
 	}
+	// The refreshFromFile below treats the write as an external edit and
+	// would, on its own, record the version it assigns by writing straight to
+	// disk -- a write this merge's stage never sees and so cannot undo.
+	// Staging that file here first, under the version refreshFromFile is
+	// about to assign, makes its own capture a no-op (revisionToKeep skips a
+	// destination that already exists) and keeps the write inside the undo.
+	nextRev, nextKeep, err := m.c.revisionToKeep(current, doc.Version+1, []byte(text))
+	if err != nil {
+		return err
+	}
+	if nextKeep {
+		if err := m.stage.create(nextRev, []byte(text)); err != nil {
+			return err
+		}
+	}
 	if err := m.stage.rewrite(current, []byte(text)); err != nil {
 		return err
 	}

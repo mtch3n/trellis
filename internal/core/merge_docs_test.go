@@ -241,33 +241,52 @@ func TestMergeDocumentPlanMatchesApply(t *testing.T) {
 	}
 }
 
-// A failure after files have moved puts every file back and changes nothing.
+// A failure after files have moved, and after a citing document has really
+// been rewritten, puts every file back and changes nothing. Two citing
+// documents in different projects: references() visits them in ascending id
+// order, so blocking whichever one sorts second still lets the other's
+// rewrite land on disk before the merge fails -- the half of this test a
+// single blocked document could never reach.
 func TestMergeFailureRestoresFiles(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("permission bits do not deny writes here")
 	}
 	f := newMergeFixture(t)
 	core, _ := f.project("CORE")
+	team, _ := f.project("TEAM")
 	runbook := f.doc(f.api, "Runbook", "x\n")
 	// A revision, so its move is undone too.
 	if _, err := f.c.EditKnowledge(t.Context(), f.api.ID, runbook.Slug, "y\n", &runbook.Version); err != nil {
 		t.Fatal(err)
 	}
-	cite := f.doc(core, "Citations", "[[/API/knowledge/runbook]]\n")
+	citeCore := f.doc(core, "Citations", "[[/API/knowledge/runbook]]\n")
+	citeTeam := f.doc(team, "Notes", "[[/API/knowledge/runbook]]\n")
+	free, freeAddr, blocked := citeCore, "/CORE/knowledge/citations", citeTeam
+	if citeTeam.ID < citeCore.ID {
+		free, freeAddr, blocked = citeTeam, "/TEAM/knowledge/notes", citeCore
+	}
+	freeOriginal := readFile(t, free.Path)
 	before := f.snapshot()
 
-	// The rewrite of CORE's document happens after API's files moved; a
-	// directory that refuses new files makes it fail there.
-	dir := filepath.Dir(cite.Path)
+	// blocked's directory refuses new files, so its rewrite fails there --
+	// but only after free's has already succeeded.
+	dir := filepath.Dir(blocked.Path)
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatal(err)
 	}
-	_, err := f.c.MergeProjects(t.Context(), "API", "MONO", MergeOptions{Apply: true})
+	applied, err := f.c.MergeProjects(t.Context(), "API", "MONO", MergeOptions{Apply: true})
 	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err == nil {
 		t.Fatal("the merge succeeded")
+	}
+	if !slices.Contains(applied.DocumentsRewritten, freeAddr) {
+		t.Fatalf("rewritten = %v, want it to include %s: this test proves nothing otherwise",
+			applied.DocumentsRewritten, freeAddr)
+	}
+	if got := readFile(t, free.Path); got != freeOriginal {
+		t.Errorf("the document whose rewrite landed was not restored:\n%s", got)
 	}
 	if after := f.snapshot(); after != before {
 		t.Errorf("a failed merge left changes:\nbefore %s\nafter  %s", before, after)
