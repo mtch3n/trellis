@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/atomicfile"
 )
 
 // MaxInjectedPins is how many recaps the brief carries in full; the rest are
@@ -546,11 +547,11 @@ func moveFileTo(src, dest string) (string, error) {
 	}
 	destDir := filepath.Dir(dest)
 	srcDir := filepath.Dir(src)
-	if err := syncDirectory(destDir); err != nil {
+	if err := atomicfile.SyncDir(destDir); err != nil {
 		return "", err
 	}
 	if destDir != srcDir {
-		if err := syncDirectory(srcDir); err != nil {
+		if err := atomicfile.SyncDir(srcDir); err != nil {
 			return "", err
 		}
 	}

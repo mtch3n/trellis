@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/atomicfile"
 	"github.com/mtch3n/trellis/internal/vpath"
 	"gopkg.in/yaml.v3"
 )
@@ -242,7 +243,7 @@ func seedTemplates(dir string) error {
 		if err != nil {
 			return err
 		}
-		if err := writeAtomic(filepath.Join(dir, name+".md"), raw, false); err != nil {
+		if err := atomicfile.Write(filepath.Join(dir, name+".md"), raw, false); err != nil {
 			return err
 		}
 	}
@@ -428,7 +429,7 @@ func (c *Core) NewTemplate(ctx context.Context, name string) (Template, error) {
 	}
 	path := filepath.Join(dir, name+".md")
 	raw := "---\nenforce: warn\n---\n# {{title}}\n"
-	if err := writeAtomic(path, []byte(raw), false); err != nil {
+	if err := atomicfile.Write(path, []byte(raw), false); err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return Template{}, ErrConflict("template_exists", "a template named "+name+" already exists",
 				"trellis knowledge template edit "+name)
@@ -466,7 +467,7 @@ func (c *Core) EditTemplate(ctx context.Context, name, raw string) (Template, er
 	if err := validateTemplateRules(rules); err != nil {
 		return Template{}, ErrUsage("bad_template", err.Error(), "")
 	}
-	if err := writeAtomic(path, []byte(raw), true); err != nil {
+	if err := atomicfile.Write(path, []byte(raw), true); err != nil {
 		return Template{}, err
 	}
 	return loadTemplate(dir, name)
@@ -489,7 +490,7 @@ func (c *Core) DeleteTemplate(ctx context.Context, name string) error {
 		}
 		return err
 	}
-	return syncDirectory(dir)
+	return atomicfile.SyncDir(dir)
 }
 
 // ReinstallTemplate overwrites name with its shipped version. It recreates
@@ -508,7 +509,7 @@ func (c *Core) ReinstallTemplate(ctx context.Context, name string) (Template, er
 	if err != nil {
 		return Template{}, err
 	}
-	if err := writeAtomic(filepath.Join(dir, name+".md"), raw, true); err != nil {
+	if err := atomicfile.Write(filepath.Join(dir, name+".md"), raw, true); err != nil {
 		return Template{}, err
 	}
 	t, err := loadTemplate(dir, name)

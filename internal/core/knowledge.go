@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/atomicfile"
 	"github.com/mtch3n/trellis/internal/vpath"
 )
 
@@ -328,7 +329,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return err
 		}
-		if err := writeAtomic(path, []byte(raw), false); err != nil {
+		if err := atomicfile.Write(path, []byte(raw), false); err != nil {
 			return err
 		}
 		writtenPath = path
@@ -373,7 +374,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		// only removing the path when it still has the exact bytes we wrote.
 		if raw, readErr := os.ReadFile(writtenPath); readErr == nil && ContentHash(string(raw)) == doc.ContentHash {
 			_ = os.Remove(writtenPath)
-			_ = syncDirectory(filepath.Dir(writtenPath))
+			_ = atomicfile.SyncDir(filepath.Dir(writtenPath))
 			_ = os.Remove(revisionFilePath(writtenPath, 1))
 			_ = removeRevisionDirIfEmpty(writtenPath)
 		}

@@ -32,6 +32,7 @@ docs/ui-operation-parity.md	old-address	1
 docs/ui-operation-parity.md	owner	5
 docs/ui-operation-parity.md	type-field	2
 docs/ui-operation-parity.md	unarchive	1
+internal/atomicfile/atomicfile.go	orphan-file	1	Task 4: relocated verbatim from internal/core/file_store.go, same occurrence, not a new one
 internal/cli/agent.go	owner	1
 internal/cli/artifact.go	attach	9
 internal/cli/artifact.go	doc	35
@@ -274,7 +275,6 @@ internal/core/event_feed_test.go	kb	23
 internal/core/event_feed_test.go	knowledge-ident	39
 internal/core/file_stage_test.go	knowledge-ident	7
 internal/core/file_store.go	dangling	1
-internal/core/file_store.go	orphan-file	1
 internal/core/graph.go	doc	10
 internal/core/graph.go	knowledge-ident	1
 internal/core/graph_test.go	kb	1

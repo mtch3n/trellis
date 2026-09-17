@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/atomicfile"
 )
 
 // moveRevisionDirIfExists moves an entry's revision directory alongside it.
@@ -39,10 +40,10 @@ func moveRevisionDirIfExists(oldDocPath, newDocPath string) (moved bool, err err
 			return false, rerr
 		}
 	}
-	if err := syncDirectory(filepath.Dir(newDir)); err != nil {
+	if err := atomicfile.SyncDir(filepath.Dir(newDir)); err != nil {
 		return false, err
 	}
-	if err := syncDirectory(filepath.Dir(oldDir)); err != nil {
+	if err := atomicfile.SyncDir(filepath.Dir(oldDir)); err != nil {
 		return false, err
 	}
 	return true, nil

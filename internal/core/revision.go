@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/aymanbagabas/go-udiff"
+	"github.com/mtch3n/trellis/internal/atomicfile"
 )
 
 // revisionDir is the hidden directory beside an entry's file that holds its
@@ -81,7 +82,7 @@ func trimRevisions(entryPath string, keep int) (int, error) {
 		removed++
 	}
 	if removed > 0 {
-		if err := syncDirectory(revisionDir(entryPath)); err != nil {
+		if err := atomicfile.SyncDir(revisionDir(entryPath)); err != nil {
 			return removed, err
 		}
 	}
@@ -106,7 +107,7 @@ func removeRevisionDirIfEmpty(entryPath string) error {
 	if err := os.Remove(dir); err != nil {
 		return err
 	}
-	return syncDirectory(filepath.Dir(dir))
+	return atomicfile.SyncDir(filepath.Dir(dir))
 }
 
 // revisionToKeep says whether raw should be retained as version's copy of
@@ -154,7 +155,7 @@ func (c *Core) captureKnowledgeRevision(entryPath string, version int64, raw []b
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 		return "", err
 	}
-	if err := writeAtomic(dest, raw, false); err != nil {
+	if err := atomicfile.Write(dest, raw, false); err != nil {
 		return "", err
 	}
 	if _, err := trimRevisions(entryPath, c.historyKeep); err != nil {
@@ -187,7 +188,7 @@ func discardCapturedRevision(dest string) error {
 	if err := os.Remove(dir); err != nil {
 		return err
 	}
-	return syncDirectory(filepath.Dir(dir))
+	return atomicfile.SyncDir(filepath.Dir(dir))
 }
 
 // revisionFiles lists the files in an entry's revision directory, none when
@@ -226,7 +227,7 @@ func copyDirAtomic(dest, src string) error {
 			return err
 		}
 	}
-	return syncDirectory(dest)
+	return atomicfile.SyncDir(dest)
 }
 
 // RevisionInfo is one retained version of a knowledge entry, newest first.

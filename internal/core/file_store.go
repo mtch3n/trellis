@@ -7,70 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/mtch3n/trellis/internal/atomicfile"
 )
-
-// writeTemp creates a temp file beside path in the "."+name+".tmp-" pattern,
-// writes data, and syncs and closes it. The caller links or renames it into
-// place and removes it on any later failure. writeAtomic and
-// replaceIfUnchanged both build on this so the temp-file dance exists once.
-func writeTemp(dir, name string, data []byte) (string, error) {
-	tmp, err := os.CreateTemp(dir, "."+name+".tmp-")
-	if err != nil {
-		return "", err
-	}
-	tmpName := tmp.Name()
-	ok := false
-	defer func() {
-		_ = tmp.Close()
-		if !ok {
-			_ = os.Remove(tmpName)
-		}
-	}()
-	if err := tmp.Chmod(0o600); err != nil {
-		return "", err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		return "", err
-	}
-	if err := tmp.Sync(); err != nil {
-		return "", err
-	}
-	if err := tmp.Close(); err != nil {
-		return "", err
-	}
-	ok = true
-	return tmpName, nil
-}
-
-// writeAtomic replaces path only after the complete contents have been
-// written and synced. When replace is false, the final link is created with
-// O_EXCL-like semantics, which keeps a stale orphan from being overwritten.
-func writeAtomic(path string, data []byte, replace bool) error {
-	dir := filepath.Dir(path)
-	tmpName, err := writeTemp(dir, filepath.Base(path), data)
-	if err != nil {
-		return err
-	}
-	keep := false
-	defer func() {
-		if !keep {
-			_ = os.Remove(tmpName)
-		}
-	}()
-	if replace {
-		err = os.Rename(tmpName, path)
-	} else {
-		err = os.Link(tmpName, path)
-		if err == nil {
-			err = os.Remove(tmpName)
-		}
-	}
-	if err != nil {
-		return err
-	}
-	keep = true
-	return syncDirectory(dir)
-}
 
 // errFileChanged reports that a file no longer holds the bytes a write was
 // based on.
@@ -86,7 +25,7 @@ var errFileChanged = errors.New("file changed on disk")
 // closes it, because editors do not take locks.
 func replaceIfUnchanged(path string, data []byte, base string) error {
 	dir := filepath.Dir(path)
-	tmpName, err := writeTemp(dir, filepath.Base(path), data)
+	tmpName, err := atomicfile.WriteTemp(dir, filepath.Base(path), data)
 	if err != nil {
 		return err
 	}
@@ -107,7 +46,7 @@ func replaceIfUnchanged(path string, data []byte, base string) error {
 		return err
 	}
 	keep = true
-	return syncDirectory(dir)
+	return atomicfile.SyncDir(dir)
 }
 
 // undoWrite puts back the bytes a failed write replaced, unless someone has
@@ -161,7 +100,7 @@ func copyAtomic(path, source string) error {
 		return err
 	}
 	keep = true
-	return syncDirectory(dir)
+	return atomicfile.SyncDir(dir)
 }
 
 type stagedRemoval struct {
@@ -193,7 +132,7 @@ func stageRemoval(path string) (*stagedRemoval, error) {
 	if err := os.Rename(path, trash); err != nil {
 		return nil, err
 	}
-	if err := syncDirectory(filepath.Dir(path)); err != nil {
+	if err := atomicfile.SyncDir(filepath.Dir(path)); err != nil {
 		_ = os.Rename(trash, path)
 		return nil, err
 	}
@@ -213,7 +152,7 @@ func (s *stagedRemoval) restore() error {
 		return err
 	}
 	s.trash = ""
-	return syncDirectory(filepath.Dir(s.path))
+	return atomicfile.SyncDir(filepath.Dir(s.path))
 }
 
 func (s *stagedRemoval) finalize() error {
@@ -227,7 +166,7 @@ func (s *stagedRemoval) finalize() error {
 	if err := os.RemoveAll(s.trash); err != nil {
 		return err
 	}
-	return syncDirectory(filepath.Dir(s.path))
+	return atomicfile.SyncDir(filepath.Dir(s.path))
 }
 
 // fileStage records file operations made inside a database transaction, so
@@ -251,14 +190,14 @@ func (s *fileStage) move(from, to string) error {
 		return fmt.Errorf("cannot move %s to %s: %w", from, to, err)
 	}
 	s.undo = append(s.undo, func() error { return os.Remove(to) })
-	if err := syncDirectory(filepath.Dir(to)); err != nil {
+	if err := atomicfile.SyncDir(filepath.Dir(to)); err != nil {
 		return err
 	}
 	s.finish = append(s.finish, func() error {
 		if err := os.Remove(from); err != nil {
 			return err
 		}
-		return syncDirectory(filepath.Dir(from))
+		return atomicfile.SyncDir(filepath.Dir(from))
 	})
 	return nil
 }
@@ -273,7 +212,7 @@ func (s *fileStage) create(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	err := writeAtomic(path, data, false)
+	err := atomicfile.Write(path, data, false)
 	if errors.Is(err, os.ErrExist) {
 		return err
 	}
@@ -284,16 +223,16 @@ func (s *fileStage) create(path string, data []byte) error {
 }
 
 // rewrite replaces a file's content, keeping the old bytes for undo. The undo
-// is registered before the write: writeAtomic can replace the file and then
-// fail to sync its directory, and that file must still be restored. Undoing a
-// write that never happened rewrites the same bytes.
+// is registered before the write: atomicfile.Write can replace the file and
+// then fail to sync its directory, and that file must still be restored.
+// Undoing a write that never happened rewrites the same bytes.
 func (s *fileStage) rewrite(path string, data []byte) error {
 	old, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	s.undo = append(s.undo, func() error { return writeAtomic(path, old, true) })
-	return writeAtomic(path, data, true)
+	s.undo = append(s.undo, func() error { return atomicfile.Write(path, old, true) })
+	return atomicfile.Write(path, data, true)
 }
 
 // rollback undoes every recorded operation, newest first, and reports every

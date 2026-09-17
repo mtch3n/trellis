@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/atomicfile"
 	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/mtch3n/trellis/internal/vpath"
 )
@@ -342,7 +343,7 @@ func (c *Core) InitProject(ctx context.Context, req InitRequest) (InitResult, er
 	if res.Board != nil {
 		target = vpath.BoardPath(res.Project.Key, res.Board.Slug)
 	}
-	err = writeAtomic(res.PinPath, []byte(target.String()+"\n"), false)
+	err = atomicfile.Write(res.PinPath, []byte(target.String()+"\n"), false)
 	switch {
 	case err == nil:
 		res.Wrote = true

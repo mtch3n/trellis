@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/atomicfile"
 )
 
 // PruneHistory deletes only explicitly selected historical telemetry. Event
@@ -196,7 +197,7 @@ func (c *Core) PruneOrphanHistory(ctx context.Context) (int64, error) {
 		if err := os.RemoveAll(dir); err != nil {
 			return removed, err
 		}
-		if err := syncDirectory(filepath.Dir(dir)); err != nil {
+		if err := atomicfile.SyncDir(filepath.Dir(dir)); err != nil {
 			return removed, err
 		}
 		removed++
