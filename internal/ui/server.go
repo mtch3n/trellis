@@ -845,6 +845,10 @@ type cardDetail struct {
 	// it. Both sit beside the card rather than inside it, like Relations.
 	Links     []core.CardLink `json:"links"`
 	Artifacts []artifactItem  `json:"artifacts"`
+	// Board is the slug of the board this card is on. A card is addressed
+	// by project, but every write to it goes through its board, and a deep
+	// link cannot know which one that is.
+	Board string `json:"board"`
 }
 
 func (s *Server) handleCardDetail(w http.ResponseWriter, r *http.Request) {
@@ -901,9 +905,14 @@ func (s *Server) handleCardDetail(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
+	var slug string
+	if err := s.db.GetContext(ctx, &slug, `SELECT slug FROM board WHERE id = ?`, card.BoardID); err != nil {
+		s.error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, cardDetail{
 		Card: card, Comments: comments, Events: events, Relations: relations,
-		Links: links, Artifacts: artifactItems(p.Key, artifacts),
+		Links: links, Artifacts: artifactItems(p.Key, artifacts), Board: slug,
 	})
 }
 

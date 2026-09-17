@@ -16,6 +16,7 @@ import { ago, sentence, templateLabel } from '@/lib/format'
 import { buildMarks, type ProjectEvent } from '@/lib/timeline-marks'
 import { cn } from '@/lib/utils'
 import { readError } from '@/lib/api'
+import { defaultBoard } from '@/lib/boards'
 
 interface ColumnCards { name: string; cards: CardInfo[] }
 interface Event {
@@ -66,7 +67,7 @@ export function OverviewPage() {
     ;(async () => {
       const projects = await read<ProjectSummary[]>('/api/projects')
       const summary = projects.find((project) => project.key === projectKey) ?? null
-      const board = summary?.boards[0]?.slug
+      const board = defaultBoard(summary?.boards ?? [])?.slug
       // The whole event log, a page at a time, for the timeline.
       const readLog = async () => {
         const log: ProjectEvent[] = []
@@ -121,7 +122,7 @@ export function OverviewPage() {
       urgent: cards.filter((card) => card.priority === 'urgent' && !doneNames.has(columnOf(data.columns, card.ref))),
       pinned: data.entries.filter((entry) => entry.recap),
       recent: [...data.entries].sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0)).slice(0, 5),
-      board: data.summary?.boards[0]?.slug,
+      board: defaultBoard(data.summary?.boards ?? [])?.slug,
     }
   }, [data, projectKey])
 

@@ -1,8 +1,6 @@
 # Uses of retired words the tree still has. Each task of the vocabulary
 # plan deletes lines; a line that stays says why after a fourth tab.
 .claude-plugin/marketplace.json	owner	1	# why: the Claude Code marketplace schema's owner field, not a card claimant
-docs/ui-operation-parity.md	feed	1	# why: the handoff's own vocabulary note, retiring the word by naming it
-docs/ui-operation-parity.md	knowledge-ident	4	# why: KnowledgePage, KnowledgeNav and lib/knowledge-graph.ts, web names still spelled this way on disk; the web session renames them
 internal/address/address.go	vpath	1	# why: spec file path
 internal/cli/daemon.go	attach	1	# why: workers attaching to a running daemon process
 internal/cli/daemon_control.go	attach	4	# why: a detached child process, not an artifact

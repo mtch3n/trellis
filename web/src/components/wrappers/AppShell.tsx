@@ -15,6 +15,7 @@ import {
 import { Lamp } from '@/components/wrappers/Lamp'
 import { GuardedLink } from '@/components/wrappers/NavigationGuard'
 import { ProjectSwitcher } from '@/components/wrappers/ProjectSwitcher'
+import { defaultBoard } from '@/lib/boards'
 import { useLiveStatus } from '@/lib/live-status'
 import { useNavigationGuard } from '@/lib/navigation-guard'
 import { ThemeToggle } from '@/components/wrappers/ThemeToggle'
@@ -110,9 +111,7 @@ export function AppShell({
   // A slug in the URL that names no board falls through rather than emptying
   // the switcher.
   const pickBoard = (boards: ProjectSummary['boards']) =>
-    (boardSlug ? boards.find((board) => board.slug === boardSlug) : undefined) ??
-    boards.find((board) => board.is_default) ??
-    boards[0]
+    (boardSlug ? boards.find((board) => board.slug === boardSlug) : undefined) ?? defaultBoard(boards)
 
   const switchProject = (key: string) => {
     const target = projects.find((project) => project.key === key)

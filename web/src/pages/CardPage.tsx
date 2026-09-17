@@ -69,13 +69,14 @@ export function CardPage() {
   const load = useCallback(async (signal?: AbortSignal) => {
     if (!projectKey || !cardRef) return
     try {
-      const boards = await fetch(`/api/p/${projectKey}/boards`, { signal })
-      const slug = boards.ok ? (((await boards.json()) as { slug: string }[])[0]?.slug ?? null) : null
-      setBoard(slug)
-
       const detail = await fetch(`/api/p/${projectKey}/cards/${encodeURIComponent(cardRef)}`, { signal })
       if (!detail.ok) throw new Error(await readError(detail))
       const data = (await detail.json()) as CardDetail
+      // The card says which board it is on. Every write goes through that
+      // board, and a project may have several, so taking the first would
+      // write to the wrong one.
+      const slug = data.board ?? null
+      setBoard(slug)
       setCard(withDetail(data))
       setComments(data.comments ?? [])
       setEvents(data.events ?? [])

@@ -20,6 +20,7 @@ import { Lamp } from '@/components/wrappers/Lamp'
 import { PageHeader } from '@/components/wrappers/PageHeader'
 import { Paged } from '@/components/wrappers/Paged'
 import { readError } from '@/lib/api'
+import { defaultBoard } from '@/lib/boards'
 
 function cards(project: ProjectSummary) {
   return project.columns.reduce((total, column) => total + column.card_count, 0)
@@ -147,7 +148,7 @@ function Group({
               </TableHeader>
               <TableBody>
                 {page.map((project) => {
-                  const board = project.boards[0]
+                  const board = defaultBoard(project.boards)
                   return (
                     <TableRow key={project.key}>
                       <TableCell><Lamp state={project.expired_claims > 0 ? 'claimed' : 'idle'} /></TableCell>
@@ -192,7 +193,7 @@ function Group({
 
 function ProjectActions({ project, onDelete }: { project: ProjectSummary; onDelete: () => void }) {
   const navigate = useNavigate()
-  const board = project.boards[0]
+  const board = defaultBoard(project.boards)
   return (
     <DropdownMenu>
       <Tooltip>

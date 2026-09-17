@@ -345,3 +345,21 @@ func TestSearchOptions(t *testing.T) {
 		t.Errorf("an unknown project = %d, want 404: %s", rec.Code, rec.Body)
 	}
 }
+
+// A card's detail says which board it is on: a card is addressed by project,
+// but every write to it goes through its board, and a deep link cannot know
+// which one that is.
+func TestCardDetailNamesItsBoard(t *testing.T) {
+	f := newCardFixture(t, "WHICH")
+	if rec := f.request(http.MethodPost, "/api/p/WHICH/boards", `{"name":"second board"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("create board = %d: %s", rec.Code, rec.Body)
+	}
+	made := decode[core.Card](t, f.request(http.MethodPost, "/api/p/WHICH/b/second-board/cards", `{"title":"elsewhere"}`))
+	detail := decode[cardDetail](t, f.request(http.MethodGet, "/api/p/WHICH/cards/"+made.Ref, ""))
+	if detail.Board != "second-board" {
+		t.Errorf("board = %q, want second-board", detail.Board)
+	}
+	if first := decode[cardDetail](t, f.request(http.MethodGet, "/api/p/WHICH/cards/"+f.card.Ref, "")); first.Board != "default" {
+		t.Errorf("board = %q, want default", first.Board)
+	}
+}

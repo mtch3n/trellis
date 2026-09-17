@@ -11,6 +11,8 @@ import type { Artifact } from '@/components/wrappers/ArtifactList'
  */
 export interface CardDetail {
   card: CardInfo
+  /** The slug of the board this card is on; every write to it goes there. */
+  board?: string
   comments?: CardComment[]
   events?: CardEvent[]
   relations?: Relation[]
