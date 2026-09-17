@@ -21,6 +21,7 @@ type Comment struct {
 
 // CreateComment appends a comment to a card. This is always permitted, even if the caller
 // does not own the card. The comment is written to a separate table and never bumps card.version.
+// Nor does it renew the caller's claim: RenewClaim and the claimant's own edit do that.
 func (c *Core) CreateComment(ctx context.Context, cardID, body string) (Comment, error) {
 	var comment Comment
 	now := c.clock.NowMS()

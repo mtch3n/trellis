@@ -208,11 +208,7 @@ func run() int {
 
 	if te, ok := errors.AsType[*core.Error](err); ok {
 		if forceJSON || !isTTY() {
-			body := map[string]any{"code": te.Code, "message": te.Msg, "fix": te.Fix}
-			if len(te.Problems) > 0 {
-				body["problems"] = te.Problems
-			}
-			b, _ := json.Marshal(map[string]any{"error": body})
+			b, _ := json.Marshal(map[string]any{"error": errorBody(te)})
 			fmt.Fprintln(os.Stderr, string(b))
 		} else {
 			fmt.Fprintln(os.Stderr, "error: "+te.Error())
@@ -222,6 +218,19 @@ func run() int {
 	// Unknown error type - print as-is and exit 1
 	fmt.Fprintln(os.Stderr, "error: "+err.Error())
 	return 1
+}
+
+// errorBody is a core error as the JSON error path writes it. Detail rides
+// along when the error has one, such as who claims a contended card.
+func errorBody(te *core.Error) map[string]any {
+	body := map[string]any{"code": te.Code, "message": te.Msg, "fix": te.Fix}
+	if len(te.Problems) > 0 {
+		body["problems"] = te.Problems
+	}
+	if te.Detail != nil {
+		body["detail"] = te.Detail
+	}
+	return body
 }
 
 // isUnknownCommandError checks if the error is cobra's unknown command error.

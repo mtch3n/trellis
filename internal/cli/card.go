@@ -496,7 +496,10 @@ func newCardCommentCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "comment <card>",
 		Short: "Append a comment to a card",
-		Args:  cobra.ExactArgs(1),
+		Long: `Append a comment to a card. Anyone may comment, even on a card another actor claims.
+
+A comment does not renew your claim; run "trellis card renew <card>" for that.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !body.Changed() {
 				return core.ErrUsage("missing_body", "a comment needs text",

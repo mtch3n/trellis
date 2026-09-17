@@ -54,34 +54,40 @@ func TestExitCodesAreDistinct(t *testing.T) {
 	}
 }
 
-// ErrorsCanMarshalToJSON verifies that core.Error types properly marshal
-// to JSON with expected structure (this ensures stderr output will be parseable).
-func TestErrorsCanMarshalToJSON(t *testing.T) {
-	testErr := core.ErrNotFound("card_not_found", "no card XPSCTL-99 in this project", "trellis card ls")
-
-	// All error types should be *core.Error instances
-	te, ok := errors.AsType[*core.Error](testErr)
-	if !ok {
-		t.Fatalf("error did not produce *core.Error")
+// The JSON error carries the error's detail, so a caller that hits
+// contention learns who claims the card without a second lookup.
+func TestErrorBodyCarriesDetail(t *testing.T) {
+	plain := errorBody(&core.Error{Code: "card_not_found", Msg: "no card XPSCTL-99", Fix: "trellis card ls"})
+	if _, ok := plain["detail"]; ok {
+		t.Errorf("an error without detail should not carry one: %v", plain)
 	}
 
-	// Verify the JSON structure that Execute() will emit
-	errJSON := map[string]string{
-		"code": te.Code, "message": te.Msg, "fix": te.Fix,
-	}
-	b, err := json.Marshal(map[string]any{"error": errJSON})
+	claimant := &core.Agent{ID: "agent:claimant", Handle: "claimant"}
+	body := errorBody(&core.Error{
+		Code:   "contention",
+		Msg:    "card claimed by claimant",
+		Detail: core.ContentionInfo{ClaimedBy: claimant, RecommendedAction: "take_another_card"},
+	})
+	b, err := json.Marshal(map[string]any{"error": body})
 	if err != nil {
-		t.Fatalf("failed to marshal error JSON: %v", err)
+		t.Fatal(err)
 	}
-
-	// Verify it parses back
-	var result map[string]interface{}
-	if err := json.Unmarshal(b, &result); err != nil {
-		t.Errorf("error JSON does not parse: %v\nJSON was: %s", err, string(b))
+	var got struct {
+		Error struct {
+			Code   string `json:"code"`
+			Detail struct {
+				ClaimedBy struct {
+					ID string `json:"id"`
+				} `json:"claimed_by"`
+				RecommendedAction string `json:"recommended_action"`
+			} `json:"detail"`
+		} `json:"error"`
 	}
-
-	// Verify structure
-	if _, ok := result["error"]; !ok {
-		t.Errorf("error JSON missing 'error' key: %v", result)
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("error JSON does not parse: %v\n%s", err, b)
+	}
+	if got.Error.Code != "contention" || got.Error.Detail.ClaimedBy.ID != "agent:claimant" ||
+		got.Error.Detail.RecommendedAction != "take_another_card" {
+		t.Errorf("detail lost on the wire: %s", b)
 	}
 }

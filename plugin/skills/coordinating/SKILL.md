@@ -29,7 +29,9 @@ stealing; the `--reason` is read by the displaced actor and should say what made
 takeover necessary.
 
 Trellis tells the two cases apart for you. A write refused with `contention`
-means another actor's claim is live, and its message names the claimant; one
+means another actor's claim is live: its message names the claimant, and the
+JSON error's `detail` carries the claimant's agent record (`claimed_by`, with
+its handle and last-seen time) and a `recommended_action`. One
 refused with `not_yours` means nobody holds the card, or the claim has already
 expired, so claiming it is enough.
 

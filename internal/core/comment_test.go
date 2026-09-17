@@ -73,3 +73,45 @@ func TestCreateComment(t *testing.T) {
 		t.Errorf("event Entity = %s, want 'comment'", events[0].Entity)
 	}
 }
+
+// A comment never renews the claim. Only `card renew` and the claimant's own
+// edit push the expiry out, and the guidance says so (TRELLIS-49).
+func TestCommentDoesNotRenewTheClaim(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+
+	early := New(db, FixedClock{MS: 1_000_000}, "agent:claimant", dir)
+	proj, err := early.CreateProject(ctx, "RENEW", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board, err := early.CreateBoard(ctx, proj.ID, "default", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card, err := early.CreateCard(ctx, proj.ID, board.ID, NewCard{Title: "claimed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := early.ClaimCard(ctx, card.ID, 0, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	later := New(db, FixedClock{MS: 1_600_000}, "agent:claimant", dir)
+	if _, err := later.CreateComment(ctx, card.ID, "still working"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := later.GetCard(ctx, proj.ID, CardRef{UUID: card.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ClaimUntil == nil || *after.ClaimUntil != *claimed.ClaimUntil {
+		t.Errorf("claim_until = %v after a comment, want %d", after.ClaimUntil, *claimed.ClaimUntil)
+	}
+}

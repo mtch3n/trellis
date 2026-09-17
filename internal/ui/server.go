@@ -1614,9 +1614,9 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.MarshalWrite(w, value)
 }
 
-// coreError answers with a core error's message, code and problems. The
-// error's fix is a CLI command, which means nothing to a browser user, so it
-// is left out.
+// coreError answers with a core error's message, code, problems and detail.
+// The error's fix is a CLI command, which means nothing to a browser user, so
+// it is left out.
 func (s *Server) coreError(w http.ResponseWriter, err error) {
 	e, ok := errors.AsType[*core.Error](err)
 	if !ok {
@@ -1637,6 +1637,9 @@ func (s *Server) coreError(w http.ResponseWriter, err error) {
 	body := map[string]any{"error": e.Msg, "code": e.Code}
 	if len(e.Problems) > 0 {
 		body["problems"] = e.Problems
+	}
+	if e.Detail != nil {
+		body["detail"] = e.Detail
 	}
 	writeJSON(w, status, body)
 }
