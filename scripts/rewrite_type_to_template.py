@@ -3,8 +3,11 @@
 
 Trellis no longer reads a knowledge entry's `type:`; `template:` is the only
 classification, and an entry without one has no shape to keep. For every *.md
-file under a vault directory, revision directories included, this rewrites
-the top-level `type:` key of the leading frontmatter:
+file under a vault directory's "knowledge" subtree(s), revision directories
+included, this rewrites the top-level `type:` key of the leading frontmatter.
+A vault directory (~/.trellis/projects or ~/.trellis/global) also holds
+artifacts/ -- user-uploaded files Trellis never wrote frontmatter into -- and
+this script never walks into it:
 
   type: note  -> removed (note was the "no template" default)
   type: <x>   -> template: <x>
@@ -68,10 +71,21 @@ def rewrite_content(content):
 
 
 def markdown_files(vault_dir):
-    """Every *.md file under vault_dir, hidden directories included, sorted."""
+    """Every *.md file under a "knowledge" subtree of vault_dir, revision
+    directories included, sorted. vault_dir (~/.trellis/projects or
+    ~/.trellis/global) can also hold projects/<KEY>/artifacts/ --
+    user-uploaded files, `text/*` included, that Trellis never wrote and
+    this function never walks into."""
+    vault_dir = Path(vault_dir)
     found = []
-    for root, _, files in os.walk(vault_dir):
-        found.extend(Path(root) / name for name in files if name.endswith(".md"))
+    for root, dirs, files in os.walk(vault_dir):
+        root_path = Path(root)
+        if "knowledge" not in root_path.relative_to(vault_dir).parts:
+            # Not inside a knowledge subtree yet: keep looking for one below
+            # (projects/<KEY>/knowledge), but never by way of artifacts/.
+            dirs[:] = [d for d in dirs if d != "artifacts"]
+            continue
+        found.extend(root_path / name for name in files if name.endswith(".md"))
     return sorted(found)
 
 
