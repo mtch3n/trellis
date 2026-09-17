@@ -33,7 +33,7 @@ type Knowledge struct {
 	Slug       string  `db:"slug" json:"slug"`
 	Title      string  `db:"title" json:"title"`
 	Path       string  `db:"path" json:"path"`
-	DocType    string  `db:"doc_type" json:"type"`
+	Template   string  `db:"template" json:"template"`
 	Summary    string  `db:"summary" json:"summary,omitempty"`
 	Provenance string  `db:"provenance" json:"provenance,omitempty"`
 	Recap      *string `db:"recap" json:"recap,omitempty"`
@@ -115,7 +115,7 @@ type KnowledgeEdit struct {
 	Artifacts *[]string
 	// Sources, when non-nil, replaces the entry's source list.
 	Sources   *[]string
-	DocType   *string
+	Template  *string
 	Private   *bool
 	Tags      *[]string
 	Labels    *[]string
@@ -263,7 +263,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 
 		now := c.clock.NowMS()
 		fm := Frontmatter{
-			Title: in.Title, Type: cmpOr(in.Template, "note"), Summary: in.Summary,
+			Title: in.Title, Template: cmpOr(in.Template, "note"), Summary: in.Summary,
 			Provenance: provenance,
 			Private:    in.Private,
 			Board:      boardName, Tags: in.Tags, Labels: in.Labels,
@@ -292,7 +292,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 
 		doc = Knowledge{
 			ID: NewCardID(), ProjectID: projectID, BoardID: boardID, Slug: slug,
-			Title: in.Title, Path: path, DocType: fm.Type, Summary: in.Summary,
+			Title: in.Title, Path: path, Template: fm.Template, Summary: in.Summary,
 			Provenance: provenance,
 			Private:    in.Private,
 			Sources:    cleanSources(in.Sources),
@@ -341,11 +341,11 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 
 func insertKnowledge(tx *sqlx.Tx, d Knowledge) error {
 	_, err := tx.Exec(
-		`INSERT INTO knowledge (id, project_id, board_id, slug, title, path, doc_type, summary,
+		`INSERT INTO knowledge (id, project_id, board_id, slug, title, path, template, summary,
 		                        provenance, private, content_hash, mtime, size, global, version,
 		                        created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		d.ID, d.ProjectID, d.BoardID, d.Slug, d.Title, d.Path, d.DocType, d.Summary,
+		d.ID, d.ProjectID, d.BoardID, d.Slug, d.Title, d.Path, d.Template, d.Summary,
 		d.Provenance, d.Private, d.ContentHash, d.MTime, d.Size, d.Global, d.Version,
 		d.CreatedAt, d.UpdatedAt)
 	return err
@@ -467,7 +467,7 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 		return err
 	}
 	doc.Title = cmpOr(fm.Title, doc.Title)
-	doc.DocType = cmpOr(fm.Type, doc.DocType)
+	doc.Template = cmpOr(fm.Template, doc.Template)
 	doc.Summary = fm.Summary
 	doc.Provenance = fm.Provenance
 	doc.Sources = fm.Sources
@@ -501,10 +501,10 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 	doc.Version++
 
 	if _, err := tx.Exec(
-		`UPDATE knowledge SET title = ?, doc_type = ?, summary = ?, provenance = ?, private = ?,
+		`UPDATE knowledge SET title = ?, template = ?, summary = ?, provenance = ?, private = ?,
 		                      content_hash = ?, mtime = ?, size = ?, version = ?,
 		                      updated_at = ? WHERE id = ?`,
-		doc.Title, doc.DocType, doc.Summary, doc.Provenance, doc.Private, doc.ContentHash,
+		doc.Title, doc.Template, doc.Summary, doc.Provenance, doc.Private, doc.ContentHash,
 		doc.MTime, doc.Size, doc.Version, doc.UpdatedAt, doc.ID); err != nil {
 		return err
 	}
@@ -575,7 +575,7 @@ func (c *Core) docView(tx *sqlx.Tx, doc *Knowledge) error {
 // can see, which is what almost every caller wants.
 type KnowledgeFilter struct {
 	BoardID     string   // association only; entries with no board always match
-	DocTypes    []string // doc_type values to keep; empty keeps all
+	Templates   []string // template values to keep; empty keeps all
 	Provenances []string // ingestion paths to keep; empty keeps all
 	Tags        []string // every listed tag must be present; empty keeps all
 	Dir         string   // scope to this directory and its subtree; empty keeps everything
@@ -589,11 +589,11 @@ func (f KnowledgeFilter) where() (string, []any) {
 	}
 	// An IN list is built from a closed vocabulary, never from user text, so
 	// the placeholders are generated here rather than interpolated.
-	for _, col := range []string{"doc_type", "provenance"} {
+	for _, col := range []string{"template", "provenance"} {
 		var values []string
 		switch col {
-		case "doc_type":
-			values = f.DocTypes
+		case "template":
+			values = f.Templates
 		case "provenance":
 			values = f.Provenances
 		}
@@ -735,19 +735,19 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 				Fix: "trellis knowledge show " + doc.Slug,
 			}
 		}
-		// Validate DocType if provided
-		if in.DocType != nil {
+		// Validate Template if provided
+		if in.Template != nil {
 			validTypes := Templates()
 			isValid := false
 			for _, t := range validTypes {
-				if t == *in.DocType {
+				if t == *in.Template {
 					isValid = true
 					break
 				}
 			}
 			if !isValid {
-				return ErrUsage("unknown_template", "unknown template type "+*in.DocType,
-					"trellis knowledge new --template "+*in.DocType)
+				return ErrUsage("unknown_template", "unknown template type "+*in.Template,
+					"trellis knowledge new --template "+*in.Template)
 			}
 		}
 
@@ -806,8 +806,8 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		if in.Summary != nil {
 			fm.Summary = *in.Summary
 		}
-		if in.DocType != nil {
-			fm.Type = *in.DocType
+		if in.Template != nil {
+			fm.Template = *in.Template
 		}
 		if in.Private != nil {
 			fm.Private = *in.Private
@@ -844,7 +844,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		doc.BodyMD = body
 		doc.ContentHash = written
 		doc.Sources = fm.Sources
-		doc.DocType = fm.Type
+		doc.Template = fm.Template
 		// Handle private false→true transition: purge disclosed copies in the same transaction
 		oldPrivate := doc.Private
 		doc.Private = fm.Private
@@ -854,8 +854,8 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		doc.UpdatedAt = now
 		if _, err := tx.Exec(
 			`UPDATE knowledge SET title = ?, summary = ?, content_hash = ?, mtime = ?, size = ?,
-			                      version = ?, updated_at = ?, doc_type = ?, private = ? WHERE id = ?`,
-			doc.Title, doc.Summary, doc.ContentHash, doc.MTime, doc.Size, doc.Version, doc.UpdatedAt, doc.DocType, doc.Private, doc.ID); err != nil {
+			                      version = ?, updated_at = ?, template = ?, private = ? WHERE id = ?`,
+			doc.Title, doc.Summary, doc.ContentHash, doc.MTime, doc.Size, doc.Version, doc.UpdatedAt, doc.Template, doc.Private, doc.ID); err != nil {
 			return err
 		}
 		// Purge disclosed copies if changing from public to private

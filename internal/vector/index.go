@@ -25,20 +25,20 @@ import (
 )
 
 type Document struct {
-	ID      string
-	Title   string
-	Slug    string
-	DocType string
-	Content string
+	ID       string
+	Title    string
+	Slug     string
+	Template string
+	Content  string
 }
 
 type chunk struct {
-	ID      string
-	RootID  string
-	Title   string
-	Slug    string
-	DocType string
-	Content string
+	ID       string
+	RootID   string
+	Title    string
+	Slug     string
+	Template string
+	Content  string
 }
 
 type Hit struct {
@@ -267,9 +267,9 @@ func httpEmbed(cfg config.VectorSearchConfig, local bool) vecutil.EmbedFunc {
 }
 
 func splitDocument(d Document, size, overlap int) []chunk {
-	content := d.Title + "\n" + d.DocType + "\n" + d.Content
+	content := d.Title + "\n" + d.Template + "\n" + d.Content
 	if size <= 0 || len([]rune(content)) <= size {
-		return []chunk{{ID: d.ID + ":0", RootID: d.ID, Title: d.Title, Slug: d.Slug, DocType: d.DocType, Content: content}}
+		return []chunk{{ID: d.ID + ":0", RootID: d.ID, Title: d.Title, Slug: d.Slug, Template: d.Template, Content: content}}
 	}
 	if overlap < 0 || overlap >= size {
 		overlap = size / 6
@@ -279,7 +279,7 @@ func splitDocument(d Document, size, overlap int) []chunk {
 	out := make([]chunk, 0, (len(runes)+step-1)/step)
 	for start, n := 0, 0; start < len(runes); start, n = start+step, n+1 {
 		end := min(start+size, len(runes))
-		out = append(out, chunk{ID: fmt.Sprintf("%s:%d", d.ID, n), RootID: d.ID, Title: d.Title, Slug: d.Slug, DocType: d.DocType, Content: string(runes[start:end])})
+		out = append(out, chunk{ID: fmt.Sprintf("%s:%d", d.ID, n), RootID: d.ID, Title: d.Title, Slug: d.Slug, Template: d.Template, Content: string(runes[start:end])})
 	}
 	return out
 }
@@ -330,7 +330,7 @@ func (i *Index) upsert(ctx context.Context, docs []Document, dataset string) (in
 	for n, r := range replacements {
 		encoded[n] = make([]encodedChunk, 0, len(r.chunks))
 		for _, c := range r.chunks {
-			meta, _ := json.Marshal(map[string]string{"root_id": c.RootID, "title": c.Title, "slug": c.Slug, "type": c.DocType})
+			meta, _ := json.Marshal(map[string]string{"root_id": c.RootID, "title": c.Title, "slug": c.Slug, "template": c.Template})
 			emb, err := i.embed(ctx, c.Content)
 			if err != nil {
 				return 0, err
@@ -391,7 +391,7 @@ func (i *Index) documentUnchanged(ctx context.Context, dataset string, d Documen
 		return false, nil
 	}
 	for _, c := range chunks {
-		meta, _ := json.Marshal(map[string]string{"root_id": c.RootID, "title": c.Title, "slug": c.Slug, "type": c.DocType})
+		meta, _ := json.Marshal(map[string]string{"root_id": c.RootID, "title": c.Title, "slug": c.Slug, "template": c.Template})
 		old, ok := existing[c.ID]
 		if !ok || old[0] != c.Content || old[1] != string(meta) {
 			return false, nil

@@ -151,7 +151,7 @@ func (s *Service) Reconcile(ctx context.Context, projectID string, idx *vector.I
 	items := make([]vector.Document, 0, len(docs))
 	keep := make([]string, 0, len(docs))
 	for _, doc := range docs {
-		items = append(items, vector.Document{ID: doc.ID, Title: doc.Title, Slug: doc.Slug, DocType: doc.DocType, Content: doc.BodyMD})
+		items = append(items, vector.Document{ID: doc.ID, Title: doc.Title, Slug: doc.Slug, Template: doc.Template, Content: doc.BodyMD})
 		keep = append(keep, doc.ID)
 	}
 	if _, err := idx.Upsert(ctx, items, projectID); err != nil {

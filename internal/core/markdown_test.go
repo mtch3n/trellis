@@ -50,13 +50,13 @@ func TestParseInlineTagsIgnoresHeadings(t *testing.T) {
 }
 
 func TestFrontmatterRoundTrip(t *testing.T) {
-	fm := Frontmatter{Title: "Concurrency model", Type: "decision", Tags: []string{"sqlite"}}
+	fm := Frontmatter{Title: "Concurrency model", Template: "decision", Tags: []string{"sqlite"}}
 	raw := RenderDoc(fm, "# Concurrency model\n\nLeases, not locks.\n")
 	back, body, err := SplitFrontmatter(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if back.Title != fm.Title || back.Type != fm.Type || len(back.Tags) != 1 {
+	if back.Title != fm.Title || back.Template != fm.Template || len(back.Tags) != 1 {
 		t.Errorf("round trip lost fields: %+v", back)
 	}
 	if FirstParagraph(body) != "Leases, not locks." {
@@ -80,7 +80,7 @@ func TestHeadingAnchors(t *testing.T) {
 }
 
 func TestFrontmatterExtraKeysRoundTrip(t *testing.T) {
-	raw := "---\ntitle: Rollback the API\ntype: runbook\nowner: alice\nseverity: high\n---\n# Rollback the API\n"
+	raw := "---\ntitle: Rollback the API\ntemplate: runbook\nowner: alice\nseverity: high\n---\n# Rollback the API\n"
 	fm, body, err := SplitFrontmatter(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +96,7 @@ func TestFrontmatterExtraKeysRoundTrip(t *testing.T) {
 	if back.Extra["owner"] != "alice" || back.Extra["severity"] != "high" {
 		t.Errorf("round trip lost an unknown key: Extra = %+v", back.Extra)
 	}
-	if back.Title != "Rollback the API" || back.Type != "runbook" {
+	if back.Title != "Rollback the API" || back.Template != "runbook" {
 		t.Errorf("a named field was lost: %+v", back)
 	}
 }
@@ -116,9 +116,9 @@ func TestFrontmatterExtraKeysRenderInStableOrder(t *testing.T) {
 }
 
 func TestFrontmatterWithNoExtraKeysIsUnchanged(t *testing.T) {
-	fm := Frontmatter{Title: "Plain", Type: "note"}
+	fm := Frontmatter{Title: "Plain", Template: "note"}
 	got := RenderDoc(fm, "body\n")
-	want := "---\ntitle: Plain\ntype: note\n---\n\nbody\n"
+	want := "---\ntitle: Plain\ntemplate: note\n---\n\nbody\n"
 	if got != want {
 		t.Errorf("RenderDoc with no Extra = %q, want %q", got, want)
 	}

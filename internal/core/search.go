@@ -54,7 +54,7 @@ func (c *Core) SearchCards(ctx context.Context, projectID string, query string, 
 func (c *Core) KnowledgeHit(ctx context.Context, docID, projectID string, allProjects bool, label string) (SearchHit, error) {
 	q := `SELECT 'knowledge' AS kind, ` + docAddressSQL + ` AS ref, k.title,
              CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
-             k.doc_type AS detail, 0 AS unreviewed
+             k.template AS detail, 0 AS unreviewed
       FROM knowledge k JOIN project p ON p.id = k.project_id WHERE k.id = ?`
 	args := []any{docID}
 	if !allProjects {
@@ -196,7 +196,7 @@ func (c *Core) Search(ctx context.Context, projectID, query string, o SearchOpts
 			       `+docAddressSQL+` AS ref,
 			       k.title,
 			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
-			       k.doc_type AS detail,
+			       k.template AS detail,
 			       (k.global = 1 AND k.review_by IS NOT NULL AND k.review_by < ?) AS unreviewed
 			FROM knowledge k
 			JOIN knowledge_fts ON knowledge_fts.rowid = k.rowid
@@ -238,7 +238,7 @@ func (c *Core) matchKnowledge(ctx context.Context, projectID, match string, limi
 			       `+docAddressSQL+` AS ref,
 			       k.title,
 			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
-			       k.doc_type AS detail,
+			       k.template AS detail,
 			       (k.global = 1 AND k.review_by IS NOT NULL AND k.review_by < ?) AS unreviewed
 			FROM knowledge k
 			JOIN knowledge_fts ON knowledge_fts.rowid = k.rowid

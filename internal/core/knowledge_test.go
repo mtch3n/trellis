@@ -39,7 +39,7 @@ func TestCreateKnowledgeWritesFileAndRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fm.Title != "Concurrency model" || fm.Type != "decision" {
+	if fm.Title != "Concurrency model" || fm.Template != "decision" {
 		t.Errorf("frontmatter = %+v", fm)
 	}
 	if !strings.Contains(body, "## Options considered") {
@@ -458,13 +458,13 @@ func TestListKnowledgeFiltersByTypeAndProvenance(t *testing.T) {
 		want int
 	}{
 		{"zero value lists everything", KnowledgeFilter{}, 3},
-		{"one type", KnowledgeFilter{DocTypes: []string{"decision"}}, 1},
-		{"two types", KnowledgeFilter{DocTypes: []string{"decision", "finding"}}, 2},
+		{"one type", KnowledgeFilter{Templates: []string{"decision"}}, 1},
+		{"two types", KnowledgeFilter{Templates: []string{"decision", "finding"}}, 2},
 		{"one provenance", KnowledgeFilter{Provenances: []string{"extracted"}}, 1},
 		{"both dimensions", KnowledgeFilter{
-			DocTypes: []string{"note"}, Provenances: []string{"extracted"}}, 1},
+			Templates: []string{"note"}, Provenances: []string{"extracted"}}, 1},
 		{"both dimensions, no overlap", KnowledgeFilter{
-			DocTypes: []string{"decision"}, Provenances: []string{"extracted"}}, 0},
+			Templates: []string{"decision"}, Provenances: []string{"extracted"}}, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -482,7 +482,7 @@ func TestListKnowledgeFiltersByTypeAndProvenance(t *testing.T) {
 func TestKnowledgeFilterBuildsTheSameQueryEveryTime(t *testing.T) {
 	// The clauses come out of a map, and map order reaching the query would
 	// make the same filter produce different SQL between runs.
-	f := KnowledgeFilter{DocTypes: []string{"note"}, Provenances: []string{"extracted"}}
+	f := KnowledgeFilter{Templates: []string{"note"}, Provenances: []string{"extracted"}}
 	first, _ := f.where()
 	for range 20 {
 		if got, _ := f.where(); got != first {

@@ -227,7 +227,7 @@ func renderKnowledgeList(docs []core.Knowledge) string {
 		} else if d.Private {
 			mark = "private"
 		}
-		fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\n", indent, leaf, d.DocType, d.Provenance, mark, d.Title)
+		fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\n", indent, leaf, d.Template, d.Provenance, mark, d.Title)
 	}
 	w.Flush()
 	return strings.TrimRight(b.String(), "\n")
@@ -235,14 +235,14 @@ func renderKnowledgeList(docs []core.Knowledge) string {
 
 func newKnowledgeLsCmd() *cobra.Command {
 	var thisBoard, cold bool
-	var docTypes, provenances, tags []string
+	var templates, provenances, tags []string
 	cmd := &cobra.Command{
 		Use:   "ls [dir]",
 		Short: "List entries, as a tree grouped by directory",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withBoard(func(app *appCtx) error {
-				filter := core.KnowledgeFilter{DocTypes: docTypes, Provenances: provenances, Tags: tags}
+				filter := core.KnowledgeFilter{Templates: templates, Provenances: provenances, Tags: tags}
 				if thisBoard {
 					filter.BoardID = app.Board.ID
 				}
@@ -272,7 +272,7 @@ func newKnowledgeLsCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&thisBoard, "board-only", false, "this board's entries plus the unscoped ones")
 	cmd.Flags().BoolVar(&cold, "cold", false, "entries nothing has read in 30 days")
-	cmd.Flags().StringSliceVar(&docTypes, "type", nil, "only these doc types: "+strings.Join(core.Templates(), "|"))
+	cmd.Flags().StringSliceVar(&templates, "template", nil, "only these templates: "+strings.Join(core.Templates(), "|"))
 	cmd.Flags().StringSliceVar(&provenances, "provenance", nil, "only these ingestion paths: "+strings.Join(core.Provenances(), "|"))
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "only entries with every one of these tags")
 	return cmd
@@ -327,7 +327,7 @@ func newKnowledgeHealthCmd() *cobra.Command {
 func newKnowledgeEditCmd() *cobra.Command {
 	var body TextValue
 	var sources, tags, labels []string
-	var docType, private string
+	var template, private string
 	var ifVersion int64
 	cmd := &cobra.Command{
 		Use:   "edit <slug>",
@@ -337,9 +337,9 @@ func newKnowledgeEditCmd() *cobra.Command {
 			setSources := cmd.Flags().Changed("source")
 			setTags := cmd.Flags().Changed("tag")
 			setLabels := cmd.Flags().Changed("label")
-			setDocType := cmd.Flags().Changed("type")
+			setTemplate := cmd.Flags().Changed("template")
 			setPrivate := cmd.Flags().Changed("private")
-			if !body.Changed() && !setSources && !setTags && !setLabels && !setDocType && !setPrivate {
+			if !body.Changed() && !setSources && !setTags && !setLabels && !setTemplate && !setPrivate {
 				return core.ErrUsage("missing_body",
 					"--body replaces the whole body; --source replaces the source list",
 					"trellis knowledge edit "+args[0]+" --body @notes.md")
@@ -373,8 +373,8 @@ func newKnowledgeEditCmd() *cobra.Command {
 					}
 					edit.Labels = &filtered
 				}
-				if setDocType {
-					edit.DocType = &docType
+				if setTemplate {
+					edit.Template = &template
 				}
 				if setPrivate {
 					p := private == "true"
@@ -395,7 +395,7 @@ func newKnowledgeEditCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&sources, "source", nil, "replace the source list; repeatable")
 	cmd.Flags().StringArrayVar(&tags, "tag", nil, "replace the tag list; repeatable")
 	cmd.Flags().StringArrayVar(&labels, "label", nil, "replace the label list; repeatable")
-	cmd.Flags().StringVar(&docType, "type", "", "change the template type")
+	cmd.Flags().StringVar(&template, "template", "", "change the template")
 	cmd.Flags().StringVar(&private, "private", "", "mark private (true|false)")
 	cmd.Flags().Int64Var(&ifVersion, "if-version", 0, "the version you read; required (knowledge show --json)")
 	return cmd

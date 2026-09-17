@@ -14,7 +14,7 @@ type EventQuery struct {
 	Limit     int      // default 1000, max 5000
 	Kinds     []string // card | knowledge | board | label | note; empty = all
 	Actions   []string // created, edited, moved, ...; empty = all but read
-	DocTypes  []string // knowledge only: finding, decision, ...
+	Templates []string // knowledge only: finding, decision, ...
 	NotActor  string   // skip events written by this actor
 }
 
@@ -23,17 +23,17 @@ type EventQuery struct {
 // column move, and a deleted entity's ref and title are empty except for its
 // own deleted event, whose title is what was recorded at deletion.
 type FeedEvent struct {
-	Seq    int64  `json:"seq"`
-	TS     int64  `json:"ts"`
-	Actor  string `json:"actor"`
-	Kind   string `json:"kind"`
-	Ref    string `json:"ref"`
-	Title  string `json:"title"`
-	Type   string `json:"type,omitempty"`
-	Action string `json:"action"`
-	Field  string `json:"field,omitempty"`
-	Old    string `json:"old,omitempty"`
-	New    string `json:"new,omitempty"`
+	Seq      int64  `json:"seq"`
+	TS       int64  `json:"ts"`
+	Actor    string `json:"actor"`
+	Kind     string `json:"kind"`
+	Ref      string `json:"ref"`
+	Title    string `json:"title"`
+	Template string `json:"template,omitempty"`
+	Action   string `json:"action"`
+	Field    string `json:"field,omitempty"`
+	Old      string `json:"old,omitempty"`
+	New      string `json:"new,omitempty"`
 }
 
 // feedRow is what the join returns, before the disclosure policy in
@@ -42,25 +42,25 @@ type FeedEvent struct {
 // corresponding entity is not the one this event is about, or no longer
 // exists.
 type feedRow struct {
-	Seq       int64  `db:"seq"`
-	TS        int64  `db:"ts"`
-	Actor     string `db:"actor"`
-	Kind      string `db:"kind"`
-	Action    string `db:"action"`
-	Field     string `db:"field"`
-	OldValue  string `db:"old_value"`
-	NewValue  string `db:"new_value"`
-	CardRef   string `db:"card_ref"`
-	CardTitle string `db:"card_title"`
-	KBKey     string `db:"kb_key"`
-	KBSlug    string `db:"kb_slug"`
-	KBTitle   string `db:"kb_title"`
-	KBDocType string `db:"kb_doctype"`
-	BoardName string `db:"board_name"`
-	LabelName string `db:"label_name"`
-	NoteKey   string `db:"note_key"`
-	NoteSeq   int64  `db:"note_seq"`
-	NoteTitle string `db:"note_title"`
+	Seq        int64  `db:"seq"`
+	TS         int64  `db:"ts"`
+	Actor      string `db:"actor"`
+	Kind       string `db:"kind"`
+	Action     string `db:"action"`
+	Field      string `db:"field"`
+	OldValue   string `db:"old_value"`
+	NewValue   string `db:"new_value"`
+	CardRef    string `db:"card_ref"`
+	CardTitle  string `db:"card_title"`
+	KBKey      string `db:"kb_key"`
+	KBSlug     string `db:"kb_slug"`
+	KBTitle    string `db:"kb_title"`
+	KBTemplate string `db:"kb_template"`
+	BoardName  string `db:"board_name"`
+	LabelName  string `db:"label_name"`
+	NoteKey    string `db:"note_key"`
+	NoteSeq    int64  `db:"note_seq"`
+	NoteTitle  string `db:"note_title"`
 }
 
 // toFeedEvent applies the feed's disclosure policy. It is the only place that
@@ -84,7 +84,7 @@ func (r feedRow) toFeedEvent() FeedEvent {
 		if r.KBKey != "" {
 			ev.Ref = DocAddress(r.KBKey, r.KBKey == GlobalKey, r.KBSlug)
 			ev.Title = r.KBTitle
-			ev.Type = r.KBDocType
+			ev.Template = r.KBTemplate
 		}
 	case "board":
 		if r.BoardName != "" {
@@ -130,7 +130,7 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64
 	} else {
 		actionClause, actionArgs = inClause("e.action", q.Actions)
 	}
-	docTypeClause, docTypeArgs := inClause("k.doc_type", q.DocTypes)
+	docTypeClause, docTypeArgs := inClause("k.template", q.Templates)
 	var actorClause string
 	var actorArgs []any
 	if q.NotActor != "" {
@@ -163,7 +163,7 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64
 		    COALESCE(CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE pk.key END, '') AS kb_key,
 		    COALESCE(k.slug, '') AS kb_slug,
 		    COALESCE(k.title, '') AS kb_title,
-		    COALESCE(k.doc_type, '') AS kb_doctype,
+		    COALESCE(k.template, '') AS kb_template,
 		    COALESCE(b.name, '') AS board_name,
 		    COALESCE(l.name, '') AS label_name,
 		    COALESCE(pn.key, '') AS note_key,

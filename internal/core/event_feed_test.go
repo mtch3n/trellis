@@ -111,7 +111,7 @@ func TestEventFeedExcludesReadByDefaultButNotWhenAsked(t *testing.T) {
 	}
 }
 
-func TestEventFeedFiltersByDocType(t *testing.T) {
+func TestEventFeedFiltersByTemplate(t *testing.T) {
 	c, p, b := kbCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "unrelated"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
@@ -125,11 +125,11 @@ func TestEventFeedFiltersByDocType(t *testing.T) {
 		t.Fatalf("CreateKnowledge note: %v", err)
 	}
 
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, DocTypes: []string{"finding"}})
+	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Templates: []string{"finding"}})
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
-	if len(events) != 1 || events[0].Kind != "knowledge" || events[0].Type != "finding" || events[0].Title != "Bug" {
+	if len(events) != 1 || events[0].Kind != "knowledge" || events[0].Template != "finding" || events[0].Title != "Bug" {
 		t.Fatalf("events = %+v, want exactly the one finding, and no card event", events)
 	}
 }

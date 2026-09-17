@@ -72,7 +72,7 @@ func currentVector() (*vecsearch.Index, *projectContext, error) {
 func knowledgeVectorDocs(docs []core.Knowledge) []vecsearch.Document {
 	out := make([]vecsearch.Document, 0, len(docs))
 	for _, d := range docs {
-		out = append(out, vecsearch.Document{ID: d.ID, Title: d.Title, Slug: d.Slug, DocType: d.DocType, Content: d.BodyMD})
+		out = append(out, vecsearch.Document{ID: d.ID, Title: d.Title, Slug: d.Slug, Template: d.Template, Content: d.BodyMD})
 	}
 	return out
 }
