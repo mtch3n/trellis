@@ -45,7 +45,7 @@ internal/core/event_log_test.go	card-note	3	# why: a regression test that the en
 internal/core/label.go	doc	1	# why: the seeded label "docs", user vocabulary for documentation
 internal/core/label_test.go	doc	1	# why: the seeded label "docs", user vocabulary for documentation
 internal/core/lint.go	owner	1	# why: a struct field holding a wikilink, not a card claimant
-internal/core/markdown.go	owner	1	# why: frontmatter file ownership disclaimer + an example arbitrary template field name
+internal/core/markdown.go	owner	1	# why: an example template field name in a doc comment, not a card claimant
 internal/core/markdown_test.go	doc	2	# why: the fixture wikilink [[design-doc]]
 internal/core/markdown_test.go	lease	2	# why: fixture prose: the summary "Leases, not locks"
 internal/core/markdown_test.go	owner	3	# why: an example template field name, not a card claimant
