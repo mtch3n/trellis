@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/mtch3n/trellis/internal/vpath"
@@ -228,8 +229,10 @@ func (m *merger) references() error {
 }
 
 // docsCiting lists every document whose file, as it is on disk now, holds a
-// wikilink into project key. The files are the source of truth; link rows lag
-// behind an edit made outside Trellis until that document is next read.
+// wikilink into project key, or a sources: address under it. The files are
+// the source of truth; link rows lag behind an edit made outside Trellis
+// until that document is next read, and sources: addresses have no row at
+// all.
 func (m *merger) docsCiting(key string) ([]string, error) {
 	var docs []struct {
 		ID   string `db:"id"`
@@ -252,12 +255,77 @@ func (m *merger) docsCiting(key string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		_, body, _ := SplitFrontmatter(string(raw))
-		if slices.ContainsFunc(ParseWikilinks(body), func(r Reference) bool { return r.ProjectKey == key }) {
+		fm, body, _ := SplitFrontmatter(string(raw))
+		cites := slices.ContainsFunc(ParseWikilinks(body), func(r Reference) bool { return r.ProjectKey == key })
+		if !cites {
+			cites = slices.ContainsFunc(fm.Sources, func(s string) bool {
+				_, ok := m.rewriteSourceAddress(s)
+				return ok
+			})
+		}
+		if cites {
 			ids = append(ids, d.ID)
 		}
 	}
 	return ids, nil
+}
+
+// rewriteSourceAddress rewrites one sources: item that names something under
+// SRC by absolute address -- the same objects a wikilink, a card's
+// `documents` link, or an artifacts: entry already follow through the merge:
+// a knowledge entry (moved, renamed, or collapsed into DST's identical
+// entry), an artifact (moved, or renamed on conflict), or a card, whose
+// stored ref never changes. Anything else -- a URL, prose, a path:lines
+// pointer, a wikilink, or an address elsewhere -- is left alone.
+func (m *merger) rewriteSourceAddress(raw string) (string, bool) {
+	target, anchor := vpath.SplitAnchor(strings.TrimSpace(raw))
+	if anchor != "" {
+		anchor = "#" + anchor
+	}
+	p, err := vpath.Parse(target)
+	if err != nil || p.Project != m.src.Key {
+		return "", false
+	}
+	switch p.Collection {
+	case vpath.CollectionKnowledge:
+		to, ok := m.addr[DocAddress(m.src.Key, false, p.Name)]
+		if !ok {
+			return "", false
+		}
+		return to + anchor, true
+	case vpath.CollectionArtifacts:
+		name := p.Name
+		if to, ok := m.artRenamed[name]; ok {
+			name = to
+		}
+		return ArtifactAddress(m.dst.Key, name) + anchor, true
+	case vpath.CollectionCards:
+		return vpath.CardPath(m.dst.Key, p.Name).String() + anchor, true
+	default:
+		return "", false
+	}
+}
+
+// rewriteSources rewrites a document's sources: frontmatter through
+// rewriteSourceAddress. It runs on text, not raw, so it composes with
+// whatever the wikilink and artifact-name rewrites already applied to this
+// pass.
+func (m *merger) rewriteSources(path, text string) (string, error) {
+	fm, body, err := splitDocFile(path, []byte(text))
+	if err != nil {
+		return "", err
+	}
+	changed := false
+	for i, s := range fm.Sources {
+		if to, ok := m.rewriteSourceAddress(s); ok {
+			fm.Sources[i] = to
+			changed = true
+		}
+	}
+	if !changed {
+		return text, nil
+	}
+	return RenderDoc(fm, body), nil
 }
 
 // rewriteDoc rewrites one document's links through RewriteWikilinks, then
@@ -304,6 +372,10 @@ func (m *merger) rewriteDoc(id string) error {
 			return err
 		}
 		text = next
+	}
+	text, err = m.rewriteSources(current, text)
+	if err != nil {
+		return err
 	}
 	if text == string(raw) {
 		return nil

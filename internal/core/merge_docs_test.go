@@ -438,3 +438,63 @@ func TestMergeStopsWhenAFileChangesAfterTheBackup(t *testing.T) {
 		t.Errorf("the edited file = %q", got)
 	}
 }
+
+// A decision entry's sources: frontmatter names things by absolute address,
+// the same way a wikilink or a trellis link target does, and must follow the
+// same three objects through a merge: a knowledge entry, an artifact renamed
+// here by a conflict, and a card, whose stored ref never changes.
+func TestMergeRewritesSourcesAddresses(t *testing.T) {
+	f := newMergeFixture(t)
+	ctx := t.Context()
+	core, _ := f.project("CORE")
+	f.doc(f.api, "Runbook", "Roll back with care.\n")
+	f.artifact(f.mono, "shot.png", "mono pixels")
+	f.artifact(f.api, "shot.png", "api pixels")
+	card := f.card(f.api, f.apiBoard, "task", nil, nil)
+	if card.Ref != "API-1" {
+		t.Fatalf("card ref = %s, want API-1", card.Ref)
+	}
+	decision, err := f.c.CreateKnowledge(ctx, core.ID, NewKnowledge{
+		Title: "Adopt X", Template: "decision",
+		Sources: []string{"/API/knowledge/runbook", "/API/artifacts/shot.png", "/API/cards/API-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := f.snapshot()
+
+	plan := f.merge(MergeOptions{RenameConflicts: true})
+	if !plan.Ready {
+		t.Fatalf("plan not ready: %+v", plan)
+	}
+	if !slices.Contains(plan.DocumentsRewritten, "/CORE/knowledge/adopt-x") {
+		t.Errorf("plan's rewritten = %v", plan.DocumentsRewritten)
+	}
+	if after := f.snapshot(); after != before {
+		t.Errorf("a plan changed something:\nbefore %s\nafter  %s", before, after)
+	}
+
+	applied := f.merge(MergeOptions{Apply: true, RenameConflicts: true})
+	if !slices.Contains(applied.DocumentsRewritten, "/CORE/knowledge/adopt-x") {
+		t.Errorf("applied's rewritten = %v", applied.DocumentsRewritten)
+	}
+
+	got, err := f.c.ReadKnowledge(ctx, core.ID, decision.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/MONO/knowledge/runbook", "/MONO/artifacts/shot-api.png", "/MONO/cards/API-1"}
+	if !slices.Equal(got.Sources, want) {
+		t.Errorf("sources = %v, want %v", got.Sources, want)
+	}
+
+	findings, err := f.c.Lint(ctx, core.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, finding := range findings {
+		if finding.Kind == "template_violation" {
+			t.Errorf("lint finding: %+v", finding)
+		}
+	}
+}
