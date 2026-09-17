@@ -463,3 +463,129 @@ func TestGlobalKnowledgeListNeverCarriesArtifacts(t *testing.T) {
 		t.Fatalf("global list must never carry artifacts: %s", rec.Body)
 	}
 }
+
+// TestGetKnowledgeFields tests that Fields are included in responses
+func TestGetKnowledgeFields(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test")
+	projKey := fmt.Sprintf("FIELDS%d", rand.Intn(100000))
+	p, err := c.CreateProject(ctx, projKey, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.CreateBoard(ctx, p.ID, "board1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(c, db, "127.0.0.1:0")
+	request := func(method, path string, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Create a knowledge entry with Set fields
+	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/knowledge",
+		`{"title":"Test Doc","body":"Content","set":{"owner":"alice","severity":"high"}}`)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", createResp.Code, createResp.Body)
+	}
+
+	var doc core.Knowledge
+	if err := json.NewDecoder(createResp.Body).Decode(&doc); err != nil {
+		t.Fatalf("decode create response: %v\n%s", err, createResp.Body)
+	}
+
+	// GET the detail endpoint
+	detailResp := request(http.MethodGet, "/api/p/"+projKey+"/knowledge/"+doc.Slug, "")
+	if detailResp.Code != http.StatusOK {
+		t.Fatalf("detail status = %d, body = %s", detailResp.Code, detailResp.Body)
+	}
+
+	var detailDoc core.Knowledge
+	if err := json.NewDecoder(detailResp.Body).Decode(&detailDoc); err != nil {
+		t.Fatalf("decode detail response: %v\n%s", err, detailResp.Body)
+	}
+
+	if detailDoc.Fields == nil {
+		t.Error("Fields should be non-nil in detail endpoint")
+	}
+	if detailDoc.Fields["owner"] != "alice" {
+		t.Errorf("Fields[owner] = %v, want alice", detailDoc.Fields["owner"])
+	}
+	if detailDoc.Fields["severity"] != "high" {
+		t.Errorf("Fields[severity] = %v, want high", detailDoc.Fields["severity"])
+	}
+}
+
+// TestGetKnowledgeFieldsPrivateList tests that Fields are empty for private entries in lists
+func TestGetKnowledgeFieldsPrivateList(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test")
+	projKey := fmt.Sprintf("PRIVLIST%d", rand.Intn(100000))
+	p, err := c.CreateProject(ctx, projKey, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.CreateBoard(ctx, p.ID, "board1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(c, db, "127.0.0.1:0")
+	request := func(method, path string, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Create a private knowledge entry with Set fields
+	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/knowledge",
+		`{"title":"Private Doc","body":"Content","private":true,"set":{"owner":"alice"}}`)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", createResp.Code, createResp.Body)
+	}
+
+	// List endpoints should have empty Fields for private entries
+	listResp := request(http.MethodGet, "/api/p/"+projKey+"/knowledge", "")
+	if listResp.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listResp.Code, listResp.Body)
+	}
+
+	var docs []core.Knowledge
+	if err := json.NewDecoder(listResp.Body).Decode(&docs); err != nil {
+		t.Fatalf("decode list response: %v\n%s", err, listResp.Body)
+	}
+
+	var privDoc core.Knowledge
+	for _, doc := range docs {
+		if doc.Title == "Private Doc" {
+			privDoc = doc
+			break
+		}
+	}
+
+	if privDoc.Fields == nil {
+		t.Error("Fields should be non-nil even for private entries in list")
+	}
+	if len(privDoc.Fields) != 0 {
+		t.Errorf("private entry Fields in list = %v, want empty map", privDoc.Fields)
+	}
+}
