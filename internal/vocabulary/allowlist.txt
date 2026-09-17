@@ -1,23 +1,6 @@
 # Uses of retired words the tree still has. Each task of the vocabulary
 # plan deletes lines; a line that stays says why after a fourth tab.
-.claude-plugin/marketplace.json	knowledge-base	1
-.claude-plugin/marketplace.json	owner	1
-PRODUCT.md	dangling	1
-PRODUCT.md	doc	1
-PRODUCT.md	document	3
-PRODUCT.md	finding-umbrella	1
-PRODUCT.md	knowledge-base	1
-PRODUCT.md	knowledge-ident	2
-PRODUCT.md	lease	4
-PRODUCT.md	old-address	1
-PRODUCT.md	owner	1
-PRODUCT.md	pin-file	1
-README.md	document	3
-README.md	knowledge-ident	4
-README.md	lease	2
-README.md	old-address	2
-README.md	owner	1
-README.md	pin-file	1
+.claude-plugin/marketplace.json	owner	1	# why: the Claude Code marketplace schema's owner field, not a card claimant
 docs/ui-operation-parity.md	attach	2
 docs/ui-operation-parity.md	card-note	1
 docs/ui-operation-parity.md	doc	3
@@ -115,32 +98,20 @@ internal/ui/templates_test.go	card-note	1
 internal/ui/templates_test.go	owner	1
 internal/vector/index.go	doc	1	# why: sqlite-vec module column doc_id
 internal/vector/index.go	owner	1	# why: sqlite-vec shadow-table lock owner column, not a card claimant
-plugin/.claude-plugin/plugin.json	knowledge-base	2
-plugin/.claude-plugin/plugin.json	knowledge-ident	1
-plugin/.claude-plugin/plugin.json	lease	1
-plugin/.codex-plugin/plugin.json	finding-umbrella	1
-plugin/.codex-plugin/plugin.json	knowledge-base	3
-plugin/.codex-plugin/plugin.json	knowledge-ident	1
-plugin/.codex-plugin/plugin.json	lease	1
-plugin/integrations/README.md	knowledge-ident	1
-plugin/plugin-build.json	finding-umbrella	1
-plugin/plugin-build.json	knowledge-base	4
-plugin/plugin-build.json	knowledge-ident	1
-plugin/plugin-build.json	lease	1
-plugin/plugin-build.json	owner	1
+plugin/integrations/README.md	knowledge-ident	1	# why: knowledge as a mass noun, capitalised at the start of a sentence
+plugin/plugin-build.json	owner	1	# why: the Claude Code marketplace schema's owner field, not a card claimant
 plugin/skills/trellis/SKILL.md	owner	1	# why: an example template field name in `vault edit --set`, not a card claimant
 plugin/skills/using-glossary/SKILL.md	kb	1	# why: the worked example quotes "kb" as a Not word the glossary forbids
 plugin/skills/writing-knowledge/SKILL.md	finding-umbrella	1	# why: the `research` template's own Findings section
-scripts/gen_manifests.py	owner	2
-scripts/rewrite_type_to_template.py	card-note	1
-scripts/rewrite_type_to_template.py	knowledge-ident	4
-scripts/tests/test_rewrite_type_to_template.py	card-note	3
-scripts/tests/test_rewrite_type_to_template.py	knowledge-ident	10
-scripts/ui-browser-smoke.sh	document	2
-scripts/ui-browser-smoke.sh	knowledge-base	1
-scripts/ui-browser-smoke.sh	knowledge-cli	1
-scripts/ui-browser-smoke.sh	knowledge-ident	3
-scripts/ui-browser-smoke.sh	lease	5
+scripts/gen_manifests.py	owner	2	# why: the Claude Code marketplace schema's owner field, not a card claimant
+scripts/rewrite_type_to_template.py	card-note	1	# why: runs before the migration, on pre-rename files whose `type:` is still `note`
+scripts/rewrite_type_to_template.py	knowledge-ident	4	# why: runs before the migration, when the directory is still named knowledge/
+scripts/tests/test_rewrite_type_to_template.py	card-note	3	# why: fixtures for a script that runs before the migration, on pre-rename files
+scripts/tests/test_rewrite_type_to_template.py	knowledge-ident	10	# why: fixtures for a script that runs before the migration, on pre-rename files
+scripts/ui-browser-smoke.sh	document	2	# why: document.querySelector, the DOM API
+scripts/ui-browser-smoke.sh	knowledge-base	1	# why: waits on UI text the web session renames (R35)
+scripts/ui-browser-smoke.sh	knowledge-ident	2	# why: waits on UI text the web session renames (R35)
+scripts/ui-browser-smoke.sh	lease	3	# why: waits on UI text the web session renames (R35)
 web/COMPONENTS.md	attach	2
 web/COMPONENTS.md	dangling	1
 web/COMPONENTS.md	document	3

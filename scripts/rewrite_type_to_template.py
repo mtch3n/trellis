@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""One-off: move knowledge entries from `type:` to `template:`.
+"""One-off: move entries from `type:` to `template:`.
 
-Trellis no longer reads a knowledge entry's `type:`; `template:` is the only
+Trellis no longer reads an entry's `type:`; `template:` is the only
 classification, and an entry without one has no shape to keep. For every *.md
 file under a vault directory's "knowledge" subtree(s), revision directories
 included, this rewrites the top-level `type:` key of the leading frontmatter.
 A vault directory (~/.trellis/projects or ~/.trellis/global) also holds
 artifacts/ -- user-uploaded files Trellis never wrote frontmatter into -- and
 this script never walks into it:
+
+This script runs at switch-over, BEFORE the migration renames anything, so it
+reads the tree as it is then: entries still carry `type:` and still live under
+`knowledge/`, not `vault/`. Both spellings are deliberate. Renaming either one
+here would make the script find nothing to convert, which is its whole job.
 
   type: note  -> removed (note was the "no template" default)
   type: <x>   -> template: <x>

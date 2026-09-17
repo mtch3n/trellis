@@ -1,7 +1,7 @@
 {
   "name": "trellis",
   "version": "0.0.2",
-  "description": "Local kanban and knowledge base for AI agents: board state at session start, cards with leases, and a linked markdown knowledge base.",
+  "description": "Local kanban boards and vaults for AI agents: board state at session start, cards with expiring claims, and a linked markdown vault.",
   "author": {
     "name": "mtchen"
   },
@@ -9,7 +9,7 @@
   "keywords": [
     "kanban",
     "board",
-    "knowledge",
+    "vault",
     "agent",
     "work"
   ]

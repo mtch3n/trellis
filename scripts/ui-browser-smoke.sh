@@ -39,7 +39,7 @@ run_trellis init >/dev/null
 run_trellis card new --title "Seed card" --body "seed body" >/dev/null
 run_trellis card new --title "Second seed card" --body "second seed body" >/dev/null
 run_trellis card claim REPO-1 --as "seed-agent" >/dev/null
-run_trellis knowledge new --title "Browser note" --summary "browser coverage" --body $'# Seed\n\n- first\n- second\n\n```\nready\n```' >/dev/null
+run_trellis vault new --title "Browser note" --summary "browser coverage" --body $'# Seed\n\n- first\n- second\n\n```\nready\n```' >/dev/null
 
 TRELLIS_HOME="$TRELLIS_HOME_E2E" "$TRELLIS_BIN_E2E" ui --port "$PORT" >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
@@ -77,7 +77,7 @@ ab wait --fn "document.querySelector('[data-testid=\"board-column-backlog\"] [da
 run_trellis card new --title "SSE-created card" --body "created outside the browser" >/dev/null
 ab wait --text "SSE-created card"
 
-# Knowledge editor, Typeset Markdown preview, graph, and label merge.
+# Vault editor, Typeset Markdown preview, graph, and label merge.
 ab find role link click --name "Knowledge"
 ab wait --text "Knowledge base"
 ab find text "Browser note" click --exact
@@ -89,7 +89,7 @@ ab find placeholder "into" fill "question"
 ab find role button click --name "Merge"
 ab wait --text "Available:"
 
-# The seeded lease makes the steal-from-UI path visible and executable.
+# The seeded claim makes the steal-from-UI path visible and executable.
 ab find role link click --name "Board"
 ab wait --text "Seed card"
 ab find testid "board-card-REPO-1" click
@@ -97,4 +97,4 @@ ab find label "Steal reason" fill "browser lease takeover"
 ab find role button click --name "Steal lease"
 ab wait --text "browser lease takeover"
 
-echo "UI browser smoke passed (P3 board flows and P5 knowledge/graph/labels/lease flows)."
+echo "UI browser smoke passed (P3 board flows and P5 vault/graph/labels/claim flows)."
