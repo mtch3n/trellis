@@ -94,3 +94,35 @@ func TestArtifactRmAcceptsAName(t *testing.T) {
 		t.Error("artifact still listed after rm by name")
 	}
 }
+
+func TestArtifactAddCleansUpOnBadDocLink(t *testing.T) {
+	projectEnv(t)
+
+	// Try to add artifact with bad doc reference
+	_, err := runCmdErr(t, "artifact", "add", writeFile(t, "test.txt", "content"), "--doc", "no-such-entry")
+	if err == nil {
+		t.Fatal("expected error when linking to non-existent doc")
+	}
+
+	// Verify no artifacts are listed
+	listed := runCmd(t, "artifact", "ls", "--json")
+	if strings.Contains(listed, "test.txt") {
+		t.Error("artifact should not be listed after failed link")
+	}
+}
+
+func TestArtifactAddCleansUpOnBadCardLink(t *testing.T) {
+	projectEnv(t)
+
+	// Try to add artifact with bad card reference
+	_, err := runCmdErr(t, "artifact", "add", writeFile(t, "test.txt", "content"), "--card", "TEST-9999")
+	if err == nil {
+		t.Fatal("expected error when linking to non-existent card")
+	}
+
+	// Verify no artifacts are listed
+	listed := runCmd(t, "artifact", "ls", "--json")
+	if strings.Contains(listed, "test.txt") {
+		t.Error("artifact should not be listed after failed link")
+	}
+}

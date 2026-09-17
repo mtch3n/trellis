@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -52,21 +53,30 @@ func newArtifactAddCmd() *cobra.Command {
 				{Collection: vpath.CollectionCards, Value: card},
 				{Collection: vpath.CollectionKnowledge, Value: doc},
 			}, func(app *appCtx, refs []string) error {
+				// Resolve card ID before creating artifact so we fail early if the ref is bad
+				var resolvedCardID string
+				if refs[0] != "" {
+					var err error
+					resolvedCardID, err = cardID(cmd, app, refs[0])
+					if err != nil {
+						return err
+					}
+				}
+
 				artifact, err := app.Core.CreateArtifact(cmd.Context(), app.Project.ID, args[0])
 				if err != nil {
 					return err
 				}
-				if refs[0] != "" {
-					id, err := cardID(cmd, app, refs[0])
-					if err != nil {
-						return err
-					}
-					if err := app.Core.LinkArtifactToCard(cmd.Context(), app.Project.ID, id, artifact.ID); err != nil {
-						return err
+
+				if resolvedCardID != "" {
+					if err := app.Core.LinkArtifactToCard(cmd.Context(), app.Project.ID, resolvedCardID, artifact.ID); err != nil {
+						deleteErr := app.Core.DeleteArtifact(cmd.Context(), app.Project.ID, artifact.ID)
+						return errors.Join(err, deleteErr)
 					}
 				} else if refs[1] != "" {
 					if _, err := app.Core.LinkArtifactToDoc(cmd.Context(), app.Project.ID, refs[1], artifact.ID); err != nil {
-						return err
+						deleteErr := app.Core.DeleteArtifact(cmd.Context(), app.Project.ID, artifact.ID)
+						return errors.Join(err, deleteErr)
 					}
 				}
 				return Emit(cmd, artifact, func() string { return artifact.Ref + "  " + artifact.Path })
