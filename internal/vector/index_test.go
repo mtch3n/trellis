@@ -12,6 +12,7 @@ import (
 
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/store"
+	"github.com/mtch3n/trellis/internal/testhome"
 	_ "modernc.org/sqlite"
 )
 
@@ -19,7 +20,10 @@ import (
 // whole package because every test that indexes anything needs it.
 var fakeEmbed string
 
+// TestMain folds this package's own setup -- compiling fakeembed once -- into
+// testhome's hermetic-home setup: see internal/testhome.
 func TestMain(m *testing.M) {
+	cleanupHome := testhome.Setup()
 	dir, err := os.MkdirTemp("", "fakeembed")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -32,10 +36,12 @@ func TestMain(m *testing.M) {
 	if out, err := exec.Command("go", "build", "-o", fakeEmbed, "./testdata/fakeembed").CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "build fakeembed: %v\n%s", err, out)
 		os.RemoveAll(dir)
+		cleanupHome()
 		os.Exit(1)
 	}
 	code := m.Run()
 	os.RemoveAll(dir)
+	cleanupHome()
 	os.Exit(code)
 }
 
@@ -55,7 +61,7 @@ func TestIndexUpsertSearchAndPrune(t *testing.T) {
 	}
 	defer idx.Close()
 	ctx := context.Background()
-	if n, err := idx.Upsert(ctx, []Document{{ID: "a", Title: "Concurrency", Content: "locks"}, {ID: "b", Title: "Other", Content: "unrelated"}}, "p"); err != nil || n != 2 {
+	if n, err := idx.Upsert(ctx, []Entry{{ID: "a", Title: "Concurrency", Content: "locks"}, {ID: "b", Title: "Other", Content: "unrelated"}}, "p"); err != nil || n != 2 {
 		t.Fatalf("upsert n=%d err=%v", n, err)
 	}
 	hits, err := idx.Search(ctx, "p", "locking", 2)
@@ -91,7 +97,7 @@ func TestNewWithEagerStoreConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer idx.Close()
-	if _, err := idx.Upsert(t.Context(), []Document{{ID: "eager", Content: "works"}}, "p"); err != nil {
+	if _, err := idx.Upsert(t.Context(), []Entry{{ID: "eager", Content: "works"}}, "p"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -114,15 +120,15 @@ func TestUpsertSkipsUnchangedAndPreservesOnEmbeddingFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer idx.Close()
-	doc := Document{ID: "stable", Title: "Stable", Content: "same"}
-	if n, err := idx.Upsert(t.Context(), []Document{doc}, "p"); err != nil || n != 1 {
+	entry := Entry{ID: "stable", Title: "Stable", Content: "same"}
+	if n, err := idx.Upsert(t.Context(), []Entry{entry}, "p"); err != nil || n != 1 {
 		t.Fatalf("first upsert n=%d err=%v", n, err)
 	}
 	before, err := os.ReadFile(count)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n, err := idx.Upsert(t.Context(), []Document{doc}, "p"); err != nil || n != 0 {
+	if n, err := idx.Upsert(t.Context(), []Entry{entry}, "p"); err != nil || n != 0 {
 		t.Fatalf("unchanged upsert n=%d err=%v", n, err)
 	}
 	after, err := os.ReadFile(count)
@@ -130,12 +136,12 @@ func TestUpsertSkipsUnchangedAndPreservesOnEmbeddingFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(after) != string(before) {
-		t.Fatalf("unchanged document was embedded again: before %q after %q", before, after)
+		t.Fatalf("unchanged entry was embedded again: before %q after %q", before, after)
 	}
 	if err := os.WriteFile(failed, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := idx.Upsert(t.Context(), []Document{{ID: doc.ID, Title: doc.Title, Content: "changed"}}, "p"); err == nil {
+	if _, err := idx.Upsert(t.Context(), []Entry{{ID: entry.ID, Title: entry.Title, Content: "changed"}}, "p"); err == nil {
 		t.Fatal("expected embedding failure")
 	}
 	if got, err := idx.Count(t.Context(), "p"); err != nil || got != 1 {
@@ -174,10 +180,10 @@ func TestIndexesUseSeparateVirtualTablesAndDatabases(t *testing.T) {
 	if a.virtualTable == b.virtualTable || a.shadowTable == b.shadowTable {
 		t.Fatalf("project vector tables collided: %q and %q", a.virtualTable, b.virtualTable)
 	}
-	if _, err := a.Upsert(t.Context(), []Document{{ID: "a-doc", Content: "alpha"}}, "a"); err != nil {
+	if _, err := a.Upsert(t.Context(), []Entry{{ID: "a-entry", Content: "alpha"}}, "a"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.Upsert(t.Context(), []Document{{ID: "b-doc", Content: "bravo"}}, "b"); err != nil {
+	if _, err := b.Upsert(t.Context(), []Entry{{ID: "b-entry", Content: "bravo"}}, "b"); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := a.Count(t.Context(), "a"); err != nil || got != 1 {
@@ -185,5 +191,60 @@ func TestIndexesUseSeparateVirtualTablesAndDatabases(t *testing.T) {
 	}
 	if got, err := b.Count(t.Context(), "b"); err != nil || got != 1 {
 		t.Fatalf("b count = %d, err = %v", got, err)
+	}
+}
+
+// A deleted project's virtual tables are dropped from the shared database, and
+// a later New recreates them.
+func TestDropTablesRemovesAProjectsVirtualTables(t *testing.T) {
+	dir := t.TempDir()
+	primary, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "primary.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer primary.Close()
+	primary.SetMaxOpenConns(1)
+	cfg := config.VectorSearchConfig{Enabled: true, EmbedCommand: fakeEmbed, Dimension: 2, Limit: 5}
+	path := filepath.Join(dir, "p", "vectors.db")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := New(primary, path, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	virtual, shadow := idx.virtualTable, idx.shadowTable
+	if err := idx.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	tableCount := func() int {
+		t.Helper()
+		var n int
+		if err := primary.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name IN (?, ?)`, virtual, shadow).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if tableCount() == 0 {
+		t.Fatalf("New created neither %s nor %s", virtual, shadow)
+	}
+	if err := DropTables(t.Context(), primary, path); err != nil {
+		t.Fatal(err)
+	}
+	if n := tableCount(); n != 0 {
+		t.Fatalf("%d of the project's tables remain after DropTables", n)
+	}
+	// Dropping twice is harmless, and New brings the tables back.
+	if err := DropTables(t.Context(), primary, path); err != nil {
+		t.Fatal(err)
+	}
+	again, err := New(primary, path, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	if tableCount() == 0 {
+		t.Fatal("New did not recreate the tables")
 	}
 }

@@ -3,49 +3,100 @@ package core
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"regexp"
 	"strings"
 
+	"github.com/mtch3n/trellis/internal/address"
 	"gopkg.in/yaml.v3"
 )
 
-// Frontmatter is the YAML header of a knowledge file. Everything else about a
-// doc — which project, which links, when it was read — lives in the database;
+// Frontmatter is the YAML header of an entry file. Everything else about an
+// entry — which project, which links, when it was read — lives in the database;
 // these are the fields a human editing the file in Obsidian would expect to own.
 type Frontmatter struct {
-	Title   string   `yaml:"title"`
-	Type    string   `yaml:"type,omitempty"`
-	Status  string   `yaml:"status,omitempty"`
-	Summary string   `yaml:"summary,omitempty"`
-	Board   string   `yaml:"board,omitempty"` // association, never ownership (§10.1)
+	Title    string `yaml:"title"`
+	Template string `yaml:"template,omitempty"`
+	Status   string `yaml:"status,omitempty"`
+	Summary  string `yaml:"summary,omitempty"`
+	// Provenance names how the entry was ingested, not the author:
+	// authored, prompted or extracted. Empty means unrecorded.
+	Provenance string `yaml:"provenance,omitempty"`
+	// Private is the author's declaration that this body must not be
+	// transmitted automatically. Egress, not access: see
+	// docs/superpowers/specs/2026-09-16-knowledge-disclosure-policy-design.md.
+	// Typed bool on purpose — a non-boolean value is a parse failure rather
+	// than a silent false, because failing open here cannot be undone.
+	Private bool     `yaml:"private,omitempty"`
+	Board   string   `yaml:"board,omitempty"` // association, never a claim (§10.1)
 	Tags    []string `yaml:"tags,omitempty"`
 	Labels  []string `yaml:"labels,omitempty"`
+	// Artifacts names the files linked to this entry, by stored artifact
+	// name. The list is the record; link rows are derived from it.
+	Artifacts []string `yaml:"artifacts,omitempty"`
+	// Sources is the evidence for what this entry says: a URL, a
+	// path:lines pointer, a card ref, a wikilink, an absolute address, or
+	// free prose. Free-form by design — recording that the entry was checked
+	// against something, not that the something is true. A template's
+	// resolve rule (TRELLIS-35) checks only the internal-reference forms
+	// (wikilinks and absolute addresses); everything else passes unchecked.
+	Sources []string `yaml:"sources,omitempty"`
 	Created string   `yaml:"created,omitempty"`
 	Updated string   `yaml:"updated,omitempty"`
+	// Extra keeps every frontmatter key this struct does not name. A
+	// template may ask for a field ("owner", "severity") that has no
+	// dedicated column here; without this, yaml.Unmarshal would silently
+	// drop it, and the first `vault edit` — which re-renders the
+	// frontmatter from this struct — would erase it from the file.
+	Extra map[string]any `yaml:",inline"`
+}
+
+// splitHeader separates a "---\n...\n---\n" YAML header from the body of any
+// file using that convention, without assuming what the header unmarshals
+// into. SplitFrontmatter and the template parser in template.go both build
+// on this, so the delimiter rule exists in exactly one place.
+func splitHeader(raw string) (header, body string, ok bool) {
+	s := strings.ReplaceAll(raw, "\r\n", "\n")
+	if !strings.HasPrefix(s, "---\n") {
+		return "", s, false
+	}
+	end := strings.Index(s[4:], "\n---")
+	if end < 0 {
+		return "", s, false
+	}
+	return s[4 : 4+end], strings.TrimPrefix(s[4+end+4:], "\n"), true
 }
 
 // SplitFrontmatter separates the YAML header from the body. A file without one
 // is not an error: a hand-written note is still a note.
 func SplitFrontmatter(raw string) (Frontmatter, string, error) {
 	var fm Frontmatter
-	s := strings.ReplaceAll(raw, "\r\n", "\n")
-	if !strings.HasPrefix(s, "---\n") {
-		return fm, s, nil
+	header, body, ok := splitHeader(raw)
+	if !ok {
+		return fm, body, nil
 	}
-	end := strings.Index(s[4:], "\n---")
-	if end < 0 {
-		return fm, s, nil
-	}
-	header := s[4 : 4+end]
-	body := strings.TrimPrefix(s[4+end+4:], "\n")
 	if err := yaml.Unmarshal([]byte(header), &fm); err != nil {
 		return fm, body, ErrUsage("bad_frontmatter", "the YAML frontmatter does not parse: "+err.Error(), "")
 	}
 	return fm, body, nil
 }
 
-// RenderDoc writes frontmatter and body back to file form.
-func RenderDoc(fm Frontmatter, body string) string {
+// splitEntryFile is SplitFrontmatter for a file read from path, and names that
+// file when the header does not parse. SplitFrontmatter sees only the text, but
+// its callers sweep the whole vault, and one bad value in any file fails every
+// command; an error that does not say which file is one nobody can act on.
+func splitEntryFile(path string, raw []byte) (Frontmatter, string, error) {
+	fm, body, err := SplitFrontmatter(string(raw))
+	if e, ok := errors.AsType[*Error](err); ok {
+		named := *e
+		named.Msg = path + ": " + e.Msg
+		return fm, body, &named
+	}
+	return fm, body, err
+}
+
+// RenderEntry writes frontmatter and body back to file form.
+func RenderEntry(fm Frontmatter, body string) string {
 	header, err := yaml.Marshal(fm)
 	if err != nil { // a struct of strings cannot fail to marshal
 		panic(err)
@@ -54,7 +105,7 @@ func RenderDoc(fm Frontmatter, body string) string {
 }
 
 // ContentHash is what detects an external edit (§5). It covers the whole file,
-// frontmatter included: retagging a doc is a change.
+// frontmatter included: retagging an entry is a change.
 func ContentHash(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
@@ -76,32 +127,25 @@ func Slugify(s string) string {
 	return strings.Trim(s, "-")
 }
 
-// Reference is one [[wikilink]] found in a body.
+// Reference is one [[wikilink]] target, or a link target typed on the command
+// line.
 type Reference struct {
-	Raw        string // the literal text between the brackets, e.g. "XPSCTL/design"
-	ProjectKey string // set when the reference was qualified
+	Raw        string // the target as written, anchor included: "design", "/XPSCTL/vault/design#why"
+	ProjectKey string // "" for a relative target, "GLOBAL" for the vault, else the key an address names
 	Slug       string
 	Anchor     string // heading slug, without the #
 }
 
-// ParseWikilinks finds every [[link]], [[link#anchor]] and [[KEY/link]] in a
-// body. Code spans and fenced blocks are skipped: an agent pasting a snippet
-// that happens to contain brackets is not making a reference.
+// ParseWikilinks finds every [[link]], [[link#anchor]] and
+// [[/KEY/vault/link]] in a body. Code spans and fenced blocks are skipped:
+// an agent pasting a snippet that happens to contain brackets is not making a
+// reference.
 func ParseWikilinks(body string) []Reference {
 	clean := fenceRE.ReplaceAllString(body, "")
 	seen := map[string]bool{}
 	var refs []Reference
 	for _, m := range wikiLinkRE.FindAllStringSubmatch(clean, -1) {
-		target := strings.TrimSpace(m[1])
-		anchor := Slugify(strings.TrimPrefix(m[2], "#"))
-		key := ""
-		if k, rest, ok := strings.Cut(target, "/"); ok {
-			key, target = strings.ToUpper(k), rest
-		}
-		ref := Reference{
-			Raw: strings.TrimSpace(m[1]) + m[2], ProjectKey: key,
-			Slug: Slugify(target), Anchor: anchor,
-		}
+		ref := ParseReference(strings.TrimSpace(m[1]) + m[2])
 		if ref.Slug == "" || seen[ref.Raw] {
 			continue
 		}
@@ -152,16 +196,73 @@ func FirstParagraph(body string) string {
 	return ""
 }
 
-// ParseReference reads one reference in its stored form — "slug",
-// "slug#anchor" or "KEY/slug#anchor" — back into a Reference. It is the
-// inverse of the Raw field ParseWikilinks writes, so a link recovered from
-// the database resolves exactly as it did when the body was parsed.
+// ParseReference reads one link target -- "slug", "slug#anchor",
+// "/KEY/vault/slug#anchor" or "/GLOBAL/vault/slug" -- into a
+// Reference. It is the inverse of Raw, so a link recovered from the database
+// resolves exactly as it did when the body was parsed.
+//
+// A relative target is path-shaped (normalizeSlugPath) instead of flattened
+// by a single Slugify call, per the knowledge-paths layer. An absolute target
+// that names no entry -- a card address, or a malformed one -- keeps
+// its text as the slug. No row can match that, so the link stays a stub and
+// lint says why.
 func ParseReference(raw string) Reference {
-	target, anchor, _ := strings.Cut(strings.TrimSpace(raw), "#")
-	ref := Reference{Raw: strings.TrimSpace(raw), Anchor: Slugify(anchor)}
-	if key, rest, ok := strings.Cut(target, "/"); ok {
-		ref.ProjectKey, target = strings.ToUpper(key), rest
+	raw = strings.TrimSpace(raw)
+	target, anchor := address.SplitAnchor(raw)
+	target = strings.TrimSpace(target)
+	ref := Reference{Raw: raw, Anchor: Slugify(anchor)}
+	if !strings.HasPrefix(target, "/") {
+		ref.Slug = normalizeSlugPath(target)
+		return ref
 	}
-	ref.Slug = Slugify(target)
+	p, err := address.Parse(target)
+	if err != nil || p.Collection != address.CollectionVault {
+		ref.Slug = target
+		return ref
+	}
+	ref.ProjectKey, ref.Slug = p.Project, p.Name
 	return ref
+}
+
+// RewriteWikilinks replaces link targets in text. fn sees every wikilink that
+// ParseWikilinks would see -- code spans and fenced blocks are skipped the
+// same way -- and returns the new target, anchor included, or false to leave
+// the link alone. An alias after | is kept as written.
+func RewriteWikilinks(text string, fn func(Reference) (string, bool)) string {
+	code := fenceRE.FindAllStringIndex(text, -1)
+	inCode := func(start, end int) bool {
+		for _, span := range code {
+			if start < span[1] && span[0] < end {
+				return true
+			}
+		}
+		return false
+	}
+	var b strings.Builder
+	last := 0
+	for _, m := range wikiLinkRE.FindAllStringSubmatchIndex(text, -1) {
+		if inCode(m[0], m[1]) {
+			continue
+		}
+		raw := strings.TrimSpace(text[m[2]:m[3]])
+		if m[4] >= 0 {
+			raw += text[m[4]:m[5]]
+		}
+		next, ok := fn(ParseReference(raw))
+		if !ok {
+			continue
+		}
+		alias := ""
+		if m[6] >= 0 {
+			alias = text[m[6]:m[7]]
+		}
+		b.WriteString(text[last:m[0]])
+		b.WriteString("[[" + next + alias + "]]")
+		last = m[1]
+	}
+	if last == 0 {
+		return text
+	}
+	b.WriteString(text[last:])
+	return b.String()
 }

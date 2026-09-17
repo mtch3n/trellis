@@ -30,6 +30,11 @@ jobs:
           cache: true           # uuid, encoding/json/v2 and strings.CutLast
       - run: go vet ./...
       - run: go test ./...
+      - name: Verify the test run left the working tree clean
+        shell: bash
+        run: |
+          git status --porcelain
+          test -z "$(git status --porcelain)"
       - run: go test -cover ./...
       - run: go build ./...
 
@@ -41,4 +46,4 @@ jobs:
         with:
           go-version: '1.27'
           cache: true
-      - run: go test ./... -race
+      - run: go test -race -timeout 30m ./...   # core alone takes minutes under -race

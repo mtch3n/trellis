@@ -1,13 +1,17 @@
 package core
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/atomicfile"
 )
 
 // MaxInjectedPins is how many recaps the brief carries in full; the rest are
@@ -15,8 +19,13 @@ import (
 // injection budget, and an injection nobody reads is no injection at all (§13.1).
 const MaxInjectedPins = 5
 
-// Pin is a knowledge entry whose recap is injected at session start (§10.5).
+// Pin is an entry whose recap is injected at session start (§10.5).
+// An empty Recap makes the pin a pointer, ref and title, which is all a private
+// entry ever injects. A pointer is never Stale: there is no recap to be wrong.
 type Pin struct {
+	// ID is not part of the payload — callers address a pin by slug — but the
+	// disclosure refresh needs it. See privateAfterRefresh.
+	ID        string  `db:"id" json:"-"`
 	Slug      string  `db:"slug" json:"slug"`
 	Title     string  `db:"title" json:"title"`
 	Recap     string  `db:"recap" json:"recap"`
@@ -25,24 +34,29 @@ type Pin struct {
 	CreatedAt int64   `db:"created_at" json:"created_at"`
 }
 
-// PinKnowledge pins an entry, with the recap the agent wrote. Summarizing is
+// PinEntry pins an entry, with the recap the agent wrote. Summarizing is
 // what a model is good at and a CLI is not, so trellis never generates one: with
 // no recap supplied it falls back to the frontmatter summary, then to the first
 // paragraph.
-func (c *Core) PinKnowledge(ctx context.Context, projectID, slug, recap, board string) (Pin, error) {
+//
+// A private entry has no recap. Its pin injects a pointer, ref and title, so
+// any recap supplied for it is discarded rather than stored: a stored one would
+// never be shown, and would sit in entry.recap and the event log until the
+// entry was un-marked and it was injected after all.
+func (c *Core) PinEntry(ctx context.Context, projectID, slug, recap, board string) (Pin, error) {
 	var pin Pin
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		var doc Knowledge
-		if err := c.loadDoc(tx, projectID, slug, &doc); err != nil {
+		var entry Entry
+		if err := c.loadEntry(tx, projectID, slug, &entry); err != nil {
 			return err
 		}
-		text := strings.TrimSpace(recap)
-		if text == "" {
-			text = cmpOr(doc.Summary, FirstParagraph(doc.BodyMD))
-		}
-		if text == "" {
-			return ErrUsage("no_recap", "this entry has no summary to fall back on",
-				`trellis knowledge pin `+doc.Slug+` --recap "one line an agent can act on"`)
+		var text string
+		if !entry.Private {
+			text = cmp.Or(strings.TrimSpace(recap), entry.Summary, FirstParagraph(entry.BodyMD))
+			if text == "" {
+				return ErrUsage("no_recap", "this entry has no summary to fall back on",
+					`trellis vault pin `+entry.Slug+` --recap "one line an agent can act on"`)
+			}
 		}
 
 		var boardID *string
@@ -55,271 +69,175 @@ func (c *Core) PinKnowledge(ctx context.Context, projectID, slug, recap, board s
 			boardID, boardName = &b.ID, &b.Name
 		}
 		now := c.clock.NowMS()
-		if _, err := tx.Exec(
-			`UPDATE knowledge SET recap = ?, recap_hash = ? WHERE id = ?`,
-			text, doc.ContentHash, doc.ID); err != nil {
-			return err
+		// NULL for a private entry, written explicitly rather than left alone
+		// so the rule holds whatever the row carried before.
+		var stored, hash *string
+		if !entry.Private {
+			stored, hash = &text, &entry.ContentHash
 		}
 		if _, err := tx.Exec(
-			`INSERT INTO pin (id, knowledge_id, board_id, created_at) VALUES (?, ?, ?, ?)
-			 ON CONFLICT (knowledge_id, board_id) DO UPDATE SET created_at = excluded.created_at`,
-			NewCardID(), doc.ID, boardID, now); err != nil {
+			`UPDATE entry SET recap = ?, recap_hash = ? WHERE id = ?`,
+			stored, hash, entry.ID); err != nil {
 			return err
 		}
-		pin = Pin{Slug: doc.Slug, Title: doc.Title, Recap: text, BoardName: boardName, CreatedAt: now}
-		return c.recordEvent(tx, "knowledge", doc.ID, "pinned", "", "", text)
+
+		// The table's UNIQUE treats NULL boards as distinct, so a project-wide
+		// pin has its own partial index to conflict on.
+		conflict := `(entry_id, board_id)`
+		if boardID == nil {
+			conflict = `(entry_id) WHERE board_id IS NULL`
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO pin (id, entry_id, board_id, created_at) VALUES (?, ?, ?, ?)
+			 ON CONFLICT `+conflict+` DO UPDATE SET created_at = excluded.created_at`,
+			NewID(), entry.ID, boardID, now); err != nil {
+			return err
+		}
+		pin = Pin{Slug: entry.Slug, Title: entry.Title, Recap: text, BoardName: boardName, CreatedAt: now}
+		return c.recordEvent(tx, "entry", entry.ID, "pinned", "", "", text)
 	})
 	return pin, err
 }
 
-// UnpinKnowledge removes a pin. The recap survives on the row: unpinning is a
+// UnpinEntry removes a pin. The recap survives on the row: unpinning is a
 // decision about injection, not about the summary being wrong.
-func (c *Core) UnpinKnowledge(ctx context.Context, projectID, slug, board string) error {
+func (c *Core) UnpinEntry(ctx context.Context, projectID, slug, board string) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
-		var doc Knowledge
-		if err := c.loadDoc(tx, projectID, slug, &doc); err != nil {
+		var entry Entry
+		if err := c.loadEntry(tx, projectID, slug, &entry); err != nil {
 			return err
 		}
 		var res sql.Result
 		var err error
 		if board == "" {
-			res, err = tx.Exec(`DELETE FROM pin WHERE knowledge_id = ? AND board_id IS NULL`, doc.ID)
+			res, err = tx.Exec(`DELETE FROM pin WHERE entry_id = ? AND board_id IS NULL`, entry.ID)
 		} else {
 			b, berr := c.boardByName(tx, projectID, board)
 			if berr != nil {
 				return berr
 			}
-			res, err = tx.Exec(`DELETE FROM pin WHERE knowledge_id = ? AND board_id = ?`, doc.ID, b.ID)
+			res, err = tx.Exec(`DELETE FROM pin WHERE entry_id = ? AND board_id = ?`, entry.ID, b.ID)
 		}
 		if err != nil {
 			return err
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
-			return ErrNotFound("not_pinned", doc.Slug+" is not pinned there",
-				"trellis knowledge pins")
+			return ErrNotFound("not_pinned", entry.Slug+" is not pinned there",
+				"trellis vault pins")
 		}
-		return c.recordEvent(tx, "knowledge", doc.ID, "unpinned", "", "", "")
+		return c.recordEvent(tx, "entry", entry.ID, "unpinned", "", "", "")
 	})
 }
 
 // Pins lists what would be injected, most recently pinned first. Staleness is
 // detected rather than guessed: recap_hash is the content hash at the moment the
 // recap was written, so a mismatch means the entry moved on and the recap may
-// now be confidently wrong.
-func (c *Core) Pins(ctx context.Context, projectID, boardID string) ([]Pin, error) {
-	pins := []Pin{}
+// now be confidently wrong. Limit controls how many pins are returned; 0 means
+// no limit.
+func (c *Core) Pins(ctx context.Context, projectID, boardID string, limit int) ([]Pin, error) {
+	var pins []Pin
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		q := `SELECT k.slug, k.title, COALESCE(k.recap, '') AS recap,
-		             b.name AS board_name,
-		             (k.recap_hash IS NOT k.content_hash) AS stale, p.created_at
-		      FROM pin p JOIN knowledge k ON k.id = p.knowledge_id
-		      LEFT JOIN board b ON b.id = p.board_id
-		      WHERE k.project_id = ?`
-		args := []any{projectID}
-		if boardID != "" {
-			q += " AND (p.board_id IS NULL OR p.board_id = ?)"
-			args = append(args, boardID)
-		}
-		q += " ORDER BY p.created_at DESC"
-		return tx.Select(&pins, q, args...)
+		var err error
+		pins, err = c.pins(tx, projectID, boardID, limit)
+		return err
 	})
 	return pins, err
 }
 
-// Nomination is an agent's argument that an entry is useful beyond its project.
-type Nomination struct {
-	Slug      string `db:"slug" json:"slug"`
-	Title     string `db:"title" json:"title"`
-	Actor     string `db:"actor" json:"actor"`
-	Reason    string `db:"reason" json:"reason"`
-	Cited     int    `db:"cited" json:"cited"`
-	Pinned    int    `db:"pinned" json:"pinned"`
-	Reads     int    `db:"reads" json:"reads_30d"`
-	Actors    int    `db:"actors" json:"actors"`
-	Noms      int    `db:"noms" json:"noms"`
-	CreatedAt int64  `db:"created_at" json:"created_at"`
-}
-
-// NominateKnowledge records a candidate for escalation. No threshold blocks
-// one: a genuinely new insight can deserve global status immediately, and a gate
-// that argues with the nominator is a gate nobody uses (§10.7).
-func (c *Core) NominateKnowledge(ctx context.Context, projectID, slug, reason string) error {
-	if strings.TrimSpace(reason) == "" {
-		return ErrUsage("missing_reason", "a nomination carries evidence, not just an opinion",
-			`trellis knowledge nominate `+slug+` --reason "every repo re-derives this"`)
+func (c *Core) pins(tx *sqlx.Tx, projectID, boardID string, limit int) ([]Pin, error) {
+	pins := []Pin{}
+	q := `SELECT k.id, k.slug, k.title, COALESCE(k.recap, '') AS recap,
+	             b.name AS board_name,
+	             (k.recap_hash IS NOT k.content_hash) AS stale, p.created_at
+	      FROM pin p JOIN entry k ON k.id = p.entry_id
+	      LEFT JOIN board b ON b.id = p.board_id
+	      WHERE k.project_id = ?`
+	args := []any{projectID}
+	if boardID != "" {
+		q += " AND (p.board_id IS NULL OR p.board_id = ?)"
+		args = append(args, boardID)
 	}
-	return c.Tx(ctx, func(tx *sqlx.Tx) error {
-		var doc Knowledge
-		if err := c.loadDoc(tx, projectID, slug, &doc); err != nil {
-			return err
+	q += " ORDER BY p.created_at DESC"
+	if limit > 0 {
+		q += " LIMIT ?"
+		args = append(args, limit)
+	}
+	if err := tx.Select(&pins, q, args...); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(pins))
+	for _, pin := range pins {
+		ids = append(ids, pin.ID)
+	}
+	// The brief is injected without anyone asking for it, so the flag is
+	// read from the files rather than from the mirror, which is one read
+	// stale after a hand edit. Pins are curated, so this is a handful of
+	// stats and reads.
+	private, _, err := c.privateAfterRefresh(tx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range pins {
+		// Decided after the refresh, not in the SELECT, which sees each row
+		// as it was before the refresh purged it. A private pin is a pointer
+		// and never needs a recap. Any other pin without one does: it was
+		// made while the entry was private, and nothing else prompts for it.
+		if private[pins[i].ID] {
+			pins[i].Recap = ""
+			pins[i].Stale = false
+		} else if pins[i].Recap == "" {
+			pins[i].Stale = true
 		}
-		if doc.Global {
-			return ErrUsage("already_global", doc.Slug+" is already global", "trellis knowledge show "+doc.Slug)
-		}
-		if _, err := tx.Exec(
-			`INSERT INTO nomination (id, knowledge_id, actor, reason, created_at) VALUES (?, ?, ?, ?, ?)
-			 ON CONFLICT (knowledge_id, actor) DO UPDATE SET reason = excluded.reason`,
-			NewCardID(), doc.ID, c.actor, reason, c.clock.NowMS()); err != nil {
-			return err
-		}
-		return c.recordEvent(tx, "knowledge", doc.ID, "nominated", "", "", reason)
-	})
+	}
+	return pins, nil
 }
 
-// Nominations is the queue, ordered by evidence trellis already keeps: what was
-// actually read and cited, not what merely exists (§10.7).
-func (c *Core) Nominations(ctx context.Context, projectID string) ([]Nomination, error) {
-	out := []Nomination{}
-	since := c.clock.NowMS() - readWindowMS()
-	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		return tx.Select(&out,
-			`SELECT k.slug, k.title, n.actor, n.reason, n.created_at,
-			        (SELECT COUNT(*) FROM link l WHERE l.to_type = 'doc' AND l.to_id = k.id) AS cited,
-			        (SELECT COUNT(*) FROM pin p WHERE p.knowledge_id = k.id) AS pinned,
-			        (SELECT COUNT(*) FROM event e WHERE e.entity_type = 'knowledge'
-			           AND e.entity_id = k.id AND e.action = 'read' AND e.ts > ?) AS reads,
-			        (SELECT COUNT(DISTINCT e.actor) FROM event e WHERE e.entity_type = 'knowledge'
-			           AND e.entity_id = k.id AND e.action = 'read' AND e.ts > ?) AS actors,
-			        (SELECT COUNT(*) FROM nomination n2 WHERE n2.knowledge_id = k.id) AS noms
-			 FROM nomination n JOIN knowledge k ON k.id = n.knowledge_id
-			 WHERE k.project_id = ? AND k.global = 0
-			 ORDER BY noms DESC, reads DESC, cited DESC, n.created_at`,
-			since, since, projectID)
-	})
-	return out, err
-}
-
-// GlobalReviewDays is how long a global entry goes before it is called
-// unreviewed. Shorter than anything local: reach amplifies staleness (§10.11).
-const GlobalReviewDays = 180
-
-// EscalateKnowledge moves an entry to the global vault. It MOVES rather than
-// copies: two copies diverge, and a stale global copy is worse than none. Every
-// existing reference keeps resolving because link.to_id stores identity.
-//
-// The human gate is enforced by the caller (§10.8): core has no opinion about
-// who is typing, and an --i-am-human flag is exactly what an agent would reach
-// for, so none exists anywhere.
-func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason string) (Knowledge, error) {
-	var doc Knowledge
-	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		if err := c.loadDoc(tx, projectID, slug, &doc); err != nil {
-			return err
+// moveFileTo moves src to the exact destination path dest, refusing to
+// replace anything there. A hard link is nearly free and needs no fallback
+// for the common case (same filesystem); os.Link's O_EXCL-like semantics are
+// what make "refuses to replace" true without a TOCTOU gap. A link across
+// filesystems, or on a filesystem without hard links, falls back to
+// copyAtomic, which refuses the same way. Either way src is only removed once
+// dest is safely in place. vault mv calls this directly because, unlike
+// promote and demote, it can rename the leaf as well as relocate it.
+func moveFileTo(src, dest string) (string, error) {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+		return "", err
+	}
+	if err := os.Link(src, dest); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return "", ErrConflict("path_taken", dest+" already exists", "")
 		}
-		if doc.Global {
-			return ErrUsage("already_global", doc.Slug+" is already global", "")
+		if err := copyAtomic(dest, src); err != nil {
+			if errors.Is(err, fs.ErrExist) {
+				return "", ErrConflict("path_taken", dest+" already exists", "")
+			}
+			return "", err
 		}
-		dir, err := c.kbDir(GlobalKey, true)
-		if err != nil {
-			return err
+	}
+	if removeErr := os.Remove(src); removeErr != nil {
+		if cleanupErr := os.Remove(dest); cleanupErr != nil {
+			return "", errors.Join(removeErr, cleanupErr)
 		}
-		dest, err := moveFile(doc.Path, dir)
-		if err != nil {
-			return err
-		}
-		now := c.clock.NowMS()
-		reviewBy := now + int64(GlobalReviewDays)*24*60*60*1000
-		if _, err := tx.Exec(
-			`UPDATE knowledge SET global = 1, path = ?, board_id = NULL, review_by = ?,
-			                      reviewed_at = ?, updated_at = ? WHERE id = ?`,
-			dest, reviewBy, now, now, doc.ID); err != nil {
-			return err
-		}
-		doc.Global, doc.Path, doc.ReviewBy, doc.ReviewedAt = true, dest, &reviewBy, &now
-		if err := c.recordEvent(tx, "knowledge", doc.ID, "escalated", "", "", reason); err != nil {
-			return err
-		}
-		return c.docView(tx, &doc)
-	})
-	return doc, err
-}
-
-// DemoteKnowledge returns a global entry to its origin project. An escalation
-// mistake must not be permanent.
-func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowledge, error) {
-	var doc Knowledge
-	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		err := tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, Slugify(slug))
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound("not_global", "no global entry "+slug, "trellis knowledge ls --global")
-		}
-		if err != nil {
-			return err
-		}
-		var key string
-		if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, doc.ProjectID); err != nil {
-			return err
-		}
-		dir, err := c.kbDir(key, false)
-		if err != nil {
-			return err
-		}
-		dest, err := moveFile(doc.Path, dir)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(
-			`UPDATE knowledge SET global = 0, path = ?, review_by = NULL, updated_at = ? WHERE id = ?`,
-			dest, c.clock.NowMS(), doc.ID); err != nil {
-			return err
-		}
-		doc.Global, doc.Path, doc.ReviewBy = false, dest, nil
-		if err := c.recordEvent(tx, "knowledge", doc.ID, "demoted", "", "", reason); err != nil {
-			return err
-		}
-		return c.docView(tx, &doc)
-	})
-	return doc, err
-}
-
-// VerifyKnowledge resets the review clock on a global entry.
-func (c *Core) VerifyKnowledge(ctx context.Context, slug string) error {
-	return c.Tx(ctx, func(tx *sqlx.Tx) error {
-		var doc Knowledge
-		err := tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, Slugify(slug))
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound("not_global", "no global entry "+slug, "trellis knowledge ls --global")
-		}
-		if err != nil {
-			return err
-		}
-		now := c.clock.NowMS()
-		reviewBy := now + int64(GlobalReviewDays)*24*60*60*1000
-		if _, err := tx.Exec(
-			`UPDATE knowledge SET reviewed_at = ?, review_by = ? WHERE id = ?`, now, reviewBy, doc.ID); err != nil {
-			return err
-		}
-		return c.recordEvent(tx, "knowledge", doc.ID, "verified", "", "", "")
-	})
-}
-
-// Unreviewed reports whether a global entry is past its review date, which is
-// said out loud at every point of use rather than filed in a report nobody reads.
-func (d Knowledge) Unreviewed(nowMS int64) bool {
-	return d.Global && d.ReviewBy != nil && nowMS > *d.ReviewBy
-}
-
-func moveFile(src, destDir string) (string, error) {
-	dest := destDir + string(os.PathSeparator) + baseName(src)
-	if err := os.Rename(src, dest); err != nil {
-		// A rename across filesystems fails; copy then remove.
-		raw, rerr := os.ReadFile(src)
-		if rerr != nil {
-			return "", rerr
-		}
-		if werr := os.WriteFile(dest, raw, 0o600); werr != nil {
-			return "", werr
-		}
-		if rmErr := os.Remove(src); rmErr != nil {
-			return "", rmErr
+		return "", removeErr
+	}
+	destDir := filepath.Dir(dest)
+	srcDir := filepath.Dir(src)
+	if err := atomicfile.SyncDir(destDir); err != nil {
+		return "", err
+	}
+	if destDir != srcDir {
+		if err := atomicfile.SyncDir(srcDir); err != nil {
+			return "", err
 		}
 	}
 	return dest, nil
 }
 
-func baseName(path string) string {
-	if i := strings.LastIndexAny(path, `/\`); i >= 0 {
-		return path[i+1:]
-	}
-	return path
+// moveBack undoes a successful moveFile: dest moves back into the directory
+// src used to live in. It is the only compensation promote and demote need,
+// so it stays a small helper rather than growing into a general framework.
+func moveBack(dest, src string) error {
+	_, err := moveFile(dest, filepath.Dir(src))
+	return err
 }

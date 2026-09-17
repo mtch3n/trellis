@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -21,11 +22,11 @@ func (c *Core) BlockCard(ctx context.Context, projectID string, ref, blockerRef 
 		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
 			return err
 		}
-		if err := c.checkCardOwner(card); err != nil {
+		if err := c.checkCardClaim(card); err != nil {
 			return err
 		}
 		if err := c.loadCard(tx, projectID, blockerRef, &blocker); err != nil {
-			return err
+			return crossProjectBlock(err, blockerRef)
 		}
 		if card.ID == blocker.ID {
 			return ErrUsage("self_block", "a card cannot block itself",
@@ -58,11 +59,11 @@ func (c *Core) UnblockCard(ctx context.Context, projectID string, ref, blockerRe
 		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
 			return err
 		}
-		if err := c.checkCardOwner(card); err != nil {
+		if err := c.checkCardClaim(card); err != nil {
 			return err
 		}
 		if err := c.loadCard(tx, projectID, blockerRef, &blocker); err != nil {
-			return err
+			return crossProjectBlock(err, blockerRef)
 		}
 		res, err := tx.Exec(
 			`DELETE FROM link WHERE from_type = 'card' AND from_id = ?
@@ -85,14 +86,24 @@ func (c *Core) Blockers(ctx context.Context, cardID string) ([]Blocker, error) {
 	out := []Blocker{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		return tx.Select(&out,
-			`SELECT p.key || '-' || b.seq AS ref, b.title,
+			`SELECT b.ref, b.title,
 			        (col.is_done = 1) AS done
 			 FROM link l
 			 JOIN card b ON b.id = l.to_id
-			 JOIN project p ON p.id = b.project_id
 			 JOIN column_ col ON col.id = b.column_id
 			 WHERE l.from_id = ? AND l.rel = 'blocked_by'
 			 ORDER BY done, b.seq`, cardID)
 	})
 	return out, err
+}
+
+// crossProjectBlock says why a blocker from another project is refused: a card
+// and the cards blocking it live in one project, where claiming can see both.
+func crossProjectBlock(err error, blocker CardRef) error {
+	if e, ok := errors.AsType[*Error](err); !ok || e.Code != "wrong_project" {
+		return err
+	}
+	return ErrUsage("cross_project_block",
+		blocker.String()+" is not in this project; a card can only be blocked by a card in its own project",
+		`trellis card comment <card> --body "waiting on `+blocker.String()+`"`)
 }

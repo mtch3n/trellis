@@ -23,7 +23,7 @@ func TestDeleteCardRemovesRowAndKeepsHistory(t *testing.T) {
 		t.Errorf("card row count = %d, want 0", n)
 	}
 
-	// The event log is the change feed; deleting a card must not erase it.
+	// The event log records every change; deleting a card must not erase it.
 	if err := c.db.Get(&n,
 		`SELECT count(*) FROM event WHERE entity_id = ? AND action = 'deleted'`, card.ID); err != nil {
 		t.Fatal(err)

@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -20,10 +22,10 @@ type boardBrief struct {
 }
 
 type cardInfo struct {
-	Ref   string
-	Title string
-	Owner string
-	Note  string
+	Ref       string
+	Title     string
+	ClaimedBy string
+	Comment   string
 }
 
 // newBoardShowCmd creates the board show subcommand.
@@ -36,9 +38,9 @@ func newBoardShowCmd() *cobra.Command {
 
 			app, err := currentBoard()
 			if err != nil {
-				// Not in a repository: print nothing, not an error.
-				// The hook must be silent outside a repo.
-				if strings.Contains(err.Error(), "run: trellis init --pin") {
+				// No marker applies here, so Trellis is not in use in this
+				// directory, and the SessionStart hook must stay silent.
+				if ce, ok := errors.AsType[*core.Error](err); ok && ce.Code == "unresolved" {
 					return nil
 				}
 				return err
@@ -62,7 +64,7 @@ func newBoardShowCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().Bool("brief", false, "show as injection brief")
+	cmd.Flags().Bool("brief", false, "show as the session brief")
 	return cmd
 }
 
@@ -122,11 +124,11 @@ func formatBoardView(view boardView) string {
 			continue
 		}
 		for _, card := range column.Cards {
-			owner := ""
-			if card.Owner != nil {
-				owner = " · " + *card.Owner
+			claimant := ""
+			if card.ClaimedBy != nil {
+				claimant = " · " + *card.ClaimedBy
 			}
-			fmt.Fprintf(&b, "  %-14s %-8s %s%s\n", card.Ref, card.PriorityName, card.Title, owner)
+			fmt.Fprintf(&b, "  %-14s %-8s %s%s\n", card.Ref, card.PriorityName, card.Title, claimant)
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
@@ -144,20 +146,20 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 
 	now := time.Now().UnixMilli()
 
-	// YOURS: cards where owner = :me AND lease_until > :now
+	// YOURS: cards where claimed_by = :me AND claim_until > :now
 	if actor != "" {
 		var owned []struct {
-			ID    string `db:"id"`
-			Seq   int64  `db:"seq"`
-			Title string `db:"title"`
-			Note  string `db:"body_md"`
+			ID      string `db:"id"`
+			Ref     string `db:"ref"`
+			Title   string `db:"title"`
+			Comment string `db:"body_md"`
 		}
 		err := app.db.SelectContext(ctx, &owned,
-			`SELECT c.id, c.seq, c.title,
-			        COALESCE((SELECT body_md FROM note WHERE card_id = c.id ORDER BY created_at DESC LIMIT 1), '') AS body_md
+			`SELECT c.id, c.ref, c.title,
+			        COALESCE((SELECT body_md FROM comment WHERE card_id = c.id ORDER BY created_at DESC LIMIT 1), '') AS body_md
 			 FROM card c
 			 JOIN column_ col ON col.id = c.column_id
-			 WHERE c.project_id = ? AND c.owner = ? AND c.lease_until > ? AND c.archived_at IS NULL
+			 WHERE c.project_id = ? AND c.claimed_by = ? AND c.claim_until > ? AND c.archived_at IS NULL
 			 ORDER BY col.position DESC, c.priority, c.rank`,
 			app.Project.ID, actor, now)
 		if err != nil {
@@ -165,34 +167,35 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 		}
 		for _, o := range owned {
 			brief.yours = append(brief.yours, cardInfo{
-				Ref:   fmt.Sprintf("%s-%d", app.Project.Key, o.Seq),
-				Title: o.Title,
-				Note:  o.Note,
+				Ref:     o.Ref,
+				Title:   o.Title,
+				Comment: o.Comment,
 			})
 		}
 	}
 
-	// OTHERS: cards where owner IS NOT NULL AND owner != :me AND is_done = 0
+	// OTHERS: unclaimed cards left by earlier sessions, most recently updated first.
+	// These are cards where no one is currently working on them (no claim).
 	var otherCards []struct {
-		Seq   int64  `db:"seq"`
-		Title string `db:"title"`
-		Owner string `db:"owner"`
+		Ref     string `db:"ref"`
+		Title   string `db:"title"`
+		Comment string `db:"body_md"`
 	}
 	err := app.db.SelectContext(ctx, &otherCards,
-		`SELECT c.seq, c.title, c.owner
+		`SELECT c.ref, c.title, COALESCE((SELECT body_md FROM comment WHERE card_id = c.id ORDER BY created_at DESC LIMIT 1), '') AS body_md
 		 FROM card c
 		 JOIN column_ col ON col.id = c.column_id
-		 WHERE c.project_id = ? AND c.owner IS NOT NULL AND c.owner != ? AND c.archived_at IS NULL AND col.is_done = 0
+		 WHERE c.project_id = ? AND c.claimed_by IS NULL AND c.archived_at IS NULL AND col.is_done = 0
 		 ORDER BY c.updated_at DESC LIMIT 5`,
-		app.Project.ID, actor)
+		app.Project.ID)
 	if err != nil {
 		return nil, err
 	}
 	for _, o := range otherCards {
 		brief.others = append(brief.others, cardInfo{
-			Ref:   fmt.Sprintf("%s-%d", app.Project.Key, o.Seq),
-			Title: o.Title,
-			Owner: o.Owner,
+			Ref:     o.Ref,
+			Title:   o.Title,
+			Comment: o.Comment,
 		})
 	}
 
@@ -217,9 +220,11 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 		brief.counts[r.ColumnName] = r.Count
 	}
 
-	// PINNED: pin joined to knowledge, comparing recap_hash against
+	// PINNED: pin joined to entry, comparing recap_hash against
 	// content_hash. Ordered most recently pinned first.
-	pins, err := app.Core.Pins(ctx, app.Project.ID, app.Board.ID)
+	// Read MaxInjectedPins + 1 to know if there are more; the brief renders
+	// only MaxInjectedPins in full, then counts the rest.
+	pins, err := app.Core.Pins(ctx, app.Project.ID, app.Board.ID, core.MaxInjectedPins+1)
 	if err != nil {
 		return nil, err
 	}
@@ -236,25 +241,32 @@ func formatBrief(brief *boardBrief) string {
 		result.WriteString("### yours\n")
 		for _, card := range brief.yours {
 			fmt.Fprintf(&result, "  %s: %s\n", card.Ref, card.Title)
-			if card.Note != "" {
-				note := card.Note
-				if len(note) > 100 {
-					note = note[:100] + "..."
+			if card.Comment != "" {
+				comment := card.Comment
+				if len(comment) > 100 {
+					comment = comment[:100] + "..."
 				}
-				fmt.Fprintf(&result, "    %s\n", note)
+				fmt.Fprintf(&result, "    %s\n", comment)
 			}
 		}
 		result.WriteString("\n")
 	}
 
-	// OTHERS section: can trim but show some
+	// OTHERS section: unclaimed cards left by earlier sessions
 	if len(brief.others) > 0 {
 		result.WriteString("### others\n")
 		for i, card := range brief.others {
 			if i >= 5 {
 				break
 			}
-			fmt.Fprintf(&result, "  %s (%s): %s\n", card.Ref, card.Owner, card.Title)
+			fmt.Fprintf(&result, "  %s: %s\n", card.Ref, card.Title)
+			if card.Comment != "" {
+				comment := card.Comment
+				if len(comment) > 100 {
+					comment = comment[:100] + "..."
+				}
+				fmt.Fprintf(&result, "    %s\n", comment)
+			}
 		}
 		result.WriteString("\n")
 	}
@@ -268,14 +280,14 @@ func formatBrief(brief *boardBrief) string {
 		result.WriteString("\n")
 	}
 
-	// PINNED section: knowledge the agent wrote down for its future self.
+	// PINNED section: entries the agent wrote down for its future self.
 	// Trimmed before YOURS and DO THIS, and each line carries the command that
 	// expands it, because an agent that cannot act on a line ignores it (§10.5).
 	if len(brief.pins) > 0 {
-		result.WriteString("### pinned — read fully with: trellis knowledge show <slug>\n")
+		result.WriteString("### pinned — read fully with: trellis vault show <entry>\n")
 		for i, p := range brief.pins {
 			if i >= core.MaxInjectedPins {
-				fmt.Fprintf(&result, "  +%d more: trellis knowledge pins\n", len(brief.pins)-i)
+				fmt.Fprintf(&result, "  +%d more: trellis vault pins\n", len(brief.pins)-i)
 				break
 			}
 			stale := ""
@@ -284,7 +296,9 @@ func formatBrief(brief *boardBrief) string {
 				// is worse than no recap.
 				stale = "(stale) "
 			}
-			recap := p.Recap
+			// A pin with no recap is a pointer, which is what a private
+			// entry injects: the slug and the title, nothing from the body.
+			recap := cmp.Or(p.Recap, p.Title)
 			if len(recap) > 120 {
 				recap = recap[:120] + "..."
 			}
@@ -293,13 +307,20 @@ func formatBrief(brief *boardBrief) string {
 		result.WriteString("\n")
 	}
 
-	// DO THIS section (commands cheatsheet): never trimmed
-	result.WriteString("### do this\n")
-	result.WriteString("  `card new --title \"...\"`      create work\n")
-	result.WriteString("  `card next --claim`           claim next unblocked card\n")
-	result.WriteString("  `card note <id> \"...\"`      log progress (renews lease)\n")
-	result.WriteString("  `card move <id> <column>`     move to column\n")
-	result.WriteString("  `knowledge new --title ...`   write down what you learned\n")
+	// TRELLIS-2: empty board collapses to one line.
+	// DO THIS section (commands cheatsheet): only shown if there is other content.
+	hasContent := len(brief.yours) > 0 || len(brief.others) > 0 || len(brief.counts) > 0 || len(brief.pins) > 0
+	if hasContent {
+		result.WriteString("### do this\n")
+		result.WriteString("  `card new --title \"...\"`      create work\n")
+		result.WriteString("  `card next --claim`           claim next unblocked card\n")
+		result.WriteString("  `card comment <id> --body \"...\"`  log progress\n")
+		result.WriteString("  `card renew <id>`             keep your claim alive\n")
+		result.WriteString("  `card move <id> <column>`     move to column\n")
+		result.WriteString("  `vault new --title ...`       write down what you learned\n")
+	} else {
+		result.WriteString("board is empty\n")
+	}
 
-	return result.String()
+	return strings.TrimRight(result.String(), "\n")
 }

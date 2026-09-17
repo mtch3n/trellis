@@ -27,20 +27,19 @@ const (
 )
 
 // daemonSpawnWait bounds how long start waits for a freshly spawned daemon to
-// answer on its IPC socket. The first start of a large knowledge base rebuilds
+// answer on its IPC socket. The first start of a large vault rebuilds
 // the search index before it listens.
 const daemonSpawnWait = 30 * time.Second
 
 func daemonPIDPath(root string) string { return filepath.Join(root, "daemon.pid") }
-func daemonLogPath(root string) string { return filepath.Join(root, "daemon.log") }
 
-// daemonHealth asks the running daemon over local IPC. This is the only
+// daemonPing asks the running daemon over local IPC. This is the only
 // authoritative answer to "is it up": a unit can be active while the process
 // is still starting, and a pidfile can outlive the process it names.
-func daemonHealth(ctx context.Context, root string) (url string, ok bool) {
+func daemonPing(ctx context.Context, root string) (url string, ok bool) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	resp, err := daemon.Call(ctx, daemon.Endpoint(root), daemon.Request{Method: "health"})
+	resp, err := daemon.Call(ctx, daemon.Endpoint(root), daemon.Request{Method: "ping"})
 	if err != nil || !resp.OK {
 		return "", false
 	}
@@ -71,21 +70,22 @@ func readDaemonPID(root string) (int, bool) {
 type daemonStatus struct {
 	Running   bool          `json:"running"`
 	URL       string        `json:"url,omitempty"`
-	PID       int           `json:"pid,omitempty"`
+	PID       int           `json:"pid,omitzero"`
 	ManagedBy string        `json:"managed_by"`
 	Service   service.State `json:"service"`
 	Root      string        `json:"-"`
 }
 
-// resolveDaemonStatus decides who owns the daemon. Health comes first because
-// it is the only fact; the service manager and pidfile only explain it.
+// resolveDaemonStatus decides who owns the daemon. The ping comes first
+// because it is the only fact; the service manager and pidfile only explain
+// it.
 func resolveDaemonStatus(ctx context.Context) (daemonStatus, error) {
 	root, err := home.Root()
 	if err != nil {
 		return daemonStatus{}, err
 	}
 	status := daemonStatus{Root: root, ManagedBy: managedByNone}
-	status.URL, status.Running = daemonHealth(ctx, root)
+	status.URL, status.Running = daemonPing(ctx, root)
 
 	// A Status error means the service manager itself is broken, which doctor
 	// reports; the control commands still work through the self-managed path.
@@ -112,9 +112,11 @@ func resolveDaemonStatus(ctx context.Context) (daemonStatus, error) {
 // daemonDefaults resolves the bind address and port for a command that was not
 // given explicit flags, falling back to config and then to built-in defaults.
 func daemonDefaults(bind string, port int) (string, int) {
-	cfg, err := config.Load()
-	if err != nil {
-		cfg = config.Defaults()
+	cfg := config.Defaults()
+	if root, err := home.Root(); err == nil {
+		if loaded, err := config.Load(root); err == nil {
+			cfg = loaded
+		}
 	}
 	if bind == "" {
 		bind = cfg.UI.Bind
@@ -132,10 +134,10 @@ func daemonDefaults(bind string, port int) (string, int) {
 	return bind, port
 }
 
-// daemonSpec builds the unit contents for `daemon install`. TRELLIS_HOME is
-// pinned only when it was set explicitly: a service started at login inherits
-// almost nothing from the shell, so an unpinned custom root would silently
-// become the default one.
+// daemonSpec builds the unit contents for `daemon install`. The unit gets a
+// fixed root only when TRELLIS_HOME was set explicitly: a service started at
+// login inherits almost nothing from the shell, so a custom root that is not
+// fixed in the unit would silently become the default one.
 func daemonSpec(bind string, port int, linger bool) (service.Spec, error) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -161,7 +163,7 @@ func spawnDaemon(ctx context.Context, root, bind string, port int) (int, error) 
 	if err != nil {
 		return 0, fmt.Errorf("locate the trellis binary: %w", err)
 	}
-	logFile, err := os.OpenFile(daemonLogPath(root), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	logFile, err := os.OpenFile(home.DaemonLogPath(root), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return 0, err
 	}
@@ -180,36 +182,59 @@ func spawnDaemon(ctx context.Context, root, bind string, port int) (int, error) 
 		return pid, err
 	}
 	if err := waitForDaemon(ctx, root, true); err != nil {
-		return pid, fmt.Errorf("%w (see %s)", err, daemonLogPath(root))
+		return pid, fmt.Errorf("%w (see %s)", err, home.DaemonLogPath(root))
 	}
 	return pid, nil
 }
 
-// waitForDaemon polls the health endpoint until it matches want or the budget
-// runs out. Polling beats a fixed sleep: a warm start answers immediately.
-func waitForDaemon(ctx context.Context, root string, want bool) error {
-	deadline := time.Now().Add(daemonSpawnWait)
+// pollUntil polls cond every 100ms until it reports true or deadline passes,
+// stopping early if ctx is cancelled. ok is false only when the deadline was
+// reached with cond still false; a non-nil err means ctx ended the wait.
+func pollUntil(ctx context.Context, deadline time.Time, cond func() bool) (ok bool, err error) {
 	for {
-		if _, ok := daemonHealth(ctx, root); ok == want {
-			return nil
+		if cond() {
+			return true, nil
 		}
 		if time.Now().After(deadline) {
-			if want {
-				return errors.New("timed out waiting for the daemon to start")
-			}
-			return errors.New("timed out waiting for the daemon to stop")
+			return false, nil
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return false, ctx.Err()
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
 }
 
-// stopSelfManaged terminates the detached child and waits for the socket to go
-// quiet. It asks politely first so the daemon releases its SQLite lock and
-// removes its socket on the way out.
+// waitForDaemon pings the daemon until the answer matches want or the budget
+// runs out. Polling beats a fixed sleep: a warm start answers immediately.
+func waitForDaemon(ctx context.Context, root string, want bool) error {
+	deadline := time.Now().Add(daemonSpawnWait)
+	ok, err := pollUntil(ctx, deadline, func() bool {
+		_, alive := daemonPing(ctx, root)
+		return alive == want
+	})
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	if want {
+		return errors.New("timed out waiting for the daemon to start")
+	}
+	return errors.New("timed out waiting for the daemon to stop")
+}
+
+// stopSelfManaged terminates the detached child and waits for the process
+// itself to exit. It asks politely first so the daemon releases its SQLite
+// lock and removes its socket on the way out.
+//
+// This waits on process liveness (readDaemonPID), not the ping:
+// daemonPing carries its own 2-second probe timeout, so a daemon that is
+// merely slow to answer while shutting down under load looks identical to a
+// stopped one if a single failed ping is trusted. Polling the PID
+// instead means "stopped" only ever means the process is actually gone.
 func stopSelfManaged(ctx context.Context, root string) error {
 	pid, alive := readDaemonPID(root)
 	if !alive {
@@ -219,8 +244,16 @@ func stopSelfManaged(ctx context.Context, root string) error {
 	if err := terminate(pid); err != nil {
 		return fmt.Errorf("stop daemon %d: %w", pid, err)
 	}
-	if err := waitForDaemon(ctx, root, false); err != nil {
+	deadline := time.Now().Add(daemonSpawnWait)
+	exited, err := pollUntil(ctx, deadline, func() bool {
+		_, alive := readDaemonPID(root)
+		return !alive
+	})
+	if err != nil {
 		return err
+	}
+	if !exited {
+		return errors.New("timed out waiting for the daemon to stop")
 	}
 	_ = os.Remove(daemonPIDPath(root))
 	return nil

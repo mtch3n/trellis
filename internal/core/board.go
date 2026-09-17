@@ -24,7 +24,7 @@ type Board struct {
 
 // slugify lowercases name, collapses every run of non-letter-non-digit
 // characters into a single "-", and trims leading/trailing "-". The slug is
-// the KB directory name and a URL segment (/p/<KEY>/b/<slug>), and it never
+// the vault directory name and a URL segment (/p/<KEY>/b/<slug>), and it never
 // changes on rename, so it must be a stable, filesystem-and-URL-safe
 // derivation of the name at creation time only.
 //
@@ -77,7 +77,7 @@ func (c *Core) createBoard(tx *sqlx.Tx, projectID, name string, isDefault, seedC
 	}
 
 	b := Board{
-		ID:        NewCardID(),
+		ID:        NewID(),
 		ProjectID: projectID,
 		Name:      name,
 		Slug:      slug,
@@ -147,7 +147,7 @@ func (c *Core) SelectBoard(ctx context.Context, projectID, requested string) (Bo
 				return b, nil
 			}
 		}
-		return Board{}, ErrNotFound("unknown_board",
+		return Board{}, ErrNotFound("board_not_found",
 			fmt.Sprintf("no board %q (have: %s)", requested, strings.Join(boardNames(boards), ", ")),
 			"trellis board ls")
 	}
@@ -175,7 +175,7 @@ func boardNames(boards []Board) []string {
 }
 
 // CreateBoard adds a board to an existing project. It is never the default --
-// the first board of a project is created by EnsureProject, which marks that
+// the first board of a project is created by createProject, which marks that
 // one. seedColumns controls whether the board is seeded with the default column
 // set (backlog, in-progress, review, done).
 func (c *Core) CreateBoard(ctx context.Context, projectID, name string, seedColumns bool) (Board, error) {
@@ -211,7 +211,7 @@ func (c *Core) SetDefaultBoard(ctx context.Context, projectID, name string) (Boa
 			}
 		}
 		if !found {
-			return ErrNotFound("unknown_board",
+			return ErrNotFound("board_not_found",
 				fmt.Sprintf("no board %q (have: %s)", name, strings.Join(boardNames(boards), ", ")),
 				"trellis board ls")
 		}
@@ -231,7 +231,7 @@ func (c *Core) SetDefaultBoard(ctx context.Context, projectID, name string) (Boa
 		}
 
 		// Record event
-		return c.recordEvent(tx, "board", board.ID, "default", "", "", "")
+		return c.recordEvent(tx, "board", board.ID, "set_default", "", "", "")
 	})
 	return board, err
 }
@@ -287,10 +287,10 @@ func (c *Core) DeleteBoard(ctx context.Context, projectID, name string, force bo
 				return err
 			}
 		}
-		if _, err := tx.Exec(`DELETE FROM board WHERE id = ?`, board.ID); err != nil {
+		if err := c.recordEvent(tx, "board", board.ID, "deleted", "", board.Name, ""); err != nil {
 			return err
 		}
-		if err := c.recordEvent(tx, "board", board.ID, "deleted", "", board.Name, ""); err != nil {
+		if _, err := tx.Exec(`DELETE FROM board WHERE id = ?`, board.ID); err != nil {
 			return err
 		}
 		if board.IsDefault {
@@ -301,7 +301,7 @@ func (c *Core) DeleteBoard(ctx context.Context, projectID, name string, force bo
 			if _, err := tx.Exec(`UPDATE board SET is_default = 1 WHERE id = ?`, next.ID); err != nil {
 				return err
 			}
-			if err := c.recordEvent(tx, "board", next.ID, "default", "", "", ""); err != nil {
+			if err := c.recordEvent(tx, "board", next.ID, "set_default", "", "", ""); err != nil {
 				return err
 			}
 		}
@@ -326,4 +326,28 @@ func (c *Core) boardByName(tx *sqlx.Tx, projectID, name string) (Board, error) {
 		return b, ErrNotFound("board_not_found", "no board "+name+" in this project", "trellis board ls")
 	}
 	return b, err
+}
+
+// BoardBySlug finds a board by slug, which is how a marker names one.
+func (c *Core) BoardBySlug(ctx context.Context, projectID, slug string) (Board, error) {
+	return boardBySlug(ctx, c.db, projectID, slug)
+}
+
+// boardBySlug works on the database or inside a caller's transaction. A miss
+// lists the slugs that do exist, because a marker can only be fixed by naming
+// one of them or by creating the board.
+func boardBySlug(ctx context.Context, q sqlx.QueryerContext, projectID, slug string) (Board, error) {
+	var b Board
+	err := sqlx.GetContext(ctx, q, &b, `SELECT * FROM board WHERE project_id = ? AND slug = ?`, projectID, slug)
+	if !errors.Is(err, sql.ErrNoRows) {
+		return b, err
+	}
+	var slugs []string
+	if err := sqlx.SelectContext(ctx, q, &slugs,
+		`SELECT slug FROM board WHERE project_id = ? ORDER BY created_at`, projectID); err != nil {
+		return b, err
+	}
+	return b, ErrNotFound("board_not_found",
+		fmt.Sprintf("no board with slug %q (have: %s)", slug, strings.Join(slugs, ", ")),
+		"trellis board new --name <name>")
 }

@@ -3,8 +3,10 @@ package cli
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -12,6 +14,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/core"
+	"github.com/mtch3n/trellis/internal/home"
 	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/spf13/cobra"
 )
@@ -22,44 +25,58 @@ type projectContext struct {
 	Project core.Project
 	db      *sqlx.DB
 	cfg     config.Config
+	present map[string]bool
+	repo    config.RepoFile
 }
 
-// currentProject resolves the current project without requiring a board.
+// loadGlobalConfig resolves the storage root and loads the global config
+// file, falling back to defaults on any error: a bad or unreadable file must
+// not block a read-only listing.
+func loadGlobalConfig() (config.Config, map[string]bool) {
+	root, err := home.Root()
+	if err != nil {
+		return config.Defaults(), map[string]bool{}
+	}
+	cfg, present, err := config.LoadWithPresence(root)
+	if err != nil {
+		return config.Defaults(), map[string]bool{}
+	}
+	return cfg, present
+}
+
+// currentProject resolves the current project without requiring a board. It
+// also resolves the directory that answered — the .trellis marker's directory,
+// or the repository root when there is no marker yet — and loads that
+// directory's .trellis.yaml, if any. A project named by --project or
+// TRELLIS_PROJECT skips directory resolution entirely, so it reads no
+// repository file, matching the design.
 func currentProject() (*projectContext, error) {
 	c, db, err := openCore()
 	if err != nil {
 		return nil, err
 	}
 
-	var p core.Project
-	if key := projectKey(); key != "" {
-		// --project XPSCTL settings a project you are not standing in.
-		if p, err = c.ProjectByKey(context.Background(), key); err != nil {
-			db.Close()
-			return nil, err
-		}
-	} else {
-		dir, err := os.Getwd()
-		if err != nil {
-			db.Close()
-			return nil, err
-		}
-		id, err := resolve.Identify(dir)
-		if err != nil {
-			db.Close()
-			return nil, core.ErrUsage("unresolved", err.Error(), "trellis init --pin")
-		}
-		if p, err = c.EnsureProject(context.Background(), id); err != nil {
-			db.Close()
-			return nil, err
-		}
+	r, err := resolveProject(context.Background(), c)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	p := r.Project
+	// The repository file sits beside the marker that chose the project. A
+	// project named by --project or TRELLIS_PROJECT has no marker, so it reads
+	// no repository file.
+	var repoDir string
+	if r.Marker != nil {
+		repoDir = filepath.Dir(r.Marker.Path)
 	}
 
-	cfg, err := config.Load()
+	// Config file issues are warnings, not hard stops: loadGlobalConfig falls
+	// back to defaults.
+	cfg, present := loadGlobalConfig()
+	repo, _, _, err := config.LoadRepo(repoDir)
 	if err != nil {
-		// Log but don't fail: config file issues are warnings, not hard stops.
-		// Fall back to defaults.
-		cfg = config.Defaults()
+		db.Close()
+		return nil, core.ErrUsage("bad_repo_config", err.Error(), "fix the file .trellis.yaml/.trellis.yml names")
 	}
 
 	return &projectContext{
@@ -67,6 +84,8 @@ func currentProject() (*projectContext, error) {
 		Project: p,
 		db:      db,
 		cfg:     cfg,
+		present: present,
+		repo:    repo,
 	}, nil
 }
 
@@ -85,23 +104,42 @@ func newConfigCmd() *cobra.Command {
 }
 
 func newConfigUnsetCmd() *cobra.Command {
-	return &cobra.Command{
-		Use: "unset <key>", Short: "Remove a project override", Args: cobra.ExactArgs(1),
+	var repoFlag bool
+	cmd := &cobra.Command{
+		Use: "unset <key>", Short: "Remove a project override, or a repository config value with --repo", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			key := args[0]
+			if repoFlag {
+				if !config.RepoSafe(key) {
+					return core.ErrUsage("not_repo_safe", fmt.Sprintf("%q may not be set by a repository", key), "trellis config ls")
+				}
+				dir, err := repoConfigDir()
+				if err != nil {
+					return err
+				}
+				path, err := config.UnsetRepoValue(dir, key)
+				if err != nil {
+					return err
+				}
+				return Emit(cmd, map[string]string{"unset": key, "file": path}, func() string { return "unset " + key + " in " + path })
+			}
+
 			pctx, err := currentProject()
 			if err != nil {
 				return err
 			}
 			defer pctx.db.Close()
-			if _, ok := config.GetValue(pctx.cfg, args[0]); !ok {
-				return core.ErrUsage("unknown_key", fmt.Sprintf("unknown config key: %q", args[0]), "trellis config ls")
+			if _, ok := config.GetValue(pctx.cfg, key); !ok {
+				return core.ErrUsage("unknown_key", fmt.Sprintf("unknown config key: %q", key), "trellis config ls")
 			}
-			if err := config.UnsetProjectConfig(cmd.Context(), pctx.db, pctx.Project.ID, args[0]); err != nil {
+			if err := config.UnsetProjectConfig(cmd.Context(), pctx.db, pctx.Project.ID, key); err != nil {
 				return err
 			}
-			return Emit(cmd, map[string]string{"unset": args[0]}, func() string { return "unset " + args[0] })
+			return Emit(cmd, map[string]string{"unset": key}, func() string { return "unset " + key })
 		},
 	}
+	cmd.Flags().BoolVar(&repoFlag, "repo", false, "unset in the repository's .trellis.yaml instead of a project override")
+	return cmd
 }
 
 func newConfigGetCmd() *cobra.Command {
@@ -113,23 +151,18 @@ func newConfigGetCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := args[0]
 
-			// Load global config.
-			globalCfg, err := config.Load()
-			if err != nil {
-				globalCfg = config.Defaults()
-			}
-
 			// A project override always wins where one resolves; outside a
 			// repository there is nothing to override with, so the global
-			// default is the answer. The source field says which happened, so
-			// no flag is needed to ask.
+			// default (or the repo file, if standing in one) is the answer.
+			// The source field says which happened, so no flag is needed to
+			// ask.
 			pctx, perr := resolveConfigProject()
 			if perr != nil {
 				return perr
 			}
 			if pctx != nil {
 				defer pctx.db.Close()
-				value, source, err := config.EffectiveValue(cmd.Context(), globalCfg, pctx.db, pctx.Project.ID, key)
+				value, source, err := config.EffectiveValue(cmd.Context(), pctx.cfg, pctx.present, pctx.repo, pctx.db, pctx.Project.ID, key)
 				if err != nil {
 					return core.ErrUsage("unknown_key", err.Error(), "trellis config ls")
 				}
@@ -144,19 +177,24 @@ func newConfigGetCmd() *cobra.Command {
 			}
 
 			// Global scope: just get the default value.
+			globalCfg, present := loadGlobalConfig()
 			value, found := config.GetValue(globalCfg, key)
 			if !found {
 				return core.ErrUsage("unknown_key",
 					fmt.Sprintf("unknown config key: %q", key),
 					"trellis config ls")
 			}
+			source := "default"
+			if present[key] {
+				source = "config"
+			}
 
 			return Emit(cmd, map[string]string{
 				"key":    key,
 				"value":  value,
-				"source": "default",
+				"source": source,
 			}, func() string {
-				return fmt.Sprintf("%s = %s", key, value)
+				return fmt.Sprintf("%s = %s  (%s)", key, value, source)
 			})
 		},
 	}
@@ -165,28 +203,54 @@ func newConfigGetCmd() *cobra.Command {
 }
 
 func newConfigSetCmd() *cobra.Command {
+	var repoFlag bool
 
 	cmd := &cobra.Command{
 		Use:   "set <key> <value>",
 		Short: "Set a config value",
-		Args:  cobra.ExactArgs(2),
+		Long: "Set a config value.\n\n" +
+			"A value starting with - (e.g. a negative number) needs a -- separator " +
+			"so it is not read as a flag: trellis config set -- history.keep -1",
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := args[0]
 			value := args[1]
 
-			// config set only ever writes a project override: the global file
-			// is hand-edited YAML (§5.4), so there is no scope to choose.
-
-			globalCfg, err := config.Load()
-			if err != nil {
-				globalCfg = config.Defaults()
+			if repoFlag {
+				if !config.RepoSafe(key) {
+					return core.ErrUsage("not_repo_safe", fmt.Sprintf("%q may not be set by a repository", key), "trellis config ls")
+				}
+				if err := config.ValidateRepoValue(key, value); err != nil {
+					return core.ErrUsage("invalid_value", err.Error(), "trellis config set --repo claim.ttl 30m")
+				}
+				dir, err := repoConfigDir()
+				if err != nil {
+					return err
+				}
+				path, err := config.SetRepoValue(dir, key, value)
+				if err != nil {
+					return err
+				}
+				return Emit(cmd, map[string]string{
+					"key": key, "value": value, "scope": "repo", "file": path,
+				}, func() string {
+					return fmt.Sprintf("%s = %s (%s)", key, value, path)
+				})
 			}
 
+			// config set (without --repo) only ever writes a project
+			// override: the global file is edited by hand or through the web
+			// settings page (config.SetGlobalValues), never by this command,
+			// so there is no scope to choose.
+			globalCfg, _ := loadGlobalConfig()
 			_, found := config.GetValue(globalCfg, key)
 			if !found {
 				return core.ErrUsage("unknown_key",
 					fmt.Sprintf("unknown config key: %q", key),
 					"trellis config ls")
+			}
+			if err := config.ValidateValue(key, value); err != nil {
+				return core.ErrUsage("invalid_value", err.Error(), "trellis config set history.keep 100")
 			}
 
 			pctx, err := currentProject()
@@ -209,6 +273,7 @@ func newConfigSetCmd() *cobra.Command {
 		},
 	}
 
+	cmd.Flags().BoolVar(&repoFlag, "repo", false, "write to the repository's .trellis.yaml instead of a project override")
 	return cmd
 }
 
@@ -225,27 +290,6 @@ func newConfigLsCmd() *cobra.Command {
 		Use:   "ls",
 		Short: "List all config values",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			globalCfg, err := config.Load()
-			if err != nil {
-				globalCfg = config.Defaults()
-			}
-
-			// All known keys.
-			allKeys := []string{
-				"ui.port", "ui.bind", "ui.enabled",
-				"db.busy_timeout_ms",
-				"git.timeout",
-				"lease.ttl",
-				"board.default_columns",
-				"labels.preset", "labels.require_on_card",
-				"tags.require_on_card",
-				"card.ls_limit", "card.duplicate_check", "card.duplicate_threshold",
-				"search.limit",
-				"search.method",
-				"search.vector.enabled", "search.vector.provider", "search.vector.embed_command", "search.vector.endpoint",
-				"search.vector.model", "search.vector.dimension", "search.vector.limit",
-			}
-
 			var rows []configRow
 
 			pctx, perr := resolveConfigProject()
@@ -255,8 +299,8 @@ func newConfigLsCmd() *cobra.Command {
 			if pctx != nil {
 				defer pctx.db.Close()
 
-				for _, key := range allKeys {
-					value, source, err := config.EffectiveValue(cmd.Context(), globalCfg, pctx.db, pctx.Project.ID, key)
+				for _, key := range config.AllKeys() {
+					value, source, err := config.EffectiveValue(cmd.Context(), pctx.cfg, pctx.present, pctx.repo, pctx.db, pctx.Project.ID, key)
 					if err != nil {
 						continue // Skip unknown keys (shouldn't happen).
 					}
@@ -268,10 +312,15 @@ func newConfigLsCmd() *cobra.Command {
 				})
 			}
 
-			// Global scope: just show defaults.
-			for _, key := range allKeys {
+			// Global scope: just show defaults, or the global file's values.
+			globalCfg, present := loadGlobalConfig()
+			for _, key := range config.AllKeys() {
 				value, _ := config.GetValue(globalCfg, key)
-				rows = append(rows, configRow{Key: key, Value: value, Source: "default"})
+				source := "default"
+				if present[key] {
+					source = "config"
+				}
+				rows = append(rows, configRow{Key: key, Value: value, Source: source})
 			}
 
 			return Emit(cmd, rows, func() string {
@@ -303,15 +352,39 @@ func formatConfigTable(rows []configRow) string {
 }
 
 // resolveConfigProject returns the project whose overrides apply, or nil when
-// there is none. A bad --project is an error; merely standing outside a
-// repository is not, because the global defaults are still a real answer.
+// no marker applies here: the global defaults are still a real answer. A bad
+// --project, a malformed marker, or a marker naming a missing project is an
+// error.
+// repoConfigDir is the directory whose .trellis.yaml --repo edits: the one
+// holding the marker that resolves the working directory. It is never simply
+// the working directory, because a file written anywhere else would never be
+// read. A project named by --project or TRELLIS_PROJECT has no marker to write
+// beside.
+func repoConfigDir() (string, error) {
+	if projectNamed() {
+		return "", core.ErrUsage("no_marker",
+			"--repo writes beside a .trellis marker, and --project or TRELLIS_PROJECT names a project without one",
+			"run the command inside the marked directory, without --project")
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	marker, found, err := resolve.FindMarker(cwd)
+	if err != nil {
+		return "", markerFailure(err)
+	}
+	if !found {
+		return "", core.ErrUsage("unresolved",
+			"no .trellis marker in this directory or any parent", "trellis init --key <KEY>")
+	}
+	return filepath.Dir(marker.Path), nil
+}
+
 func resolveConfigProject() (*projectContext, error) {
 	pctx, err := currentProject()
-	if err != nil {
-		if projectKey() != "" {
-			return nil, err
-		}
+	if ce, ok := errors.AsType[*core.Error](err); ok && ce.Code == "unresolved" {
 		return nil, nil
 	}
-	return pctx, nil
+	return pctx, err
 }

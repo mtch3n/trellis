@@ -23,8 +23,9 @@ func TestDaemonLifecycle(t *testing.T) {
 	// binary; this drives the same code paths against a real CLI build instead.
 	binary := buildTrellis(t)
 
-	port := freePort(t)
-	cmd := exec.Command(binary, "daemon", "--bind", "127.0.0.1", "--port", strconv.Itoa(port))
+	// Use port 0 to let the OS assign an available port, eliminating race
+	// conditions where another process grabs the port between picking and binding
+	cmd := exec.Command(binary, "daemon", "--bind", "127.0.0.1", "--port", "0")
 	cmd.Env = append(os.Environ(), "TRELLIS_HOME="+root)
 	logFile, err := os.Create(filepath.Join(root, "daemon.log"))
 	if err != nil {
@@ -35,9 +36,22 @@ func TestDaemonLifecycle(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start daemon: %v", err)
 	}
+	// Reap the child the moment it exits, in a goroutine rather than in
+	// Cleanup: on Unix, a process that has exited but not yet been reaped is
+	// a zombie, and a zombie's PID still answers kill(pid, 0) as alive. Since
+	// this test process is the child's parent, stopSelfManaged's new
+	// exit-polling (readDaemonPID -> processAlive) would see that zombie as
+	// still running until something calls Wait, and Cleanup does not run
+	// until after the test body — including every stopSelfManaged call in
+	// it — has already finished.
+	waitDone := make(chan struct{})
+	go func() {
+		_, _ = cmd.Process.Wait()
+		close(waitDone)
+	}()
 	t.Cleanup(func() {
 		_ = terminate(cmd.Process.Pid)
-		_, _ = cmd.Process.Wait()
+		<-waitDone
 	})
 	write(t, daemonPIDPath(root), strconv.Itoa(cmd.Process.Pid))
 
@@ -47,12 +61,20 @@ func TestDaemonLifecycle(t *testing.T) {
 		t.Fatalf("daemon never answered: %v\n%s", err, body)
 	}
 
-	url, healthy := daemonHealth(ctx, root)
-	if !healthy || url == "" {
-		t.Fatalf("health returned %q %v", url, healthy)
+	url, alive := daemonPing(ctx, root)
+	if !alive || url == "" {
+		t.Fatalf("ping returned %q %v", url, alive)
 	}
-	if got := servingAddress(url); got != net.JoinHostPort("127.0.0.1", strconv.Itoa(port)) {
-		t.Errorf("daemon is serving %q, want port %d", got, port)
+	got := servingAddress(url)
+	host, port, err := net.SplitHostPort(got)
+	if err != nil {
+		t.Fatalf("invalid address %q: %v", got, err)
+	}
+	if host != "127.0.0.1" {
+		t.Errorf("daemon is serving on %q, want 127.0.0.1", host)
+	}
+	if port == "0" {
+		t.Errorf("daemon is serving on port 0, should have been assigned an actual port")
 	}
 
 	status, err := resolveDaemonStatus(ctx)
@@ -73,7 +95,7 @@ func TestDaemonLifecycle(t *testing.T) {
 	if err := stopSelfManaged(ctx, root); err != nil {
 		t.Fatalf("stopSelfManaged: %v", err)
 	}
-	if _, healthy := daemonHealth(ctx, root); healthy {
+	if _, alive := daemonPing(ctx, root); alive {
 		t.Error("daemon still answering after stop")
 	}
 	if _, err := os.Stat(daemonPIDPath(root)); !os.IsNotExist(err) {
@@ -95,14 +117,4 @@ func buildTrellis(t *testing.T) string {
 		t.Fatalf("build trellis: %v\n%s", err, out)
 	}
 	return binary
-}
-
-func freePort(t *testing.T) int {
-	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	defer listener.Close()
-	return listener.Addr().(*net.TCPAddr).Port
 }

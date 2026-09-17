@@ -3,7 +3,7 @@ package core
 import "testing"
 
 func TestTraverseFollowsBlockedChains(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	cards, err := c.ImportCards(t.Context(), p.ID, b.ID, []ImportCard{
 		{ID: "c", Title: "third"},
 		{ID: "b", Title: "second", BlockedBy: []string{"c"}},

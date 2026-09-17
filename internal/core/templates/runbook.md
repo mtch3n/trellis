@@ -1,4 +1,7 @@
-# {{TITLE}}
+---
+enforce: warn
+---
+# {{title}}
 
 ## When to use this
 

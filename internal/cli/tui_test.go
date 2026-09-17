@@ -10,16 +10,17 @@ import (
 )
 
 func TestTUIWorkflowAndConflict(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "t.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	_, err = db.Exec(`INSERT INTO project (id,key,identity_kind,identity_value,root_path,name,created_at) VALUES ('p','TEST','remote','example/test','/tmp/test','test',1)`)
+	_, err = db.Exec(`INSERT INTO project (id, key, name, created_at) VALUES ('p', 'TEST', 'test', 1)`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := core.New(db, core.RealClock{}, "tui:test")
+	c := core.New(db, core.RealClock{}, "tui:test", dir)
 	b, err := c.CreateBoard(t.Context(), "p", "main", true)
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +51,7 @@ func TestTUIWorkflowAndConflict(t *testing.T) {
 	run("/title 1 Updated task")
 	run(`/body 1 First line\nSecond line`)
 	run("/move 1 in-progress")
-	run("/note 1 Work started")
+	run("/comment 1 Work started")
 	if out := run("/board"); !strings.Contains(out, "Updated task") {
 		t.Fatal(out)
 	}

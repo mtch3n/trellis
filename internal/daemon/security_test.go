@@ -18,7 +18,7 @@ func TestIPCAuthentication(t *testing.T) {
 				invoked <- struct{}{}
 				return Response{OK: true}, nil
 			}, "secret")
-			resp, err := callConn(client, Request{Method: "health", Token: token})
+			resp, err := callConn(client, Request{Method: "ping", Token: token})
 			if token == "secret" {
 				if err != nil || !resp.OK {
 					t.Fatalf("authenticated request: %v", err)
@@ -66,7 +66,7 @@ func TestIPCRejectsEmptyResponse(t *testing.T) {
 	server, client := net.Pipe()
 	defer client.Close()
 	go func() { var b [1024]byte; _, _ = server.Read(b[:]); server.Close() }()
-	if _, err := callConn(client, Request{Method: "health"}); err == nil {
+	if _, err := callConn(client, Request{Method: "ping"}); err == nil {
 		t.Fatal("empty response reported success")
 	}
 }

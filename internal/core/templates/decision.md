@@ -1,4 +1,9 @@
-# {{TITLE}}
+---
+enforce: reject
+required: [sources]
+resolve: [sources, body]
+---
+# {{title}}
 
 ## Context
 

@@ -8,7 +8,7 @@ import (
 	"github.com/mtch3n/trellis/internal/store"
 )
 
-func TestHeldWithoutNoteIgnoresFirstColumnAndNotedCards(t *testing.T) {
+func TestClaimedWithoutCommentIgnoresFirstColumnAndCommentedCards(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
 	b := seededBoard(t, c, p)
@@ -17,38 +17,38 @@ func TestHeldWithoutNoteIgnoresFirstColumnAndNotedCards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	silent, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "held, nothing written"})
+	silent, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "claimed, nothing written"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	noted, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "held, wrote it down"})
+	commented, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "claimed, wrote it down"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, card := range []Card{inBacklog, silent, noted} {
+	for _, card := range []Card{inBacklog, silent, commented} {
 		if _, err := c.ClaimCard(t.Context(), card.ID, 60_000, false, ""); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, card := range []Card{silent, noted} {
+	for _, card := range []Card{silent, commented} {
 		if _, err := c.MoveCard(t.Context(), p.ID, b.ID, CardRef{Seq: card.Seq}, "in-progress"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := c.CreateNote(t.Context(), noted.ID, "what I learned"); err != nil {
+	if _, err := c.CreateComment(t.Context(), commented.ID, "what I learned"); err != nil {
 		t.Fatal(err)
 	}
 
-	held, err := c.HeldWithoutNote(t.Context())
+	claimed, err := c.ClaimedWithoutComment(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(held) != 1 || held[0].ID != silent.ID {
+	if len(claimed) != 1 || claimed[0].ID != silent.ID {
 		var refs []string
-		for _, h := range held {
-			refs = append(refs, h.Ref)
+		for _, cl := range claimed {
+			refs = append(refs, cl.Ref)
 		}
-		t.Fatalf("HeldWithoutNote = %v, want only %s", refs, silent.Ref)
+		t.Fatalf("ClaimedWithoutComment = %v, want only %s", refs, silent.Ref)
 	}
 }
 
@@ -61,7 +61,7 @@ func TestRegisterAgent(t *testing.T) {
 	}
 	defer db.Close()
 
-	core := New(db, FixedClock{MS: 1000000}, "agent-1")
+	core := New(db, FixedClock{MS: 1000000}, "agent-1", filepath.Dir(path))
 	ctx := context.Background()
 
 	// Register an agent.

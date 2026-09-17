@@ -1,5 +1,5 @@
 {
-  "description": "trellis plugin hooks. SessionStart injects board state and agent identity; UserPromptSubmit recalls identifiers bearing on the prompt; Stop reminds about held cards with no note. Hook code lives in integrations/, one directory per harness.",
+  "description": "trellis plugin hooks. SessionStart injects board state and agent identity; UserPromptSubmit recalls refs bearing on the prompt; Stop reminds about claimed cards with no comment. Hook code lives in integrations/, one directory per harness.",
   "hooks": {
     "UserPromptSubmit": [
       {

@@ -19,7 +19,7 @@ func (c *Core) MoveCardBefore(ctx context.Context, projectID, boardID string, re
 		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
 			return err
 		}
-		if err := c.checkCardOwner(card); err != nil {
+		if err := c.checkCardClaim(card); err != nil {
 			return err
 		}
 		to, err := c.ColumnByName(tx, boardID, column)
@@ -72,17 +72,17 @@ func (c *Core) MoveCardBefore(ctx context.Context, projectID, boardID string, re
 		for i, id := range ordered {
 			rank := fmt.Sprintf("%020d", (i+1)*1_000_000)
 			if id == card.ID {
-				leaseUpdate := ""
+				claimUpdate := ""
 				if to.IsDone {
-					leaseUpdate = ", owner = NULL, lease_until = NULL"
+					claimUpdate = ", claimed_by = NULL, claim_until = NULL"
 				}
-				if _, err := tx.Exec(`UPDATE card SET board_id = ?, column_id = ?, rank = ?, version = version + 1, updated_at = ?`+leaseUpdate+` WHERE id = ?`, boardID, to.ID, rank, now, card.ID); err != nil {
+				if _, err := tx.Exec(`UPDATE card SET board_id = ?, column_id = ?, rank = ?, version = version + 1, updated_at = ?`+claimUpdate+` WHERE id = ?`, boardID, to.ID, rank, now, card.ID); err != nil {
 					return err
 				}
 				card.ColumnID, card.ColumnName, card.Rank, card.Version, card.UpdatedAt = to.ID, to.Name, rank, card.Version+1, now
 				if to.IsDone {
-					card.Owner = nil
-					card.LeaseUntil = nil
+					card.ClaimedBy = nil
+					card.ClaimUntil = nil
 				}
 			} else if _, err := tx.Exec(`UPDATE card SET rank = ? WHERE id = ?`, rank, id); err != nil {
 				return err

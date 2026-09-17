@@ -3,9 +3,11 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"testing"
+	"time"
 
-	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/mtch3n/trellis/internal/store"
 )
 
@@ -15,8 +17,8 @@ func TestArtifactStoresBytesOnDiskAndLinksToCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	c := New(db, FixedClock{MS: 1_757_000_000_000}, "artifact-test").WithKBRoot(t.TempDir())
-	project, err := c.EnsureProject(t.Context(), resolve.Identity{Kind: "path", Value: "artifact-project", RootPath: t.TempDir(), SuggestedKey: "ARTIFACT"})
+	c := New(db, FixedClock{MS: 1_757_000_000_000}, "artifact-test", t.TempDir())
+	project, err := c.CreateProject(t.Context(), "ARTIFACT", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +26,7 @@ func TestArtifactStoresBytesOnDiskAndLinksToCard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	card, err := c.CreateCard(t.Context(), project.ID, board.ID, NewCard{Title: "attach evidence"})
+	card, err := c.CreateCard(t.Context(), project.ID, board.ID, NewCard{Title: "gather evidence"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +45,7 @@ func TestArtifactStoresBytesOnDiskAndLinksToCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	var body string
-	if err := db.Get(&body, "SELECT COALESCE((SELECT body_md FROM note LIMIT 1), '')"); err != nil {
+	if err := db.Get(&body, "SELECT COALESCE((SELECT body_md FROM comment LIMIT 1), '')"); err != nil {
 		t.Fatal(err)
 	}
 	if body != "" {
@@ -52,11 +54,97 @@ func TestArtifactStoresBytesOnDiskAndLinksToCard(t *testing.T) {
 	if err := c.LinkArtifactToCard(t.Context(), project.ID, card.ID, artifact.ID); err != nil {
 		t.Fatal(err)
 	}
-	items, err := c.ListArtifacts(t.Context(), project.ID, card.ID)
+	items, err := c.ListArtifacts(t.Context(), project.ID, card.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(items) != 1 || items[0].ID != artifact.ID {
 		t.Fatalf("linked artifacts = %+v", items)
+	}
+}
+
+// review-knowledge #13: the naming loop broke only on os.ErrNotExist; any
+// other os.Stat error -- EACCES, most realistically, from an artifact
+// directory without search permission -- made it spin forever inside
+// Core.Tx, holding SQLite's write lock for the whole process.
+// artifactNameTaken already existed to handle exactly this and was never
+// wired into the loop.
+func TestCreateArtifactStopsOnAStatErrorInsteadOfLoopingForever(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a directory the process cannot search")
+	}
+	c, p, _ := vaultCore(t)
+	source := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(source, []byte("some text"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := c.artifactDir(p.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No execute bit: stat-ing anything inside dir now fails with EACCES
+	// instead of ErrNotExist, on every attempt, forever.
+	if err := os.Chmod(dir, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.CreateArtifact(t.Context(), p.ID, source)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("CreateArtifact should have failed: the artifacts directory cannot be searched")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("CreateArtifact did not return: it is spinning on the stat error instead of failing")
+	}
+}
+
+// review-knowledge #16: unlinking a missing artifact by its address is a
+// silent no-op. ResolveArtifact fails not-found, so the fallback "keep the
+// reference as written" kept the whole address (/KEY/artifacts/x.png) --
+// which never equals the plain name (x.png) editEntryArtifacts's list holds --
+// so the stub is never found and nothing changes, without an error either.
+func TestUnlinkArtifactFromEntryByAddressWhenTheArtifactIsGone(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	source := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(source, []byte("some text"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := c.CreateArtifact(t.Context(), p.ID, source)
+	if err != nil {
+		t.Fatalf("CreateArtifact: %v", err)
+	}
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Notes"})
+	if err != nil {
+		t.Fatalf("CreateEntry: %v", err)
+	}
+	if _, err := c.LinkArtifactToEntry(t.Context(), p.ID, entry.Slug, artifact.Name); err != nil {
+		t.Fatalf("LinkArtifactToEntry: %v", err)
+	}
+	address := ArtifactAddress(p.Key, artifact.Name)
+
+	if err := c.DeleteArtifact(t.Context(), p.ID, artifact.ID); err != nil {
+		t.Fatalf("DeleteArtifact: %v", err)
+	}
+
+	if _, err := c.UnlinkArtifactFromEntry(t.Context(), p.ID, entry.Slug, address); err != nil {
+		t.Fatalf("UnlinkArtifactFromEntry(%s): %v", address, err)
+	}
+
+	raw, err := os.ReadFile(entry.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm, _, err := SplitFrontmatter(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(fm.Artifacts, artifact.Name) {
+		t.Errorf("Artifacts = %v, want %s removed", fm.Artifacts, artifact.Name)
 	}
 }

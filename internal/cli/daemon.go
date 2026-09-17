@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -48,10 +49,6 @@ func newDaemonCmd() *cobra.Command {
 	return cmd
 }
 
-func runApplicationServer(bind string, port int) error {
-	return runApplicationServerContext(context.Background(), bind, port)
-}
-
 func runApplicationServerContext(parent context.Context, bind string, port int) error {
 	if bind == "" {
 		bind = "127.0.0.1"
@@ -62,22 +59,21 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	if ip := net.ParseIP(bind); ip == nil || !ip.IsLoopback() {
 		return fmt.Errorf("daemon bind address must be loopback")
 	}
-	if port == 0 {
-		port = 7788
+	// Port 0 asks the OS for any free port; the ping reports the one it
+	// got. Callers resolve the configured ui.port before they get here.
+	if port < 0 || port > 65535 {
+		return fmt.Errorf("daemon port %d is out of range", port)
 	}
-	dbPath, err := home.DBPath()
+	root, err := home.Root()
 	if err != nil {
 		return err
 	}
+	dbPath := filepath.Join(root, "trellis.db")
 	db, err := store.Open(dbPath)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	root, err := home.Root()
-	if err != nil {
-		return err
-	}
 	lock := flock.New(root + "/daemon.lock")
 	ok, err := lock.TryLock()
 	if err != nil {
@@ -96,19 +92,27 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	if actor == "" {
 		actor = fmt.Sprintf("daemon:%d", os.Getpid())
 	}
-	c := core.New(db, core.RealClock{}, actor)
-	if err := c.SyncKnowledgeSearch(parent); err != nil {
+	c := core.New(db, core.RealClock{}, actor, root)
+	if err := c.SyncEntrySearch(parent); err != nil {
 		return err
 	}
-	cfg, cfgErr := config.Load()
+	cfg, cfgErr := config.Load(root)
 	if cfgErr != nil {
 		cfg = config.Defaults()
 	}
-	search := retrieval.NewService(c, db, dbPath, cfg)
-	c.SetKnowledgeChanged(search.ReconcileProject)
+	// openCore (internal/cli/root.go) primes every CLI invocation's Core with
+	// these same settings from the global config; the daemon's Core must get
+	// them too, before the server is built, or a web claim always gets the
+	// built-in 30-minute claim TTL and web card creation skips
+	// labels.require_on_card / tags.require_on_card, whatever the config
+	// file or a project override says.
+	c.ApplyConfig(cfg)
+	search := retrieval.NewService(c, db, dbPath, cfg, root)
+	c.SetEntryChanged(search.ReconcileProject)
+	c.SetDropDerived(search.DropProject)
 	address := net.JoinHostPort(bind, fmt.Sprint(port))
 	// ui.enabled off means the daemon is IPC-only: agents keep the shared
-	// database, search index and lease clock, and nothing binds a TCP port.
+	// database, search index and claim clock, and nothing binds a TCP port.
 	var listener net.Listener
 	if cfg.UI.UIEnabled() {
 		if listener, err = net.Listen("tcp", address); err != nil {
@@ -116,7 +120,7 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 		}
 		defer listener.Close()
 	}
-	server := ui.NewServerWithSearch(c, db, address, search)
+	server := ui.NewServerWithSearch(c, db, address, root, search)
 	ctx, cancel := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 	errorsCh := make(chan error, 2)
@@ -127,12 +131,13 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	workers.Go(func() {
 		errorsCh <- localdaemon.ServeContext(ctx, ipc, func(ctx context.Context, req localdaemon.Request) (localdaemon.Response, error) {
 			switch req.Method {
-			case "health":
+			case "ping":
 				// An IPC-only daemon reports an empty url, which is how the
 				// CLI tells "no daemon" from "daemon without a web UI".
 				url := ""
 				if listener != nil {
-					url = server.URL(address)
+					actualAddress := listener.Addr().String()
+					url = server.URL(actualAddress)
 				}
 				return localdaemon.Response{OK: true, Data: map[string]any{"url": url, "ui_enabled": listener != nil}}, nil
 			case "search":

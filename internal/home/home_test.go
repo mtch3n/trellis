@@ -69,3 +69,25 @@ func TestRootCreatesDirectory(t *testing.T) {
 		t.Errorf("DBPath() = %q, want it inside %q", dbPath, got)
 	}
 }
+
+// A test that does not set TRELLIS_HOME must not reach the user's real home.
+func TestRootRefusesTheRealHomeUnderTest(t *testing.T) {
+	t.Setenv("TRELLIS_HOME", "")
+	outside := filepath.Join(string(filepath.Separator), "not-a-temp-dir-"+t.Name())
+	t.Setenv("HOME", outside)
+	t.Setenv("LOCALAPPDATA", outside)
+	if got, err := Root(); err == nil {
+		t.Fatalf("Root() = %q, want a refusal", got)
+	}
+}
+
+// DaemonLogPath is shared by internal/cli (spawning the daemon, and pointing
+// at its log) and internal/ui (the settings page's logs route), so both name
+// the same file.
+func TestDaemonLogPathIsInsideRoot(t *testing.T) {
+	root := t.TempDir()
+	got := DaemonLogPath(root)
+	if filepath.Dir(got) != root || filepath.Base(got) != "daemon.log" {
+		t.Errorf("DaemonLogPath(%q) = %q, want <root>/daemon.log", root, got)
+	}
+}

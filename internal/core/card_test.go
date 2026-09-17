@@ -67,13 +67,14 @@ func TestCreateCardUnknownColumn(t *testing.T) {
 // Sequence numbers must stay unique when several processes create cards at
 // once. Separate processes are covered in P1; this covers the in-process race.
 func TestConcurrentCreateAllocatesDistinctSeqs(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "t.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	c := New(db, FixedClock{MS: 1_757_000_000_000}, "test:1")
+	c := New(db, FixedClock{MS: 1_757_000_000_000}, "test:1", dir)
 	p := seededProject(t, c)
 	b := seededBoard(t, c, p)
 

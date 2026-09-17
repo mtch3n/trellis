@@ -9,12 +9,12 @@ import (
 
 // GraphNode is one entity in a neighbourhood.
 type GraphNode struct {
-	Type  string `db:"type" json:"type"` // card, doc, or artifact
+	Type  string `db:"type" json:"type"` // card, entry, or artifact
 	ID    string `db:"id" json:"id"`
 	Ref   string `db:"ref" json:"ref"`
 	Title string `db:"title" json:"title"`
 	Depth int    `db:"depth" json:"depth"`
-	Done  bool   `db:"done" json:"done,omitempty"` // cards only
+	Done  bool   `db:"done" json:"done,omitzero"` // cards only
 }
 
 // GraphEdge is one link traversed to reach a node.
@@ -80,31 +80,31 @@ func (c *Core) Traverse(ctx context.Context, startID string, depth int, rels []s
 			node := GraphNode{ID: r.ID, Depth: r.Depth}
 			var card Card
 			if err := tx.Get(&card, `SELECT * FROM card WHERE id = ?`, r.ID); err == nil {
-				var key string
-				if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, card.ProjectID); err != nil {
-					return err
-				}
 				var done bool
 				if err := tx.Get(&done, `SELECT is_done FROM column_ WHERE id = ?`, card.ColumnID); err != nil {
 					return err
 				}
-				node.Type, node.Ref, node.Title, node.Done = "card", key+"-"+itoa(card.Seq), card.Title, done
+				node.Type, node.Ref, node.Title, node.Done = "card", card.Ref, card.Title, done
 			} else {
-				var doc Knowledge
-				if err := tx.Get(&doc, `SELECT * FROM knowledge WHERE id = ?`, r.ID); err == nil {
+				var entry Entry
+				if err := tx.Get(&entry, `SELECT * FROM entry WHERE id = ?`, r.ID); err == nil {
 					key := GlobalKey
-					if !doc.Global {
-						if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, doc.ProjectID); err != nil {
+					if !entry.Global {
+						if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, entry.ProjectID); err != nil {
 							return err
 						}
 					}
-					node.Type, node.Ref, node.Title = "doc", key+"/"+doc.Slug, doc.Title
+					node.Type, node.Ref, node.Title = "entry", EntryAddress(key, entry.Global, entry.Slug), entry.Title
 				} else {
 					var artifact Artifact
 					if err := tx.Get(&artifact, `SELECT * FROM artifact WHERE id = ?`, r.ID); err != nil {
 						continue // a stub target: an id that resolves to nothing
 					}
-					node.Type, node.Ref, node.Title = "artifact", artifact.ID, artifact.Name
+					akey, err := projectKeyOf(tx, artifact.ProjectID)
+					if err != nil {
+						return err
+					}
+					node.Type, node.Ref, node.Title = "artifact", ArtifactAddress(akey, artifact.Name), artifact.Name
 				}
 			}
 			g.Nodes = append(g.Nodes, node)

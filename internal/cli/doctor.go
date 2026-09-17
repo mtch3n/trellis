@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -9,9 +10,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/home"
 	"github.com/mtch3n/trellis/internal/resolve"
@@ -49,7 +53,7 @@ func warn(name, detail, fix string) Check {
 func newDoctorCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
-		Short: "Diagnose this Trellis installation",
+		Short: "Check this Trellis installation",
 		Long: "Check the binary, storage root, database, configuration, daemon and search\n" +
 			"backend, and report what to run for anything that is wrong.\n" +
 			"Exits 1 when a check fails; warnings alone exit 0.",
@@ -110,7 +114,7 @@ func runDoctor(ctx context.Context) []Check {
 	}
 	checks = append(checks, checkStorageRoot(root), checkDatabase())
 
-	cfg, cfgErr := config.Load()
+	cfg, cfgErr := config.Load(root)
 	if cfgErr != nil {
 		checks = append(checks, warn("config", "unreadable, using defaults: "+cfgErr.Error(), "trellis config ls"))
 		cfg = config.Defaults()
@@ -124,7 +128,7 @@ func runDoctor(ctx context.Context) []Check {
 	} else {
 		checks = append(checks, checkDaemon(status), checkService(status), checkWebUI(status, cfg), checkPort(status, cfg))
 	}
-	return append(checks, checkProject(), checkVectorSearch(cfg))
+	return append(checks, checkProject(), checkProjectKeys(), checkVectorSearch(cfg))
 }
 
 func checkBinary() Check {
@@ -184,7 +188,7 @@ func checkDaemon(status daemonStatus) Check {
 	}
 	if status.Service.Installed {
 		return fail("daemon", "installed as a service but not responding on its socket",
-			"trellis daemon restart, then check "+daemonLogPath(status.Root))
+			"trellis daemon restart, then check "+home.DaemonLogPath(status.Root))
 	}
 	// Not running is a legitimate state: the CLI works without a daemon.
 	return warn("daemon", "not running; search and the web UI run in-process", "trellis daemon start")
@@ -252,29 +256,29 @@ func checkWebUI(status daemonStatus, cfg config.Config) Check {
 // keeps the port it was started with, so config drift only bites at the next
 // restart; a stopped daemon cannot start at all if something else holds it.
 func checkPort(status daemonStatus, cfg config.Config) Check {
-	address := net.JoinHostPort(cfg.UI.Bind, strconv.Itoa(cfg.UI.Port))
+	addr := net.JoinHostPort(cfg.UI.Bind, strconv.Itoa(cfg.UI.Port))
 	if !cfg.UI.UIEnabled() {
 		return ok("http port", "no port is bound while ui.enabled is false")
 	}
 	if status.Running && status.URL != "" {
 		serving := servingAddress(status.URL)
-		if serving != "" && serving != address {
-			return warn("http port", fmt.Sprintf("daemon is serving %s, but ui.bind/ui.port say %s", serving, address),
+		if serving != "" && serving != addr {
+			return warn("http port", fmt.Sprintf("daemon is serving %s, but ui.bind/ui.port say %s", serving, addr),
 				"trellis daemon restart to adopt the configured port")
 		}
-		return ok("http port", address+" served by the daemon")
+		return ok("http port", addr+" served by the daemon")
 	}
-	listener, err := net.Listen("tcp", address)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fail("http port", address+" is already in use by another process",
+		return fail("http port", addr+" is already in use by another process",
 			"trellis config set ui.port <other port>")
 	}
 	_ = listener.Close()
-	return ok("http port", address+" is free")
+	return ok("http port", addr+" is free")
 }
 
-// servingAddress extracts host:port from the daemon's health URL, which
-// carries a session token query string the caller does not want.
+// servingAddress extracts host:port from the URL the daemon's ping reports,
+// which carries a session token query string the caller does not want.
 func servingAddress(rawURL string) string {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
@@ -283,16 +287,90 @@ func servingAddress(rawURL string) string {
 	return parsed.Host
 }
 
+// checkProject reports which project this directory acts on, and how that was
+// decided.
 func checkProject() Check {
+	switch {
+	case projectFlagKey != "":
+		return ok("project", normalizeProjectArg(projectFlagKey)+" (from --project)")
+	case os.Getenv("TRELLIS_PROJECT") != "":
+		return ok("project", normalizeProjectArg(os.Getenv("TRELLIS_PROJECT"))+" (from TRELLIS_PROJECT)")
+	}
 	dir, err := os.Getwd()
 	if err != nil {
 		return warn("project", "cannot read the working directory: "+err.Error(), "")
 	}
-	id, err := resolve.Identify(dir)
+	marker, found, err := resolve.FindMarker(dir)
 	if err != nil {
-		return warn("project", "this directory resolves to no project: "+err.Error(), "trellis init --pin")
+		return warn("project", err.Error(), "trellis init --key <KEY>")
 	}
-	return ok("project", fmt.Sprintf("%s (resolved by %s)", id.SuggestedKey, id.Kind))
+	if !found {
+		return warn("project", "no .trellis marker in this directory or any parent", "trellis init --key <KEY>")
+	}
+	detail := fmt.Sprintf("%s (marker %s)", marker.Target, marker.Path)
+	path, err := home.DBPath()
+	if err != nil {
+		return warn("project", detail+", but the database cannot be located: "+err.Error(), "")
+	}
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return warn("project", detail+", but there is no database here yet", "trellis init")
+	} else if err != nil {
+		return warn("project", detail+", but the database cannot be read: "+err.Error(), "")
+	}
+	db, err := store.Open(path)
+	if err != nil {
+		return warn("project", detail+", but the database cannot be opened: "+err.Error(), "")
+	}
+	defer db.Close()
+	var n int
+	if err := db.Get(&n, `SELECT count(*) FROM project WHERE key = ?`, marker.Target.Project); err != nil {
+		return warn("project", detail+", but the database cannot be read: "+err.Error(), "")
+	}
+	if n == 0 {
+		return warn("project", detail+", but this database has no such project", "trellis init")
+	}
+	return ok("project", detail)
+}
+
+// checkProjectKeys lists projects whose key predates the key grammar. They
+// stay reachable with --project, but no marker can name them.
+func checkProjectKeys() Check {
+	db, err := openExistingDB()
+	if err != nil {
+		return ok("project keys", "no database yet")
+	}
+	defer db.Close()
+	var keys []string
+	if err := db.Select(&keys, `SELECT key FROM project ORDER BY key`); err != nil {
+		return warn("project keys", "cannot read project keys: "+err.Error(), "trellis maintenance")
+	}
+	bad := slices.DeleteFunc(keys, address.ValidKey)
+	if len(bad) == 0 {
+		return ok("project keys", "a marker can name every key")
+	}
+	return warn("project keys",
+		fmt.Sprintf("no marker can name %s: %s", plural(len(bad), "this project", "these projects"), strings.Join(bad, ", ")),
+		"trellis project merge <KEY> --into <VALID-KEY>")
+}
+
+// openExistingDB opens the database only when it already exists, so a check
+// never creates one.
+func openExistingDB() (*sqlx.DB, error) {
+	path, err := home.DBPath()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
+	return store.Open(path)
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // checkVectorSearch verifies the one part of search that depends on something

@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/mtch3n/trellis/internal/config"
+	"github.com/mtch3n/trellis/internal/home"
 	"github.com/mtch3n/trellis/internal/service"
+	"github.com/mtch3n/trellis/internal/store"
 )
 
 func TestCheckStorageRoot(t *testing.T) {
@@ -186,6 +189,97 @@ func TestCheckVectorSearch(t *testing.T) {
 	}
 }
 
+func TestCheckProjectFromAMarker(t *testing.T) {
+	dir := markerEnv(t, "app")
+	seedProject(t, "APP")
+	writeMarker(t, dir, "/APP\n")
+	got := checkProject()
+	if got.Status != checkOK || !strings.Contains(got.Detail, "/APP (marker ") {
+		t.Errorf("check = %+v", got)
+	}
+}
+
+func TestCheckProjectWithoutAMarkerWarns(t *testing.T) {
+	markerEnv(t, "loose")
+	got := checkProject()
+	if got.Status != checkWarn || got.Fix != "trellis init --key <KEY>" {
+		t.Errorf("check = %+v", got)
+	}
+}
+
+func TestCheckProjectNamesItsSource(t *testing.T) {
+	markerEnv(t, "loose")
+	t.Setenv("TRELLIS_PROJECT", "envkey")
+	if got := checkProject(); !strings.Contains(got.Detail, "ENVKEY (from TRELLIS_PROJECT)") {
+		t.Errorf("env: %+v", got)
+	}
+	t.Setenv("TRELLIS_PROJECT", "/envkey")
+	if got := checkProject(); !strings.Contains(got.Detail, "ENVKEY (from TRELLIS_PROJECT)") {
+		t.Errorf("env address: %+v", got)
+	}
+	projectFlagKey = "flagkey"
+	t.Cleanup(func() { projectFlagKey = "" })
+	if got := checkProject(); !strings.Contains(got.Detail, "FLAGKEY (from --project)") {
+		t.Errorf("flag: %+v", got)
+	}
+}
+
+func TestCheckProjectWarnsWhenTheMarkersProjectIsMissing(t *testing.T) {
+	dir := markerEnv(t, "clone")
+	seedProject(t, "OTHER")
+	writeMarker(t, dir, "/GHOST\n")
+	got := checkProject()
+	if got.Status != checkWarn || got.Fix != "trellis init" {
+		t.Errorf("check = %+v", got)
+	}
+}
+
+// A fresh clone: the marker is committed, and this machine has no database yet.
+func TestCheckProjectWithoutADatabaseWarns(t *testing.T) {
+	dir := markerEnv(t, "clone")
+	writeMarker(t, dir, "/APP\n")
+	got := checkProject()
+	if got.Status != checkWarn || got.Fix != "trellis init" || !strings.Contains(got.Detail, "no database here yet") {
+		t.Errorf("check = %+v", got)
+	}
+	path, err := home.DBPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("the check created a database: %v", err)
+	}
+}
+
+func TestCheckProjectKeysFlagsKeysAMarkerCannotName(t *testing.T) {
+	markerEnv(t, "anywhere")
+	seedProject(t, "GOOD")
+	path, err := home.DBPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO project (id, key, name, created_at) VALUES ('x', 'MY_APP', 'MY_APP', 1)`)
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := checkProjectKeys()
+	if got.Status != checkWarn || !strings.Contains(got.Detail, "MY_APP") || strings.Contains(got.Detail, "GOOD") {
+		t.Errorf("check = %+v", got)
+	}
+}
+
+func TestCheckProjectKeysWithoutADatabase(t *testing.T) {
+	t.Setenv("TRELLIS_HOME", t.TempDir())
+	if got := checkProjectKeys(); got.Status != checkOK {
+		t.Errorf("check = %+v", got)
+	}
+}
+
 func TestRunDoctorCoversEveryAreaAndNeverPanics(t *testing.T) {
 	t.Setenv("TRELLIS_HOME", t.TempDir())
 	checks := runDoctor(context.Background())
@@ -198,7 +292,7 @@ func TestRunDoctorCoversEveryAreaAndNeverPanics(t *testing.T) {
 			t.Errorf("check %q has unknown status %q", c.Name, c.Status)
 		}
 	}
-	for _, name := range []string{"binary", "storage root", "database", "config", "daemon", "auto-start", "web ui", "http port", "project", "vector search"} {
+	for _, name := range []string{"binary", "storage root", "database", "config", "daemon", "auto-start", "web ui", "http port", "project", "project keys", "vector search"} {
 		if !seen[name] {
 			t.Errorf("doctor did not report a %q check", name)
 		}

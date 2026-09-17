@@ -22,8 +22,8 @@ func newCardImportCmd() *cobra.Command {
   [{"id":"a","title":"write the migration","labels":["chore"]},
    {"title":"use it","blocked_by":["a"]}]
 
-"id" is a handle local to this import, so an entry can depend on one that has
-no reference yet. "blocked_by" also accepts an existing ref like XPSCTL-12.`,
+"id" is a handle local to this import, so a card can depend on one that has no
+ref yet. "blocked_by" also accepts an existing ref like XPSCTL-12.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			src := "-"

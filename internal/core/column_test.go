@@ -9,21 +9,16 @@ import (
 )
 
 // seededProject inserts a project row DIRECTLY rather than calling
-// EnsureProject. These tests need a project to exist; they do not need
-// EnsureProject to be correct. Going through it would make this task's tests
+// createProject. These tests need a project to exist; they do not need
+// createProject to be correct. Going through it would make this task's tests
 // fail for the wrong reason whenever Task 7 has a defect, and would couple two
 // tasks that have no design relationship.
 func seededProject(t *testing.T, c *Core) Project {
 	t.Helper()
-	p := Project{
-		ID: NewCardID(), Key: "XPSCTL", IdentityKind: "remote",
-		IdentityValue: "github.com/mtch3n/xpsctl", RootPath: "/tmp/xpsctl",
-		Name: "XPSCTL", CreatedAt: c.clock.NowMS(),
-	}
+	p := Project{ID: NewID(), Key: "XPSCTL", Name: "XPSCTL", CreatedAt: c.clock.NowMS()}
 	_, err := c.db.Exec(
-		`INSERT INTO project (id, key, identity_kind, identity_value, root_path, name, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Key, p.IdentityKind, p.IdentityValue, p.RootPath, p.Name, p.CreatedAt)
+		`INSERT INTO project (id, key, name, created_at) VALUES (?, ?, ?, ?)`,
+		p.ID, p.Key, p.Name, p.CreatedAt)
 	if err != nil {
 		t.Fatalf("seeding project: %v", err)
 	}
@@ -34,15 +29,10 @@ func seededProject(t *testing.T, c *Core) Project {
 // projects in the same run (e.g. cross-project scoping checks).
 func seededProject2(t *testing.T, c *Core) Project {
 	t.Helper()
-	p := Project{
-		ID: NewCardID(), Key: "OTHERPROJ", IdentityKind: "remote",
-		IdentityValue: "github.com/mtch3n/otherproj", RootPath: "/tmp/otherproj",
-		Name: "OTHERPROJ", CreatedAt: c.clock.NowMS(),
-	}
+	p := Project{ID: NewID(), Key: "OTHERPROJ", Name: "OTHERPROJ", CreatedAt: c.clock.NowMS()}
 	_, err := c.db.Exec(
-		`INSERT INTO project (id, key, identity_kind, identity_value, root_path, name, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Key, p.IdentityKind, p.IdentityValue, p.RootPath, p.Name, p.CreatedAt)
+		`INSERT INTO project (id, key, name, created_at) VALUES (?, ?, ?, ?)`,
+		p.ID, p.Key, p.Name, p.CreatedAt)
 	if err != nil {
 		t.Fatalf("seeding project: %v", err)
 	}
@@ -167,7 +157,7 @@ func TestFirstColumnErrUsageWhenBoardHasNone(t *testing.T) {
 
 	// A board with no columns at all: insert directly, bypassing createBoard's
 	// seeding, so FirstColumn has nothing to return.
-	boardID := NewCardID()
+	boardID := NewID()
 	_, err := c.db.Exec(
 		`INSERT INTO board (id, project_id, name, slug, is_default, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		boardID, p.ID, "empty", "empty", 0, c.clock.NowMS())

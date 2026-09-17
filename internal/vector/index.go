@@ -1,4 +1,4 @@
-// Package vector provides the optional semantic index for knowledge files.
+// Package vector provides the optional semantic index for entry files.
 // SQLite/FTS remains the default search path; this package is a derived cache.
 package vector
 
@@ -24,21 +24,21 @@ import (
 	"github.com/viant/sqlite-vec/vecutil"
 )
 
-type Document struct {
-	ID      string
-	Title   string
-	Slug    string
-	DocType string
-	Content string
+type Entry struct {
+	ID       string
+	Title    string
+	Slug     string
+	Template string
+	Content  string
 }
 
 type chunk struct {
-	ID      string
-	RootID  string
-	Title   string
-	Slug    string
-	DocType string
-	Content string
+	ID       string
+	RootID   string
+	Title    string
+	Slug     string
+	Template string
+	Content  string
 }
 
 type Hit struct {
@@ -139,7 +139,7 @@ func New(db *sql.DB, dbPath string, cfg config.VectorSearchConfig) (*Index, erro
 			return nil, fmt.Errorf("initialize vector table: %w", schemaErr)
 		}
 	}
-	_, err = db.Exec("CREATE VIRTUAL TABLE IF NOT EXISTS " + "vec_admin_" + strings.TrimPrefix(i.virtualTable, "vec_knowledge_") + " USING vec_admin(op, dbpath='" + path + "')")
+	_, err = db.Exec("CREATE VIRTUAL TABLE IF NOT EXISTS " + "vec_admin_" + strings.TrimPrefix(i.virtualTable, "vec_entry_") + " USING vec_admin(op, dbpath='" + path + "')")
 	if err != nil {
 		vectorDB.Close()
 		return nil, fmt.Errorf("create vector admin table: %w", err)
@@ -150,7 +150,7 @@ func New(db *sql.DB, dbPath string, cfg config.VectorSearchConfig) (*Index, erro
 
 func tableName(path string) string {
 	sum := sha256.Sum256([]byte(path))
-	return "vec_knowledge_" + hex.EncodeToString(sum[:])[:16]
+	return "vec_entry_" + hex.EncodeToString(sum[:])[:16]
 }
 
 func (i *Index) Close() error {
@@ -266,10 +266,10 @@ func httpEmbed(cfg config.VectorSearchConfig, local bool) vecutil.EmbedFunc {
 	}
 }
 
-func splitDocument(d Document, size, overlap int) []chunk {
-	content := d.Title + "\n" + d.DocType + "\n" + d.Content
+func splitEntry(e Entry, size, overlap int) []chunk {
+	content := e.Title + "\n" + e.Template + "\n" + e.Content
 	if size <= 0 || len([]rune(content)) <= size {
-		return []chunk{{ID: d.ID + ":0", RootID: d.ID, Title: d.Title, Slug: d.Slug, DocType: d.DocType, Content: content}}
+		return []chunk{{ID: e.ID + ":0", RootID: e.ID, Title: e.Title, Slug: e.Slug, Template: e.Template, Content: content}}
 	}
 	if overlap < 0 || overlap >= size {
 		overlap = size / 6
@@ -279,7 +279,7 @@ func splitDocument(d Document, size, overlap int) []chunk {
 	out := make([]chunk, 0, (len(runes)+step-1)/step)
 	for start, n := 0, 0; start < len(runes); start, n = start+step, n+1 {
 		end := min(start+size, len(runes))
-		out = append(out, chunk{ID: fmt.Sprintf("%s:%d", d.ID, n), RootID: d.ID, Title: d.Title, Slug: d.Slug, DocType: d.DocType, Content: string(runes[start:end])})
+		out = append(out, chunk{ID: fmt.Sprintf("%s:%d", e.ID, n), RootID: e.ID, Title: e.Title, Slug: e.Slug, Template: e.Template, Content: string(runes[start:end])})
 	}
 	return out
 }
@@ -291,29 +291,29 @@ func min(a, b int) int {
 	return b
 }
 
-func (i *Index) Upsert(ctx context.Context, docs []Document, dataset string) (int, error) {
+func (i *Index) Upsert(ctx context.Context, entries []Entry, dataset string) (int, error) {
 	indexMu.Lock()
 	defer indexMu.Unlock()
-	return i.upsert(ctx, docs, dataset)
+	return i.upsert(ctx, entries, dataset)
 }
 
-func (i *Index) upsert(ctx context.Context, docs []Document, dataset string) (int, error) {
+func (i *Index) upsert(ctx context.Context, entries []Entry, dataset string) (int, error) {
 	if i == nil || !i.registered {
 		return 0, fmt.Errorf("vector index is not initialized")
 	}
 	type replacement struct {
-		doc    Document
+		entry  Entry
 		chunks []chunk
 	}
 	var replacements []replacement
-	for _, d := range docs {
-		chunks := splitDocument(d, i.cfg.ChunkSize, i.cfg.ChunkOverlap)
-		unchanged, err := i.documentUnchanged(ctx, dataset, d, chunks)
+	for _, e := range entries {
+		chunks := splitEntry(e, i.cfg.ChunkSize, i.cfg.ChunkOverlap)
+		unchanged, err := i.entryUnchanged(ctx, dataset, e, chunks)
 		if err != nil {
 			return 0, err
 		}
 		if !unchanged {
-			replacements = append(replacements, replacement{doc: d, chunks: chunks})
+			replacements = append(replacements, replacement{entry: e, chunks: chunks})
 		}
 	}
 	if len(replacements) == 0 {
@@ -330,7 +330,7 @@ func (i *Index) upsert(ctx context.Context, docs []Document, dataset string) (in
 	for n, r := range replacements {
 		encoded[n] = make([]encodedChunk, 0, len(r.chunks))
 		for _, c := range r.chunks {
-			meta, _ := json.Marshal(map[string]string{"root_id": c.RootID, "title": c.Title, "slug": c.Slug, "type": c.DocType})
+			meta, _ := json.Marshal(map[string]string{"root_id": c.RootID, "title": c.Title, "slug": c.Slug, "template": c.Template})
 			emb, err := i.embed(ctx, c.Content)
 			if err != nil {
 				return 0, err
@@ -352,9 +352,9 @@ func (i *Index) upsert(ctx context.Context, docs []Document, dataset string) (in
 	}
 	n := 0
 	for dIndex, r := range replacements {
-		// Remove all previous chunks first. A document that shrinks must not
+		// Remove all previous chunks first. An entry that shrinks must not
 		// leave its old tail chunks in the derived index.
-		if _, err := tx.ExecContext(ctx, `DELETE FROM `+i.shadowTable+` WHERE dataset_id = ? AND (id = ? OR id LIKE ? || ':%')`, dataset, r.doc.ID, r.doc.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+i.shadowTable+` WHERE dataset_id = ? AND (id = ? OR id LIKE ? || ':%')`, dataset, r.entry.ID, r.entry.ID); err != nil {
 			return n, err
 		}
 		for _, c := range encoded[dIndex] {
@@ -370,8 +370,8 @@ func (i *Index) upsert(ctx context.Context, docs []Document, dataset string) (in
 	return n, nil
 }
 
-func (i *Index) documentUnchanged(ctx context.Context, dataset string, d Document, chunks []chunk) (bool, error) {
-	rows, err := i.vectorDB.QueryContext(ctx, `SELECT id, content, meta FROM `+i.shadowTable+` WHERE dataset_id = ? AND (id = ? OR id LIKE ? || ':%')`, dataset, d.ID, d.ID)
+func (i *Index) entryUnchanged(ctx context.Context, dataset string, e Entry, chunks []chunk) (bool, error) {
+	rows, err := i.vectorDB.QueryContext(ctx, `SELECT id, content, meta FROM `+i.shadowTable+` WHERE dataset_id = ? AND (id = ? OR id LIKE ? || ':%')`, dataset, e.ID, e.ID)
 	if err != nil {
 		return false, err
 	}
@@ -391,7 +391,7 @@ func (i *Index) documentUnchanged(ctx context.Context, dataset string, d Documen
 		return false, nil
 	}
 	for _, c := range chunks {
-		meta, _ := json.Marshal(map[string]string{"root_id": c.RootID, "title": c.Title, "slug": c.Slug, "type": c.DocType})
+		meta, _ := json.Marshal(map[string]string{"root_id": c.RootID, "title": c.Title, "slug": c.Slug, "template": c.Template})
 		old, ok := existing[c.ID]
 		if !ok || old[0] != c.Content || old[1] != string(meta) {
 			return false, nil
@@ -464,20 +464,20 @@ func (i *Index) Search(ctx context.Context, dataset, query string, limit int) ([
 	return out, nil
 }
 
-func (i *Index) Rebuild(ctx context.Context, docs []Document, dataset string) (int, error) {
+func (i *Index) Rebuild(ctx context.Context, entries []Entry, dataset string) (int, error) {
 	indexMu.Lock()
 	defer indexMu.Unlock()
-	if _, err := i.upsert(ctx, docs, dataset); err != nil {
+	if _, err := i.upsert(ctx, entries, dataset); err != nil {
 		return 0, err
 	}
-	keep := make([]string, 0, len(docs))
-	for _, d := range docs {
-		keep = append(keep, d.ID)
+	keep := make([]string, 0, len(entries))
+	for _, e := range entries {
+		keep = append(keep, e.ID)
 	}
 	if _, err := i.prune(ctx, keep, dataset); err != nil {
 		return 0, err
 	}
-	return len(docs), nil
+	return len(entries), nil
 }
 
 func (i *Index) Prune(ctx context.Context, keep []string, dataset string) (int, error) {
@@ -532,4 +532,19 @@ func (i *Index) Reindex(ctx context.Context, dataset string) (string, error) {
 		return "", err
 	}
 	return "invalidated; rebuilt lazily on next vector search", nil
+}
+
+// DropTables removes the virtual tables New created in db for the index at
+// dbPath. Their names derive from that path, so a project that is deleted or
+// merged away leaves them behind otherwise. Dropping is safe at any time: the
+// vectors live in dbPath, and New recreates both tables on demand.
+func DropTables(ctx context.Context, db *sql.DB, dbPath string) error {
+	virtual := tableName(dbPath)
+	admin := "vec_admin_" + strings.TrimPrefix(virtual, "vec_entry_")
+	for _, table := range []string{admin, virtual} {
+		if _, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS "+table); err != nil {
+			return fmt.Errorf("drop %s: %w", table, err)
+		}
+	}
+	return nil
 }

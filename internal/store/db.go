@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"net/url"
+	"os"
 	"sync"
 
 	"github.com/gofrs/flock"
@@ -58,6 +59,55 @@ func Open(path string) (*sqlx.DB, error) {
 	}
 	defer lock.Unlock()
 
+	db, err := connect(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := goose.Up(db.DB, "migrations"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	return db, nil
+}
+
+// OpenCurrent connects to an existing database that is already at this
+// binary's schema version. It never creates a file or migrates one: side
+// paths that run on every command, like the invocation log, use it, so that
+// `trellis --help` from a newer build is never what upgrades a database.
+func OpenCurrent(path string) (*sqlx.DB, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
+	db, err := connect(path)
+	if err != nil {
+		return nil, err
+	}
+	current, err := goose.GetDBVersion(db.DB)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	known, err := goose.CollectMigrations("migrations", 0, goose.MaxVersion)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	last, err := known.Last()
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	if current != last.Version {
+		db.Close()
+		return nil, fmt.Errorf("%s is at schema version %d; this binary uses %d", path, current, last.Version)
+	}
+	return db, nil
+}
+
+// connect opens path with the mandatory pragmas and prepares goose, without
+// migrating. Open wraps it in the migration lock; tests use it to stop at an
+// earlier schema version.
+func connect(path string) (*sqlx.DB, error) {
 	dsn := fmt.Sprintf("file:%s?_txlock=immediate&_time_integer_format=unix_milli&_pragma=%s&_pragma=%s&_pragma=%s&_pragma=%s",
 		path,
 		url.QueryEscape("journal_mode(WAL)"),
@@ -65,12 +115,10 @@ func Open(path string) (*sqlx.DB, error) {
 		url.QueryEscape("synchronous(NORMAL)"),
 		url.QueryEscape("foreign_keys(ON)"),
 	)
-
 	db, err := sqlx.Connect("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
-
 	// One connection: SQLite writes serialize anyway, and a pool would apply
 	// pragmas per connection.
 	db.SetMaxOpenConns(1)
@@ -84,11 +132,6 @@ func Open(path string) (*sqlx.DB, error) {
 	if setupErr != nil {
 		db.Close()
 		return nil, setupErr
-	}
-
-	if err := goose.Up(db.DB, "migrations"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return db, nil
 }

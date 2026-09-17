@@ -3,13 +3,14 @@ package retrieval
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/gofrs/flock"
 	"github.com/jmoiron/sqlx"
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/home"
 	"github.com/mtch3n/trellis/internal/vector"
 )
 
@@ -20,15 +21,40 @@ type Service struct {
 	db     *sqlx.DB
 	dbPath string
 	cfg    config.Config
+	// root is the storage root vector index files live under, injected by
+	// the caller rather than resolved here — see TRELLIS-48.
+	root string
 }
 
-func NewService(c *core.Core, db *sqlx.DB, dbPath string, cfg config.Config) *Service {
-	return &Service{core: c, db: db, dbPath: dbPath, cfg: cfg}
+func NewService(c *core.Core, db *sqlx.DB, dbPath string, cfg config.Config, root string) *Service {
+	return &Service{core: c, db: db, dbPath: dbPath, cfg: cfg, root: root}
+}
+
+// projectRoot is the private storage directory for one project's derived
+// state, creating it if it does not exist.
+func (s *Service) projectRoot(projectKey string) (string, error) {
+	dir := filepath.Join(s.root, "projects", projectKey)
+	return dir, os.MkdirAll(dir, 0o700)
+}
+
+// vectorDBPath is the disposable per-project vector index path, creating the
+// project's directory.
+func (s *Service) vectorDBPath(projectKey string) (string, error) {
+	if _, err := s.projectRoot(projectKey); err != nil {
+		return "", err
+	}
+	return filepath.Join(s.root, "projects", projectKey, "vectors.db"), nil
+}
+
+// vectorDBFile is where a project's vector index lives. It creates nothing:
+// dropping a project needs the path only to name that index's tables.
+func (s *Service) vectorDBFile(projectKey string) string {
+	return filepath.Join(s.root, "projects", projectKey, "vectors.db")
 }
 
 func (s *Service) vectorConfig(ctx context.Context, projectID string) (config.VectorSearchConfig, string, error) {
 	get := func(key, fallback string) string {
-		value, _, err := config.EffectiveValue(ctx, s.cfg, s.db, projectID, key)
+		value, _, err := config.EffectiveValue(ctx, s.cfg, map[string]bool{}, config.RepoFile{}, s.db, projectID, key)
 		if err != nil {
 			return fallback
 		}
@@ -109,7 +135,7 @@ func (s *Service) vectorHits(ctx context.Context, projectID, query string, opts 
 		if err := s.db.GetContext(ctx, &projectKey, `SELECT key FROM project WHERE id = ?`, dataset); err != nil {
 			return nil, err
 		}
-		vectorPath, err := home.VectorDBPath(projectKey)
+		vectorPath, err := s.vectorDBPath(projectKey)
 		if err != nil {
 			return nil, err
 		}
@@ -130,24 +156,8 @@ func (s *Service) vectorHits(ctx context.Context, projectID, query string, opts 
 			return nil, err
 		}
 		for _, match := range matches {
-			var hit core.SearchHit
-			query := `SELECT 'knowledge' AS kind,
-		 CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END || '/' || k.slug AS ref,
-		 k.title, CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
-		 k.doc_type AS detail, 0 AS unreviewed FROM knowledge k JOIN project p ON p.id = k.project_id
-		 WHERE k.id = ? AND (k.project_id = ? OR k.global = 1)`
-			if opts.AllProjects {
-				query = `SELECT 'knowledge' AS kind, CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END || '/' || k.slug AS ref, k.title, CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project, k.doc_type AS detail, 0 AS unreviewed FROM knowledge k JOIN project p ON p.id = k.project_id WHERE k.id = ?`
-			}
-			args := []any{match.ID}
-			if !opts.AllProjects {
-				args = append(args, projectID)
-			}
-			if opts.Label != "" {
-				query += ` AND EXISTS (SELECT 1 FROM knowledge_label kl JOIN label l ON l.id = kl.label_id WHERE kl.doc_id = k.id AND l.name = ?)`
-				args = append(args, opts.Label)
-			}
-			if err := s.db.GetContext(ctx, &hit, query, args...); err != nil {
+			hit, err := s.core.EntryHit(ctx, match.ID, projectID, opts.AllProjects, opts.Label)
+			if err != nil {
 				continue
 			}
 			if !seen[hit.Ref] {
@@ -160,15 +170,15 @@ func (s *Service) vectorHits(ctx context.Context, projectID, query string, opts 
 }
 
 func (s *Service) Reconcile(ctx context.Context, projectID string, idx *vector.Index) error {
-	docs, err := s.core.ListSearchKnowledge(ctx, projectID)
+	entries, err := s.core.ListSearchEntries(ctx, projectID)
 	if err != nil {
 		return err
 	}
-	items := make([]vector.Document, 0, len(docs))
-	keep := make([]string, 0, len(docs))
-	for _, doc := range docs {
-		items = append(items, vector.Document{ID: doc.ID, Title: doc.Title, Slug: doc.Slug, DocType: doc.DocType, Content: doc.BodyMD})
-		keep = append(keep, doc.ID)
+	items := make([]vector.Entry, 0, len(entries))
+	keep := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		items = append(items, vector.Entry{ID: entry.ID, Title: entry.Title, Slug: entry.Slug, Template: entry.Template, Content: entry.BodyMD})
+		keep = append(keep, entry.ID)
 	}
 	if _, err := idx.Upsert(ctx, items, projectID); err != nil {
 		return err
@@ -207,7 +217,7 @@ func (s *Service) ReconcileProject(ctx context.Context, projectID string) error 
 	if err := s.db.GetContext(ctx, &projectKey, `SELECT key FROM project WHERE id = ?`, projectID); err != nil {
 		return err
 	}
-	vectorPath, err := home.VectorDBPath(projectKey)
+	vectorPath, err := s.vectorDBPath(projectKey)
 	if err != nil {
 		return err
 	}
@@ -227,7 +237,7 @@ func (s *Service) projectIndex(ctx context.Context, projectID string, cfg config
 	if err := s.db.GetContext(ctx, &key, "SELECT key FROM project WHERE id = ?", projectID); err != nil {
 		return nil, err
 	}
-	path, err := home.VectorDBPath(key)
+	path, err := s.vectorDBPath(key)
 	if err != nil {
 		return nil, err
 	}
@@ -244,14 +254,14 @@ func (s *Service) VectorRebuild(ctx context.Context, projectID string) (int, err
 		return 0, err
 	}
 	defer idx.Close()
-	docs, err := s.core.ListKnowledge(ctx, projectID, "")
+	entries, err := s.core.ListSearchEntries(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
 	if err := s.Reconcile(ctx, projectID, idx); err != nil {
 		return 0, err
 	}
-	return len(docs), nil
+	return len(entries), nil
 }
 
 func (s *Service) VectorPrune(ctx context.Context, projectID string) (int, error) {
@@ -264,13 +274,13 @@ func (s *Service) VectorPrune(ctx context.Context, projectID string) (int, error
 		return 0, err
 	}
 	defer idx.Close()
-	docs, err := s.core.ListKnowledge(ctx, projectID, "")
+	entries, err := s.core.ListSearchEntries(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
-	keep := make([]string, 0, len(docs))
-	for _, doc := range docs {
-		keep = append(keep, doc.ID)
+	keep := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		keep = append(keep, entry.ID)
 	}
 	return idx.Prune(ctx, keep, projectID)
 }
@@ -312,4 +322,11 @@ func fuseHits(fts, semantic []core.SearchHit, limit int) []core.SearchHit {
 		}
 	}
 	return out
+}
+
+// DropProject forgets the vector tables of a project that is about to be
+// removed. Its files go with the project's directory.
+func (s *Service) DropProject(ctx context.Context, projectKey string) error {
+	path := s.vectorDBFile(projectKey)
+	return vector.DropTables(ctx, s.db.DB, path)
 }

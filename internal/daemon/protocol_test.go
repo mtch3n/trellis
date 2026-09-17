@@ -13,14 +13,14 @@ func TestProtocolRoundTrip(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		serveConn(server, func(_ context.Context, req Request) (Response, error) {
-			if req.Method != "health" {
+			if req.Method != "ping" {
 				t.Errorf("method=%q", req.Method)
 			}
 			return Response{OK: true}, nil
 		})
 		close(done)
 	}()
-	resp, err := callConn(client, Request{Protocol: ProtocolVersion, Method: "health"})
+	resp, err := callConn(client, Request{Protocol: ProtocolVersion, Method: "ping"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,18 +15,23 @@ import (
 )
 
 func newVectorCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "vector", Short: "Manage the optional document vector index"}
+	cmd := &cobra.Command{Use: "vector", Short: "Manage the optional vector index"}
 	cmd.AddCommand(newVectorStatusCmd(), newVectorRebuildCmd(), newVectorPruneCmd(), newVectorReindexCmd(), newVectorCompactCmd())
 	return cmd
 }
 
 func effectiveVectorConfig(ctx context.Context, db *sqlx.DB, projectID string) (config.VectorSearchConfig, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		cfg = config.Defaults()
+	cfg := config.Defaults()
+	present := map[string]bool{}
+	if root, err := home.Root(); err == nil {
+		if loaded, loadedPresent, err := config.LoadWithPresence(root); err == nil {
+			cfg, present = loaded, loadedPresent
+		}
 	}
+	// No search.vector.* key is repository-safe (Global Constraints), so an
+	// empty RepoFile is correct here, not a placeholder to fill in later.
 	get := func(key, fallback string) string {
-		v, _, e := config.EffectiveValue(ctx, cfg, db, projectID, key)
+		v, _, e := config.EffectiveValue(ctx, cfg, present, config.RepoFile{}, db, projectID, key)
 		if e != nil {
 			return fallback
 		}
@@ -66,16 +71,16 @@ func currentVector() (*vecsearch.Index, *projectContext, error) {
 	return idx, pctx, nil
 }
 
-func knowledgeVectorDocs(docs []core.Knowledge) []vecsearch.Document {
-	out := make([]vecsearch.Document, 0, len(docs))
-	for _, d := range docs {
-		out = append(out, vecsearch.Document{ID: d.ID, Title: d.Title, Slug: d.Slug, DocType: d.DocType, Content: d.BodyMD})
+func vectorEntries(entries []core.Entry) []vecsearch.Entry {
+	out := make([]vecsearch.Entry, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, vecsearch.Entry{ID: e.ID, Title: e.Title, Slug: e.Slug, Template: e.Template, Content: e.BodyMD})
 	}
 	return out
 }
 
 func newVectorStatusCmd() *cobra.Command {
-	return &cobra.Command{Use: "status", Short: "Show vector configuration and index health", RunE: func(cmd *cobra.Command, _ []string) error {
+	return &cobra.Command{Use: "status", Short: "Show vector configuration and index coverage", RunE: func(cmd *cobra.Command, _ []string) error {
 		pctx, err := currentProject()
 		if err != nil {
 			return err
@@ -86,14 +91,14 @@ func newVectorStatusCmd() *cobra.Command {
 			return err
 		}
 		if !cfg.Enabled {
-			return Emit(cmd, map[string]any{"enabled": false, "configured_documents": 0, "indexed_documents": 0, "stale_documents": 0}, func() string { return "vector disabled (FTS search remains active)" })
+			return Emit(cmd, map[string]any{"enabled": false, "configured_entries": 0, "indexed_entries": 0, "unindexed_entries": 0}, func() string { return "vector disabled (FTS search remains active)" })
 		}
 		idx, err := currentVectorFrom(pctx, cfg)
 		if err != nil {
 			return err
 		}
 		defer idx.Close()
-		docs, err := pctx.Core.ListKnowledge(cmd.Context(), pctx.Project.ID, "")
+		entries, err := pctx.Core.ListSearchEntries(cmd.Context(), pctx.Project.ID)
 		if err != nil {
 			return err
 		}
@@ -101,7 +106,8 @@ func newVectorStatusCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return Emit(cmd, map[string]any{"enabled": true, "configured_documents": len(docs), "indexed_documents": count, "stale_documents": len(docs) - count}, func() string { return fmt.Sprintf("vector enabled; %d/%d documents indexed", count, len(docs)) })
+		unindexed := max(len(entries)-count, 0)
+		return Emit(cmd, map[string]any{"enabled": true, "configured_entries": len(entries), "indexed_entries": count, "unindexed_entries": unindexed}, func() string { return fmt.Sprintf("vector enabled; %d/%d entries indexed", count, len(entries)) })
 	}}
 }
 
@@ -115,7 +121,7 @@ func currentVectorFrom(pctx *projectContext, cfg config.VectorSearchConfig) (*ve
 
 func newVectorRebuildCmd() *cobra.Command {
 	var useDaemon bool
-	cmd := &cobra.Command{Use: "rebuild", Short: "Embed and rebuild the current project's document index", RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "rebuild", Short: "Embed entries and rebuild the current project's vector index", RunE: func(cmd *cobra.Command, _ []string) error {
 		if useDaemon {
 			return vectorDaemon(cmd, "vector_rebuild")
 		}
@@ -128,15 +134,15 @@ func newVectorRebuildCmd() *cobra.Command {
 		}
 		defer idx.Close()
 		defer pctx.db.Close()
-		docs, err := pctx.Core.ListKnowledge(cmd.Context(), pctx.Project.ID, "")
+		entries, err := pctx.Core.ListSearchEntries(cmd.Context(), pctx.Project.ID)
 		if err != nil {
 			return err
 		}
-		n, err := idx.Rebuild(cmd.Context(), knowledgeVectorDocs(docs), pctx.Project.ID)
+		n, err := idx.Rebuild(cmd.Context(), vectorEntries(entries), pctx.Project.ID)
 		if err != nil {
 			return err
 		}
-		return Emit(cmd, map[string]any{"rebuilt": n}, func() string { return fmt.Sprintf("rebuilt %d document vectors", n) })
+		return Emit(cmd, map[string]any{"rebuilt": n}, func() string { return fmt.Sprintf("rebuilt %d entry vectors", n) })
 	}}
 	cmd.Flags().BoolVar(&useDaemon, "daemon", false, "run through the application daemon")
 	return cmd
@@ -144,7 +150,7 @@ func newVectorRebuildCmd() *cobra.Command {
 
 func newVectorPruneCmd() *cobra.Command {
 	var useDaemon bool
-	cmd := &cobra.Command{Use: "prune", Short: "Remove vectors for documents no longer in the knowledge base", RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "prune", Short: "Remove stale vectors, whose entry has left the vault", RunE: func(cmd *cobra.Command, _ []string) error {
 		if useDaemon {
 			return vectorDaemon(cmd, "vector_prune")
 		}
@@ -157,19 +163,19 @@ func newVectorPruneCmd() *cobra.Command {
 		}
 		defer idx.Close()
 		defer pctx.db.Close()
-		docs, err := pctx.Core.ListKnowledge(cmd.Context(), pctx.Project.ID, "")
+		entries, err := pctx.Core.ListSearchEntries(cmd.Context(), pctx.Project.ID)
 		if err != nil {
 			return err
 		}
-		keep := make([]string, 0, len(docs))
-		for _, d := range docs {
-			keep = append(keep, d.ID)
+		keep := make([]string, 0, len(entries))
+		for _, e := range entries {
+			keep = append(keep, e.ID)
 		}
 		n, err := idx.Prune(cmd.Context(), keep, pctx.Project.ID)
 		if err != nil {
 			return err
 		}
-		return Emit(cmd, map[string]any{"pruned": n}, func() string { return fmt.Sprintf("pruned %d stale document vectors", n) })
+		return Emit(cmd, map[string]any{"pruned": n}, func() string { return fmt.Sprintf("pruned %d stale entry vectors", n) })
 	}}
 	cmd.Flags().BoolVar(&useDaemon, "daemon", false, "run through the application daemon")
 	return cmd

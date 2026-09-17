@@ -5,6 +5,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/core"
 	"github.com/spf13/cobra"
 )
@@ -77,7 +78,7 @@ func newBoardCmd() *cobra.Command {
 			if name == "" {
 				return core.ErrUsage("missing_name",
 					"board name required",
-					"trellis board new --name <name>")
+					"trellis board new --name <board>")
 			}
 
 			app, err := currentBoard()
@@ -102,25 +103,19 @@ func newBoardCmd() *cobra.Command {
 
 	// board default
 	defaultCmd := &cobra.Command{
-		Use:   "default <name>",
+		Use:   "default <board>",
 		Short: "Set the default board",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name := args[0]
+			return withTarget(refArg{Collection: address.CollectionBoards, Value: args[0]}, func(app *appCtx, name string) error {
+				board, err := app.Core.SetDefaultBoard(cmd.Context(), app.Project.ID, name)
+				if err != nil {
+					return err
+				}
 
-			app, err := currentBoard()
-			if err != nil {
-				return err
-			}
-			defer app.db.Close()
-
-			board, err := app.Core.SetDefaultBoard(cmd.Context(), app.Project.ID, name)
-			if err != nil {
-				return err
-			}
-
-			return Emit(cmd, map[string]any{"board": board.Name}, func() string {
-				return fmt.Sprintf("set default board to %q", board.Name)
+				return Emit(cmd, map[string]any{"board": board.Name}, func() string {
+					return fmt.Sprintf("set default board to %q", board.Name)
+				})
 			})
 		},
 	}
@@ -135,31 +130,25 @@ func newBoardCmd() *cobra.Command {
 
 func newBoardRenameCmd() *cobra.Command {
 	return &cobra.Command{Use: "rename <from> <to>", Short: "Rename a board", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
-		app, err := currentBoard()
-		if err != nil {
-			return err
-		}
-		defer app.db.Close()
-		b, err := app.Core.RenameBoard(cmd.Context(), app.Project.ID, args[0], args[1])
-		if err != nil {
-			return err
-		}
-		return Emit(cmd, b, func() string { return fmt.Sprintf("renamed board %q", b.Name) })
+		return withTarget(refArg{Collection: address.CollectionBoards, Value: args[0]}, func(app *appCtx, name string) error {
+			b, err := app.Core.RenameBoard(cmd.Context(), app.Project.ID, name, args[1])
+			if err != nil {
+				return err
+			}
+			return Emit(cmd, b, func() string { return fmt.Sprintf("renamed board %q", b.Name) })
+		})
 	}}
 }
 
 func newBoardRmCmd() *cobra.Command {
 	var force bool
-	cmd := &cobra.Command{Use: "rm <name>", Short: "Delete a board", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		app, err := currentBoard()
-		if err != nil {
-			return err
-		}
-		defer app.db.Close()
-		if err := app.Core.DeleteBoard(cmd.Context(), app.Project.ID, args[0], force); err != nil {
-			return err
-		}
-		return Emit(cmd, map[string]string{"deleted": args[0]}, func() string { return "deleted " + args[0] })
+	cmd := &cobra.Command{Use: "rm <board>", Short: "Delete a board", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		return withTarget(refArg{Collection: address.CollectionBoards, Value: args[0]}, func(app *appCtx, name string) error {
+			if err := app.Core.DeleteBoard(cmd.Context(), app.Project.ID, name, force); err != nil {
+				return err
+			}
+			return Emit(cmd, map[string]string{"deleted": args[0]}, func() string { return "deleted " + args[0] })
+		})
 	}}
 	cmd.Flags().BoolVar(&force, "force", false, "delete cards on this board")
 	return cmd

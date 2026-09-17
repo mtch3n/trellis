@@ -5,6 +5,7 @@ import (
 
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/core"
+	"github.com/mtch3n/trellis/internal/home"
 	"github.com/spf13/cobra"
 )
 
@@ -24,9 +25,11 @@ func newUICmd() *cobra.Command {
 			if open {
 				_ = open
 			} // retained for CLI compatibility; opening is host-specific.
-			cfg, err := config.Load()
-			if err != nil {
-				cfg = config.Defaults()
+			cfg := config.Defaults()
+			if root, err := home.Root(); err == nil {
+				if loaded, err := config.Load(root); err == nil {
+					cfg = loaded
+				}
 			}
 			if !cfg.UI.UIEnabled() {
 				return core.ErrUsage("ui_disabled",

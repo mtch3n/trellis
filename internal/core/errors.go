@@ -1,6 +1,9 @@
 package core
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // Error is a user-facing failure. Every message is at most three lines: what is
 // wrong, then a runnable fix.
@@ -10,13 +13,20 @@ type Error struct {
 	Fix    string // a command the caller can run, or ""
 	Exit   int
 	Detail any // JSON detail for --json output, or nil
+	// Problems lists each thing wrong when there are several, such as
+	// every rule a template found broken. Msg stays one sentence.
+	Problems []string
 }
 
 func (e *Error) Error() string {
-	if e.Fix == "" {
-		return e.Msg
+	msg := e.Msg
+	for _, p := range e.Problems {
+		msg += "\n  - " + p
 	}
-	return fmt.Sprintf("%s\n  run: %s", e.Msg, e.Fix)
+	if e.Fix == "" {
+		return msg
+	}
+	return fmt.Sprintf("%s\n  run: %s", msg, e.Fix)
 }
 
 func ErrUsage(code, msg, fix string) error {
@@ -33,4 +43,10 @@ func ErrConflict(code, msg, fix string) error {
 
 func ErrPolicy(code, msg, fix string) error {
 	return &Error{Code: code, Msg: msg, Fix: fix, Exit: 5}
+}
+
+// isCode reports whether err is a core error with this code.
+func isCode(err error, code string) bool {
+	e, ok := errors.AsType[*Error](err)
+	return ok && e.Code == code
 }

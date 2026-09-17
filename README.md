@@ -1,21 +1,23 @@
 # Trellis
 
-Trellis is a local-first kanban board whose primary caller is an AI agent, not a human at a terminal. It stores boards and cards in a SQLite database and provides a command-line interface for reading, creating, and modifying cards.
+Trellis is a local-first kanban board and vault whose primary caller is an AI agent, not a human at a terminal. It stores boards, cards and entry metadata in a SQLite database and provides a command-line interface for reading, creating, and modifying them.
 
 ## Storage
 
-Trellis keeps its state in `TRELLIS_HOME` (environment variable), defaulting to `~/.trellis` on Unix and `%LOCALAPPDATA%\trellis` on Windows. Cards and metadata are in `TRELLIS_HOME/trellis.db`. Knowledge Markdown, artifacts, and derived vector indexes are kept per project:
+Trellis keeps its state in `TRELLIS_HOME` (environment variable), defaulting to `~/.trellis` on Unix and `%LOCALAPPDATA%\trellis` on Windows. Cards and metadata are in `TRELLIS_HOME/trellis.db`. Entry Markdown, artifacts, and derived vector indexes are kept per project, and promoted entries in the global vault:
 
 ```text
 TRELLIS_HOME/
   trellis.db
   projects/<project-key>/
-    knowledge/
+    vault/
     artifacts/
     vectors.db
+  global/
+    vault/
 ```
 
-Knowledge and artifact files are the source of truth for their content; SQLite stores metadata, relationships, and search indexes, never artifact bytes. Projects are identified by Git repository URL; a repository with no remote gets a local pin file.
+Entry and artifact files are the source of truth for their content; SQLite stores metadata, relationships, and search indexes, never artifact bytes. A project is a virtual namespace; a committed .trellis marker binds a directory to it.
 
 ## Install
 
@@ -51,7 +53,9 @@ written install. Re-running the install script has the same effect.
 
 **Init**
 ```bash
-trellis init              # Enable trellis in the current git repository
+trellis init              # Mark this directory with a project (commit the .trellis it writes)
+trellis project merge API --into MONO            # print what a merge would do
+trellis project merge API --into MONO --apply    # back up, merge, rewrite markers
 ```
 
 **Interactive terminal**
@@ -61,16 +65,16 @@ trellis tui --board main # Select a board at startup
 ```
 
 The terminal workspace is a full-screen interface: a sidebar for switching
-between the board, knowledge and activity views, board columns as scrollable
-lanes, and a preview pane for the selected card or document. The layout adapts
-to the terminal size, dropping the sidebar and preview on narrow windows.
+between the Boards, Vault and Events views, board columns as scrollable lanes,
+and a preview pane for the selected card or entry. The layout adapts to the
+terminal size, dropping the sidebar and preview on narrow windows.
 
 A command bar sits at the bottom. Use `/board` to refresh cards, `/boards` to
 list boards, `/board <name>` to switch, `/new <title>` to create, `/show <card>`
-to read, `/move <card> <column>` to move, and `/note <card> <text>` to add a
-note. `/title` and `/body` edit cards after `/show`, with version-conflict
+to read, `/move <card> <column>` to move, and `/comment <card> <text>` to add a
+comment. `/title` and `/body` edit cards after `/show`, with version-conflict
 protection. Use literal `\n` in `/body` for line breaks. Plain text or
-`/search <query>` searches project cards and knowledge. Tab completes commands
+`/search <query>` searches project cards and entries. Tab completes commands
 and Up/Down walks history. `/help` lists everything; `/quit` or Ctrl-C exits.
 
 The TUI requires a terminal (no pipes or `--json`), uses existing local storage,
@@ -90,7 +94,7 @@ trellis card rm 2         # Delete a card
 ```bash
 trellis board ls          # List all boards in this project
 trellis board new --name refactor
-trellis board default     # Show the default board
+trellis board default main  # Set the default board
 ```
 
 **Columns**
@@ -101,9 +105,14 @@ trellis column ls         # List columns in the current board
 **Artifacts**
 ```bash
 trellis artifact add screenshot.png --card 12
-trellis artifact link artifact-id --card 12
+trellis artifact link screenshot.png --card 12      # by name, or /KEY/artifacts/<name>
 trellis artifact ls --card 12
 ```
+
+Every object has an address: `/KEY/boards/<slug>`, `/KEY/cards/KEY-12`,
+`/KEY/vault/<slug>`, `/GLOBAL/vault/<slug>` and `/KEY/artifacts/<name>`. Any
+command that takes a ref also takes an address, and an address acts in its own
+project from any directory.
 
 Artifacts accept images, PDFs, text, audio, video, and common archives. The
 file is copied under the project directory; its bytes are not stored in the
@@ -142,7 +151,7 @@ play, so the same commands work whether or not you have installed the service.
 
 The web UI is on unless you turn it off. Set `ui.enabled: false` in the config
 file to run an IPC-only daemon that binds no TCP port: agents still share one
-database, search index and lease clock, and nothing is reachable over HTTP.
+database, search index and claim clock, and nothing is reachable over HTTP.
 
 The default UI address is `http://127.0.0.1:7788`. Set `ui.port` and `ui.bind`
 to change it, then run `trellis daemon install` again so the service picks up
@@ -158,14 +167,15 @@ trellis doctor --json # same report as structured checks with fix commands
 ```
 
 `doctor` exits 1 when a check fails and 0 when everything is `ok` or `warn`.
-Each finding carries the command that resolves it.
+Each check carries the command that resolves it.
 
 ## Agent plugins
 
-Trellis ships one plugin that works in both Claude Code and Codex. It adds a
-skill that teaches the workflow, plus two hooks: `SessionStart` injects the
-current board state and the agent's identity, and `Stop` warns when the agent
-is holding cards it never wrote a note on.
+Trellis ships one plugin that works in both Claude Code and Codex. It adds the
+skills that teach the workflow, plus three hooks: `SessionStart` injects the
+current board state and the agent's identity, `UserPromptSubmit` recalls the
+refs bearing on a prompt, and `Stop` warns when the agent has claimed cards it
+never commented on.
 
 Both runtimes need `trellis` on their `PATH` (see [Install](#install)) and
 Python 3 for the hooks. On Windows, run the harness from WSL or another POSIX
@@ -213,22 +223,22 @@ persists it through `CLAUDE_ENV_FILE`, while Codex receives an explicit
 `TRELLIS_AGENT=...` assignment in context that the skill uses for each CLI
 call.
 
-`Stop` shows a non-blocking notice when the current actor holds cards without a
-note. It does not force a continuation, write notes, release cards, or mark
-work done. Notices may recur until the held work has a note. Parallel workers
-still need distinct actor suffixes; the root stop hook does not aggregate their
-cards.
+`Stop` shows a non-blocking notice when the current actor has claimed cards
+with no comment. It does not force a continuation, write comments, release
+cards, or mark work done. Notices may recur until the claimed work has a
+comment. Parallel workers still need distinct actor suffixes; the root stop
+hook does not aggregate their cards.
 
 The Claude Code manifest is `.claude-plugin/marketplace.json` at the repository
 root, pointing at `plugin/`; the Codex manifest is
-`plugin/.codex-plugin/plugin.json`. Both share the skill at
-`plugin/skills/trellis/SKILL.md` and the hooks at `plugin/hooks/hooks.json`.
+`plugin/.codex-plugin/plugin.json`. Both share the skills under
+`plugin/skills/` and the hooks at `plugin/hooks/hooks.json`.
 
 ## Browser verification
 
 Run `scripts/ui-browser-smoke.sh` to build the embedded frontend, create an
-isolated temporary project, and verify the P3 board/SSE flows and P5 knowledge,
-graph, label-merge, Markdown preview, and lease-steal flows in Chromium.
+isolated temporary project, and verify the P3 board/SSE flows and P5 vault,
+graph, label-merge, Markdown preview, and claim-steal flows in Chromium.
 
 ## Exit Codes
 
@@ -240,7 +250,7 @@ graph, label-merge, Markdown preview, and lease-steal flows in Chromium.
 | 4    | Conflict | Card changed since last read |
 | 5    | Policy | Action violates board rules |
 
-## Optional document vector search
+## Optional vector search
 
 Vector search is disabled by default. Configure an external embedding
 executable as a project override (it reads text on stdin and prints a JSON
@@ -256,15 +266,16 @@ trellis vector rebuild
 trellis vector status
 ```
 
-Documents are automatically chunked and reconciled after create/edit/delete
+Entry bodies are automatically chunked and reconciled after create/edit/delete
 writes. `local` uses an Ollama-compatible local endpoint by default; `http`
 uses an OpenAI-compatible `/v1/embeddings`-style endpoint. Set
 `search.vector.chunk_size` and `search.vector.chunk_overlap` to tune chunks.
 
-The vector index is derived state. Use `trellis vector prune` to remove stale
-entries and `trellis vector reindex` to invalidate the persisted extension
-cache so it is rebuilt on the next vector query. FTS5 remains available when
-the vector provider is disabled or unavailable.
+The vector index is derived state. Use `trellis vector prune` to drop the
+vectors whose entry has left the vault, and `trellis vector reindex` to
+invalidate the persisted extension cache so it is rebuilt on the next vector
+query. FTS5 remains available when the vector provider is disabled or
+unavailable.
 
 ### Daemon and local IPC
 

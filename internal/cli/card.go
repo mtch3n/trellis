@@ -2,15 +2,17 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"text/tabwriter"
 
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/core"
 	"github.com/spf13/cobra"
 )
 
 // cardID resolves any accepted reference — 12, XPSCTL-12 or the uuid — to the
-// id the lease and note calls take. Without this, only the uuid worked, which
+// id the claim and comment calls take. Without this, only the uuid worked, which
 // is the one form an agent never has to hand.
 func cardID(cmd *cobra.Command, app *appCtx, ref string) (string, error) {
 	card, err := app.Core.GetCard(cmd.Context(), app.Project.ID, core.ParseCardRef(ref))
@@ -37,8 +39,8 @@ func newCardCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "card", Short: "Work with cards"}
 	cmd.AddCommand(
 		newCardNewCmd(), newCardShowCmd(), newCardLsCmd(), newCardMoveCmd(), newCardEditCmd(), newCardRmCmd(),
-		newCardClaimCmd(), newCardReleaseCmd(), newCardRenewCmd(), newCardNextCmd(), newCardNoteCmd(),
-		newCardArchiveCmd(), newCardBlockCmd(), newCardImportCmd())
+		newCardClaimCmd(), newCardReleaseCmd(), newCardRenewCmd(), newCardNextCmd(), newCardCommentCmd(),
+		newCardArchiveCmd(), newCardBlockCmd(), newCardRelateCmd(), newCardImportCmd(), newCardHistoryCmd(), newCardDiffCmd())
 	return cmd
 }
 
@@ -92,8 +94,8 @@ func newCardShowCmd() *cobra.Command {
 		Short: "Show one card",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBoard(func(app *appCtx) error {
-				card, err := app.Core.GetCard(cmd.Context(), app.Project.ID, core.ParseCardRef(args[0]))
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+				card, err := app.Core.GetCard(cmd.Context(), app.Project.ID, core.ParseCardRef(ref))
 				if err != nil {
 					return err
 				}
@@ -101,20 +103,76 @@ func newCardShowCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				relations, err := app.Core.CardRelations(cmd.Context(), card.ID)
+				if err != nil {
+					return err
+				}
 				view := struct {
 					core.Card
-					BlockedBy []core.Blocker `json:"blocked_by,omitempty"`
-				}{Card: card, BlockedBy: blockers}
+					BlockedBy []core.Blocker      `json:"blocked_by,omitempty"`
+					Relations []core.CardRelation `json:"relations,omitempty"`
+				}{Card: card, BlockedBy: blockers, Relations: relations}
 				return Emit(cmd, view, func() string {
 					head := card.Ref + "  [" + card.ColumnName + "/" + card.PriorityName + "]  " + card.Title
 					if len(blockers) > 0 {
 						head += "\nblocked by: " + blockerLine(blockers)
+					}
+					// Blockers have their own line above.
+					others := slices.DeleteFunc(relations, func(r core.CardRelation) bool { return r.Rel == "blocked_by" })
+					if len(others) > 0 {
+						head += "\nrelations:" + renderRelations(others)
 					}
 					return head + "\n\n" + card.BodyMD
 				})
 			})
 		},
 	}
+}
+
+func newCardHistoryCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "history <card>",
+		Short: "List a card's retained revisions",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+				revs, err := app.Core.ListCardRevisions(cmd.Context(), app.Project.ID, core.ParseCardRef(ref))
+				if err != nil {
+					return err
+				}
+				return Emit(cmd, map[string]any{"revisions": revs}, func() string {
+					var b strings.Builder
+					w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+					for _, r := range revs {
+						fmt.Fprintf(w, "%d\t%s\t%s\n", r.Version, msDate(r.Timestamp), r.Actor)
+					}
+					w.Flush()
+					return strings.TrimRight(b.String(), "\n")
+				})
+			})
+		},
+	}
+}
+
+func newCardDiffCmd() *cobra.Command {
+	var from, to int64
+	cmd := &cobra.Command{
+		Use:   "diff <card>",
+		Short: "Show a unified diff between two retained revisions",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+				d, err := app.Core.DiffCard(cmd.Context(), app.Project.ID, core.ParseCardRef(ref), from, to)
+				if err != nil {
+					return err
+				}
+				return Emit(cmd, d, func() string { return d.Diff })
+			})
+		},
+	}
+	cmd.Flags().Int64Var(&from, "from", 0, "earlier version (default: the one before --to)")
+	cmd.Flags().Int64Var(&to, "to", 0, "later version (default: the latest retained)")
+	return cmd
 }
 
 func newCardLsCmd() *cobra.Command {
@@ -205,12 +263,12 @@ func newCardMoveCmd() *cobra.Command {
 		Short: "Move a card to another column",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBoard(func(app *appCtx) error {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				column := targetColumn
 				if len(args) == 2 {
 					column = args[1]
 				}
-				card, err := app.Core.GetCard(cmd.Context(), app.Project.ID, core.ParseCardRef(args[0]))
+				card, err := app.Core.GetCard(cmd.Context(), app.Project.ID, core.ParseCardRef(ref))
 				if err != nil {
 					return err
 				}
@@ -221,7 +279,7 @@ func newCardMoveCmd() *cobra.Command {
 					return core.ErrUsage("missing_column", "a destination column is required when crossing boards", "trellis card move "+args[0]+" --board <name> --column <name>")
 				}
 				card, err = app.Core.MoveCard(cmd.Context(), app.Project.ID, app.Board.ID,
-					core.ParseCardRef(args[0]), column)
+					core.ParseCardRef(ref), column)
 				if err != nil {
 					return err
 				}
@@ -247,7 +305,7 @@ func newCardEditCmd() *cobra.Command {
 		Short: "Edit a card",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBoard(func(app *appCtx) error {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				var e core.CardEdit
 				if title.Changed() {
 					e.Title = ptrOf(title.String())
@@ -271,7 +329,7 @@ func newCardEditCmd() *cobra.Command {
 				e.RemoveTags = removeTags
 
 				card, err := app.Core.EditCard(cmd.Context(), app.Project.ID,
-					core.ParseCardRef(args[0]), e)
+					core.ParseCardRef(ref), e)
 				if err != nil {
 					return err
 				}
@@ -297,8 +355,8 @@ func newCardRmCmd() *cobra.Command {
 		Short: "Delete a card",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBoard(func(app *appCtx) error {
-				if err := app.Core.DeleteCard(cmd.Context(), app.Project.ID, core.ParseCardRef(args[0])); err != nil {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+				if err := app.Core.DeleteCard(cmd.Context(), app.Project.ID, core.ParseCardRef(ref)); err != nil {
 					return err
 				}
 				return Emit(cmd, map[string]any{"deleted": args[0]}, func() string {
@@ -315,17 +373,17 @@ func newCardClaimCmd() *cobra.Command {
 	var reason TextValue
 	cmd := &cobra.Command{
 		Use:   "claim <card>",
-		Short: "Claim ownership of a card",
+		Short: "Claim a card",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if steal && !reason.Changed() {
-				// Stealing is legitimate when a holder has gone quiet, but the
+				// Stealing is legitimate when a claimant has gone quiet, but the
 				// displaced agent has to be able to find out what happened.
 				return core.ErrUsage("missing_reason", "stealing a card records why",
-					`trellis card claim `+args[0]+` --steal --reason "held 4h, no notes"`)
+					`trellis card claim `+args[0]+` --steal --reason "claimed 4h, no notes"`)
 			}
-			return withBoard(func(app *appCtx) error {
-				id, err := cardID(cmd, app, args[0])
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+				id, err := cardID(cmd, app, ref)
 				if err != nil {
 					return err
 				}
@@ -334,13 +392,13 @@ func newCardClaimCmd() *cobra.Command {
 					return err
 				}
 				return Emit(cmd, card, func() string {
-					return card.Ref + " claimed (until " + fmt.Sprintf("%d", card.LeaseUntil) + ")"
+					return card.Ref + " claimed (until " + fmt.Sprintf("%d", card.ClaimUntil) + ")"
 				})
 			})
 		},
 	}
-	cmd.Flags().Int64Var(&ttl, "ttl", 0, "lease duration in minutes (default: config)")
-	cmd.Flags().BoolVar(&steal, "steal", false, "take it from a quiet holder")
+	cmd.Flags().Int64Var(&ttl, "ttl", 0, "claim duration in minutes (default: config)")
+	cmd.Flags().BoolVar(&steal, "steal", false, "steal the claim from a quiet claimant")
 	cmd.Flags().Var(&reason, "reason", "why you stole it; the displaced agent sees this")
 	addActorFlag(cmd)
 	return cmd
@@ -349,11 +407,11 @@ func newCardClaimCmd() *cobra.Command {
 func newCardReleaseCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "release <card>",
-		Short: "Release ownership of a card",
+		Short: "Release your claim on a card",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBoard(func(app *appCtx) error {
-				id, err := cardID(cmd, app, args[0])
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+				id, err := cardID(cmd, app, ref)
 				if err != nil {
 					return err
 				}
@@ -373,18 +431,18 @@ func newCardReleaseCmd() *cobra.Command {
 func newCardRenewCmd() *cobra.Command {
 	var ttl int64
 	cmd := &cobra.Command{
-		// Editing a card already extends its lease (§8.4); renew is the
-		// explicit escape hatch for holding one without changing it.
+		// Editing a card already extends its claim (§8.4); renew is the
+		// explicit escape hatch for keeping one without changing it.
 		Use:   "renew <card>",
-		Short: "Extend the lease on a card you own",
+		Short: "Extend your claim on a card",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBoard(func(app *appCtx) error {
-				id, err := cardID(cmd, app, args[0])
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+				id, err := cardID(cmd, app, ref)
 				if err != nil {
 					return err
 				}
-				if err := app.Core.RenewLease(cmd.Context(), id, ttl*60*1000); err != nil {
+				if err := app.Core.RenewClaim(cmd.Context(), id, ttl*60*1000); err != nil {
 					return err
 				}
 				return Emit(cmd, map[string]any{"renewed": args[0]}, func() string {
@@ -393,7 +451,7 @@ func newCardRenewCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().Int64Var(&ttl, "ttl", 0, "lease duration in minutes (default: config)")
+	cmd.Flags().Int64Var(&ttl, "ttl", 0, "claim duration in minutes (default: config)")
 	addActorFlag(cmd)
 	return cmd
 }
@@ -428,38 +486,38 @@ func newCardNextCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&claim, "claim", false, "claim the card for this agent")
-	cmd.Flags().Int64Var(&ttl, "ttl", 0, "lease duration in minutes (with --claim; default: config)")
+	cmd.Flags().Int64Var(&ttl, "ttl", 0, "claim duration in minutes (with --claim; default: config)")
 	addActorFlag(cmd)
 	return cmd
 }
 
-func newCardNoteCmd() *cobra.Command {
+func newCardCommentCmd() *cobra.Command {
 	var body TextValue
 	cmd := &cobra.Command{
-		Use:   "note <card>",
-		Short: "Append a note to a card",
+		Use:   "comment <card>",
+		Short: "Append a comment to a card",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !body.Changed() {
-				return core.ErrUsage("missing_body", "a note needs text",
-					`trellis card note <card> --body "..."`)
+				return core.ErrUsage("missing_body", "a comment needs text",
+					`trellis card comment <card> --body "..."`)
 			}
-			return withBoard(func(app *appCtx) error {
-				id, err := cardID(cmd, app, args[0])
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+				id, err := cardID(cmd, app, ref)
 				if err != nil {
 					return err
 				}
-				note, err := app.Core.CreateNote(cmd.Context(), id, body.String())
+				comment, err := app.Core.CreateComment(cmd.Context(), id, body.String())
 				if err != nil {
 					return err
 				}
-				return Emit(cmd, note, func() string {
-					return args[0] + " noted"
+				return Emit(cmd, comment, func() string {
+					return args[0] + " commented"
 				})
 			})
 		},
 	}
-	cmd.Flags().Var(&body, "body", "note text (text, - for stdin, or @file)")
+	cmd.Flags().Var(&body, "body", "comment text (text, - for stdin, or @file)")
 	addActorFlag(cmd)
 	return cmd
 }

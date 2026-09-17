@@ -44,7 +44,7 @@ func (c *Core) CreateLabel(ctx context.Context, projectID, name, description str
 		}
 
 		label = Label{
-			ID:          NewCardID(),
+			ID:          NewID(),
 			ProjectID:   projectID,
 			Name:        name,
 			Description: description,
@@ -82,7 +82,7 @@ func (c *Core) GetLabel(ctx context.Context, projectID, name string) (Label, err
 	return label, err
 }
 
-// DeleteLabel removes a label. If any cards or docs still use it, returns a
+// DeleteLabel removes a label. If any cards or entries still use it, returns a
 // hard reject with exit 4 and instructions to use merge instead.
 func (c *Core) DeleteLabel(ctx context.Context, projectID, name string) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
@@ -103,10 +103,13 @@ func (c *Core) DeleteLabel(ctx context.Context, projectID, name string) error {
 				fmt.Sprintf("trellis card ls --label %s", name))
 		}
 
+		if err := c.recordEvent(tx, "label", label.ID, "deleted", "", label.Name, ""); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(`DELETE FROM label WHERE id = ?`, label.ID); err != nil {
 			return err
 		}
-		return c.recordEvent(tx, "label", label.ID, "deleted", "", label.Name, "")
+		return nil
 	})
 }
 
@@ -157,11 +160,15 @@ func (c *Core) MergeLabel(ctx context.Context, projectID, from, into string) err
 			}
 		}
 
-		// Delete the 'from' label
-		if _, err := tx.Exec(`DELETE FROM label WHERE id = ?`, fromLabel.ID); err != nil {
+		// recordEvent looks up its project_id from the label's own row, so it
+		// must run before that row is gone -- otherwise the event lands with a
+		// NULL project_id and never reaches a project-scoped read.
+		if err := c.recordEvent(tx, "label", fromLabel.ID, "merged", "target", fromLabel.Name, toLabel.Name); err != nil {
 			return err
 		}
-		return c.recordEvent(tx, "label", fromLabel.ID, "merged", "target", fromLabel.Name, toLabel.Name)
+		// Delete the 'from' label
+		_, err = tx.Exec(`DELETE FROM label WHERE id = ?`, fromLabel.ID)
+		return err
 	})
 }
 
@@ -282,7 +289,7 @@ func (c *Core) CreateOrGetTag(tx *sqlx.Tx, projectID, name string) (Tag, error) 
 	}
 
 	tag = Tag{
-		ID:        NewCardID(),
+		ID:        NewID(),
 		ProjectID: projectID,
 		Name:      name,
 		CreatedAt: c.clock.NowMS(),
@@ -356,7 +363,7 @@ func (c *Core) RemoveCardTag(tx *sqlx.Tx, cardID, tagName string) error {
 }
 
 // SeedDefaultLabels creates the default preset of 8 labels for a project.
-// It will fail if labels already exist. Use EnsureDefaultLabels for an idempotent version.
+// It will fail if labels already exist.
 func (c *Core) SeedDefaultLabels(tx *sqlx.Tx, projectID string) error {
 	defaultLabels := []struct {
 		name        string
@@ -374,7 +381,7 @@ func (c *Core) SeedDefaultLabels(tx *sqlx.Tx, projectID string) error {
 
 	for _, def := range defaultLabels {
 		label := Label{
-			ID:          NewCardID(),
+			ID:          NewID(),
 			ProjectID:   projectID,
 			Name:        def.name,
 			Description: def.description,
@@ -393,25 +400,15 @@ func (c *Core) SeedDefaultLabels(tx *sqlx.Tx, projectID string) error {
 	return nil
 }
 
-// EnsureDefaultLabels idempotently creates default labels if they don't exist yet.
-// Returns true if labels were just created, false if they already existed.
-func (c *Core) EnsureDefaultLabels(ctx context.Context, projectID string) (bool, error) {
-	var created bool
-	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		// Check if labels already exist
-		var count int
-		if err := tx.Get(&count,
-			`SELECT COUNT(*) FROM label WHERE project_id = ?`, projectID); err != nil {
-			return err
-		}
-		if count > 0 {
-			created = false
-			return nil
-		}
-
-		// No labels exist; create them
-		created = true
-		return c.SeedDefaultLabels(tx, projectID)
-	})
-	return created, err
+// seedLabelsIfNone seeds the default labels when the project has none, in the
+// caller's transaction, and reports whether it did.
+func (c *Core) seedLabelsIfNone(tx *sqlx.Tx, projectID string) (bool, error) {
+	var count int
+	if err := tx.Get(&count, `SELECT COUNT(*) FROM label WHERE project_id = ?`, projectID); err != nil {
+		return false, err
+	}
+	if count > 0 {
+		return false, nil
+	}
+	return true, c.SeedDefaultLabels(tx, projectID)
 }
