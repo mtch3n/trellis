@@ -1147,7 +1147,7 @@ func (c *Core) DeleteEntry(ctx context.Context, projectID, slug string) error {
 			return err
 		}
 		// Inbound links survive as stubs rather than vanishing: a reference to
-		// something deleted is a finding, not a silent no-op (§10.4).
+		// something deleted is a diagnostic, not a silent no-op (§10.4).
 		if _, err := tx.Exec(
 			`UPDATE link SET to_id = NULL WHERE to_type = 'entry' AND to_id = ?`, entry.ID); err != nil {
 			return err

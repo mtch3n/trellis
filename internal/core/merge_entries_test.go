@@ -485,13 +485,13 @@ func TestMergeRewritesSourcesAddresses(t *testing.T) {
 		t.Errorf("sources = %v, want %v", got.Sources, want)
 	}
 
-	findings, err := f.c.Lint(ctx, core.ID)
+	diagnostics, err := f.c.Lint(ctx, core.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, finding := range findings {
-		if finding.Kind == "template_violation" {
-			t.Errorf("lint finding: %+v", finding)
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Kind == "template_violation" {
+			t.Errorf("diagnostic: %+v", diagnostic)
 		}
 	}
 }

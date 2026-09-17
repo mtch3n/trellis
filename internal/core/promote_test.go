@@ -32,8 +32,8 @@ func TestPromoteMovesTheEntryAndKeepsReferences(t *testing.T) {
 	if len(back) != 1 {
 		t.Errorf("Backlinks after promotion = %+v, want the reference to survive", back)
 	}
-	if findings, _ := c.Lint(t.Context(), p.ID); len(findings) != 0 {
-		t.Errorf("lint = %+v, want no stub: the reference still resolves", findings)
+	if diagnostics, _ := c.Lint(t.Context(), p.ID); len(diagnostics) != 0 {
+		t.Errorf("lint = %+v, want no stub: the reference still resolves", diagnostics)
 	}
 
 	if _, err := c.DemoteEntry(t.Context(), target.Slug, "wrong call"); err != nil {

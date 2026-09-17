@@ -91,7 +91,7 @@ func trimRevisions(entryPath string, keep int) (int, error) {
 
 // removeRevisionDirIfEmpty removes an entry's revision directory when it
 // holds no files, so a create that failed after writing version 1 leaves
-// nothing behind for orphan detection to later report.
+// nothing behind for leftover detection to later report.
 func removeRevisionDirIfEmpty(entryPath string) error {
 	dir := revisionDir(entryPath)
 	entries, err := os.ReadDir(dir)

@@ -162,7 +162,7 @@ func TestResemblesFloorsKeepObviousNamesApart(t *testing.T) {
 
 func TestResemblesIsFalseForIdenticalNames(t *testing.T) {
 	if resembles("deployment", "deployment") {
-		t.Error("a name never resembles itself; that is an exact match, not a finding")
+		t.Error("a name never resembles itself; that is an exact match, not a diagnostic")
 	}
 }
 

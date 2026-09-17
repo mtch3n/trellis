@@ -385,12 +385,12 @@ func TestMoveEntryBackfillsStubsThatNameTheNewPath(t *testing.T) {
 		t.Fatalf("CreateEntry target: %v", err)
 	}
 
-	findings, err := c.Lint(t.Context(), p.ID)
+	diagnostics, err := c.Lint(t.Context(), p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var stubbedBefore bool
-	for _, f := range findings {
+	for _, f := range diagnostics {
 		if f.Kind == "stub" && f.Entry == referrer.Ref {
 			stubbedBefore = true
 		}
@@ -403,11 +403,11 @@ func TestMoveEntryBackfillsStubsThatNameTheNewPath(t *testing.T) {
 		t.Fatalf("MoveEntry: %v", err)
 	}
 
-	findings, err = c.Lint(t.Context(), p.ID)
+	diagnostics, err = c.Lint(t.Context(), p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range findings {
+	for _, f := range diagnostics {
 		if f.Kind == "stub" && f.Entry == referrer.Ref {
 			t.Errorf("still a stub after the move resolved it: %+v", f)
 		}
@@ -659,9 +659,9 @@ func TestListEntriesScopesToADirectoryAndItsSubtree(t *testing.T) {
 	}
 }
 
-func findingsOfKind(findings []LintFinding, kind string) []LintFinding {
-	var out []LintFinding
-	for _, f := range findings {
+func diagnosticsOfKind(diagnostics []Diagnostic, kind string) []Diagnostic {
+	var out []Diagnostic
+	for _, f := range diagnostics {
 		if f.Kind == kind {
 			out = append(out, f)
 		}
@@ -674,12 +674,12 @@ func TestLintReportsDeepDirectories(t *testing.T) {
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment/aws/runbooks"}); err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
-	findings, err := c.Lint(t.Context(), p.ID)
+	diagnostics, err := c.Lint(t.Context(), p.ID)
 	if err != nil {
 		t.Fatalf("Lint: %v", err)
 	}
-	if got := findingsOfKind(findings, "deep_directory"); len(got) != 1 {
-		t.Fatalf("findings = %+v, want one deep_directory", findings)
+	if got := diagnosticsOfKind(diagnostics, "deep_directory"); len(got) != 1 {
+		t.Fatalf("diagnostics = %+v, want one deep_directory", diagnostics)
 	}
 }
 
@@ -688,12 +688,12 @@ func TestLintDoesNotReportDeepDirectoryAtDepthTwo(t *testing.T) {
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment/aws"}); err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
-	findings, err := c.Lint(t.Context(), p.ID)
+	diagnostics, err := c.Lint(t.Context(), p.ID)
 	if err != nil {
 		t.Fatalf("Lint: %v", err)
 	}
-	if got := findingsOfKind(findings, "deep_directory"); len(got) != 0 {
-		t.Fatalf("findings = %+v, want none", got)
+	if got := diagnosticsOfKind(diagnostics, "deep_directory"); len(got) != 0 {
+		t.Fatalf("diagnostics = %+v, want none", got)
 	}
 }
 
@@ -703,13 +703,13 @@ func TestLintReportsALongDirectoryName(t *testing.T) {
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "X", Dir: long}); err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
-	findings, err := c.Lint(t.Context(), p.ID)
+	diagnostics, err := c.Lint(t.Context(), p.ID)
 	if err != nil {
 		t.Fatalf("Lint: %v", err)
 	}
-	got := findingsOfKind(findings, "long_directory_name")
+	got := diagnosticsOfKind(diagnostics, "long_directory_name")
 	if len(got) != 1 || got[0].Ref != long {
-		t.Fatalf("findings = %+v, want one naming %q", findings, long)
+		t.Fatalf("diagnostics = %+v, want one naming %q", diagnostics, long)
 	}
 }
 
@@ -721,12 +721,12 @@ func TestLintReportsSimilarDirectories(t *testing.T) {
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "B", Dir: "deployment", NewDir: true}); err != nil {
 		t.Fatalf("CreateEntry b: %v", err)
 	}
-	findings, err := c.Lint(t.Context(), p.ID)
+	diagnostics, err := c.Lint(t.Context(), p.ID)
 	if err != nil {
 		t.Fatalf("Lint: %v", err)
 	}
-	if got := findingsOfKind(findings, "similar_directory"); len(got) == 0 {
-		t.Fatalf("findings = %+v, want at least one similar_directory", findings)
+	if got := diagnosticsOfKind(diagnostics, "similar_directory"); len(got) == 0 {
+		t.Fatalf("diagnostics = %+v, want at least one similar_directory", diagnostics)
 	}
 }
 
@@ -781,18 +781,18 @@ func TestWikilinkToAnAmbiguousLeafStaysAStubAndLintReportsIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEntry entry: %v", err)
 	}
-	findings, err := c.Lint(t.Context(), p.ID)
+	diagnostics, err := c.Lint(t.Context(), p.ID)
 	if err != nil {
 		t.Fatalf("Lint: %v", err)
 	}
 	var found bool
-	for _, f := range findings {
+	for _, f := range diagnostics {
 		if f.Kind == "ambiguous_link" && f.Entry == entry.Ref {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("findings = %+v, want an ambiguous_link for %s", findings, entry.Ref)
+		t.Fatalf("diagnostics = %+v, want an ambiguous_link for %s", diagnostics, entry.Ref)
 	}
 }
 
@@ -869,11 +869,11 @@ func TestMoveEntryRewritesOnlyLinksToTheEntry(t *testing.T) {
 	if len(revs) == 0 {
 		t.Error("no revision kept of the referrer's prior content")
 	}
-	findings, err := c.Lint(ctx, p.ID)
+	diagnostics, err := c.Lint(ctx, p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range findings {
+	for _, f := range diagnostics {
 		if f.Kind == "stub" || f.Kind == "ambiguous_link" {
 			t.Errorf("lint after the move: %+v", f)
 		}

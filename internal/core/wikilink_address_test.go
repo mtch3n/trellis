@@ -5,17 +5,17 @@ import (
 	"testing"
 )
 
-func lintKinds(t *testing.T, c *Core, projectID string) (map[string]int, []LintFinding) {
+func lintKinds(t *testing.T, c *Core, projectID string) (map[string]int, []Diagnostic) {
 	t.Helper()
-	findings, err := c.Lint(t.Context(), projectID)
+	diagnostics, err := c.Lint(t.Context(), projectID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	kinds := map[string]int{}
-	for _, f := range findings {
+	for _, f := range diagnostics {
 		kinds[f.Kind]++
 	}
-	return kinds, findings
+	return kinds, diagnostics
 }
 
 func TestWikilinkResolvesInAnotherProject(t *testing.T) {
@@ -37,8 +37,8 @@ func TestWikilinkResolvesInAnotherProject(t *testing.T) {
 	if len(back) != 1 || back[0].Ref != "/XPSCTL/vault/setup" {
 		t.Errorf("backlinks = %+v", back)
 	}
-	if _, findings := lintKinds(t, c, p.ID); len(findings) != 0 {
-		t.Errorf("findings = %+v, want none", findings)
+	if _, diagnostics := lintKinds(t, c, p.ID); len(diagnostics) != 0 {
+		t.Errorf("diagnostics = %+v, want none", diagnostics)
 	}
 }
 
@@ -50,10 +50,10 @@ func TestCrossProjectStubIsBackfilled(t *testing.T) {
 		Title: "Setup", Body: "Follow [[/OTHERPROJ/vault/later]].\n"}); err != nil {
 		t.Fatal(err)
 	}
-	_, findings := lintKinds(t, c, p.ID)
-	if len(findings) != 1 || findings[0].Kind != "stub" ||
-		!strings.Contains(findings[0].Fix, "trellis --project OTHERPROJ knowledge new") {
-		t.Fatalf("findings = %+v, want one stub pointing at OTHERPROJ", findings)
+	_, diagnostics := lintKinds(t, c, p.ID)
+	if len(diagnostics) != 1 || diagnostics[0].Kind != "stub" ||
+		!strings.Contains(diagnostics[0].Fix, "trellis --project OTHERPROJ knowledge new") {
+		t.Fatalf("diagnostics = %+v, want one stub pointing at OTHERPROJ", diagnostics)
 	}
 	later, err := c.CreateEntry(ctx, other.ID, NewEntry{Title: "Later"})
 	if err != nil {
@@ -73,12 +73,12 @@ func TestLinkToAProjectThatDoesNotExistIsAStub(t *testing.T) {
 		Title: "Setup", Body: "See [[/NOPE/vault/x]].\n"}); err != nil {
 		t.Fatalf("writing a link to a missing project must not fail: %v", err)
 	}
-	_, findings := lintKinds(t, c, p.ID)
-	if len(findings) != 1 || findings[0].Kind != "stub" || findings[0].Ref != "/NOPE/vault/x" {
-		t.Errorf("findings = %+v", findings)
+	_, diagnostics := lintKinds(t, c, p.ID)
+	if len(diagnostics) != 1 || diagnostics[0].Kind != "stub" || diagnostics[0].Ref != "/NOPE/vault/x" {
+		t.Errorf("diagnostics = %+v", diagnostics)
 	}
-	if findings[0].Entry != "/XPSCTL/vault/setup" {
-		t.Errorf("finding names its entry as %q, want its address", findings[0].Entry)
+	if diagnostics[0].Entry != "/XPSCTL/vault/setup" {
+		t.Errorf("diagnostic names its entry as %q, want its address", diagnostics[0].Entry)
 	}
 }
 
@@ -106,8 +106,8 @@ func TestARelativeLinkFallsBackToTheVault(t *testing.T) {
 	if len(back) != 1 || back[0].Ref != "/XPSCTL/vault/setup" {
 		t.Errorf("vault backlinks = %+v", back)
 	}
-	if kinds, findings := lintKinds(t, c, p.ID); kinds["stub"] != 0 {
-		t.Errorf("findings = %+v, want the link resolved", findings)
+	if kinds, diagnostics := lintKinds(t, c, p.ID); kinds["stub"] != 0 {
+		t.Errorf("diagnostics = %+v, want the link resolved", diagnostics)
 	}
 
 	// The project's own entry still wins over the vault's.
@@ -138,9 +138,9 @@ func TestTheOldQualifiedFormIsARelativeStub(t *testing.T) {
 		Title: "Setup", Body: "See [[XPSCTL/design]].\n"}); err != nil {
 		t.Fatal(err)
 	}
-	_, findings := lintKinds(t, c, p.ID)
+	_, diagnostics := lintKinds(t, c, p.ID)
 	var stubs []string
-	for _, f := range findings {
+	for _, f := range diagnostics {
 		if f.Kind == "stub" {
 			stubs = append(stubs, f.Ref)
 		}
@@ -156,9 +156,9 @@ func TestLintNamesAddressesThatNameNoEntry(t *testing.T) {
 		Title: "Setup", Body: "A card: [[/XPSCTL/cards/XPSCTL-1]]. Broken: [[/xps_ctl/vault/x]].\n"}); err != nil {
 		t.Fatal(err)
 	}
-	kinds, findings := lintKinds(t, c, p.ID)
+	kinds, diagnostics := lintKinds(t, c, p.ID)
 	if kinds["wrong_collection"] != 1 || kinds["bad_path"] != 1 || kinds["stub"] != 0 {
-		t.Errorf("findings = %+v", findings)
+		t.Errorf("diagnostics = %+v", diagnostics)
 	}
 }
 
@@ -178,8 +178,8 @@ func TestAnchorsAreCheckedOnTheLinkedEntry(t *testing.T) {
 		Body: "Local [[runbook#steps]], remote [[/OTHERPROJ/vault/runbook#rollback]].\n"}); err != nil {
 		t.Fatal(err)
 	}
-	if kinds, findings := lintKinds(t, c, p.ID); kinds["broken_anchor"] != 0 {
-		t.Errorf("findings = %+v", findings)
+	if kinds, diagnostics := lintKinds(t, c, p.ID); kinds["broken_anchor"] != 0 {
+		t.Errorf("diagnostics = %+v", diagnostics)
 	}
 }
 
@@ -204,15 +204,15 @@ func TestMissingHeadingsInForeignAndVaultTargets(t *testing.T) {
 		"Vault [[/GLOBAL/vault/conventions#naming]] and [[conventions#missing]].\n"}); err != nil {
 		t.Fatal(err)
 	}
-	_, findings := lintKinds(t, c, p.ID)
+	_, diagnostics := lintKinds(t, c, p.ID)
 	broken := map[string]string{}
-	for _, f := range findings {
+	for _, f := range diagnostics {
 		if f.Kind == "broken_anchor" {
 			broken[f.Ref] = f.Fix
 		}
 	}
 	if len(broken) != 2 {
-		t.Fatalf("broken anchors = %v, want two; findings: %+v", broken, findings)
+		t.Fatalf("broken anchors = %v, want two; diagnostics: %+v", broken, diagnostics)
 	}
 	if fix := broken["/OTHERPROJ/vault/runbook#nope"]; !strings.Contains(fix, "trellis knowledge show /OTHERPROJ/vault/runbook") {
 		t.Errorf("foreign fix = %q", fix)

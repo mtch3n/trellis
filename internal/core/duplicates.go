@@ -7,23 +7,24 @@ import (
 	"github.com/mtch3n/trellis/internal/address"
 )
 
-// dupeCluster groups entries that share enough terminology to be worth a look.
-type DupeCluster struct {
+// DuplicateCluster groups entries that share enough terminology to be worth a
+// look.
+type DuplicateCluster struct {
 	Slugs []string `json:"slugs"`
 	Terms string   `json:"shared_terms"`
 }
 
-// Dupes is the cheapest of the three layers in §10.9: FTS5 over each entry's
-// title, which catches shared terminology and overlapping titles. SimHash and
-// embeddings are deliberately not here — they are added when this layer is
-// measured to miss, not before.
-func (c *Core) Dupes(ctx context.Context, projectID string) ([]DupeCluster, error) {
+// Duplicates is the cheapest of the three layers in §10.9: FTS5 over each
+// entry's title, which catches shared terminology and overlapping titles.
+// SimHash and embeddings are deliberately not here — they are added when this
+// layer is measured to miss, not before.
+func (c *Core) Duplicates(ctx context.Context, projectID string) ([]DuplicateCluster, error) {
 	entries, err := c.ListEntries(ctx, projectID, EntryFilter{})
 	if err != nil {
 		return nil, err
 	}
 	seen := map[string]bool{}
-	clusters := []DupeCluster{}
+	clusters := []DuplicateCluster{}
 	for _, e := range entries {
 		if seen[e.Slug] {
 			continue
@@ -59,7 +60,7 @@ func (c *Core) Dupes(ctx context.Context, projectID string) ([]DupeCluster, erro
 		}
 		if len(cluster) > 1 {
 			seen[e.Slug] = true
-			clusters = append(clusters, DupeCluster{Slugs: cluster, Terms: strings.Join(terms, " ")})
+			clusters = append(clusters, DuplicateCluster{Slugs: cluster, Terms: strings.Join(terms, " ")})
 		}
 	}
 	return clusters, nil

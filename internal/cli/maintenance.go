@@ -16,11 +16,11 @@ func newMaintenanceCmd() *cobra.Command {
 
 func newMaintenancePruneCmd() *cobra.Command {
 	var retention string
-	var events, invocations, revisions, orphanHistory bool
+	var events, invocations, revisions, leftoverRevisions bool
 	cmd := &cobra.Command{
 		Use: "prune", Short: "Delete old event, invocation or revision history",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !events && !invocations && !revisions && !orphanHistory {
+			if !events && !invocations && !revisions && !leftoverRevisions {
 				return core.ErrUsage("nothing_to_prune",
 					"select --events, --invocations, --revisions and/or --orphan-history",
 					"trellis maintenance prune --before 90d --events")
@@ -52,8 +52,8 @@ func newMaintenancePruneCmd() *cobra.Command {
 				}
 				total += n
 			}
-			if orphanHistory {
-				n, err := c.PruneOrphanHistory(cmd.Context())
+			if leftoverRevisions {
+				n, err := c.PruneLeftoverRevisions(cmd.Context())
 				if err != nil {
 					return err
 				}
@@ -67,7 +67,7 @@ func newMaintenancePruneCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&events, "events", false, "prune event history")
 	cmd.Flags().BoolVar(&invocations, "invocations", false, "prune invocation history")
 	cmd.Flags().BoolVar(&revisions, "revisions", false, "trim every entry's and card's revisions to history.keep")
-	cmd.Flags().BoolVar(&orphanHistory, "orphan-history", false, "remove revision directories whose entry file is gone")
+	cmd.Flags().BoolVar(&leftoverRevisions, "orphan-history", false, "remove revision directories whose entry file is gone")
 	return cmd
 }
 

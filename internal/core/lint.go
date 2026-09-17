@@ -13,19 +13,20 @@ import (
 	"github.com/mtch3n/trellis/internal/address"
 )
 
-// LintFinding is one problem with the vault. Lint reports; it never repairs.
-type LintFinding struct {
+// Diagnostic is one thing lint reports about the vault. Lint reports; it never
+// repairs.
+type Diagnostic struct {
 	Kind  string `json:"kind"` // template_violation, unknown_template, stub, ambiguous_link, broken_anchor, orphan, wrong_collection, bad_path, missing_artifact, unknown_field, deep_directory, long_directory_name, similar_directory
-	Entry string `json:"doc"`  // the address of the entry that holds the problem
+	Entry string `json:"doc"`  // the address of the entry it is about
 	Ref   string `json:"ref,omitempty"`
 	Fix   string `json:"fix"`
 }
 
-// Lint reports stubs, broken anchors and orphans (§10). Each finding names what
-// to do about it; none of them is an error, because a vault under construction
-// is full of all three.
-func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error) {
-	out := []LintFinding{}
+// Lint reports stubs, broken anchors and orphans (§10). Each diagnostic names
+// what to do about it; none of them is an error, because a vault under
+// construction is full of all three.
+func (c *Core) Lint(ctx context.Context, projectID string) ([]Diagnostic, error) {
+	out := []Diagnostic{}
 	entries, err := c.ListEntries(ctx, projectID, EntryFilter{})
 	if err != nil {
 		return nil, err
@@ -92,7 +93,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 				return err
 			}
 			for _, name := range artifactStubs {
-				out = append(out, LintFinding{Kind: "missing_artifact", Entry: e.Ref, Ref: name,
+				out = append(out, Diagnostic{Kind: "missing_artifact", Entry: e.Ref, Ref: name,
 					Fix: "trellis artifact add <file>   # no artifact is named " + name})
 			}
 
@@ -115,7 +116,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 					// not a legal one (say, one a path-traversal attempt left
 					// behind) -- is reported the same way: neither aborts the
 					// rest of the vault's lint.
-					out = append(out, LintFinding{Kind: "unknown_template", Entry: e.Ref, Ref: fm.Template,
+					out = append(out, Diagnostic{Kind: "unknown_template", Entry: e.Ref, Ref: fm.Template,
 						Fix: "trellis knowledge edit " + e.Ref + " --template <name>   # or --template \"\" for none"})
 				case err != nil:
 					return err
@@ -125,7 +126,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 						return err
 					}
 					for _, problem := range problems {
-						out = append(out, LintFinding{Kind: "template_violation", Entry: e.Ref, Ref: problem,
+						out = append(out, Diagnostic{Kind: "template_violation", Entry: e.Ref, Ref: problem,
 							Fix: "trellis knowledge edit " + e.Ref + "   # " + t.Name + ": " + problem})
 					}
 				}
@@ -137,7 +138,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 			slices.Sort(extraKeys)
 			for _, k := range extraKeys {
 				if !knownFields[k] {
-					out = append(out, LintFinding{Kind: "unknown_field", Entry: e.Ref, Ref: k,
+					out = append(out, Diagnostic{Kind: "unknown_field", Entry: e.Ref, Ref: k,
 						Fix: "trellis knowledge template ls   # " + k + " is not in any template's required or choices"})
 				}
 			}
@@ -149,8 +150,8 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 			}
 			// Stubs count as outbound: an entry whose only link is broken is
 			// reported as a stub, and reporting it as an orphan too would be
-			// two findings for one fix. An attached artifact is not a connection
-			// to another entry or card, so it does not count.
+			// two diagnostics for one fix. An attached artifact is not a
+			// connection to another entry or card, so it does not count.
 			var outbound int
 			if err := tx.Get(&outbound,
 				`SELECT COUNT(*) FROM link WHERE from_type = 'entry' AND from_id = ? AND rel != 'artifact'`,
@@ -158,20 +159,20 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 				return err
 			}
 			if inbound == 0 && outbound == 0 {
-				out = append(out, LintFinding{Kind: "orphan", Entry: e.Ref,
+				out = append(out, Diagnostic{Kind: "orphan", Entry: e.Ref,
 					Fix: "link it from a card or another entry, or remove it"})
 			}
 
 			if dirs := strings.Split(e.Slug, "/"); len(dirs) > 1 {
 				dirs = dirs[:len(dirs)-1]
 				if len(dirs) >= 3 {
-					out = append(out, LintFinding{Kind: "deep_directory", Entry: e.Ref,
+					out = append(out, Diagnostic{Kind: "deep_directory", Entry: e.Ref,
 						Ref: strings.Join(dirs, "/"),
 						Fix: "trellis knowledge mv " + e.Slug + " <a shallower path>   # depth is a design smell past two levels"})
 				}
 				for _, seg := range dirs {
 					if len(seg) > 30 {
-						out = append(out, LintFinding{Kind: "long_directory_name", Entry: e.Ref, Ref: seg,
+						out = append(out, Diagnostic{Kind: "long_directory_name", Entry: e.Ref, Ref: seg,
 							Fix: "trellis knowledge mv " + e.Slug + " <a shorter directory name>"})
 					}
 				}
@@ -186,7 +187,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 		for i, a := range dirs {
 			for _, b := range dirs[i+1:] {
 				if resembles(a, b) {
-					out = append(out, LintFinding{Kind: "similar_directory", Ref: a + ", " + b,
+					out = append(out, Diagnostic{Kind: "similar_directory", Ref: a + ", " + b,
 						Fix: "trellis knowledge mv <an entry under one> <the other>   # or leave both if they mean different things"})
 				}
 			}
@@ -194,7 +195,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 
 		return nil
 	})
-	slices.SortStableFunc(out, func(a, b LintFinding) int { return cmp.Compare(a.Kind, b.Kind) })
+	slices.SortStableFunc(out, func(a, b Diagnostic) int { return cmp.Compare(a.Kind, b.Kind) })
 	return out, err
 }
 
@@ -236,35 +237,35 @@ func (c *Core) knownExtraFields(ctx context.Context) (map[string]bool, error) {
 
 // linkFinding judges one wikilink held by d.
 func linkFinding(c *Core, tx *sqlx.Tx, targets linkTargets, e Entry, raw string,
-	toID, anchor sql.NullString) (LintFinding, bool, error) {
+	toID, anchor sql.NullString) (Diagnostic, bool, error) {
 	ref := ParseReference(raw)
 	if !toID.Valid {
 		target, _ := address.SplitAnchor(raw)
 		target = strings.TrimSpace(target)
 		if strings.HasPrefix(target, "/") && ref.ProjectKey == "" {
-			return addressFinding(e, raw, target), true, nil
+			return addressDiagnostic(e, raw, target), true, nil
 		}
 		kind, fix := "stub", stubFix(ref)
 		leaf, _, _ := strings.Cut(ref.Raw, "#")
 		if leaf = normalizeSlugPath(leaf); !strings.Contains(leaf, "/") {
 			matches, err := entriesWithLeaf(tx, e.ProjectID, leaf)
 			if err != nil {
-				return LintFinding{}, false, err
+				return Diagnostic{}, false, err
 			}
 			if len(matches) > 1 {
 				kind, fix = "ambiguous_link", "trellis knowledge show <full path>   # "+ref.Raw+" matches more than one entry"
 			}
 		}
-		return LintFinding{Kind: kind, Entry: e.Ref, Ref: raw, Fix: fix}, true, nil
+		return Diagnostic{Kind: kind, Entry: e.Ref, Ref: raw, Fix: fix}, true, nil
 	}
 	if !anchor.Valid || anchor.String == "" {
-		return LintFinding{}, false, nil
+		return Diagnostic{}, false, nil
 	}
 	target, found, err := targets.get(c, tx, toID.String)
 	if err != nil || !found || target.anchors[anchor.String] {
-		return LintFinding{}, false, err
+		return Diagnostic{}, false, err
 	}
-	return LintFinding{Kind: "broken_anchor", Entry: e.Ref, Ref: raw,
+	return Diagnostic{Kind: "broken_anchor", Entry: e.Ref, Ref: raw,
 		Fix: "trellis knowledge show " + target.ref + "   # check its headings"}, true, nil
 }
 
@@ -322,10 +323,10 @@ func anchorSet(body string) map[string]bool {
 	return set
 }
 
-// addressFinding explains an absolute link target that names no
+// addressDiagnostic explains an absolute link target that names no
 // entry: a malformed address, or one in another collection.
-func addressFinding(e Entry, raw, target string) LintFinding {
-	f := LintFinding{Kind: "wrong_collection", Entry: e.Ref, Ref: raw,
+func addressDiagnostic(e Entry, raw, target string) Diagnostic {
+	f := Diagnostic{Kind: "wrong_collection", Entry: e.Ref, Ref: raw,
 		Fix: "trellis knowledge edit " + e.Ref + " --body @file   # a wikilink names /KEY/vault/<slug>"}
 	if _, err := address.Parse(target); err != nil {
 		f.Kind = "bad_path"

@@ -61,7 +61,7 @@ func TestPruneRevisionsTrimsEntriesAndCards(t *testing.T) {
 	}
 }
 
-func TestPruneOrphanHistoryRemovesADirectoryNoEntryAccountsFor(t *testing.T) {
+func TestPruneLeftoverRevisionsRemovesADirectoryNoEntryAccountsFor(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Kept", Body: "v1\n"})
 	if err != nil {
@@ -76,9 +76,9 @@ func TestPruneOrphanHistoryRemovesADirectoryNoEntryAccountsFor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	n, err := c.PruneOrphanHistory(t.Context())
+	n, err := c.PruneLeftoverRevisions(t.Context())
 	if err != nil {
-		t.Fatalf("PruneOrphanHistory: %v", err)
+		t.Fatalf("PruneLeftoverRevisions: %v", err)
 	}
 	if n != 1 {
 		t.Fatalf("removed %d, want 1", n)
@@ -93,7 +93,7 @@ func TestPruneOrphanHistoryRemovesADirectoryNoEntryAccountsFor(t *testing.T) {
 
 // An entry whose file was deleted by hand still has its row, and its history
 // holds the only copy of the content left. Pruning must not take it.
-func TestPruneOrphanHistoryKeepsTheHistoryOfAnEntryWhoseFileIsGone(t *testing.T) {
+func TestPruneLeftoverRevisionsKeepsTheHistoryOfAnEntryWhoseFileIsGone(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Gone", Body: "the only copy\n"})
 	if err != nil {
@@ -103,9 +103,9 @@ func TestPruneOrphanHistoryKeepsTheHistoryOfAnEntryWhoseFileIsGone(t *testing.T)
 		t.Fatal(err)
 	}
 
-	n, err := c.PruneOrphanHistory(t.Context())
+	n, err := c.PruneLeftoverRevisions(t.Context())
 	if err != nil {
-		t.Fatalf("PruneOrphanHistory: %v", err)
+		t.Fatalf("PruneLeftoverRevisions: %v", err)
 	}
 	if n != 0 {
 		t.Fatalf("removed %d, want 0: the row still registers this entry", n)
@@ -123,7 +123,7 @@ func TestPruneOrphanHistoryKeepsTheHistoryOfAnEntryWhoseFileIsGone(t *testing.T)
 // Obsidian (.obsidian/) or version it with git (.git/). Both are directories
 // whose name starts with ".", exactly like a revision directory, but neither
 // is one, and --orphan-history must never touch either -- review-knowledge #1.
-func TestPruneOrphanHistoryLeavesGitAndObsidianAlone(t *testing.T) {
+func TestPruneLeftoverRevisionsLeavesGitAndObsidianAlone(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Kept", Body: "v1\n"})
 	if err != nil {
@@ -149,17 +149,17 @@ func TestPruneOrphanHistoryLeavesGitAndObsidianAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, orphaned, err := c.RevisionHealth(t.Context(), p.ID)
+	_, leftover, err := c.RevisionHealth(t.Context(), p.ID)
 	if err != nil {
 		t.Fatalf("RevisionHealth: %v", err)
 	}
-	if orphaned != 0 {
-		t.Errorf("orphaned = %d, want 0: .git and .obsidian are not revision directories", orphaned)
+	if leftover != 0 {
+		t.Errorf("leftover = %d, want 0: .git and .obsidian are not revision directories", leftover)
 	}
 
-	n, err := c.PruneOrphanHistory(t.Context())
+	n, err := c.PruneLeftoverRevisions(t.Context())
 	if err != nil {
-		t.Fatalf("PruneOrphanHistory: %v", err)
+		t.Fatalf("PruneLeftoverRevisions: %v", err)
 	}
 	if n != 0 {
 		t.Fatalf("removed %d, want 0", n)
@@ -176,8 +176,8 @@ func TestPruneOrphanHistoryLeavesGitAndObsidianAlone(t *testing.T) {
 }
 
 // review-knowledge #11: a project filter must not make another project's
-// promoted entry, sitting in the global vault everyone shares, look
-// orphaned; and a nested directory must not be walked -- and its orphan
+// promoted entry, sitting in the global vault everyone shares, look like a
+// leftover; and a nested directory must not be walked -- and its leftover
 // reported -- twice.
 func TestHealthAndPruneDoNotOverCount(t *testing.T) {
 	c, p1, _ := vaultCore(t)
@@ -200,25 +200,25 @@ func TestHealthAndPruneDoNotOverCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEntry nested: %v", err)
 	}
-	stray := filepath.Join(filepath.Dir(nested.Path), ".orphan.md")
+	stray := filepath.Join(filepath.Dir(nested.Path), ".leftover.md")
 	if err := os.MkdirAll(stray, 0o700); err != nil {
 		t.Fatal(err)
 	}
 
 	// Scoped to p1: the global vault's only entry belongs to p2, and must
-	// not be reported as p1's orphan just because p1's filter excluded it
+	// not be reported as p1's leftover just because p1's filter excluded it
 	// from "live".
-	_, orphaned, err := c.RevisionHealth(t.Context(), p1.ID)
+	_, leftover, err := c.RevisionHealth(t.Context(), p1.ID)
 	if err != nil {
 		t.Fatalf("RevisionHealth: %v", err)
 	}
-	if orphaned != 1 {
-		t.Errorf("orphaned = %d, want 1 (the one real orphan under deployment/, counted once)", orphaned)
+	if leftover != 1 {
+		t.Errorf("leftover = %d, want 1 (the one real leftover under deployment/, counted once)", leftover)
 	}
 
-	n, err := c.PruneOrphanHistory(t.Context())
+	n, err := c.PruneLeftoverRevisions(t.Context())
 	if err != nil {
-		t.Fatalf("PruneOrphanHistory: %v", err)
+		t.Fatalf("PruneLeftoverRevisions: %v", err)
 	}
 	if n != 1 {
 		t.Fatalf("removed %d, want 1: the nested vault must not be walked twice", n)
@@ -228,17 +228,17 @@ func TestHealthAndPruneDoNotOverCount(t *testing.T) {
 	}
 }
 
-// OrphanHistoryCount is the small exported wrapper the settings API's
-// maintenance stats route uses; it must agree with what PruneOrphanHistory
-// would actually remove.
-func TestOrphanHistoryCountMatchesWhatPruneRemoves(t *testing.T) {
+// LeftoverRevisionsCount is the small exported wrapper the settings API's
+// maintenance stats route uses; it must agree with what
+// PruneLeftoverRevisions would actually remove.
+func TestLeftoverRevisionsCountMatchesWhatPruneRemoves(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Kept", Body: "v1\n"})
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
-	if n, err := c.OrphanHistoryCount(t.Context()); err != nil || n != 0 {
-		t.Fatalf("OrphanHistoryCount = %d, err = %v, want 0 before any stray directory exists", n, err)
+	if n, err := c.LeftoverRevisionsCount(t.Context()); err != nil || n != 0 {
+		t.Fatalf("LeftoverRevisionsCount = %d, err = %v, want 0 before any stray directory exists", n, err)
 	}
 
 	stray := filepath.Join(filepath.Dir(entry.Path), ".removed-by-hand.md")
@@ -249,23 +249,23 @@ func TestOrphanHistoryCountMatchesWhatPruneRemoves(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	n, err := c.OrphanHistoryCount(t.Context())
+	n, err := c.LeftoverRevisionsCount(t.Context())
 	if err != nil {
-		t.Fatalf("OrphanHistoryCount: %v", err)
+		t.Fatalf("LeftoverRevisionsCount: %v", err)
 	}
 	if n != 1 {
-		t.Fatalf("OrphanHistoryCount = %d, want 1", n)
+		t.Fatalf("LeftoverRevisionsCount = %d, want 1", n)
 	}
 
-	removed, err := c.PruneOrphanHistory(t.Context())
+	removed, err := c.PruneLeftoverRevisions(t.Context())
 	if err != nil {
-		t.Fatalf("PruneOrphanHistory: %v", err)
+		t.Fatalf("PruneLeftoverRevisions: %v", err)
 	}
 	if int(removed) != n {
-		t.Fatalf("PruneOrphanHistory removed %d, OrphanHistoryCount reported %d", removed, n)
+		t.Fatalf("PruneLeftoverRevisions removed %d, LeftoverRevisionsCount reported %d", removed, n)
 	}
-	if n, err := c.OrphanHistoryCount(t.Context()); err != nil || n != 0 {
-		t.Fatalf("OrphanHistoryCount after pruning = %d, err = %v, want 0", n, err)
+	if n, err := c.LeftoverRevisionsCount(t.Context()); err != nil || n != 0 {
+		t.Fatalf("LeftoverRevisionsCount after pruning = %d, err = %v, want 0", n, err)
 	}
 }
 
@@ -315,19 +315,19 @@ func TestHealthReportsRevisionsAndOrphans(t *testing.T) {
 	}
 
 	// A revision directory no row accounts for.
-	stray := filepath.Join(filepath.Dir(entry1.Path), ".orphan.md")
+	stray := filepath.Join(filepath.Dir(entry1.Path), ".leftover.md")
 	if err := os.MkdirAll(stray, 0o700); err != nil {
 		t.Fatal(err)
 	}
 
-	revisions, orphaned, err := c.RevisionHealth(t.Context(), p.ID)
+	revisions, leftover, err := c.RevisionHealth(t.Context(), p.ID)
 	if err != nil {
 		t.Fatalf("RevisionHealth: %v", err)
 	}
 	if revisions != 2 {
 		t.Errorf("revisions = %d, want 2 (one from Watched with 2 versions)", revisions)
 	}
-	if orphaned != 1 {
-		t.Errorf("orphaned = %d, want 1", orphaned)
+	if leftover != 1 {
+		t.Errorf("leftover = %d, want 1", leftover)
 	}
 }

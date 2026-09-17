@@ -31,12 +31,12 @@ type HealthLine struct {
 // Health counts what a human would want to look at before deciding to tidy.
 // Detection is free and runs on demand; action is always human (§10.10).
 func (c *Core) Health(ctx context.Context, projectID string) ([]HealthLine, error) {
-	findings, err := c.Lint(ctx, projectID)
+	diagnostics, err := c.Lint(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
 	byKind := map[string]int{}
-	for _, f := range findings {
+	for _, f := range diagnostics {
 		byKind[f.Kind]++
 	}
 
@@ -72,7 +72,7 @@ func (c *Core) Health(ctx context.Context, projectID string) ([]HealthLine, erro
 		return nil, err
 	}
 
-	revisions, orphanedHistory, err := c.RevisionHealth(ctx, projectID)
+	revisions, leftoverRevisions, err := c.RevisionHealth(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -85,14 +85,14 @@ func (c *Core) Health(ctx context.Context, projectID string) ([]HealthLine, erro
 		{What: "stubs", Count: byKind["stub"], Fix: "trellis knowledge lint"},
 		{What: "broken anchors", Count: byKind["broken_anchor"], Fix: "trellis knowledge lint"},
 		{What: "revisions", Count: revisions, Fix: "trellis maintenance prune --revisions"},
-		{What: "orphaned revision directories", Count: orphanedHistory, Fix: "trellis maintenance prune --orphan-history"},
+		{What: "leftover revision directories", Count: leftoverRevisions, Fix: "trellis maintenance prune --orphan-history"},
 	}, nil
 }
 
 // RevisionHealth counts an entry's retained revisions and the revision
 // directories no entry accounts for. A row whose file is missing keeps its
 // history and is reported by lint as a missing file, not counted here.
-func (c *Core) RevisionHealth(ctx context.Context, projectID string) (revisions, orphaned int, err error) {
+func (c *Core) RevisionHealth(ctx context.Context, projectID string) (revisions, leftover int, err error) {
 	var entries []Entry
 	if err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var err error
@@ -111,11 +111,11 @@ func (c *Core) RevisionHealth(ctx context.Context, projectID string) (revisions,
 		}
 		revisions += len(entries)
 	}
-	orphans, err := c.orphanRevisionDirs(ctx, projectID)
+	leftovers, err := c.leftoverRevisionDirs(ctx, projectID)
 	if err != nil {
 		return 0, 0, err
 	}
-	return revisions, len(orphans), nil
+	return revisions, len(leftovers), nil
 }
 
 func readWindowMS() int64 { return int64(ReadWindowDays) * 24 * 60 * 60 * 1000 }

@@ -285,14 +285,14 @@ func newKnowledgeLsCmd() *cobra.Command {
 // when asked; every line names the command that acts on it, and nothing here
 // changes anything (§10.10).
 func newKnowledgeHealthCmd() *cobra.Command {
-	var dupes bool
+	var duplicates bool
 	cmd := &cobra.Command{
 		Use:   "health",
 		Short: "Count what is worth tidying",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withBoard(func(app *appCtx) error {
-				if dupes {
-					clusters, err := app.Core.Dupes(cmd.Context(), app.Project.ID)
+				if duplicates {
+					clusters, err := app.Core.Duplicates(cmd.Context(), app.Project.ID)
 					if err != nil {
 						return err
 					}
@@ -323,7 +323,7 @@ func newKnowledgeHealthCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().BoolVar(&dupes, "dupes", false, "list duplicate clusters instead")
+	cmd.Flags().BoolVar(&duplicates, "dupes", false, "list duplicate clusters instead")
 	return cmd
 }
 
@@ -568,19 +568,19 @@ func newKnowledgeLintCmd() *cobra.Command {
 		Short: "Report stubs, broken anchors and orphans",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withBoard(func(app *appCtx) error {
-				findings, err := app.Core.Lint(cmd.Context(), app.Project.ID)
+				diagnostics, err := app.Core.Lint(cmd.Context(), app.Project.ID)
 				if err != nil {
 					return err
 				}
 				// The documented exception to the three-line error rule: a
-				// validation report is a list of findings (§12).
-				return Emit(cmd, map[string]any{"findings": findings}, func() string {
-					if len(findings) == 0 {
-						return "no findings"
+				// validation report is a list of diagnostics (§12).
+				return Emit(cmd, map[string]any{"findings": diagnostics}, func() string {
+					if len(diagnostics) == 0 {
+						return "no diagnostics"
 					}
 					var b strings.Builder
 					w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-					for _, f := range findings {
+					for _, f := range diagnostics {
 						fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", f.Kind, f.Entry, f.Ref, f.Fix)
 					}
 					w.Flush()

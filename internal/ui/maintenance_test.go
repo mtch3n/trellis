@@ -20,10 +20,10 @@ func TestGetMaintenanceReportsSizesAndOrphanCount(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
 	}
 	var out struct {
-		DatabaseBytes int64 `json:"database_bytes"`
-		WALBytes      int64 `json:"wal_bytes"`
-		OrphanHistory int   `json:"orphan_history"`
-		HistoryKeep   int   `json:"history_keep"`
+		DatabaseBytes     int64 `json:"database_bytes"`
+		WALBytes          int64 `json:"wal_bytes"`
+		LeftoverRevisions int   `json:"orphan_history"`
+		HistoryKeep       int   `json:"history_keep"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("not JSON: %v, body = %s", err, rec.Body)
@@ -31,8 +31,8 @@ func TestGetMaintenanceReportsSizesAndOrphanCount(t *testing.T) {
 	if out.DatabaseBytes <= 0 {
 		t.Errorf("database_bytes = %d, want > 0: trellis.db already exists", out.DatabaseBytes)
 	}
-	if out.OrphanHistory != 0 {
-		t.Errorf("orphan_history = %d, want 0 on a fresh vault", out.OrphanHistory)
+	if out.LeftoverRevisions != 0 {
+		t.Errorf("orphan_history = %d, want 0 on a fresh vault", out.LeftoverRevisions)
 	}
 	if out.HistoryKeep != 100 {
 		t.Errorf("history_keep = %d, want 100 (the default)", out.HistoryKeep)

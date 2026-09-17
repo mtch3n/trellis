@@ -168,32 +168,32 @@ func ParseRetention(raw string) (time.Duration, error) {
 	return d, nil
 }
 
-// OrphanHistoryCount reports how many revision directories no entry accounts
-// for, across every project and the global vault -- what the settings page's
-// maintenance stats show before a prune.
-func (c *Core) OrphanHistoryCount(ctx context.Context) (int, error) {
-	orphans, err := c.orphanRevisionDirs(ctx, "")
+// LeftoverRevisionsCount reports how many revision directories no entry
+// accounts for, across every project and the global vault -- what the
+// settings page's maintenance stats show before a prune.
+func (c *Core) LeftoverRevisionsCount(ctx context.Context) (int, error) {
+	leftovers, err := c.leftoverRevisionDirs(ctx, "")
 	if err != nil {
 		return 0, err
 	}
-	return len(orphans), nil
+	return len(leftovers), nil
 }
 
-// PruneOrphanHistory removes revision directories no entry accounts for --
-// what deleting a file and its row outside Trellis leaves behind. It returns
-// the number of directories removed.
+// PruneLeftoverRevisions removes revision directories no entry accounts for
+// -- what deleting a file and its row outside Trellis leaves behind. It
+// returns the number of directories removed.
 //
 // An entry whose file is missing is NOT one of these. The entry is still
 // registered, `knowledge lint` reports the missing file, and its history is
 // the only copy of that content left: deleting it here would finish the job
 // the accidental `rm` started.
-func (c *Core) PruneOrphanHistory(ctx context.Context) (int64, error) {
-	orphans, err := c.orphanRevisionDirs(ctx, "")
+func (c *Core) PruneLeftoverRevisions(ctx context.Context) (int64, error) {
+	leftovers, err := c.leftoverRevisionDirs(ctx, "")
 	if err != nil {
 		return 0, err
 	}
 	var removed int64
-	for _, dir := range orphans {
+	for _, dir := range leftovers {
 		if err := os.RemoveAll(dir); err != nil {
 			return removed, err
 		}
@@ -205,14 +205,14 @@ func (c *Core) PruneOrphanHistory(ctx context.Context) (int64, error) {
 	return removed, nil
 }
 
-// orphanRevisionDirs lists every ".<name>/" directory in the vaults that no
+// leftoverRevisionDirs lists every ".<name>/" directory in the vaults that no
 // entry row accounts for, sorted. An empty projectID covers every project
 // and the global vault; otherwise it covers that project's vault and the
 // directories its own entries live in. Liveness is always checked against
 // every project's rows, never just the ones a project filter selects: the
 // global vault is walked unconditionally, and another project's entry
-// promoted into it must not be reported as this project's orphan.
-func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]string, error) {
+// promoted into it must not be reported as this project's leftover.
+func (c *Core) leftoverRevisionDirs(ctx context.Context, projectID string) ([]string, error) {
 	var allEntries []Entry
 	var keys []string
 	if err := c.Tx(ctx, func(tx *sqlx.Tx) error {
@@ -244,11 +244,11 @@ func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]stri
 		}
 	}
 	// A vault nested under another one being walked is walked twice, once by
-	// the ancestor's recursion and once on its own: drop it here so an orphan
+	// the ancestor's recursion and once on its own: drop it here so a leftover
 	// inside it is not reported (and removed) twice.
 	vaults = topLevelDirs(vaults)
 
-	var orphans []string
+	var leftovers []string
 	for vault := range vaults {
 		err := filepath.WalkDir(vault, func(path string, e fs.DirEntry, err error) error {
 			if err != nil {
@@ -266,7 +266,7 @@ func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]stri
 			// A revision directory is ".<entry file name>" beside its entry.
 			if looksLikeRevisionDir(path, e.Name()) {
 				if !live[filepath.Join(filepath.Dir(path), strings.TrimPrefix(e.Name(), "."))] {
-					orphans = append(orphans, path)
+					leftovers = append(leftovers, path)
 				}
 			}
 			// Revision directories never nest, and neither does anything else
@@ -277,8 +277,8 @@ func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]stri
 			return nil, err
 		}
 	}
-	slices.Sort(orphans)
-	return orphans, nil
+	slices.Sort(leftovers)
+	return leftovers, nil
 }
 
 // looksLikeRevisionDir reports whether the directory at path, whose name is
@@ -287,7 +287,7 @@ func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]stri
 // entry file has), and every entry inside it must be a regular file whose
 // name parseRevisionVersion accepts. Anything else — ".git", ".obsidian", a
 // user's own dot-directory — is left alone, never walked into and never
-// treated as an orphan.
+// treated as a leftover.
 func looksLikeRevisionDir(path, name string) bool {
 	if !strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".md") {
 		return false

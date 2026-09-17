@@ -5,13 +5,13 @@ import (
 	"testing"
 )
 
-func findingsFor(t *testing.T, c *Core, projectID string, entry Entry) []LintFinding {
+func diagnosticsFor(t *testing.T, c *Core, projectID string, entry Entry) []Diagnostic {
 	t.Helper()
 	all, err := c.Lint(t.Context(), projectID)
 	if err != nil {
 		t.Fatalf("Lint: %v", err)
 	}
-	var out []LintFinding
+	var out []Diagnostic
 	for _, f := range all {
 		if f.Entry == entry.Ref {
 			out = append(out, f)
@@ -38,7 +38,7 @@ func TestLintReportsAMissingArtifact(t *testing.T) {
 	entry := entryNaming(t, c, p.ID, "Absent", "absent.pdf")
 
 	var found bool
-	for _, f := range findingsFor(t, c, p.ID, entry) {
+	for _, f := range diagnosticsFor(t, c, p.ID, entry) {
 		if f.Kind == "missing_artifact" && f.Ref == "absent.pdf" {
 			found = true
 			if !strings.Contains(f.Fix, "artifact add") {
@@ -46,11 +46,11 @@ func TestLintReportsAMissingArtifact(t *testing.T) {
 			}
 		}
 		if f.Kind == "stub" && f.Ref == "absent.pdf" {
-			t.Errorf("an artifact name leaked into the wikilink stub finding")
+			t.Errorf("an artifact name leaked into the wikilink stub diagnostic")
 		}
 	}
 	if !found {
-		t.Error("no missing_artifact finding for absent.pdf")
+		t.Error("no missing_artifact diagnostic for absent.pdf")
 	}
 }
 
@@ -58,9 +58,9 @@ func TestLintIsQuietAboutAResolvedArtifact(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	a := addArtifact(t, c, p.ID, "fine.png", "\x89PNG\r\n\x1a\nx")
 	entry := entryNaming(t, c, p.ID, "Fine", a.Name)
-	for _, f := range findingsFor(t, c, p.ID, entry) {
+	for _, f := range diagnosticsFor(t, c, p.ID, entry) {
 		if f.Kind == "missing_artifact" {
-			t.Errorf("unexpected finding %+v", f)
+			t.Errorf("unexpected diagnostic %+v", f)
 		}
 	}
 }
@@ -71,7 +71,7 @@ func TestAnEntryLinkedOnlyToAnArtifactIsStillAnOrphan(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	a := addArtifact(t, c, p.ID, "alone.png", "\x89PNG\r\n\x1a\nx")
 	entry := entryNaming(t, c, p.ID, "Alone", a.Name)
-	for _, f := range findingsFor(t, c, p.ID, entry) {
+	for _, f := range diagnosticsFor(t, c, p.ID, entry) {
 		if f.Kind == "orphan" {
 			return
 		}

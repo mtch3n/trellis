@@ -113,19 +113,19 @@ func TestWikilinksResolveAndStub(t *testing.T) {
 		t.Fatalf("Backlinks = %+v, want both references from %s", back, src.Slug)
 	}
 
-	findings, err := c.Lint(t.Context(), p.ID)
+	diagnostics, err := c.Lint(t.Context(), p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	kinds := map[string]int{}
-	for _, f := range findings {
+	for _, f := range diagnostics {
 		kinds[f.Kind]++
 	}
 	if kinds["stub"] != 1 {
-		t.Errorf("stubs = %d, want 1 ([[not-written-yet]]); findings: %+v", kinds["stub"], findings)
+		t.Errorf("stubs = %d, want 1 ([[not-written-yet]]); diagnostics: %+v", kinds["stub"], diagnostics)
 	}
 	if kinds["broken_anchor"] != 1 {
-		t.Errorf("broken anchors = %d, want 1; findings: %+v", kinds["broken_anchor"], findings)
+		t.Errorf("broken anchors = %d, want 1; diagnostics: %+v", kinds["broken_anchor"], diagnostics)
 	}
 }
 
@@ -137,9 +137,9 @@ func TestLinkCardToEntryAndOrphanLint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	findings, _ := c.Lint(t.Context(), p.ID)
-	if len(findings) != 1 || findings[0].Kind != "orphan" {
-		t.Fatalf("findings = %+v, want one orphan", findings)
+	diagnostics, _ := c.Lint(t.Context(), p.ID)
+	if len(diagnostics) != 1 || diagnostics[0].Kind != "orphan" {
+		t.Fatalf("diagnostics = %+v, want one orphan", diagnostics)
 	}
 
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "deploy"})
@@ -157,8 +157,8 @@ func TestLinkCardToEntryAndOrphanLint(t *testing.T) {
 	if len(back) != 1 || back[0].FromType != "card" || back[0].Anchor != "steps" {
 		t.Fatalf("Backlinks = %+v, want the card with anchor steps", back)
 	}
-	if findings, _ := c.Lint(t.Context(), p.ID); len(findings) != 0 {
-		t.Errorf("findings = %+v, want none: the entry is referenced now", findings)
+	if diagnostics, _ := c.Lint(t.Context(), p.ID); len(diagnostics) != 0 {
+		t.Errorf("diagnostics = %+v, want none: the entry is referenced now", diagnostics)
 	}
 }
 
@@ -178,9 +178,9 @@ func TestDeleteEntryRemovesFileAndStubsInboundLinks(t *testing.T) {
 	if _, err := os.Stat(target.Path); !os.IsNotExist(err) {
 		t.Errorf("file still present at %s", target.Path)
 	}
-	findings, _ := c.Lint(t.Context(), p.ID)
-	if len(findings) != 1 || findings[0].Kind != "stub" {
-		t.Errorf("findings = %+v, want the dangling reference reported as a stub", findings)
+	diagnostics, _ := c.Lint(t.Context(), p.ID)
+	if len(diagnostics) != 1 || diagnostics[0].Kind != "stub" {
+		t.Errorf("diagnostics = %+v, want the dangling reference reported as a stub", diagnostics)
 	}
 	if _, err := os.Stat(filepath.Dir(target.Path)); err != nil {
 		t.Errorf("the vault directory should survive: %v", err)
@@ -221,7 +221,7 @@ func TestSearchByLabelCoversBothStores(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Spike results", Labels: []string{"research"}, Body: "spike findings\n"}); err != nil {
+		Title: "Spike results", Labels: []string{"research"}, Body: "spike measurements\n"}); err != nil {
 		t.Fatal(err)
 	}
 	hits, err := c.Search(t.Context(), p.ID, "spike", SearchOpts{Label: "research"})
@@ -261,12 +261,12 @@ func TestCreatingEntryResolvesInboundStubs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	findings, err := c.Lint(t.Context(), p.ID)
+	diagnostics, err := c.Lint(t.Context(), p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(findings) != 1 || findings[0].Kind != "stub" {
-		t.Fatalf("findings = %+v, want the forward reference reported as a stub", findings)
+	if len(diagnostics) != 1 || diagnostics[0].Kind != "stub" {
+		t.Fatalf("diagnostics = %+v, want the forward reference reported as a stub", diagnostics)
 	}
 
 	target, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
@@ -286,13 +286,13 @@ func TestCreatingEntryResolvesInboundStubs(t *testing.T) {
 	if len(back) != 1 || back[0].Title != src.Title {
 		t.Errorf("Backlinks = %+v, want the reference from %s to have resolved", back, src.Slug)
 	}
-	findings, err = c.Lint(t.Context(), p.ID)
+	diagnostics, err = c.Lint(t.Context(), p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range findings {
+	for _, f := range diagnostics {
 		if f.Kind == "stub" {
-			t.Errorf("findings = %+v, want no stub once the target exists", findings)
+			t.Errorf("diagnostics = %+v, want no stub once the target exists", diagnostics)
 			break
 		}
 	}

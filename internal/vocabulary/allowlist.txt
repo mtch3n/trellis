@@ -53,9 +53,9 @@ internal/cli/extension.go	doc	2
 internal/cli/history_cmd_test.go	knowledge-ident	16
 internal/cli/init.go	pin-file	3
 internal/cli/init_test.go	pin-file	4
-internal/cli/knowledge.go	dupe	5
+internal/cli/knowledge.go	dupe	1
 internal/cli/knowledge.go	escalate	6
-internal/cli/knowledge.go	finding-umbrella	7
+internal/cli/knowledge.go	finding-umbrella	1
 internal/cli/knowledge.go	ingestion-path	4
 internal/cli/knowledge.go	kb	1
 internal/cli/knowledge.go	knowledge-cli	4
@@ -80,9 +80,9 @@ internal/cli/knowledge_template_test.go	owner	2
 internal/cli/link.go	knowledge-cli	1
 internal/cli/link_test.go	knowledge-ident	5
 internal/cli/link_test.go	vpath	1	# why: spec file path
-internal/cli/maintenance.go	orphan-file	7
+internal/cli/maintenance.go	orphan-file	2
 internal/cli/maintenance_cmd_test.go	knowledge-ident	1
-internal/cli/maintenance_cmd_test.go	orphan-file	2
+internal/cli/maintenance_cmd_test.go	orphan-file	1
 internal/cli/project.go	document	1
 internal/cli/project.go	knowledge-ident	1
 internal/cli/project.go	pin-file	1
@@ -116,7 +116,6 @@ internal/core/artifact_address_test.go	attach	1
 internal/core/artifact_link_test.go	attach	2
 internal/core/artifact_link_test.go	new-card-id	1
 internal/core/artifact_lint_test.go	attach	1
-internal/core/artifact_lint_test.go	finding-umbrella	2
 internal/core/artifact_mime_test.go	doc	1
 internal/core/artifact_mime_test.go	document	2
 internal/core/artifact_test.go	attach	1
@@ -133,8 +132,6 @@ internal/core/column_test.go	new-card-id	3
 internal/core/comment.go	attach	1
 internal/core/comment.go	new-card-id	1
 internal/core/comment_test.go	feed	3
-internal/core/dupes.go	dupe	7
-internal/core/dupes_test.go	dupe	2
 internal/core/entry.go	ingestion-path	2
 internal/core/entry.go	knowledge-cli	9
 internal/core/entry.go	knowledge-ident	1
@@ -143,7 +140,6 @@ internal/core/entry.go	orphan-file	2
 internal/core/entry.go	owner	1	# why: holder of a cached entry version, not a card claimant
 internal/core/entry_dir_test.go	attach	1
 internal/core/entry_dir_test.go	doc	6
-internal/core/entry_dir_test.go	finding-umbrella	30
 internal/core/entry_dir_test.go	knowledge-ident	5
 internal/core/entry_mv.go	knowledge-cli	4
 internal/core/entry_mv.go	owner	1	# why: what a replaced file held before the write, not a card claimant
@@ -155,10 +151,8 @@ internal/core/entry_race_test.go	owner	1	# why: the SQLite write lock, not a car
 internal/core/entry_relations.go	dangling	2
 internal/core/entry_relations.go	knowledge-cli	1
 internal/core/entry_relations.go	knowledge-ident	1
-internal/core/entry_template_edit_test.go	finding-umbrella	3
 internal/core/entry_template_edit_test.go	owner	5
 internal/core/entry_test.go	dangling	1
-internal/core/entry_test.go	finding-umbrella	30
 internal/core/entry_test.go	knowledge-ident	1
 internal/core/entry_test.go	lease	18
 internal/core/entry_test.go	orphan-file	1
@@ -173,9 +167,8 @@ internal/core/event_feed_test.go	card-note	3
 internal/core/event_feed_test.go	feed	59
 internal/core/file_store.go	dangling	1
 internal/core/graph.go	doc	2
-internal/core/health.go	finding-umbrella	2
 internal/core/health.go	knowledge-cli	6
-internal/core/health.go	orphan-file	2
+internal/core/health.go	orphan-file	1
 internal/core/health_test.go	noms	5
 internal/core/ids.go	new-card-id	2
 internal/core/ids_test.go	new-card-id	2
@@ -186,11 +179,9 @@ internal/core/label_test.go	doc	1
 internal/core/label_test.go	feed	4
 internal/core/lint.go	attach	1
 internal/core/lint.go	doc	1
-internal/core/lint.go	finding-umbrella	22
 internal/core/lint.go	knowledge-cli	11
 internal/core/lint.go	owner	1	# why: a struct field holding a wikilink, not a card claimant
-internal/core/maintenance.go	orphan-file	4
-internal/core/maintenance_test.go	orphan-file	26
+internal/core/maintenance_test.go	orphan-file	1
 internal/core/markdown.go	attach	1
 internal/core/markdown.go	ingestion-path	1
 internal/core/markdown.go	owner	2	# why: frontmatter file ownership disclaimer + an example arbitrary template field name
@@ -203,7 +194,6 @@ internal/core/merge_artifacts_test.go	doc	2
 internal/core/merge_entries.go	dangling	1
 internal/core/merge_entries.go	feed	1
 internal/core/merge_entries_test.go	feed	4
-internal/core/merge_entries_test.go	finding-umbrella	2
 internal/core/merge_test.go	feed	2
 internal/core/nomination.go	knowledge-cli	2
 internal/core/nomination.go	new-card-id	1
@@ -224,7 +214,6 @@ internal/core/project_delete_test.go	feed	1
 internal/core/project_delete_test.go	lease	2
 internal/core/project_init_test.go	pin-file	6
 internal/core/promote.go	knowledge-cli	3
-internal/core/promote_test.go	finding-umbrella	3
 internal/core/purge.go	corpus	1
 internal/core/recall.go	knowledge-ident	3
 internal/core/recall_test.go	knowledge-ident	2
@@ -234,12 +223,10 @@ internal/core/search.go	corpus	2
 internal/core/search.go	review	7
 internal/core/search_test.go	doc	1
 internal/core/template.go	knowledge-cli	11
-internal/core/template_lint_test.go	finding-umbrella	2
 internal/core/template_lint_test.go	owner	4
 internal/core/template_test.go	owner	4
 internal/core/template_verify.go	attach	1
 internal/core/template_verify_test.go	dangling	3
-internal/core/wikilink_address_test.go	finding-umbrella	37
 internal/core/wikilink_address_test.go	knowledge-cli	2
 internal/core/wikilink_address_test.go	knowledge-ident	1
 internal/service/launchd.go	type-field	1
@@ -261,8 +248,8 @@ internal/ui/entry_template_switch_test.go	knowledge-ident	1
 internal/ui/entry_template_switch_test.go	owner	1
 internal/ui/events_test.go	feed	5
 internal/ui/history_test.go	knowledge-ident	5
-internal/ui/maintenance.go	orphan-file	10
-internal/ui/maintenance_test.go	orphan-file	5
+internal/ui/maintenance.go	orphan-file	3
+internal/ui/maintenance_test.go	orphan-file	2
 internal/ui/server.go	feed	4
 internal/ui/server.go	knowledge-ident	10
 internal/ui/server.go	lease	1

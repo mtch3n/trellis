@@ -15,10 +15,10 @@ import (
 )
 
 type maintenanceStats struct {
-	DatabaseBytes int64 `json:"database_bytes"`
-	WALBytes      int64 `json:"wal_bytes"`
-	OrphanHistory int   `json:"orphan_history"`
-	HistoryKeep   int   `json:"history_keep"`
+	DatabaseBytes     int64 `json:"database_bytes"`
+	WALBytes          int64 `json:"wal_bytes"`
+	LeftoverRevisions int   `json:"orphan_history"`
+	HistoryKeep       int   `json:"history_keep"`
 }
 
 // fileSize reports path's size, or 0 when it does not exist -- trellis.db-wal
@@ -35,7 +35,7 @@ func (s *Server) handleMaintenance(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	dbPath := filepath.Join(s.root, "trellis.db")
-	orphans, err := s.core.OrphanHistoryCount(ctx)
+	leftovers, err := s.core.LeftoverRevisionsCount(ctx)
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -45,19 +45,19 @@ func (s *Server) handleMaintenance(w http.ResponseWriter, r *http.Request) {
 		cfg = config.Defaults()
 	}
 	writeJSON(w, http.StatusOK, maintenanceStats{
-		DatabaseBytes: fileSize(dbPath),
-		WALBytes:      fileSize(dbPath + "-wal"),
-		OrphanHistory: orphans,
-		HistoryKeep:   cfg.History.EffectiveKeep(),
+		DatabaseBytes:     fileSize(dbPath),
+		WALBytes:          fileSize(dbPath + "-wal"),
+		LeftoverRevisions: leftovers,
+		HistoryKeep:       cfg.History.EffectiveKeep(),
 	})
 }
 
 type pruneRequest struct {
-	Events        bool   `json:"events"`
-	Invocations   bool   `json:"invocations"`
-	Before        string `json:"before"`
-	Revisions     bool   `json:"revisions"`
-	OrphanHistory bool   `json:"orphan_history"`
+	Events            bool   `json:"events"`
+	Invocations       bool   `json:"invocations"`
+	Before            string `json:"before"`
+	Revisions         bool   `json:"revisions"`
+	LeftoverRevisions bool   `json:"orphan_history"`
 }
 
 // handleMaintenancePrune mirrors `trellis maintenance prune`: at least one
@@ -70,7 +70,7 @@ func (s *Server) handleMaintenancePrune(w http.ResponseWriter, r *http.Request) 
 		s.error(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if !in.Events && !in.Invocations && !in.Revisions && !in.OrphanHistory {
+	if !in.Events && !in.Invocations && !in.Revisions && !in.LeftoverRevisions {
 		s.coreError(w, core.ErrUsage("nothing_to_prune",
 			"select events, invocations, revisions and/or orphan_history", ""))
 		return
@@ -99,8 +99,8 @@ func (s *Server) handleMaintenancePrune(w http.ResponseWriter, r *http.Request) 
 		}
 		total += n
 	}
-	if in.OrphanHistory {
-		n, err := s.write.PruneOrphanHistory(ctx)
+	if in.LeftoverRevisions {
+		n, err := s.write.PruneLeftoverRevisions(ctx)
 		if err != nil {
 			s.coreError(w, err)
 			return

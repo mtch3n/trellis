@@ -231,7 +231,7 @@ func dedupe(in []string) []string {
 // resolveEntryStubs backfills inbound links that were left dangling because the
 // target did not exist when they were written. Creating an entry is what turns
 // a stub into an edge: without this, a reference written ahead of its target —
-// or one orphaned by a delete and then re-created — would stay a lint finding
+// or one orphaned by a delete and then re-created — would stay a diagnostic
 // forever (§10.4).
 func (c *Core) resolveEntryStubs(tx *sqlx.Tx, entry *Entry) error {
 	type stub struct {

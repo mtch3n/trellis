@@ -152,12 +152,12 @@ func TestLintReportsTemplateProblemsFromHandEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	findings, err := c.Lint(t.Context(), p.ID)
+	diagnostics, err := c.Lint(t.Context(), p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var kinds []string
-	for _, f := range findings {
+	for _, f := range diagnostics {
 		if f.Kind == "template_violation" || f.Kind == "unknown_template" {
 			kinds = append(kinds, f.Kind+" "+f.Ref)
 		}
@@ -165,7 +165,7 @@ func TestLintReportsTemplateProblemsFromHandEdits(t *testing.T) {
 	slices.Sort(kinds)
 	want := []string{"template_violation missing section Consequences", "unknown_template gone"}
 	if !slices.Equal(kinds, want) {
-		t.Errorf("findings = %v, want %v", kinds, want)
+		t.Errorf("diagnostics = %v, want %v", kinds, want)
 	}
 
 	cur, err := c.LoadEntry(t.Context(), p.ID, orphan.Slug)
