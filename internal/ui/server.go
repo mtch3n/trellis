@@ -139,6 +139,13 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/claim", s.handleClaimCard)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/release", s.handleReleaseCard)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/comments", s.handleCreateComment)
+	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/archive", s.handleArchiveCard)
+	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/restore", s.handleRestoreCard)
+	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/links", s.handleLinkCardToEntry)
+	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/cards/{card}/links", s.handleUnlinkCardFromEntry)
+	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/artifacts", s.handleLinkCardArtifact)
+	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/cards/{card}/artifacts/{name}", s.handleUnlinkCardArtifact)
+	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/import", s.handleImportCards)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/relations", s.handleCreateCardRelation)
 	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/cards/{card}/relations/{rel}/{ref}", s.handleDeleteCardRelation)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/vault", s.handleEntryList)
@@ -147,7 +154,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/p/{key}/vault/{slug}/history", s.handleEntryHistory)
 	s.mux.HandleFunc("GET /api/p/{key}/vault/{slug}/diff", s.handleEntryDiff)
 	s.mux.HandleFunc("GET /api/p/{key}/vault/{slug}", s.handleGetEntry)
+	s.mux.HandleFunc("GET /api/p/{key}/artifacts", s.handleProjectArtifacts)
+	s.mux.HandleFunc("POST /api/p/{key}/artifacts", s.handleArtifactUpload)
 	s.mux.HandleFunc("GET /api/p/{key}/artifacts/{name}", s.handleArtifact)
+	s.mux.HandleFunc("DELETE /api/p/{key}/artifacts/{name}", s.handleDeleteArtifact)
 	s.mux.HandleFunc("GET /api/global/vault", s.handleGlobalEntryList)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/vault", s.handleEntryCreate)
 	s.mux.HandleFunc("PATCH /api/p/{key}/b/{board}/vault/{slug}", s.handleEntryEdit)
@@ -526,6 +536,10 @@ type cardInfo struct {
 	Priority  string  `json:"priority"`
 	Version   int64   `json:"version"`
 	ClaimedBy *string `json:"claimed_by,omitempty"`
+	// When the claim runs out, so a tile can tell a live claim from a stale
+	// one, and when the card was archived, for the archived view.
+	ClaimUntil *int64 `json:"claim_until,omitempty"`
+	ArchivedAt *int64 `json:"archived_at,omitempty"`
 	// Unix milliseconds, as the single-card endpoint reports them. The
 	// overview's timeline places each card on the day it was created.
 	CreatedAt int64    `json:"created_at"`
@@ -563,19 +577,30 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 
 	// Get all cards for this board
 	var allCards []struct {
-		ID        string        `db:"id"`
-		ColumnID  string        `db:"column_id"`
-		Ref       string        `db:"ref"`
-		Title     string        `db:"title"`
-		Body      string        `db:"body_md"`
-		Priority  core.Priority `db:"priority"`
-		ClaimedBy *string       `db:"claimed_by"`
-		Version   int64         `db:"version"`
-		CreatedAt int64         `db:"created_at"`
-		UpdatedAt int64         `db:"updated_at"`
+		ID         string        `db:"id"`
+		ColumnID   string        `db:"column_id"`
+		Ref        string        `db:"ref"`
+		Title      string        `db:"title"`
+		Body       string        `db:"body_md"`
+		Priority   core.Priority `db:"priority"`
+		ClaimedBy  *string       `db:"claimed_by"`
+		ClaimUntil *int64        `db:"claim_until"`
+		Version    int64         `db:"version"`
+		CreatedAt  int64         `db:"created_at"`
+		UpdatedAt  int64         `db:"updated_at"`
+		ArchivedAt *int64        `db:"archived_at"`
+	}
+	// ?archived=1 answers with the archived cards instead of the live ones,
+	// the way `card ls --archived` reads: an archived card is not work in
+	// flight, so it never shares a column with work that is.
+	archived := "archived_at IS NULL"
+	if truthy(r.URL.Query().Get("archived")) {
+		archived = "archived_at IS NOT NULL"
 	}
 	if err := s.db.SelectContext(ctx, &allCards,
-		`SELECT id, column_id, ref, title, body_md, priority, claimed_by, version, created_at, updated_at FROM card WHERE board_id = ? AND archived_at IS NULL ORDER BY priority, rank`,
+		`SELECT id, column_id, ref, title, body_md, priority, claimed_by, claim_until, version,
+		        created_at, updated_at, archived_at
+		 FROM card WHERE board_id = ? AND `+archived+` ORDER BY priority, rank`,
 		b.ID); err != nil {
 		s.error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -670,17 +695,19 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 				cardTags = []string{}
 			}
 			cardInfos = append(cardInfos, cardInfo{
-				ID:        c.ID,
-				Ref:       c.Ref,
-				Title:     c.Title,
-				Body:      c.Body,
-				Priority:  c.Priority.String(),
-				ClaimedBy: c.ClaimedBy,
-				Version:   c.Version,
-				CreatedAt: c.CreatedAt,
-				UpdatedAt: c.UpdatedAt,
-				Labels:    cardLabels,
-				Tags:      cardTags,
+				ID:         c.ID,
+				Ref:        c.Ref,
+				Title:      c.Title,
+				Body:       c.Body,
+				Priority:   c.Priority.String(),
+				ClaimedBy:  c.ClaimedBy,
+				ClaimUntil: c.ClaimUntil,
+				ArchivedAt: c.ArchivedAt,
+				Version:    c.Version,
+				CreatedAt:  c.CreatedAt,
+				UpdatedAt:  c.UpdatedAt,
+				Labels:     cardLabels,
+				Tags:       cardTags,
 			})
 		}
 
@@ -767,6 +794,10 @@ type cardDetail struct {
 	Comments  []core.Comment      `json:"comments"`
 	Events    []cardEvent         `json:"events"`
 	Relations []core.CardRelation `json:"relations"`
+	// Links are the entries this card cites, Artifacts the files linked to
+	// it. Both sit beside the card rather than inside it, like Relations.
+	Links     []core.CardLink `json:"links"`
+	Artifacts []artifactItem  `json:"artifacts"`
 }
 
 func (s *Server) handleCardDetail(w http.ResponseWriter, r *http.Request) {
@@ -813,7 +844,20 @@ func (s *Server) handleCardDetail(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, cardDetail{Card: card, Comments: comments, Events: events, Relations: relations})
+	links, err := s.core.CardLinks(ctx, card.ID)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	artifacts, err := s.core.ListArtifacts(ctx, p.ID, card.ID, "")
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, cardDetail{
+		Card: card, Comments: comments, Events: events, Relations: relations,
+		Links: links, Artifacts: artifactItems(p.Key, artifacts),
+	})
 }
 
 type cardPatch struct {
@@ -1605,6 +1649,17 @@ func withoutContent(entries []core.Entry) {
 			entries[i].Recap = nil
 			entries[i].Fields = make(map[string]any)
 		}
+	}
+}
+
+// truthy reads a query flag: 1, true or yes mean yes, and anything else,
+// including an absent or empty value, means no.
+func truthy(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "0", "false", "no":
+		return false
+	default:
+		return true
 	}
 }
 

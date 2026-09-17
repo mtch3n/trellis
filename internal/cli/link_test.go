@@ -78,3 +78,21 @@ func TestLinkStillCrossesProjectsWithAnAddressedEntry(t *testing.T) {
 		t.Errorf("graph nodes = %v, want /BETA/vault/runbook", nodes)
 	}
 }
+
+// --remove takes a link back off, and says so when there is none.
+func TestLinkRemove(t *testing.T) {
+	targetEnv(t)
+	refOf(t, "vault", "new", "--title", "Runbook")
+	runCmd(t, "link", "1", "runbook")
+	runCmd(t, "link", "1", "runbook", "--remove")
+	nodes := refsIn(t, runCmd(t, "graph", "1", "--json"), "nodes")
+	for _, ref := range nodes {
+		if ref == "/ALPHA/vault/runbook" {
+			t.Errorf("graph nodes = %v, want the link gone", nodes)
+		}
+	}
+	_, err := execCmd("link", "1", "runbook", "--remove")
+	if ce := coreErr(t, err); ce.Code != "not_linked" {
+		t.Errorf("removing a missing link: error = %+v, want not_linked", ce)
+	}
+}

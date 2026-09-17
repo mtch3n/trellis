@@ -24,14 +24,23 @@ import (
 // alone, the same way a relative reference conflicts with a named one
 // everywhere else in the CLI.
 func newLinkCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "link <card> <entry[#anchor]>",
+	var remove bool
+	cmd := &cobra.Command{
+		Use:   "link <card> <entry[#anchor]> [--remove]",
 		Short: "Link a card to an entry",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				if err := conflictIfEntryElsewhere(app, args[0], args[1]); err != nil {
 					return err
+				}
+				if remove {
+					if err := app.Core.UnlinkCardFromEntry(cmd.Context(), app.Project.ID,
+						core.ParseCardRef(ref), args[1]); err != nil {
+						return err
+					}
+					return Emit(cmd, map[string]string{"from": args[0], "removed": args[1]},
+						func() string { return args[0] + " -/-> " + args[1] })
 				}
 				if err := app.Core.LinkCardToEntry(cmd.Context(), app.Project.ID,
 					core.ParseCardRef(ref), args[1]); err != nil {
@@ -42,6 +51,8 @@ func newLinkCmd() *cobra.Command {
 			})
 		},
 	}
+	cmd.Flags().BoolVar(&remove, "remove", false, "remove the link instead of adding it")
+	return cmd
 }
 
 // conflictIfEntryElsewhere refuses a relative entry argument that would silently

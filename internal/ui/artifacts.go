@@ -2,10 +2,12 @@ package ui
 
 import (
 	"context"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mtch3n/trellis/internal/core"
@@ -124,4 +126,201 @@ func setArtifactHeaders(h http.Header, a core.Artifact) {
 	} else {
 		h.Set("Content-Disposition", disposition)
 	}
+}
+
+// artifactUploadLimit caps an upload. Artifacts are local files a person
+// chooses in their own browser, so the limit is generous; it exists so a
+// runaway upload cannot fill the disk through a single request.
+const artifactUploadLimit = 64 << 20
+
+// handleProjectArtifacts lists every artifact a project holds, so a card can
+// link one that is already stored.
+func (s *Server) handleProjectArtifacts(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, err := s.projectByKey(ctx, r.PathValue("key"))
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	artifacts, err := s.core.ListArtifacts(ctx, p.ID, "", "")
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, artifactItems(p.Key, artifacts))
+}
+
+// artifactItems is a list of stored artifacts with the URL to fetch each one.
+func artifactItems(projectKey string, artifacts []core.Artifact) []artifactItem {
+	out := make([]artifactItem, 0, len(artifacts))
+	for _, a := range artifacts {
+		out = append(out, artifactItem{
+			ArtifactRef: core.ArtifactRef{Name: a.Name, Kind: a.Kind, MIME: a.MIME, Size: a.Size},
+			URL:         artifactURL(projectKey, a.Name),
+		})
+	}
+	return out
+}
+
+// handleArtifactUpload stores a file the browser sends and, when the form
+// names a card, links it to that card in the same request. The bytes go to a
+// temporary file first: core.CreateArtifact takes a path, sniffs the type and
+// copies it into the project's artifact directory under a derived name.
+//
+// This is the one route that takes something other than JSON; see
+// protectedHandler, which still requires the session token, a loopback host
+// and a same-origin request.
+func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, err := s.projectByKey(ctx, r.PathValue("key"))
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		s.error(w, http.StatusBadRequest, "the upload could not be read: "+err.Error())
+		return
+	}
+	defer func() { _ = r.MultipartForm.RemoveAll() }()
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		s.error(w, http.StatusBadRequest, "the upload needs a file field")
+		return
+	}
+	defer file.Close()
+
+	name := filepath.Base(filepath.FromSlash(header.Filename))
+	if name == "." || name == string(filepath.Separator) || strings.TrimSpace(name) == "" || name == ".." {
+		s.error(w, http.StatusBadRequest, "the upload needs a file name")
+		return
+	}
+	dir, err := os.MkdirTemp("", "trellis-upload-")
+	if err != nil {
+		s.error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer os.RemoveAll(dir)
+	staged := filepath.Join(dir, name)
+	out, err := os.OpenFile(staged, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		s.error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if _, err := io.Copy(out, io.LimitReader(file, artifactUploadLimit)); err != nil {
+		out.Close()
+		s.error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := out.Close(); err != nil {
+		s.error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	artifact, err := s.write.CreateArtifact(ctx, p.ID, staged)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	// A card given in the form links the new artifact in the same request, so
+	// an upload from a card never leaves a stored file linked to nothing.
+	if ref := strings.TrimSpace(r.FormValue("card")); ref != "" {
+		card, err := s.core.GetCard(ctx, p.ID, core.ParseCardRef(ref))
+		if err != nil {
+			s.coreError(w, err)
+			return
+		}
+		if err := s.write.LinkArtifactToCard(ctx, p.ID, card.ID, artifact.ID); err != nil {
+			s.coreError(w, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusCreated, artifactItem{
+		ArtifactRef: core.ArtifactRef{Name: artifact.Name, Kind: artifact.Kind, MIME: artifact.MIME, Size: artifact.Size},
+		URL:         artifactURL(p.Key, artifact.Name),
+	})
+}
+
+// handleDeleteArtifact removes an artifact and its file. An entry that names
+// it keeps the name as a broken reference, the way a wikilink to a deleted
+// entry stays a stub.
+func (s *Server) handleDeleteArtifact(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, err := s.projectByKey(ctx, r.PathValue("key"))
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	artifact, err := s.core.ResolveArtifact(ctx, p.ID, r.PathValue("name"))
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	if err := s.write.DeleteArtifact(ctx, p.ID, artifact.ID); err != nil {
+		s.coreError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type artifactLinkRequest struct {
+	Name string `json:"name"`
+}
+
+// handleLinkCardArtifact links an artifact the project already holds to a
+// card; handleUnlinkCardArtifact unlinks it, leaving the file in place.
+func (s *Server) handleLinkCardArtifact(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, card, err := s.cardOnBoard(ctx, r)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	var in artifactLinkRequest
+	if !decodeJSON(w, r, &in) || strings.TrimSpace(in.Name) == "" {
+		s.error(w, http.StatusBadRequest, "the artifact to link is required")
+		return
+	}
+	artifact, err := s.core.ResolveArtifact(ctx, p.ID, in.Name)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	if err := s.write.LinkArtifactToCard(ctx, p.ID, card.ID, artifact.ID); err != nil {
+		s.coreError(w, err)
+		return
+	}
+	s.writeCardArtifacts(ctx, w, http.StatusCreated, p, card.ID)
+}
+
+func (s *Server) handleUnlinkCardArtifact(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, card, err := s.cardOnBoard(ctx, r)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	artifact, err := s.core.ResolveArtifact(ctx, p.ID, r.PathValue("name"))
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	if err := s.write.UnlinkArtifactFromCard(ctx, p.ID, card.ID, artifact.ID); err != nil {
+		s.coreError(w, err)
+		return
+	}
+	s.writeCardArtifacts(ctx, w, http.StatusOK, p, card.ID)
+}
+
+func (s *Server) writeCardArtifacts(ctx context.Context, w http.ResponseWriter, status int, p core.Project, cardID string) {
+	artifacts, err := s.core.ListArtifacts(ctx, p.ID, cardID, "")
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	writeJSON(w, status, artifactItems(p.Key, artifacts))
 }

@@ -59,17 +59,41 @@ func (s *Server) protectedHandler(address string) http.Handler {
 				http.Error(w, "open the authenticated URL printed by trellis daemon", http.StatusUnauthorized)
 				return
 			}
+			upload := r.Method == http.MethodPost && isUploadPath(r.URL.Path)
 			if r.Method != http.MethodGet && r.Method != http.MethodHead {
 				media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-				if err != nil || media != "application/json" {
+				switch {
+				case err == nil && media == "application/json":
+				case upload && err == nil && media == "multipart/form-data":
+					// An artifact is a file the person at the browser picked,
+					// and a file field cannot be sent as JSON. The token, the
+					// loopback host and the same-origin checks above still
+					// apply, and the session cookie is SameSite=Strict, so a
+					// cross-site form post carries no credential.
+				default:
 					http.Error(w, "application/json required", http.StatusUnsupportedMediaType)
 					return
 				}
 			}
-			r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
+			limit := int64(2 << 20)
+			if upload {
+				limit = artifactUploadLimit
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
 		}
 		s.mux.ServeHTTP(w, r)
 	})
+}
+
+// isUploadPath reports whether a path is the one route that takes a file
+// rather than JSON: POST /api/p/{key}/artifacts.
+func isUploadPath(path string) bool {
+	rest, ok := strings.CutPrefix(path, "/api/p/")
+	if !ok {
+		return false
+	}
+	key, tail, ok := strings.Cut(rest, "/")
+	return ok && key != "" && tail == "artifacts"
 }
 
 func (s *Server) validToken(token string) bool {

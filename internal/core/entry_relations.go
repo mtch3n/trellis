@@ -228,6 +228,75 @@ func dedupe(in []string) []string {
 	return out
 }
 
+// UnlinkCardFromEntry removes a card's link to an entry, named the way it was
+// linked or by any reference that resolves to the same entry. Like linking, it
+// does not ask for the card's claim: citing is not changing the work.
+func (c *Core) UnlinkCardFromEntry(ctx context.Context, projectID string, cardRef CardRef, target string) error {
+	return c.Tx(ctx, func(tx *sqlx.Tx) error {
+		var card Card
+		if err := c.loadCard(tx, projectID, cardRef, &card); err != nil {
+			return err
+		}
+		ref := ParseReference(target)
+		res, err := tx.Exec(
+			`DELETE FROM link WHERE from_type = 'card' AND from_id = ?
+			   AND to_type = 'entry' AND rel = 'cites' AND to_raw = ?`,
+			card.ID, ref.Raw)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			toID, err := c.resolveEntryRef(tx, projectID, ref)
+			if err != nil {
+				return err
+			}
+			if toID != nil {
+				res, err = tx.Exec(
+					`DELETE FROM link WHERE from_type = 'card' AND from_id = ?
+					   AND to_type = 'entry' AND rel = 'cites' AND to_id = ?
+					   AND COALESCE(anchor, '') = ?`,
+					card.ID, toID, ref.Anchor)
+				if err != nil {
+					return err
+				}
+				n, _ = res.RowsAffected()
+			}
+		}
+		if n == 0 {
+			return ErrNotFound("not_linked", card.Ref+" is not linked to "+ref.Raw,
+				"trellis card show "+card.Ref)
+		}
+		return c.recordEvent(tx, "card", card.ID, "unlinked", "cites", ref.Raw, "")
+	})
+}
+
+// CardLink is one entry a card cites. To is the entry's address, or nil when
+// the entry has since been deleted and the link is a stub.
+type CardLink struct {
+	Raw    string  `db:"to_raw" json:"raw"`
+	Anchor string  `db:"anchor" json:"anchor,omitempty"`
+	To     *string `db:"to_addr" json:"to"`
+	Title  string  `db:"title" json:"title,omitempty"`
+}
+
+// CardLinks lists the entries a card cites, in the order they were linked.
+func (c *Core) CardLinks(ctx context.Context, cardID string) ([]CardLink, error) {
+	out := []CardLink{}
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		return tx.Select(&out,
+			`SELECT l.to_raw, COALESCE(l.anchor, '') AS anchor,
+			        CASE WHEN k.id IS NULL THEN NULL ELSE `+entryAddressSQL+` END AS to_addr,
+			        COALESCE(k.title, '') AS title
+			 FROM link l
+			 LEFT JOIN entry k ON k.id = l.to_id
+			 LEFT JOIN project p ON p.id = k.project_id
+			 WHERE l.from_type = 'card' AND l.from_id = ? AND l.to_type = 'entry' AND l.rel = 'cites'
+			 ORDER BY l.rowid`, cardID)
+	})
+	return out, err
+}
+
 // resolveEntryStubs backfills inbound links that were left as stubs because the
 // target did not exist when they were written. Creating an entry is what turns
 // a stub into an edge: without this, a reference written ahead of its target —
