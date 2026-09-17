@@ -367,7 +367,210 @@ func TestValidateValueRejectsNegativeHistoryKeep(t *testing.T) {
 		t.Error("ValidateValue(history.keep, not-a-number), want an error")
 	}
 	if err := ValidateValue("ui.port", "-1"); err != nil {
-		t.Errorf("ValidateValue(ui.port, -1): %v, want nil: only history.keep is constrained so far", err)
+		t.Errorf("ValidateValue(ui.port, -1): %v, want nil: ui.port has no semantic constraint", err)
+	}
+}
+
+func TestValidateValueRejectsBadLeaseTTLGitTimeoutAndSearchMethod(t *testing.T) {
+	if err := ValidateValue("lease.ttl", "banana"); err == nil {
+		t.Error("ValidateValue(lease.ttl, banana), want an error")
+	}
+	if err := ValidateValue("lease.ttl", "-5m"); err == nil {
+		t.Error("ValidateValue(lease.ttl, -5m), want an error: not positive")
+	}
+	if err := ValidateValue("lease.ttl", "0s"); err == nil {
+		t.Error("ValidateValue(lease.ttl, 0s), want an error: not positive")
+	}
+	if err := ValidateValue("lease.ttl", "30m"); err != nil {
+		t.Errorf("ValidateValue(lease.ttl, 30m): %v, want nil", err)
+	}
+	if err := ValidateValue("git.timeout", "banana"); err == nil {
+		t.Error("ValidateValue(git.timeout, banana), want an error")
+	}
+	if err := ValidateValue("git.timeout", "0s"); err == nil {
+		t.Error("ValidateValue(git.timeout, 0s), want an error: not positive")
+	}
+	if err := ValidateValue("git.timeout", "5s"); err != nil {
+		t.Errorf("ValidateValue(git.timeout, 5s): %v, want nil", err)
+	}
+	if err := ValidateValue("search.method", "bogus"); err == nil {
+		t.Error("ValidateValue(search.method, bogus), want an error")
+	}
+	if err := ValidateValue("search.method", "hybrid"); err != nil {
+		t.Errorf("ValidateValue(search.method, hybrid): %v, want nil", err)
+	}
+}
+
+func TestDescribeCoversAllKeysExactly(t *testing.T) {
+	described := map[string]bool{}
+	for _, info := range Describe() {
+		if described[info.Key] {
+			t.Errorf("Describe() lists %q twice", info.Key)
+		}
+		described[info.Key] = true
+	}
+	for _, k := range AllKeys() {
+		if !described[k] {
+			t.Errorf("Describe() is missing %q", k)
+		}
+	}
+	if len(described) != len(AllKeys()) {
+		t.Errorf("Describe() has %d keys, AllKeys() has %d", len(described), len(AllKeys()))
+	}
+}
+
+func TestDescribeMarksUIAndVectorKeysNotEditable(t *testing.T) {
+	for _, info := range Describe() {
+		wantEditable := !strings.HasPrefix(info.Key, "ui.") && !strings.HasPrefix(info.Key, "search.vector.")
+		if info.Editable != wantEditable {
+			t.Errorf("Describe()[%q].Editable = %v, want %v", info.Key, info.Editable, wantEditable)
+		}
+		if info.Description == "" {
+			t.Errorf("Describe()[%q].Description is empty", info.Key)
+		}
+	}
+}
+
+func TestDescribeSearchMethodIsAnEnumWithChoices(t *testing.T) {
+	for _, info := range Describe() {
+		if info.Key != "search.method" {
+			continue
+		}
+		if info.Type != TypeEnum {
+			t.Errorf("search.method type = %q, want enum", info.Type)
+		}
+		if !slices.Contains(info.Choices, "fts") || !slices.Contains(info.Choices, "vector") || !slices.Contains(info.Choices, "hybrid") {
+			t.Errorf("search.method choices = %v, want fts/vector/hybrid", info.Choices)
+		}
+		return
+	}
+	t.Fatal("Describe() does not list search.method")
+}
+
+func TestSetGlobalValuesRoundTripsCommentsAndExtensions(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("TRELLIS_HOME", root)
+	original := "# a comment\nlease:\n  ttl: 20m\nextensions:\n  actions: [a, b]\n"
+	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := SetGlobalValues(map[string]any{"history.keep": 50}, nil); err != nil {
+		t.Fatalf("SetGlobalValues: %v", err)
+	}
+	text := readFile(t, filepath.Join(root, "config.yaml"))
+	if !strings.Contains(text, "# a comment") {
+		t.Errorf("comment lost:\n%s", text)
+	}
+	if !strings.Contains(text, "extensions:") || !strings.Contains(text, "actions:") {
+		t.Errorf("extensions section lost:\n%s", text)
+	}
+	if !strings.Contains(text, "keep: 50") {
+		t.Errorf("history.keep not written:\n%s", text)
+	}
+
+	if _, err := SetGlobalValues(nil, []string{"history.keep"}); err != nil {
+		t.Fatalf("SetGlobalValues unset: %v", err)
+	}
+	text = readFile(t, filepath.Join(root, "config.yaml"))
+	if strings.Contains(text, "keep:") {
+		t.Errorf("history.keep survived unset:\n%s", text)
+	}
+	if !strings.Contains(text, "# a comment") || !strings.Contains(text, "extensions:") {
+		t.Errorf("comment or extensions lost after unset:\n%s", text)
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestSetGlobalValuesRejectsWholeBatchOnOneBadValue(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("TRELLIS_HOME", root)
+	_, err := SetGlobalValues(map[string]any{
+		"lease.ttl":              "45m",
+		"history.keep":           -1,
+		"labels.require_on_card": true,
+	}, nil)
+	if err == nil {
+		t.Fatal("want an error: history.keep is negative")
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "config.yaml")); !os.IsNotExist(statErr) {
+		t.Fatalf("config.yaml was written despite one invalid value in the batch: stat err = %v", statErr)
+	}
+}
+
+func TestSetGlobalValuesThenLoadReadsTypedValuesBack(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("TRELLIS_HOME", root)
+	cfg, err := SetGlobalValues(map[string]any{
+		"lease.ttl":             "45m",
+		"history.keep":          50,
+		"board.default_columns": []any{"todo", "done"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("SetGlobalValues: %v", err)
+	}
+	if cfg.Lease.TTL != "45m" {
+		t.Errorf("Lease.TTL = %q, want 45m", cfg.Lease.TTL)
+	}
+	if cfg.History.EffectiveKeep() != 50 {
+		t.Errorf("History.EffectiveKeep() = %d, want 50", cfg.History.EffectiveKeep())
+	}
+	if len(cfg.Board.DefaultColumns) != 2 || cfg.Board.DefaultColumns[0] != "todo" || cfg.Board.DefaultColumns[1] != "done" {
+		t.Errorf("Board.DefaultColumns = %v", cfg.Board.DefaultColumns)
+	}
+
+	reloaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if reloaded.Lease.TTL != "45m" || reloaded.History.EffectiveKeep() != 50 {
+		t.Errorf("reloaded = %+v", reloaded)
+	}
+}
+
+func TestSetGlobalValuesRefusesANonEditableKey(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("TRELLIS_HOME", root)
+	_, err := SetGlobalValues(map[string]any{"ui.port": 9999}, nil)
+	if err == nil {
+		t.Fatal("want an error: ui.port is not editable")
+	}
+	ise, ok := err.(*InvalidSettingsError)
+	if !ok {
+		t.Fatalf("err type = %T, want *InvalidSettingsError", err)
+	}
+	if len(ise.Problems) != 1 || !strings.Contains(ise.Problems[0], "ui.port") {
+		t.Errorf("Problems = %v", ise.Problems)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "config.yaml")); !os.IsNotExist(statErr) {
+		t.Fatalf("config.yaml was written despite refusing a non-editable key: stat err = %v", statErr)
+	}
+}
+
+func TestSetGlobalValuesRefusesAnUnknownKey(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("TRELLIS_HOME", root)
+	if _, err := SetGlobalValues(map[string]any{"no.such.key": "x"}, nil); err == nil {
+		t.Fatal("want an error for an unknown key")
+	}
+	if _, err := SetGlobalValues(nil, []string{"no.such.key"}); err == nil {
+		t.Fatal("want an error unsetting an unknown key")
+	}
+}
+
+func TestSetGlobalValuesRefusesUnsettingANonEditableKey(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("TRELLIS_HOME", root)
+	if _, err := SetGlobalValues(nil, []string{"ui.port"}); err == nil {
+		t.Fatal("want an error: ui.port is not editable")
 	}
 }
 
