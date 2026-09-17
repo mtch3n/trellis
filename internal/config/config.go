@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -21,8 +22,6 @@ import (
 // zero-value defaults since YAML parsing leaves unset fields as zero values.
 type Config struct {
 	UI      UIConfig      `yaml:"ui"`
-	DB      DBConfig      `yaml:"db"`
-	Git     GitConfig     `yaml:"git"`
 	Lease   LeaseConfig   `yaml:"lease"`
 	Board   BoardConfig   `yaml:"board"`
 	Labels  LabelsConfig  `yaml:"labels"`
@@ -46,14 +45,6 @@ type UIConfig struct {
 // means yes.
 func (u UIConfig) UIEnabled() bool { return u.Enabled == nil || *u.Enabled }
 
-type DBConfig struct {
-	BusyTimeoutMs int `yaml:"busy_timeout_ms"`
-}
-
-type GitConfig struct {
-	Timeout string `yaml:"timeout"` // e.g., "5s"
-}
-
 type LeaseConfig struct {
 	TTL string `yaml:"ttl"` // e.g., "30m"
 }
@@ -63,8 +54,7 @@ type BoardConfig struct {
 }
 
 type LabelsConfig struct {
-	Preset        string `yaml:"preset"` // "default" or "none"
-	RequireOnCard bool   `yaml:"require_on_card"`
+	RequireOnCard bool `yaml:"require_on_card"`
 }
 
 type TagsConfig struct {
@@ -72,13 +62,10 @@ type TagsConfig struct {
 }
 
 type CardConfig struct {
-	LsLimit            int     `yaml:"ls_limit"`
-	DuplicateCheck     bool    `yaml:"duplicate_check"`
-	DuplicateThreshold float64 `yaml:"duplicate_threshold"`
+	LsLimit int `yaml:"ls_limit"`
 }
 
 type SearchConfig struct {
-	Limit  int                `yaml:"limit"`
 	Method string             `yaml:"method"` // fts, vector, or hybrid
 	Vector VectorSearchConfig `yaml:"vector"`
 }
@@ -124,12 +111,6 @@ func Defaults() Config {
 			Bind:    "127.0.0.1",
 			Enabled: ptr(true),
 		},
-		DB: DBConfig{
-			BusyTimeoutMs: 10000,
-		},
-		Git: GitConfig{
-			Timeout: "5s",
-		},
 		Lease: LeaseConfig{
 			TTL: "30m",
 		},
@@ -137,19 +118,15 @@ func Defaults() Config {
 			DefaultColumns: []string{"backlog", "in-progress", "review", "done"},
 		},
 		Labels: LabelsConfig{
-			Preset:        "default",
 			RequireOnCard: false,
 		},
 		Tags: TagsConfig{
 			RequireOnCard: false,
 		},
 		Card: CardConfig{
-			LsLimit:            50,
-			DuplicateCheck:     true,
-			DuplicateThreshold: 0.75,
+			LsLimit: 50,
 		},
 		Search: SearchConfig{
-			Limit:  50,
 			Method: "fts",
 			Vector: VectorSearchConfig{Limit: 10, ChunkSize: 1200, ChunkOverlap: 200},
 		},
@@ -164,6 +141,10 @@ func Defaults() Config {
 func configPath(root string) string {
 	return filepath.Join(root, "config.yaml")
 }
+
+// Path returns config.yaml's path inside root, for a caller -- the settings
+// API -- that reports where the file lives without loading it.
+func Path(root string) string { return configPath(root) }
 
 func ptr[T any](v T) *T { return &v }
 
@@ -183,6 +164,16 @@ func Load(root string) (Config, error) {
 		return cfg, fmt.Errorf("read config: %w", err)
 	}
 
+	return parseConfigBytes(data)
+}
+
+// parseConfigBytes parses config.yaml's bytes and fills in defaults for any
+// field the file left unset. It is the exact path both Load and
+// SetGlobalValues use: the latter parses its freshly written bytes through
+// this before writing anything, so it can never write a file Load would
+// later reject.
+func parseConfigBytes(data []byte) (Config, error) {
+	cfg := Defaults()
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("parse config: %w", err)
 	}
@@ -212,29 +203,14 @@ func applyDefaults(cfg *Config) {
 	if cfg.UI.Enabled == nil {
 		cfg.UI.Enabled = defaults.UI.Enabled
 	}
-	if cfg.DB.BusyTimeoutMs == 0 {
-		cfg.DB.BusyTimeoutMs = defaults.DB.BusyTimeoutMs
-	}
-	if cfg.Git.Timeout == "" {
-		cfg.Git.Timeout = defaults.Git.Timeout
-	}
 	if cfg.Lease.TTL == "" {
 		cfg.Lease.TTL = defaults.Lease.TTL
 	}
 	if len(cfg.Board.DefaultColumns) == 0 {
 		cfg.Board.DefaultColumns = defaults.Board.DefaultColumns
 	}
-	if cfg.Labels.Preset == "" {
-		cfg.Labels.Preset = defaults.Labels.Preset
-	}
 	if cfg.Card.LsLimit == 0 {
 		cfg.Card.LsLimit = defaults.Card.LsLimit
-	}
-	if cfg.Card.DuplicateThreshold == 0 {
-		cfg.Card.DuplicateThreshold = defaults.Card.DuplicateThreshold
-	}
-	if cfg.Search.Limit == 0 {
-		cfg.Search.Limit = defaults.Search.Limit
 	}
 	if cfg.Search.Method == "" {
 		cfg.Search.Method = defaults.Search.Method
@@ -264,29 +240,17 @@ func GetValue(cfg Config, key string) (string, bool) {
 		return cfg.UI.Bind, true
 	case "ui.enabled":
 		return fmt.Sprintf("%v", cfg.UI.UIEnabled()), true
-	case "db.busy_timeout_ms":
-		return fmt.Sprintf("%d", cfg.DB.BusyTimeoutMs), true
-	case "git.timeout":
-		return cfg.Git.Timeout, true
 	case "lease.ttl":
 		return cfg.Lease.TTL, true
 	case "board.default_columns":
 		// For arrays, return comma-separated values.
 		return fmt.Sprintf("[%s]", fmt.Sprint(cfg.Board.DefaultColumns)), true
-	case "labels.preset":
-		return cfg.Labels.Preset, true
 	case "labels.require_on_card":
 		return fmt.Sprintf("%v", cfg.Labels.RequireOnCard), true
 	case "tags.require_on_card":
 		return fmt.Sprintf("%v", cfg.Tags.RequireOnCard), true
 	case "card.ls_limit":
 		return fmt.Sprintf("%d", cfg.Card.LsLimit), true
-	case "card.duplicate_check":
-		return fmt.Sprintf("%v", cfg.Card.DuplicateCheck), true
-	case "card.duplicate_threshold":
-		return fmt.Sprintf("%v", cfg.Card.DuplicateThreshold), true
-	case "search.limit":
-		return fmt.Sprintf("%d", cfg.Search.Limit), true
 	case "search.method":
 		return cfg.Search.Method, true
 	case "search.vector.enabled":
@@ -315,18 +279,47 @@ func GetValue(cfg Config, key string) (string, bool) {
 }
 
 // ValidateValue rejects a value for a key with semantic constraints beyond
-// being a known key -- so far only history.keep, whose zero disables capture
-// but whose negative values are nonsensical, not a synonym for "unlimited".
+// being a known key: history.keep's zero disables capture but its negative
+// values are nonsensical, not a synonym for "unlimited"; lease.ttl is a
+// wait, so a zero or negative duration means "immediately"; search.method
+// must name a method the retrieval service actually implements.
 func ValidateValue(key, value string) error {
-	if key != "history.keep" {
+	switch key {
+	case "history.keep":
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("history.keep: must be a whole number, got %q", value)
+		}
+		if n < 0 {
+			return fmt.Errorf("history.keep: must not be negative, got %d", n)
+		}
+		return nil
+	case "lease.ttl":
+		return validatePositiveDuration(key, value)
+	case "search.method":
+		return validateChoice(key, value, searchMethods)
+	default:
 		return nil
 	}
-	n, err := strconv.Atoi(value)
+}
+
+// validatePositiveDuration rejects a value for key that does not parse as a
+// duration greater than zero.
+func validatePositiveDuration(key, raw string) error {
+	d, err := time.ParseDuration(raw)
 	if err != nil {
-		return fmt.Errorf("history.keep must be a whole number, got %q", value)
+		return fmt.Errorf("%s: must be a duration, got %q", key, raw)
 	}
-	if n < 0 {
-		return fmt.Errorf("history.keep must not be negative, got %d", n)
+	if d <= 0 {
+		return fmt.Errorf("%s: must be a positive duration, got %q", key, raw)
+	}
+	return nil
+}
+
+// validateChoice rejects a value for key that is not one of choices.
+func validateChoice(key, raw string, choices []string) error {
+	if !slices.Contains(choices, raw) {
+		return fmt.Errorf("%s: must be one of %s, got %q", key, strings.Join(choices, ", "), raw)
 	}
 	return nil
 }
@@ -423,12 +416,12 @@ func ListProjectConfigs(ctx context.Context, db *sqlx.DB, projectID string) (map
 // able to redirect storage, open a port, or run a program.
 func RepoSafe(key string) bool {
 	switch key {
-	case "card.ls_limit", "card.duplicate_check", "card.duplicate_threshold",
+	case "card.ls_limit",
 		"lease.ttl",
 		"board.default_columns",
-		"labels.preset", "labels.require_on_card",
+		"labels.require_on_card",
 		"tags.require_on_card",
-		"search.limit", "search.method":
+		"search.method":
 		return true
 	default:
 		return false
@@ -559,10 +552,6 @@ func setConfigField(cfg *Config, key string, node *yaml.Node) error {
 			return err
 		}
 		return positiveNumber(cfg.Card.LsLimit)
-	case "card.duplicate_check":
-		return node.Decode(&cfg.Card.DuplicateCheck)
-	case "card.duplicate_threshold":
-		return node.Decode(&cfg.Card.DuplicateThreshold)
 	case "lease.ttl":
 		var raw string
 		if err := node.Decode(&raw); err != nil {
@@ -575,19 +564,10 @@ func setConfigField(cfg *Config, key string, node *yaml.Node) error {
 		return nil
 	case "board.default_columns":
 		return node.Decode(&cfg.Board.DefaultColumns)
-	case "labels.preset":
-		// No consumer reads this key yet, so there is no enum to validate
-		// against -- only a YAML type check, as before.
-		return node.Decode(&cfg.Labels.Preset)
 	case "labels.require_on_card":
 		return node.Decode(&cfg.Labels.RequireOnCard)
 	case "tags.require_on_card":
 		return node.Decode(&cfg.Tags.RequireOnCard)
-	case "search.limit":
-		if err := node.Decode(&cfg.Search.Limit); err != nil {
-			return err
-		}
-		return positiveNumber(cfg.Search.Limit)
 	case "search.method":
 		var raw string
 		if err := node.Decode(&raw); err != nil {
@@ -619,19 +599,468 @@ func positiveNumber(n int) error {
 func AllKeys() []string {
 	return []string{
 		"ui.port", "ui.bind", "ui.enabled",
-		"db.busy_timeout_ms",
-		"git.timeout",
 		"lease.ttl",
 		"board.default_columns",
-		"labels.preset", "labels.require_on_card",
+		"labels.require_on_card",
 		"tags.require_on_card",
-		"card.ls_limit", "card.duplicate_check", "card.duplicate_threshold",
-		"search.limit",
+		"card.ls_limit",
 		"search.method",
 		"search.vector.enabled", "search.vector.provider", "search.vector.embed_command", "search.vector.endpoint",
 		"search.vector.model", "search.vector.dimension", "search.vector.limit",
 		"history.keep",
 	}
+}
+
+// ValueType is the JSON shape a setting's value and default take in the
+// settings API: a number, a bool, a string, or a list of strings.
+type ValueType string
+
+const (
+	TypeInt      ValueType = "int"
+	TypeNumber   ValueType = "number"
+	TypeBool     ValueType = "bool"
+	TypeString   ValueType = "string"
+	TypeDuration ValueType = "duration"
+	TypeEnum     ValueType = "enum"
+	TypeList     ValueType = "list"
+)
+
+// KeyInfo is one config key's metadata for the settings API: its JSON type,
+// its closed choices or lower bound where either applies, whether the web
+// settings page may change it, and whether the running daemon needs a
+// restart before a new value takes effect.
+type KeyInfo struct {
+	Key         string    `json:"key"`
+	Type        ValueType `json:"type"`
+	Choices     []string  `json:"choices,omitempty"`
+	Min         *int      `json:"min,omitempty"`
+	Editable    bool      `json:"editable"`
+	Restart     bool      `json:"restart"`
+	Description string    `json:"description"`
+}
+
+// Describe returns every key AllKeys lists, in the same order, with the
+// metadata the settings API needs. TestDescribeCoversAllKeysExactly enforces
+// that the two lists match exactly, so a new config key fails the build
+// until it is described here too.
+//
+// editable is false for every ui.* key and every search.vector.* key: they
+// configure the daemon's listen address and port, or where vault text is
+// sent for embedding, and the web settings page must not be able to change
+// either from inside the browser it would then be talking to.
+//
+// restart is true for a key the running daemon only reads once, building
+// something that lives for the process: the listener (ui.*) and the
+// retrieval service's search method and vector settings, both captured at
+// daemon startup and never re-read. It is false for the five keys the daemon
+// re-applies to its Core on every settings change (Core.ApplyConfig) and for
+// card.ls_limit, which the CLI alone reads fresh on each invocation.
+func Describe() []KeyInfo {
+	return []KeyInfo{
+		{Key: "ui.port", Type: TypeInt, Editable: false, Restart: true,
+			Description: "The port the daemon's web UI and API listen on."},
+		{Key: "ui.bind", Type: TypeString, Editable: false, Restart: true,
+			Description: "The loopback address the daemon's web UI and API bind to."},
+		{Key: "ui.enabled", Type: TypeBool, Editable: false, Restart: true,
+			Description: "Whether the daemon serves the web UI at all, or stays on local IPC only."},
+		{Key: "lease.ttl", Type: TypeDuration, Editable: true, Restart: false,
+			Description: "How long a claim lasts before it expires."},
+		{Key: "board.default_columns", Type: TypeList, Editable: true, Restart: false,
+			Description: "The columns a new board starts with."},
+		{Key: "labels.require_on_card", Type: TypeBool, Editable: true, Restart: false,
+			Description: "Whether a card must carry at least one label."},
+		{Key: "tags.require_on_card", Type: TypeBool, Editable: true, Restart: false,
+			Description: "Whether a card must carry at least one tag."},
+		{Key: "card.ls_limit", Type: TypeInt, Editable: true, Restart: false,
+			Description: "The default number of cards a listing returns."},
+		{Key: "search.method", Type: TypeEnum, Choices: slices.Clone(searchMethods), Editable: true, Restart: true,
+			Description: "Which method finds cards and knowledge entries: full-text, vector, or hybrid."},
+		{Key: "search.vector.enabled", Type: TypeBool, Editable: false, Restart: true,
+			Description: "Whether the optional semantic vector index is built and searched."},
+		{Key: "search.vector.provider", Type: TypeString, Editable: false, Restart: true,
+			Description: "How embeddings are produced: command, http, or local."},
+		{Key: "search.vector.embed_command", Type: TypeString, Editable: false, Restart: true,
+			Description: "The command that turns text into an embedding vector."},
+		{Key: "search.vector.endpoint", Type: TypeString, Editable: false, Restart: true,
+			Description: "The HTTP endpoint embeddings are requested from."},
+		{Key: "search.vector.model", Type: TypeString, Editable: false, Restart: true,
+			Description: "The embedding model name sent to the provider."},
+		{Key: "search.vector.dimension", Type: TypeInt, Editable: false, Restart: true,
+			Description: "The embedding vector's length."},
+		{Key: "search.vector.limit", Type: TypeInt, Editable: false, Restart: true,
+			Description: "The default number of vector search results."},
+		{Key: "history.keep", Type: TypeInt, Min: ptr(0), Editable: true, Restart: false,
+			Description: "How many revisions each knowledge entry and card retains."},
+	}
+}
+
+// describeIndex is Describe() keyed by dotted key, for a caller that looks
+// up one key's metadata rather than walking the whole list.
+func describeIndex() map[string]KeyInfo {
+	out := make(map[string]KeyInfo, len(AllKeys()))
+	for _, info := range Describe() {
+		out[info.Key] = info
+	}
+	return out
+}
+
+// TypedValue returns key's value from cfg as the typed JSON value the
+// settings API reports -- a number, a bool, a string, or a list of strings
+// -- rather than GetValue's text form. ok is false for a key Describe does
+// not know.
+func TypedValue(cfg Config, key string) (value any, ok bool) {
+	switch key {
+	case "ui.port":
+		return cfg.UI.Port, true
+	case "ui.bind":
+		return cfg.UI.Bind, true
+	case "ui.enabled":
+		return cfg.UI.UIEnabled(), true
+	case "lease.ttl":
+		return cfg.Lease.TTL, true
+	case "board.default_columns":
+		return slices.Clone(cfg.Board.DefaultColumns), true
+	case "labels.require_on_card":
+		return cfg.Labels.RequireOnCard, true
+	case "tags.require_on_card":
+		return cfg.Tags.RequireOnCard, true
+	case "card.ls_limit":
+		return cfg.Card.LsLimit, true
+	case "search.method":
+		return cfg.Search.Method, true
+	case "search.vector.enabled":
+		return cfg.Search.Vector.Enabled, true
+	case "search.vector.provider":
+		return cfg.Search.Vector.Provider, true
+	case "search.vector.embed_command":
+		return cfg.Search.Vector.EmbedCommand, true
+	case "search.vector.endpoint":
+		return cfg.Search.Vector.Endpoint, true
+	case "search.vector.model":
+		return cfg.Search.Vector.Model, true
+	case "search.vector.dimension":
+		return cfg.Search.Vector.Dimension, true
+	case "search.vector.limit":
+		return cfg.Search.Vector.Limit, true
+	case "history.keep":
+		return cfg.History.EffectiveKeep(), true
+	default:
+		return nil, false
+	}
+}
+
+// InvalidSettingsError reports every problem found while validating a batch
+// of settings changes together, so a caller such as the settings API can
+// show all of them at once instead of stopping at the first.
+type InvalidSettingsError struct {
+	Problems []string
+}
+
+func (e *InvalidSettingsError) Error() string {
+	return "invalid settings: " + strings.Join(e.Problems, "; ")
+}
+
+// SetGlobalValues edits the global config.yaml inside root as a YAML node
+// tree: every entry in set and unset is validated first, and nothing is
+// written if any of them is invalid. unset removes the key so the built-in
+// default applies again. Comments and unknown top-level sections such as
+// "extensions:" survive, the same way SetRepoValue preserves them in a
+// repository file. It returns the config Load would now read back.
+func SetGlobalValues(root string, set map[string]any, unset []string) (Config, error) {
+	infos := describeIndex()
+
+	setKeys := make([]string, 0, len(set))
+	for k := range set {
+		setKeys = append(setKeys, k)
+	}
+	sort.Strings(setKeys)
+	unsetKeys := slices.Clone(unset)
+	sort.Strings(unsetKeys)
+
+	var problems []string
+	nodes := make(map[string]*yaml.Node, len(set))
+	for _, key := range setKeys {
+		info, ok := infos[key]
+		if !ok {
+			problems = append(problems, fmt.Sprintf("%s: unknown key", key))
+			continue
+		}
+		if !info.Editable {
+			problems = append(problems, fmt.Sprintf("%s: not editable", key))
+			continue
+		}
+		node, problem := settingNode(info, set[key])
+		if problem != "" {
+			problems = append(problems, problem)
+			continue
+		}
+		nodes[key] = node
+	}
+	for _, key := range unsetKeys {
+		info, ok := infos[key]
+		if !ok {
+			problems = append(problems, fmt.Sprintf("%s: unknown key", key))
+			continue
+		}
+		if !info.Editable {
+			problems = append(problems, fmt.Sprintf("%s: not editable", key))
+		}
+	}
+	if len(problems) > 0 {
+		return Config{}, &InvalidSettingsError{Problems: problems}
+	}
+
+	path := configPath(root)
+	yamlRoot, err := readOrNewConfigRoot(path)
+	if err != nil {
+		return Config{}, err
+	}
+	body := yamlRoot.Content[0]
+	for key, node := range nodes {
+		setNestedValue(body, strings.Split(key, "."), node)
+	}
+	for _, key := range unsetKeys {
+		deleteNestedValue(body, strings.Split(key, "."))
+	}
+
+	out, err := yaml.Marshal(yamlRoot)
+	if err != nil {
+		return Config{}, err
+	}
+	// Never write a file the loader would reject: parse the exact bytes
+	// through the exact path Load uses before they ever reach disk.
+	if _, err := parseConfigBytes(out); err != nil {
+		return Config{}, &InvalidSettingsError{Problems: []string{err.Error()}}
+	}
+
+	if err := writeConfigAtomic(path, out); err != nil {
+		return Config{}, err
+	}
+	return Load(root)
+}
+
+// settingNode converts value -- a set entry's JSON-decoded value, or a Go
+// value a direct caller such as a test passes -- into the YAML node
+// SetGlobalValues writes for info's key, or a problem string naming what is
+// wrong. It accepts both encoding/json/v2's decoded shapes (float64, []any)
+// and native Go ones (int, []string), so a package-internal test can call
+// SetGlobalValues without going through JSON first.
+func settingNode(info KeyInfo, value any) (*yaml.Node, string) {
+	switch info.Type {
+	case TypeInt:
+		n, ok := asWholeNumber(value)
+		if !ok {
+			return nil, fmt.Sprintf("%s: must be a whole number", info.Key)
+		}
+		if info.Min != nil && n < *info.Min {
+			return nil, fmt.Sprintf("%s: must be at least %d, got %d", info.Key, *info.Min, n)
+		}
+		return &yaml.Node{Kind: yaml.ScalarNode, Value: strconv.Itoa(n)}, ""
+	case TypeNumber:
+		f, ok := asNumber(value)
+		if !ok {
+			return nil, fmt.Sprintf("%s: must be a number", info.Key)
+		}
+		return &yaml.Node{Kind: yaml.ScalarNode, Value: strconv.FormatFloat(f, 'g', -1, 64)}, ""
+	case TypeBool:
+		b, ok := value.(bool)
+		if !ok {
+			return nil, fmt.Sprintf("%s: must be true or false", info.Key)
+		}
+		return &yaml.Node{Kind: yaml.ScalarNode, Value: strconv.FormatBool(b)}, ""
+	case TypeDuration:
+		s, ok := value.(string)
+		if !ok {
+			return nil, fmt.Sprintf("%s: must be a duration string", info.Key)
+		}
+		if err := validatePositiveDuration(info.Key, s); err != nil {
+			return nil, err.Error()
+		}
+		return quotedScalar(s), ""
+	case TypeEnum:
+		s, ok := value.(string)
+		if !ok {
+			return nil, fmt.Sprintf("%s: must be one of %s", info.Key, strings.Join(info.Choices, ", "))
+		}
+		if err := validateChoice(info.Key, s, info.Choices); err != nil {
+			return nil, err.Error()
+		}
+		return quotedScalar(s), ""
+	case TypeString:
+		s, ok := value.(string)
+		if !ok {
+			return nil, fmt.Sprintf("%s: must be a string", info.Key)
+		}
+		return quotedScalar(s), ""
+	case TypeList:
+		items, ok := asStringList(value)
+		if !ok {
+			return nil, fmt.Sprintf("%s: must be a list of strings", info.Key)
+		}
+		seq := &yaml.Node{Kind: yaml.SequenceNode}
+		for _, item := range items {
+			seq.Content = append(seq.Content, quotedScalar(item))
+		}
+		return seq, ""
+	default:
+		return nil, fmt.Sprintf("%s: unsupported type", info.Key)
+	}
+}
+
+// quotedScalar wraps a string-typed setting value in an explicitly
+// double-quoted YAML scalar. board.default_columns ["true", "123"] must
+// come back as those exact strings, not the bool and int a plain scalar
+// would resolve to on the next parse -- by us or by anything else that
+// reads config.yaml -- so every string, duration, enum and list-item value
+// SetGlobalValues writes is quoted, never left to YAML's own type guessing.
+func quotedScalar(s string) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: s}
+}
+
+// asWholeNumber accepts an int, an int64, or a float64 with no fractional
+// part -- encoding/json/v2 decodes every JSON number as float64, but a
+// package-internal caller may pass a native Go int instead.
+func asWholeNumber(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		if n != float64(int64(n)) {
+			return 0, false
+		}
+		return int(n), true
+	default:
+		return 0, false
+	}
+}
+
+// asNumber accepts any of the numeric shapes asWholeNumber does, without
+// requiring a whole number.
+func asNumber(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	default:
+		return 0, false
+	}
+}
+
+// asStringList accepts a []string directly, or encoding/json/v2's decoded
+// []any of strings.
+func asStringList(v any) ([]string, bool) {
+	switch items := v.(type) {
+	case []string:
+		return items, true
+	case []any:
+		out := make([]string, 0, len(items))
+		for _, item := range items {
+			s, ok := item.(string)
+			if !ok {
+				return nil, false
+			}
+			out = append(out, s)
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+// readOrNewConfigRoot reads path's YAML document tree for editing, or builds
+// an empty mapping when the file does not exist yet: config.yaml is
+// optional, and Load already treats a missing file as all-defaults.
+func readOrNewConfigRoot(path string) (*yaml.Node, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode}}}, nil
+		}
+		return nil, err
+	}
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if len(root.Content) == 0 {
+		root = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode}}}
+	}
+	return &root, nil
+}
+
+// setNestedValue sets the value at path inside mapping node m, creating
+// intermediate mappings as needed. Unlike setMapValueNode, which
+// SetRepoValue uses for a repository file's flat dotted-string keys,
+// config.yaml is a real nested tree -- "lease.ttl" lives at m["lease"]["ttl"]
+// -- so this walks path one segment at a time.
+func setNestedValue(m *yaml.Node, path []string, value *yaml.Node) {
+	if len(path) == 1 {
+		setMapValueNode(m, path[0], value)
+		return
+	}
+	child := mapValue(m, path[0])
+	if child == nil || child.Kind != yaml.MappingNode {
+		child = &yaml.Node{Kind: yaml.MappingNode}
+		setMapValueNode(m, path[0], child)
+	}
+	setNestedValue(child, path[1:], value)
+}
+
+// deleteNestedValue removes the value at path inside mapping node m, if
+// present. A missing intermediate mapping means there is nothing to remove.
+func deleteNestedValue(m *yaml.Node, path []string) {
+	if len(path) == 1 {
+		deleteMapValue(m, path[0])
+		return
+	}
+	child := mapValue(m, path[0])
+	if child == nil || child.Kind != yaml.MappingNode {
+		return
+	}
+	deleteNestedValue(child, path[1:])
+}
+
+// writeConfigAtomic writes data to path -- config.yaml -- through a temp
+// file in the same directory: create at mode 0600, write, fsync, close,
+// rename. A process killed mid-write never leaves a torn config.yaml.
+func writeConfigAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".tmp-trellis-config-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	ok := false
+	defer func() {
+		if !ok {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	ok = true
+	return nil
 }
 
 // LoadWithPresence is Load, plus which dotted keys the global file itself
@@ -662,9 +1091,8 @@ func LoadWithPresence(root string) (Config, map[string]bool, error) {
 // presentKeys reports which of AllKeys raw actually set, by comparing
 // GetValue's string form of raw against the same key read from an entirely
 // zero Config. This shares GetValue's one known blind spot: an explicit
-// value equal to the zero value (search.limit: 0, ui.enabled: true) is
-// indistinguishable from absence — the same limitation applyDefaults already
-// has no way around.
+// value equal to the zero value (ui.enabled: true) is indistinguishable from
+// absence — the same limitation applyDefaults already has no way around.
 func presentKeys(raw Config) map[string]bool {
 	present := map[string]bool{}
 	var zero Config
@@ -689,22 +1117,14 @@ func ApplyRepoOverrides(cfg Config, repo RepoDoc) Config {
 		switch key {
 		case "card.ls_limit":
 			cfg.Card.LsLimit = repo.Config.Card.LsLimit
-		case "card.duplicate_check":
-			cfg.Card.DuplicateCheck = repo.Config.Card.DuplicateCheck
-		case "card.duplicate_threshold":
-			cfg.Card.DuplicateThreshold = repo.Config.Card.DuplicateThreshold
 		case "lease.ttl":
 			cfg.Lease.TTL = repo.Config.Lease.TTL
 		case "board.default_columns":
 			cfg.Board.DefaultColumns = repo.Config.Board.DefaultColumns
-		case "labels.preset":
-			cfg.Labels.Preset = repo.Config.Labels.Preset
 		case "labels.require_on_card":
 			cfg.Labels.RequireOnCard = repo.Config.Labels.RequireOnCard
 		case "tags.require_on_card":
 			cfg.Tags.RequireOnCard = repo.Config.Tags.RequireOnCard
-		case "search.limit":
-			cfg.Search.Limit = repo.Config.Search.Limit
 		case "search.method":
 			cfg.Search.Method = repo.Config.Search.Method
 		}

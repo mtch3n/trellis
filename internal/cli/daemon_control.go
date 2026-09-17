@@ -32,7 +32,6 @@ const (
 const daemonSpawnWait = 30 * time.Second
 
 func daemonPIDPath(root string) string { return filepath.Join(root, "daemon.pid") }
-func daemonLogPath(root string) string { return filepath.Join(root, "daemon.log") }
 
 // daemonHealth asks the running daemon over local IPC. This is the only
 // authoritative answer to "is it up": a unit can be active while the process
@@ -163,7 +162,7 @@ func spawnDaemon(ctx context.Context, root, bind string, port int) (int, error) 
 	if err != nil {
 		return 0, fmt.Errorf("locate the trellis binary: %w", err)
 	}
-	logFile, err := os.OpenFile(daemonLogPath(root), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	logFile, err := os.OpenFile(home.DaemonLogPath(root), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return 0, err
 	}
@@ -182,7 +181,7 @@ func spawnDaemon(ctx context.Context, root, bind string, port int) (int, error) 
 		return pid, err
 	}
 	if err := waitForDaemon(ctx, root, true); err != nil {
-		return pid, fmt.Errorf("%w (see %s)", err, daemonLogPath(root))
+		return pid, fmt.Errorf("%w (see %s)", err, home.DaemonLogPath(root))
 	}
 	return pid, nil
 }

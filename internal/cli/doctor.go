@@ -188,7 +188,7 @@ func checkDaemon(status daemonStatus) Check {
 	}
 	if status.Service.Installed {
 		return fail("daemon", "installed as a service but not responding on its socket",
-			"trellis daemon restart, then check "+daemonLogPath(status.Root))
+			"trellis daemon restart, then check "+home.DaemonLogPath(status.Root))
 	}
 	// Not running is a legitimate state: the CLI works without a daemon.
 	return warn("daemon", "not running; search and the web UI run in-process", "trellis daemon start")

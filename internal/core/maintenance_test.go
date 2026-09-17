@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPruneRevisionsTrimsKnowledgeAndCards(t *testing.T) {
@@ -224,6 +225,81 @@ func TestHealthAndPruneDoNotOverCount(t *testing.T) {
 	}
 	if _, err := os.Stat(revisionDir(escalated.Path)); err != nil {
 		t.Errorf("p2's escalated entry's own revisions were removed too: %v", err)
+	}
+}
+
+// OrphanHistoryCount is the small exported wrapper the settings API's
+// maintenance stats route uses; it must agree with what PruneOrphanHistory
+// would actually remove.
+func TestOrphanHistoryCountMatchesWhatPruneRemoves(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Kept", Body: "v1\n"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if n, err := c.OrphanHistoryCount(t.Context()); err != nil || n != 0 {
+		t.Fatalf("OrphanHistoryCount = %d, err = %v, want 0 before any stray directory exists", n, err)
+	}
+
+	stray := filepath.Join(filepath.Dir(doc.Path), ".removed-by-hand.md")
+	if err := os.MkdirAll(stray, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stray, "1.md"), []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := c.OrphanHistoryCount(t.Context())
+	if err != nil {
+		t.Fatalf("OrphanHistoryCount: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("OrphanHistoryCount = %d, want 1", n)
+	}
+
+	removed, err := c.PruneOrphanHistory(t.Context())
+	if err != nil {
+		t.Fatalf("PruneOrphanHistory: %v", err)
+	}
+	if int(removed) != n {
+		t.Fatalf("PruneOrphanHistory removed %d, OrphanHistoryCount reported %d", removed, n)
+	}
+	if n, err := c.OrphanHistoryCount(t.Context()); err != nil || n != 0 {
+		t.Fatalf("OrphanHistoryCount after pruning = %d, err = %v, want 0", n, err)
+	}
+}
+
+// ParseRetention is shared by `maintenance prune --before` and the settings
+// API's prune route, so "90d" means the same age from either caller.
+func TestParseRetentionAcceptsDaysWeeksAndGoDurations(t *testing.T) {
+	cases := []struct {
+		raw     string
+		wantErr bool
+		want    time.Duration
+	}{
+		{"90d", false, 90 * 24 * time.Hour},
+		{"12w", false, 12 * 7 * 24 * time.Hour},
+		{"36h", false, 36 * time.Hour},
+		{"", true, 0},
+		{"0d", true, 0},
+		{"-5d", true, 0},
+		{"banana", true, 0},
+	}
+	for _, tc := range cases {
+		got, err := ParseRetention(tc.raw)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("ParseRetention(%q): want an error", tc.raw)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("ParseRetention(%q): %v", tc.raw, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("ParseRetention(%q) = %v, want %v", tc.raw, got, tc.want)
+		}
 	}
 }
 

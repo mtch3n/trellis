@@ -5,8 +5,10 @@ package core
 
 import (
 	"context"
+	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/config"
 )
 
 // Core is the entry point to all trellis operations.
@@ -81,6 +83,27 @@ func (c *Core) SetHistoryKeep(n int) {
 	if n >= 0 {
 		c.historyKeep = n
 	}
+}
+
+// ApplyConfig applies the settings the running daemon keeps live -- lease
+// TTL, default columns, label/tag requirements, and history retention -- to
+// c. It takes whatever Config the caller resolved, global or
+// repository-effective: internal/cli's openCore and the daemon's own startup
+// apply the global file alone; applyRepoConfig (internal/cli/root.go)
+// applies the same file with a repository's .trellis.yaml layered on top;
+// and the settings API's PATCH hook applies the global file again after a
+// write. All four call this instead of each keeping its own copy of the
+// block. history.keep is never repository-safe, so applyRepoConfig's call
+// re-applies the same value the global file already gave -- a no-op, not a
+// second source of truth. config.Describe marks exactly the five keys this
+// method touches restart: false because it exists.
+func (c *Core) ApplyConfig(cfg config.Config) {
+	if ttl, err := time.ParseDuration(cfg.Lease.TTL); err == nil {
+		c.SetLeaseTTL(ttl.Milliseconds())
+	}
+	c.SetDefaultColumns(cfg.Board.DefaultColumns)
+	c.SetCardRequirements(cfg.Labels.RequireOnCard, cfg.Tags.RequireOnCard)
+	c.SetHistoryKeep(cfg.History.EffectiveKeep())
 }
 
 func (c *Core) SetKnowledgeChanged(fn func(context.Context, string) error) {

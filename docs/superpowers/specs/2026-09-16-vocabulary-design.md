@@ -287,6 +287,10 @@ in a retired word, which catches objects added after this spec was written.
 | search and recall hit `kind: knowledge` | `kind: entry` |
 | graph node `type: doc` | `type: entry` |
 | `trellis events` line `kind` | `entity` |
+| web API event rows `entity_type` | `entity` |
+| card detail `activity` | `events` |
+| `orphan_history` (`GET /api/maintenance`, `POST /api/maintenance/prune`) | `leftover_revisions` |
+| setting key `lease.ttl` in `/api/settings` | `claim.ttl` |
 | `init` output `pin_path`, `pin_written` | `marker_path`, `marker_written` |
 | `/api/projects` `stale_leases` | `expired_claims` |
 | `vector status` `stale_documents` | `unindexed_entries` |
@@ -336,7 +340,7 @@ The UI adopts the code's words, and the event log gets its own name:
 
 - **Labels:** "Status" → "Column", "Kind" → "Template", "Visibility" → "Private", "Attachments" → "Artifacts", "Take the lease" → "Steal the claim", "Held by" → "Claimed by", "Stale leases" → "Expired claims", "Unlinked" → "Orphans", "Documents"/"Document" → "Entries"/"Entry", "Activity" → "Events".
 - **Nav:** the item "Vault" names which vault it shows.
-- **Routes:** `/p/:key/knowledge` → `/p/:key/vault`, `/api/global/knowledge` → `/api/global/vault`, `/api/activity` → `/api/events`.
+- **Routes:** `/p/:key/knowledge` → `/p/:key/vault`; `/api/global/knowledge` → `/api/global/vault`; `/api/activity` → `/api/events`; every `/api/p/{key}/…/knowledge…` → `…/vault…`, including `/api/p/{key}/links/knowledge`. `/api/templates/*`, `/api/settings`, `/api/logs` and `/api/maintenance/*` keep their paths. The web code itself is changed by the UI session, from the list in the rename plan's Task 12.
 - **Raw event actions** stop reaching the screen; each gets a label.
 - **localStorage keys** already say `vault`.
 

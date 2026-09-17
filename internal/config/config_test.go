@@ -27,9 +27,6 @@ func TestDefaultsLoadWithNoFile(t *testing.T) {
 	if cfg.UI.Bind != "127.0.0.1" {
 		t.Errorf("UI.Bind = %q, want 127.0.0.1", cfg.UI.Bind)
 	}
-	if cfg.DB.BusyTimeoutMs != 10000 {
-		t.Errorf("DB.BusyTimeoutMs = %d, want 10000", cfg.DB.BusyTimeoutMs)
-	}
 	if cfg.Lease.TTL != "30m" {
 		t.Errorf("Lease.TTL = %q, want 30m", cfg.Lease.TTL)
 	}
@@ -49,8 +46,6 @@ func TestYAMLFileOverridesDefaults(t *testing.T) {
 	content := `ui:
   port: 8888
   bind: 0.0.0.0
-db:
-  busy_timeout_ms: 5000
 labels:
   require_on_card: true
 `
@@ -72,9 +67,6 @@ labels:
 	}
 	if cfg.UI.Bind != "0.0.0.0" {
 		t.Errorf("UI.Bind = %q, want 0.0.0.0", cfg.UI.Bind)
-	}
-	if cfg.DB.BusyTimeoutMs != 5000 {
-		t.Errorf("DB.BusyTimeoutMs = %d, want 5000", cfg.DB.BusyTimeoutMs)
 	}
 	if !cfg.Labels.RequireOnCard {
 		t.Errorf("Labels.RequireOnCard = %v, want true", cfg.Labels.RequireOnCard)
@@ -362,7 +354,235 @@ func TestValidateValueRejectsNegativeHistoryKeep(t *testing.T) {
 		t.Error("ValidateValue(history.keep, not-a-number), want an error")
 	}
 	if err := ValidateValue("ui.port", "-1"); err != nil {
-		t.Errorf("ValidateValue(ui.port, -1): %v, want nil: only history.keep is constrained so far", err)
+		t.Errorf("ValidateValue(ui.port, -1): %v, want nil: ui.port has no semantic constraint", err)
+	}
+}
+
+func TestValidateValueRejectsBadLeaseTTLAndSearchMethod(t *testing.T) {
+	if err := ValidateValue("lease.ttl", "banana"); err == nil {
+		t.Error("ValidateValue(lease.ttl, banana), want an error")
+	}
+	if err := ValidateValue("lease.ttl", "-5m"); err == nil {
+		t.Error("ValidateValue(lease.ttl, -5m), want an error: not positive")
+	}
+	if err := ValidateValue("lease.ttl", "0s"); err == nil {
+		t.Error("ValidateValue(lease.ttl, 0s), want an error: not positive")
+	}
+	if err := ValidateValue("lease.ttl", "30m"); err != nil {
+		t.Errorf("ValidateValue(lease.ttl, 30m): %v, want nil", err)
+	}
+	if err := ValidateValue("search.method", "bogus"); err == nil {
+		t.Error("ValidateValue(search.method, bogus), want an error")
+	}
+	if err := ValidateValue("search.method", "hybrid"); err != nil {
+		t.Errorf("ValidateValue(search.method, hybrid): %v, want nil", err)
+	}
+}
+
+func TestDescribeCoversAllKeysExactly(t *testing.T) {
+	described := map[string]bool{}
+	for _, info := range Describe() {
+		if described[info.Key] {
+			t.Errorf("Describe() lists %q twice", info.Key)
+		}
+		described[info.Key] = true
+	}
+	for _, k := range AllKeys() {
+		if !described[k] {
+			t.Errorf("Describe() is missing %q", k)
+		}
+	}
+	if len(described) != len(AllKeys()) {
+		t.Errorf("Describe() has %d keys, AllKeys() has %d", len(described), len(AllKeys()))
+	}
+}
+
+func TestDescribeMarksUIAndVectorKeysNotEditable(t *testing.T) {
+	for _, info := range Describe() {
+		wantEditable := !strings.HasPrefix(info.Key, "ui.") && !strings.HasPrefix(info.Key, "search.vector.")
+		if info.Editable != wantEditable {
+			t.Errorf("Describe()[%q].Editable = %v, want %v", info.Key, info.Editable, wantEditable)
+		}
+		if info.Description == "" {
+			t.Errorf("Describe()[%q].Description is empty", info.Key)
+		}
+	}
+}
+
+func TestDescribeSearchMethodIsAnEnumWithChoices(t *testing.T) {
+	for _, info := range Describe() {
+		if info.Key != "search.method" {
+			continue
+		}
+		if info.Type != TypeEnum {
+			t.Errorf("search.method type = %q, want enum", info.Type)
+		}
+		if !slices.Contains(info.Choices, "fts") || !slices.Contains(info.Choices, "vector") || !slices.Contains(info.Choices, "hybrid") {
+			t.Errorf("search.method choices = %v, want fts/vector/hybrid", info.Choices)
+		}
+		return
+	}
+	t.Fatal("Describe() does not list search.method")
+}
+
+func TestSetGlobalValuesRoundTripsCommentsAndExtensions(t *testing.T) {
+	root := t.TempDir()
+	original := "# a comment\nlease:\n  ttl: 20m\nextensions:\n  actions: [a, b]\n"
+	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := SetGlobalValues(root, map[string]any{"history.keep": 50}, nil); err != nil {
+		t.Fatalf("SetGlobalValues: %v", err)
+	}
+	text := readFile(t, filepath.Join(root, "config.yaml"))
+	if !strings.Contains(text, "# a comment") {
+		t.Errorf("comment lost:\n%s", text)
+	}
+	if !strings.Contains(text, "extensions:") || !strings.Contains(text, "actions:") {
+		t.Errorf("extensions section lost:\n%s", text)
+	}
+	if !strings.Contains(text, "keep: 50") {
+		t.Errorf("history.keep not written:\n%s", text)
+	}
+
+	if _, err := SetGlobalValues(root, nil, []string{"history.keep"}); err != nil {
+		t.Fatalf("SetGlobalValues unset: %v", err)
+	}
+	text = readFile(t, filepath.Join(root, "config.yaml"))
+	if strings.Contains(text, "keep:") {
+		t.Errorf("history.keep survived unset:\n%s", text)
+	}
+	if !strings.Contains(text, "# a comment") || !strings.Contains(text, "extensions:") {
+		t.Errorf("comment or extensions lost after unset:\n%s", text)
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestSetGlobalValuesRejectsWholeBatchOnOneBadValue(t *testing.T) {
+	root := t.TempDir()
+	_, err := SetGlobalValues(root, map[string]any{
+		"lease.ttl":              "45m",
+		"history.keep":           -1,
+		"labels.require_on_card": true,
+	}, nil)
+	if err == nil {
+		t.Fatal("want an error: history.keep is negative")
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "config.yaml")); !os.IsNotExist(statErr) {
+		t.Fatalf("config.yaml was written despite one invalid value in the batch: stat err = %v", statErr)
+	}
+}
+
+func TestSetGlobalValuesThenLoadReadsTypedValuesBack(t *testing.T) {
+	root := t.TempDir()
+	cfg, err := SetGlobalValues(root, map[string]any{
+		"lease.ttl":             "45m",
+		"history.keep":          50,
+		"board.default_columns": []any{"todo", "done"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("SetGlobalValues: %v", err)
+	}
+	if cfg.Lease.TTL != "45m" {
+		t.Errorf("Lease.TTL = %q, want 45m", cfg.Lease.TTL)
+	}
+	if cfg.History.EffectiveKeep() != 50 {
+		t.Errorf("History.EffectiveKeep() = %d, want 50", cfg.History.EffectiveKeep())
+	}
+	if len(cfg.Board.DefaultColumns) != 2 || cfg.Board.DefaultColumns[0] != "todo" || cfg.Board.DefaultColumns[1] != "done" {
+		t.Errorf("Board.DefaultColumns = %v", cfg.Board.DefaultColumns)
+	}
+
+	reloaded, err := Load(root)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if reloaded.Lease.TTL != "45m" || reloaded.History.EffectiveKeep() != 50 {
+		t.Errorf("reloaded = %+v", reloaded)
+	}
+}
+
+// board.default_columns is a list of strings, but nothing stops an item
+// looking exactly like a bool or an int -- "true", "123". Written as a plain
+// YAML scalar those would resolve to the bool true and the int 123 on the
+// next parse, by Load or by anything else that reads config.yaml generically
+// (a []any decode, say). settingNode's explicit double-quoted style must
+// keep them strings all the way through.
+func TestSetGlobalValuesQuotesStringLookingListItems(t *testing.T) {
+	root := t.TempDir()
+	if _, err := SetGlobalValues(root, map[string]any{
+		"board.default_columns": []any{"true", "123"},
+	}, nil); err != nil {
+		t.Fatalf("SetGlobalValues: %v", err)
+	}
+
+	text := readFile(t, filepath.Join(root, "config.yaml"))
+	if !strings.Contains(text, `"true"`) || !strings.Contains(text, `"123"`) {
+		t.Errorf("config.yaml does not quote the string-looking items:\n%s", text)
+	}
+
+	// A generic decode -- what a different, less careful YAML reader would
+	// do -- must still see strings, not a bool and an int.
+	var generic map[string]any
+	if err := yaml.Unmarshal([]byte(text), &generic); err != nil {
+		t.Fatalf("generic unmarshal: %v", err)
+	}
+	board, _ := generic["board"].(map[string]any)
+	items, _ := board["default_columns"].([]any)
+	if len(items) != 2 || items[0] != "true" || items[1] != "123" {
+		t.Fatalf("generic decode = %#v, want the strings [\"true\" \"123\"]", items)
+	}
+
+	reloaded, err := Load(root)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(reloaded.Board.DefaultColumns) != 2 || reloaded.Board.DefaultColumns[0] != "true" || reloaded.Board.DefaultColumns[1] != "123" {
+		t.Errorf("Load() Board.DefaultColumns = %v, want [true 123] as strings", reloaded.Board.DefaultColumns)
+	}
+}
+
+func TestSetGlobalValuesRefusesANonEditableKey(t *testing.T) {
+	root := t.TempDir()
+	_, err := SetGlobalValues(root, map[string]any{"ui.port": 9999}, nil)
+	if err == nil {
+		t.Fatal("want an error: ui.port is not editable")
+	}
+	ise, ok := err.(*InvalidSettingsError)
+	if !ok {
+		t.Fatalf("err type = %T, want *InvalidSettingsError", err)
+	}
+	if len(ise.Problems) != 1 || !strings.Contains(ise.Problems[0], "ui.port") {
+		t.Errorf("Problems = %v", ise.Problems)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "config.yaml")); !os.IsNotExist(statErr) {
+		t.Fatalf("config.yaml was written despite refusing a non-editable key: stat err = %v", statErr)
+	}
+}
+
+func TestSetGlobalValuesRefusesAnUnknownKey(t *testing.T) {
+	root := t.TempDir()
+	if _, err := SetGlobalValues(root, map[string]any{"no.such.key": "x"}, nil); err == nil {
+		t.Fatal("want an error for an unknown key")
+	}
+	if _, err := SetGlobalValues(root, nil, []string{"no.such.key"}); err == nil {
+		t.Fatal("want an error unsetting an unknown key")
+	}
+}
+
+func TestSetGlobalValuesRefusesUnsettingANonEditableKey(t *testing.T) {
+	root := t.TempDir()
+	if _, err := SetGlobalValues(root, nil, []string{"ui.port"}); err == nil {
+		t.Fatal("want an error: ui.port is not editable")
 	}
 }
 
@@ -375,18 +595,19 @@ func writeRepoFile(t *testing.T, dir, name, content string) {
 
 func TestRepoSafeKeys(t *testing.T) {
 	safe := []string{
-		"card.ls_limit", "card.duplicate_check", "card.duplicate_threshold",
+		"card.ls_limit",
 		"lease.ttl", "board.default_columns",
-		"labels.preset", "labels.require_on_card", "tags.require_on_card",
-		"search.limit", "search.method",
+		"labels.require_on_card", "tags.require_on_card",
+		"search.method",
 	}
 	for _, k := range safe {
 		if !RepoSafe(k) {
 			t.Errorf("RepoSafe(%q) = false, want true", k)
 		}
 	}
-	refused := []string{"ui.port", "ui.bind", "ui.enabled", "db.busy_timeout_ms", "git.timeout",
-		"search.vector.enabled", "search.vector.embed_command", "search.vector.endpoint"}
+	refused := []string{"ui.port", "ui.bind", "ui.enabled",
+		"search.vector.enabled", "search.vector.provider", "search.vector.model",
+		"search.vector.embed_command", "search.vector.endpoint"}
 	for _, k := range refused {
 		if RepoSafe(k) {
 			t.Errorf("RepoSafe(%q) = true, want false", k)
@@ -462,8 +683,8 @@ func TestLoadRepoAppliesAllowedKeys(t *testing.T) {
 			t.Errorf("Present[%q] = false, want true", k)
 		}
 	}
-	if doc.Present["search.limit"] {
-		t.Error("Present[\"search.limit\"] = true, but the file never set it")
+	if doc.Present["search.method"] {
+		t.Error("Present[\"search.method\"] = true, but the file never set it")
 	}
 }
 
@@ -519,16 +740,11 @@ func TestLoadRepoRejectsAnUnknownSearchMethod(t *testing.T) {
 }
 
 func TestLoadRepoRejectsANonPositiveLimit(t *testing.T) {
-	for _, tc := range []struct{ key, yaml string }{
-		{"card.ls_limit", "config:\n  card.ls_limit: 0\n"},
-		{"search.limit", "config:\n  search.limit: -5\n"},
-	} {
-		dir := t.TempDir()
-		writeRepoFile(t, dir, ".trellis.yaml", tc.yaml)
-		_, _, _, err := LoadRepo(dir)
-		if err == nil || !strings.Contains(err.Error(), tc.key) {
-			t.Errorf("%s: err = %v, want an error naming %s", tc.key, err, tc.key)
-		}
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", "config:\n  card.ls_limit: 0\n")
+	_, _, _, err := LoadRepo(dir)
+	if err == nil || !strings.Contains(err.Error(), "card.ls_limit") {
+		t.Errorf("err = %v, want an error naming card.ls_limit", err)
 	}
 }
 
@@ -692,9 +908,10 @@ func TestApplyRepoOverridesCopiesEveryPresentKey(t *testing.T) {
 		Config: Config{
 			Card:   CardConfig{LsLimit: 5},
 			Lease:  LeaseConfig{TTL: "5m"},
-			Search: SearchConfig{Limit: 3, Method: "vector"},
+			Search: SearchConfig{Method: "vector"},
+			Tags:   TagsConfig{RequireOnCard: true},
 		},
-		Present: map[string]bool{"card.ls_limit": true, "lease.ttl": true, "search.limit": true, "search.method": true},
+		Present: map[string]bool{"card.ls_limit": true, "lease.ttl": true, "search.method": true, "tags.require_on_card": true},
 	}
 	merged := ApplyRepoOverrides(cfg, repo)
 	if merged.Card.LsLimit != 5 {
@@ -703,11 +920,40 @@ func TestApplyRepoOverridesCopiesEveryPresentKey(t *testing.T) {
 	if merged.Lease.TTL != "5m" {
 		t.Errorf("Lease.TTL = %q, want 5m", merged.Lease.TTL)
 	}
-	if merged.Search.Limit != 3 || merged.Search.Method != "vector" {
-		t.Errorf("Search = %+v, want Limit=3 Method=vector", merged.Search)
+	if merged.Search.Method != "vector" {
+		t.Errorf("Search.Method = %q, want vector", merged.Search.Method)
+	}
+	if !merged.Tags.RequireOnCard {
+		t.Error("Tags.RequireOnCard = false, want true")
 	}
 	// board.default_columns was never present: the default must survive.
 	if len(merged.Board.DefaultColumns) != len(Defaults().Board.DefaultColumns) {
 		t.Errorf("Board.DefaultColumns = %v, want the untouched default", merged.Board.DefaultColumns)
+	}
+}
+
+// The settings page matches each problem to its field by the "key: " prefix.
+func TestSetGlobalValuesProblemsStartWithTheirKey(t *testing.T) {
+	set := map[string]any{
+		"lease.ttl":     "soon",
+		"search.method": "grep",
+		"history.keep":  -1,
+		"card.ls_limit": "many",
+		"no.such.key":   1,
+		"ui.port":       9999,
+	}
+	_, err := SetGlobalValues(t.TempDir(), set, nil)
+	ise, ok := err.(*InvalidSettingsError)
+	if !ok {
+		t.Fatalf("err = %v, want *InvalidSettingsError", err)
+	}
+	if len(ise.Problems) != len(set) {
+		t.Errorf("Problems = %v, want one per key", ise.Problems)
+	}
+	for _, p := range ise.Problems {
+		key, _, found := strings.Cut(p, ": ")
+		if _, known := set[key]; !found || !known {
+			t.Errorf("problem %q does not start with a key and \": \"", p)
+		}
 	}
 }
