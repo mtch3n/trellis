@@ -115,7 +115,7 @@ func (c *Core) DeleteProject(ctx context.Context, key string) error {
 			return ErrConflict("project_has_vault_entries",
 				fmt.Sprintf("%d global vault %s came from %s and would be deleted with it",
 					vault, plural(vault, "entry", "entries"), p.Key),
-				"trellis vault demote <slug>   # to delete them too; otherwise keep the project")
+				"trellis vault demote <entry>   # to delete them too; otherwise keep the project")
 		}
 
 		if staged, err = stageRemoval(filepath.Join(c.root, "projects", p.Key)); err != nil {

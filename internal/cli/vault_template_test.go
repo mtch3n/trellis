@@ -78,7 +78,7 @@ func TestTemplateEditThenNewEntryUsesIt(t *testing.T) {
 
 	out := runCmd(t, "vault", "new", "--title", "Ship it", "--template", "checklist", "--json")
 	if !strings.Contains(out, "checklist") {
-		t.Errorf("new entry did not use the edited template's type:\n%s", out)
+		t.Errorf("new entry did not use the edited template:\n%s", out)
 	}
 }
 

@@ -99,7 +99,7 @@ func vaultSlug(arg string) (string, error) {
 		return "", err
 	}
 	if p.Project != address.GlobalKey {
-		return "", ErrUsage("not_global", arg+" is a project entry, not a vault entry", "trellis vault show "+arg)
+		return "", ErrUsage("not_global", arg+" is a project entry, not a global entry", "trellis vault show "+arg)
 	}
 	return p.Name, nil
 }

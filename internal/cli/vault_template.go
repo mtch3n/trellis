@@ -206,7 +206,7 @@ func newTemplateCheckCmd() *cobra.Command {
 				}
 				return Emit(cmd, map[string]any{"violations": violations}, func() string {
 					if len(violations) == 0 {
-						return "no violations"
+						return "no diagnostics"
 					}
 					return strings.Join(violations, "\n")
 				})

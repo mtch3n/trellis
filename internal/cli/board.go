@@ -78,7 +78,7 @@ func newBoardCmd() *cobra.Command {
 			if name == "" {
 				return core.ErrUsage("missing_name",
 					"board name required",
-					"trellis board new --name <name>")
+					"trellis board new --name <board>")
 			}
 
 			app, err := currentBoard()
@@ -103,7 +103,7 @@ func newBoardCmd() *cobra.Command {
 
 	// board default
 	defaultCmd := &cobra.Command{
-		Use:   "default <name>",
+		Use:   "default <board>",
 		Short: "Set the default board",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -142,7 +142,7 @@ func newBoardRenameCmd() *cobra.Command {
 
 func newBoardRmCmd() *cobra.Command {
 	var force bool
-	cmd := &cobra.Command{Use: "rm <name>", Short: "Delete a board", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "rm <board>", Short: "Delete a board", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		return withTarget(refArg{Collection: address.CollectionBoards, Value: args[0]}, func(app *appCtx, name string) error {
 			if err := app.Core.DeleteBoard(cmd.Context(), app.Project.ID, name, force); err != nil {
 				return err

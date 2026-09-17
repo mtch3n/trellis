@@ -88,7 +88,7 @@ func newVaultNewCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&private, "private", false,
 		"do not transmit this body automatically: no vector index, no recap, no body in the event log, pointer-only injection")
 	cmd.Flags().StringVar(&dir, "in", "", "place the entry in this directory instead of the vault root")
-	cmd.Flags().BoolVar(&newDir, "new-dir", false, "create --in even if it resembles an existing directory")
+	cmd.Flags().BoolVar(&newDir, "new-directory", false, "create --in even if it resembles an existing directory")
 	return cmd
 }
 
@@ -242,7 +242,7 @@ func newVaultLsCmd() *cobra.Command {
 	var thisBoard, cold bool
 	var templates, provenances, tags []string
 	cmd := &cobra.Command{
-		Use:   "ls [dir]",
+		Use:   "ls [directory]",
 		Short: "List entries, as a tree grouped by directory",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -459,7 +459,7 @@ func newVaultMvCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().BoolVar(&newDir, "new-dir", false, "create the destination directory even if it resembles an existing one")
+	cmd.Flags().BoolVar(&newDir, "new-directory", false, "create the destination directory even if it resembles an existing one")
 	return cmd
 }
 
@@ -567,7 +567,24 @@ func pinTable(pins []core.Pin) string {
 func newVaultLintCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "lint",
-		Short: "Report diagnostics: stubs, broken anchors, orphans, ambiguous links, wrong collections, bad paths, missing artifacts, template violations, unknown templates, unknown fields, deep directories, long directory names, similar directories",
+		Short: "Report diagnostics in this project's vault",
+		Long: `Report diagnostics in this project's vault. Each one names its fix; lint
+never changes anything.
+
+Kinds:
+  ambiguous_link       a wikilink whose bare leaf names more than one entry
+  bad_path             a malformed address
+  broken_anchor        a wikilink to a heading its target entry does not have
+  deep_directory       an entry three or more directories deep
+  long_directory_name  a directory name longer than 30 characters
+  missing_artifact     an artifact an entry names that does not exist
+  orphan               an entry with no links in either direction
+  similar_directory    two look-alike directories
+  stub                 a wikilink whose target does not resolve
+  template_violation   an entry that breaks its template's rules
+  unknown_field        a frontmatter field that no template names
+  unknown_template     an entry whose template names no template on disk
+  wrong_collection     a wikilink address outside any vault`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withBoard(func(app *appCtx) error {
 				diagnostics, err := app.Core.Lint(cmd.Context(), app.Project.ID)

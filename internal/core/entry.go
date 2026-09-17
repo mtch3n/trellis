@@ -1296,8 +1296,8 @@ func Provenances() []string { return []string{"authored", "prompted", "extracted
 
 // checkProvenance defaults to authored, which is what the ordinary path is.
 // It does not reject an unrecognised value read back from a file: the file is
-// the source of truth, and `vault lint` is where vault problems are
-// reported rather than raised mid-write.
+// the source of truth, and `vault lint` is where diagnostics are reported
+// rather than raised mid-write.
 func checkProvenance(v string) (string, error) {
 	if v == "" {
 		return "authored", nil

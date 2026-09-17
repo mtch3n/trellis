@@ -27,10 +27,10 @@ func TestVaultNewInFlagRefusesAResemblingDirectory(t *testing.T) {
 		t.Errorf("the error must name the directory it resembles: %v", err)
 	}
 
-	// --new-dir is how the caller says they meant it.
-	out := runCmd(t, "vault", "new", "--title", "Third", "--in", "deploymnet", "--new-dir", "--json")
+	// --new-directory is how the caller says they meant it.
+	out := runCmd(t, "vault", "new", "--title", "Third", "--in", "deploymnet", "--new-directory", "--json")
 	if !strings.Contains(out, `"slug":"deploymnet/third"`) {
-		t.Errorf("--new-dir did not create the directory:\n%s", out)
+		t.Errorf("--new-directory did not create the directory:\n%s", out)
 	}
 }
 

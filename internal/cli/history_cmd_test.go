@@ -106,7 +106,7 @@ func TestVaultHistoryOnAGlobalEntryNeedsNoMarker(t *testing.T) {
 	promoteByHand(t, "ALPHA", "conventions")
 
 	if _, err := runCmdErr(t, "vault", "history", "/GLOBAL/vault/conventions"); err != nil {
-		t.Errorf("vault history on a vault entry with no marker: %v", err)
+		t.Errorf("vault history on a global entry with no marker: %v", err)
 	}
 }
 

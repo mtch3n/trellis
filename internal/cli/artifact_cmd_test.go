@@ -39,7 +39,7 @@ func writeFile(t *testing.T, name, content string) string {
 	return path
 }
 
-func TestArtifactAddAttachesToAnEntry(t *testing.T) {
+func TestArtifactAddLinksToAnEntry(t *testing.T) {
 	projectEnv(t)
 	runCmd(t, "vault", "new", "--title", "Standup")
 

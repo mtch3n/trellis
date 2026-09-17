@@ -243,7 +243,7 @@ func (c *Core) refuseResemblingDir(tx *sqlx.Tx, projectID, dir string, allowNew 
 	slices.Sort(similar)
 	return ErrUsage("similar_directory",
 		dir+" is close to existing "+strings.Join(similar, ", ")+"; that may be the same idea spelled two ways",
-		"trellis vault new --title \"...\" --in "+dir+" --new-dir")
+		"trellis vault new --title \"...\" --in "+dir+" --new-directory")
 }
 
 // resolveSlug turns CLI or wikilink input into exactly one entry's stored

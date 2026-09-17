@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// vault edit prints a warn template's problems, as vault new does.
+// vault edit prints a warn template's warnings, as vault new does.
 func TestVaultEditPrintsTemplateWarnings(t *testing.T) {
 	projectEnv(t)
 	runCmd(t, "vault", "new", "--title", "Latency", "--template", "research")

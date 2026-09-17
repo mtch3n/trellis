@@ -22,9 +22,9 @@ type Diagnostic struct {
 	Fix   string `json:"fix"`
 }
 
-// Lint reports stubs, broken anchors and orphans (§10). Each diagnostic names
-// what to do about it; none of them is an error, because a vault under
-// construction is full of all three.
+// Lint reports every diagnostic kind listed on Diagnostic.Kind (§10). Each
+// diagnostic names what to do about it; none of them is an error, because a
+// vault under construction is full of them.
 func (c *Core) Lint(ctx context.Context, projectID string) ([]Diagnostic, error) {
 	out := []Diagnostic{}
 	entries, err := c.ListEntries(ctx, projectID, EntryFilter{})
