@@ -45,7 +45,9 @@ func TestFileStageRollsBackInReverseOrder(t *testing.T) {
 	if err := s.rewrite(other, []byte("after")); err != nil {
 		t.Fatal(err)
 	}
-	if exists(src) || readFile(t, dst) != "moved" || readFile(t, other) != "after" {
+	// A move's source stays put until finalize: a process that dies before
+	// commit must find it exactly where its row still says it is.
+	if !exists(src) || readFile(t, dst) != "moved" || readFile(t, other) != "after" {
 		t.Fatal("the staged operations did not happen")
 	}
 
@@ -54,6 +56,58 @@ func TestFileStageRollsBackInReverseOrder(t *testing.T) {
 	}
 	if exists(dst) || readFile(t, src) != "moved" || readFile(t, other) != "before" {
 		t.Error("rollback did not restore the files")
+	}
+}
+
+// A failure after a move must leave the row-and-file pair it never got to
+// finalize alone: the source stays, and the half-published destination is
+// the only thing rollback removes.
+func TestFileStageRollbackAfterMoveLeavesSourceIntact(t *testing.T) {
+	root := t.TempDir()
+	src, dst := filepath.Join(root, "a.md"), filepath.Join(root, "b.md")
+	writeFile(t, src, "moved")
+
+	s := &fileStage{}
+	if err := s.move(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(src) {
+		t.Error("rollback removed the move's source")
+	}
+	if exists(dst) {
+		t.Error("rollback left the destination behind")
+	}
+	if readFile(t, src) != "moved" {
+		t.Error("rollback changed the source's content")
+	}
+}
+
+// finalize is the only thing allowed to remove a move's source, and only
+// once the transaction that depended on the move has committed.
+func TestFileStageFinalizeRemovesTheSourceOfAMove(t *testing.T) {
+	root := t.TempDir()
+	src, dst := filepath.Join(root, "a.md"), filepath.Join(root, "b.md")
+	writeFile(t, src, "moved")
+
+	s := &fileStage{}
+	if err := s.move(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(src) {
+		t.Fatal("move must not remove its source before finalize")
+	}
+
+	if err := s.finalize(); err != nil {
+		t.Fatal(err)
+	}
+	if exists(src) {
+		t.Error("finalize did not remove the move's source")
+	}
+	if readFile(t, dst) != "moved" {
+		t.Error("finalize must not touch the destination")
 	}
 }
 

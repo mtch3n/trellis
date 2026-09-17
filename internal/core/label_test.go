@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/jmoiron/sqlx"
@@ -194,6 +195,34 @@ func TestMergeLabel(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("failed to verify merged labels: %v", err)
+	}
+}
+
+// recordEvent looks up its project from the label's own row; merging must
+// record the "merged" event before deleting that row, or the event's
+// project_id lands NULL and a project-scoped feed never shows it.
+func TestMergeLabelEventIsProjectScoped(t *testing.T) {
+	c := testCore(t)
+	p := seededProject(t, c)
+	ctx := t.Context()
+
+	if _, err := c.CreateLabel(ctx, p.ID, "bug", "A defect"); err != nil {
+		t.Fatalf("failed to create 'bug' label: %v", err)
+	}
+	if _, err := c.CreateLabel(ctx, p.ID, "chore", "Maintenance"); err != nil {
+		t.Fatalf("failed to create 'chore' label: %v", err)
+	}
+
+	if err := c.MergeLabel(ctx, p.ID, "bug", "chore"); err != nil {
+		t.Fatalf("failed to merge labels: %v", err)
+	}
+
+	events, _, err := c.EventFeed(ctx, EventQuery{ProjectID: p.ID, Kinds: []string{"label"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(events, func(e FeedEvent) bool { return e.Action == "merged" }) {
+		t.Errorf("project-scoped feed lacks the label merge event: %+v", events)
 	}
 }
 

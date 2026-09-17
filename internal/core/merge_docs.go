@@ -182,6 +182,13 @@ func (m *merger) collapseDoc(d docRow, into string) error {
 			return err
 		}
 	}
+	// recordEvent looks up its project_id from the knowledge row itself, so it
+	// must run before that row is gone -- otherwise the event lands with a
+	// NULL project_id, which retire()'s later re-homing (WHERE project_id =
+	// src) does not match either, and it never reaches SRC's or DST's feed.
+	if err := m.c.recordEvent(m.tx, "knowledge", d.ID, "collapsed", "into", "", into); err != nil {
+		return err
+	}
 	if _, err := m.tx.Exec(`DELETE FROM link WHERE from_type = 'doc' AND from_id = ?`, d.ID); err != nil {
 		return err
 	}
@@ -189,7 +196,7 @@ func (m *merger) collapseDoc(d docRow, into string) error {
 		return err
 	}
 	delete(m.fromSrc, d.ID)
-	return m.c.recordEvent(m.tx, "knowledge", d.ID, "collapsed", "into", "", into)
+	return nil
 }
 
 // references rewrites every link that named a SRC document by address, in
@@ -202,7 +209,7 @@ func (m *merger) references() error {
 		if err != nil {
 			return err
 		}
-		if len(m.renamed) > 0 {
+		if len(m.renamed) > 0 || len(m.artRenamed) > 0 {
 			for id := range m.fromSrc {
 				ids = append(ids, id)
 			}
@@ -291,6 +298,13 @@ func (m *merger) rewriteDoc(id string) error {
 		}
 		return "", false
 	})
+	if fromSrc && len(m.artRenamed) > 0 {
+		next, err := m.rewriteArtifactNames(current, text)
+		if err != nil {
+			return err
+		}
+		text = next
+	}
 	if text == string(raw) {
 		return nil
 	}
@@ -316,6 +330,21 @@ func (m *merger) rewriteDoc(id string) error {
 	}
 	if keep {
 		if err := m.stage.create(rev, raw); err != nil {
+			return err
+		}
+	}
+	// The refreshFromFile below treats the write as an external edit and
+	// would, on its own, record the version it assigns by writing straight to
+	// disk -- a write this merge's stage never sees and so cannot undo.
+	// Staging that file here first, under the version refreshFromFile is
+	// about to assign, makes its own capture a no-op (revisionToKeep skips a
+	// destination that already exists) and keeps the write inside the undo.
+	nextRev, nextKeep, err := m.c.revisionToKeep(current, doc.Version+1, []byte(text))
+	if err != nil {
+		return err
+	}
+	if nextKeep {
+		if err := m.stage.create(nextRev, []byte(text)); err != nil {
 			return err
 		}
 	}

@@ -3,7 +3,9 @@ package cli
 import (
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -122,7 +124,14 @@ func newProjectMergeCmd() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			plan, err := c.MergeProjects(cmd.Context(), normalizeProjectArg(args[0]), normalizeProjectArg(into),
+			// An apply hard-links a file into DST before dropping the SRC row;
+			// an unhandled SIGINT would kill the process between the two with no
+			// chance to run the transaction's rollback. This gives an interrupt a
+			// context to cancel instead, which fails the transaction and lets
+			// Core.Tx and stage.rollback run.
+			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+			defer cancel()
+			plan, err := c.MergeProjects(ctx, normalizeProjectArg(args[0]), normalizeProjectArg(into),
 				core.MergeOptions{Apply: apply, RenameConflicts: rename, ScanRoot: root, Pins: pins, UnreadablePins: skipped})
 			if err != nil {
 				return err

@@ -88,7 +88,9 @@ func (f *mergeFixture) exec(q string, args ...any) {
 	}
 }
 
-// snapshot is every row count a merge could change, and the files under root.
+// snapshot is every row count a merge could change, and the hash of every
+// file under root. A hash, not a length, so a rewrite that swaps one
+// same-length reference for another still shows up as a change.
 func (f *mergeFixture) snapshot() string {
 	f.t.Helper()
 	var b strings.Builder
@@ -101,8 +103,11 @@ func (f *mergeFixture) snapshot() string {
 			return filepath.SkipDir // an applied merge writes one; it is not state
 		}
 		if err == nil && !d.IsDir() {
-			raw, _ := os.ReadFile(path)
-			fmt.Fprintf(&b, "\n%s %d", path, len(raw))
+			h, herr := fileHash(path)
+			if herr != nil {
+				f.t.Fatal(herr)
+			}
+			fmt.Fprintf(&b, "\n%s %s", path, h)
 		}
 		return nil
 	})
