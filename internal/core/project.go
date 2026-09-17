@@ -16,7 +16,7 @@ import (
 )
 
 // Project is a virtual namespace, named by its key. No directory belongs to
-// it; a .trellis pin is how a directory reaches it.
+// it; a .trellis marker is how a directory reaches it.
 type Project struct {
 	ID        string `db:"id" json:"id"`
 	Key       string `db:"key" json:"key"`
@@ -76,7 +76,7 @@ const ownedEntities = `SELECT id FROM card WHERE project_id = ?
 // names its origin project, so it would be deleted with it.
 //
 // The directory is staged before the transaction and restored if it fails, so
-// a failed delete never leaves rows without their files. A pin that still
+// a failed delete never leaves rows without their files. A marker that still
 // names the deleted key then fails with project_not_found; trellis init in
 // that directory creates a fresh, empty project.
 func (c *Core) DeleteProject(ctx context.Context, key string) error {
@@ -164,7 +164,7 @@ func plural(n int, one, many string) string {
 }
 
 // CreateProject makes a project and its default board. No directory is
-// involved: this is `trellis project new`, for a project nothing pins yet.
+// involved: this is `trellis project new`, for a project no marker names yet.
 func (c *Core) CreateProject(ctx context.Context, key string, preset bool) (Project, error) {
 	var p Project
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
@@ -237,59 +237,60 @@ func (c *Core) createProject(tx *sqlx.Tx, key string) (Project, error) {
 
 // InitRequest describes one `trellis init`.
 type InitRequest struct {
-	// Dir is the directory that receives the pin.
+	// Dir is the directory that receives the marker.
 	Dir string
 	// Key is the project key, any case. With Existing set it may be empty; if
-	// not, it must agree with the pin.
+	// not, it must agree with the marker.
 	Key string
-	// Join allows pinning a project that already exists. Set it only when the
-	// key was named explicitly: a key merely derived from a directory name
-	// must never join an unrelated project that happens to share it.
+	// Join allows marking Dir with a project that already exists. Set it only
+	// when the key was named explicitly: a key merely derived from a directory
+	// name must never join an unrelated project that happens to share it.
 	Join bool
-	// BoardName is --board: the board, by name, that the pin should name.
+	// BoardName is --board: the board, by name, that the marker should name.
 	BoardName string
-	// Existing is the pin already in Dir. Its target is honored, and the file
-	// is never rewritten.
-	Existing *resolve.Pin
+	// Existing is the marker already in Dir. Its target is honored, and the
+	// file is never rewritten.
+	Existing *resolve.Marker
 	// Preset seeds the default labels into a project that has none.
 	Preset bool
 }
 
 // InitResult reports what InitProject did.
 type InitResult struct {
-	Project Project
-	Board   *Board // the board the pin names, or nil
-	PinPath string
-	Created bool // false: an existing project was joined
-	Wrote   bool // false: the pin was already there
+	Project    Project
+	Board      *Board // the board the marker names, or nil
+	MarkerPath string
+	Created    bool // false: an existing project was joined
+	Wrote      bool // false: the marker was already there
 }
 
 // InitProject makes Dir resolvable. Every database change happens in one
-// transaction; the pin is published afterwards with a no-clobber link, so
-// two concurrent inits can never overwrite each other's pin. A pin that
+// transaction; the marker is published afterwards with a no-clobber link, so
+// two concurrent inits can never overwrite each other's marker. A marker that
 // appears in between is accepted if it says the same thing and refused
-// otherwise, and a project created by the losing call stays behind unpinned.
+// otherwise, and a project created by the losing call stays behind with no
+// marker naming it.
 //
 // InitProject never creates a board other than a new project's default:
 // slugs are derived from names with collision suffixes, so a board created
-// to match a pinned slug could not be promised to receive that slug.
+// to match a marker's slug could not be promised to receive that slug.
 func (c *Core) InitProject(ctx context.Context, req InitRequest) (InitResult, error) {
 	key := normalizeKey(req.Key)
 	join := req.Join
-	pinBoard := ""
+	markerBoard := ""
 	if e := req.Existing; e != nil {
 		if key != "" && key != e.Target.Project {
-			return InitResult{}, pinExists(e.Path, e.Target, "--key "+key)
+			return InitResult{}, markerExists(e.Path, e.Target, "--key "+key)
 		}
-		key, pinBoard, join = e.Target.Project, e.Target.Board(), true
+		key, markerBoard, join = e.Target.Project, e.Target.Board(), true
 	}
-	// Every pin this writes must parse, including one that joins a project
+	// Every marker this writes must parse, including one that joins a project
 	// whose key predates the grammar: such a project is reached by --project.
 	if err := checkNewKey(key); err != nil {
 		return InitResult{}, err
 	}
 
-	res := InitResult{PinPath: filepath.Join(req.Dir, resolve.PinFile)}
+	res := InitResult{MarkerPath: filepath.Join(req.Dir, resolve.MarkerFile)}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		err := tx.Get(&res.Project, `SELECT * FROM project WHERE key = ?`, key)
 		switch {
@@ -319,12 +320,12 @@ func (c *Core) InitProject(ctx context.Context, req InitRequest) (InitResult, er
 			if err != nil {
 				return err
 			}
-			if req.Existing != nil && b.Slug != pinBoard {
-				return pinExists(req.Existing.Path, req.Existing.Target, "--board "+req.BoardName)
+			if req.Existing != nil && b.Slug != markerBoard {
+				return markerExists(req.Existing.Path, req.Existing.Target, "--board "+req.BoardName)
 			}
 			res.Board = &b
-		case pinBoard != "":
-			b, err := boardBySlug(ctx, tx, res.Project.ID, pinBoard)
+		case markerBoard != "":
+			b, err := boardBySlug(ctx, tx, res.Project.ID, markerBoard)
 			if err != nil {
 				return err
 			}
@@ -343,27 +344,27 @@ func (c *Core) InitProject(ctx context.Context, req InitRequest) (InitResult, er
 	if res.Board != nil {
 		target = address.Board(res.Project.Key, res.Board.Slug)
 	}
-	err = atomicfile.Write(res.PinPath, []byte(target.String()+"\n"), false)
+	err = atomicfile.Write(res.MarkerPath, []byte(target.String()+"\n"), false)
 	switch {
 	case err == nil:
 		res.Wrote = true
 		return res, nil
 	case errors.Is(err, fs.ErrExist):
-		if other, readErr := resolve.ReadPin(res.PinPath); readErr == nil && other.Target == target {
+		if other, readErr := resolve.ReadMarker(res.MarkerPath); readErr == nil && other.Target == target {
 			return res, nil
 		}
-		msg := res.PinPath + " was written by another init while this one ran"
+		msg := res.MarkerPath + " was written by another init while this one ran"
 		if res.Created {
-			msg += fmt.Sprintf("; project %s was created and is not pinned", res.Project.Key)
+			msg += fmt.Sprintf("; project %s was created and no marker names it", res.Project.Key)
 		}
 		return InitResult{}, ErrConflict("pin_exists", msg, "trellis project ls")
 	default:
 		return InitResult{}, fmt.Errorf("writing %s: %w; project %s is ready, rerun trellis init --key %s",
-			res.PinPath, err, res.Project.Key, res.Project.Key)
+			res.MarkerPath, err, res.Project.Key, res.Project.Key)
 	}
 }
 
-func pinExists(path string, target address.Address, flag string) error {
+func markerExists(path string, target address.Address, flag string) error {
 	return ErrConflict("pin_exists",
 		fmt.Sprintf("%s already names %s, which %s contradicts", path, target, flag),
 		"edit or delete "+path+", then rerun trellis init")

@@ -79,8 +79,8 @@ func withTarget(a refArg, fn func(app *appCtx, ref string) error) error {
 // is args[i] in the form core takes, and "" for a flag that was not given.
 //
 // A reference that names its own project -- an address, or a qualified card
-// ref -- decides where the command runs, so it needs no pin. It beats the pin
-// and TRELLIS_PROJECT, which are ambient.
+// ref -- decides where the command runs, so it needs no marker. It beats the
+// marker and TRELLIS_PROJECT, which are ambient.
 //
 // Two references naming different projects are a conflict: the caller
 // stated two targets. A relative reference names the current project, so it
@@ -149,7 +149,7 @@ func withTargets(args []refArg, fn func(app *appCtx, refs []string) error) error
 func targetContext(ctx context.Context, c *core.Core, db *sqlx.DB, a refArg, key, ref string, relative bool) (*appCtx, error) {
 	if key == "" && a.NoProject && isVaultAddress(a.Value) {
 		// A vault entry belongs to no project, so nothing ambient is
-		// consulted: a malformed or stale pin, or a TRELLIS_PROJECT naming
+		// consulted: a malformed or stale marker, or a TRELLIS_PROJECT naming
 		// nothing, must not stand between a reader and the vault.
 		return &appCtx{Core: c, db: db}, nil
 	}
@@ -168,7 +168,7 @@ func targetContext(ctx context.Context, c *core.Core, db *sqlx.DB, a refArg, key
 	r, rerr := resolveProject(ctx, c)
 	switch {
 	case rerr == nil && r.Project.Key == key:
-		// The pin would have chosen this same project, so the repository
+		// The marker would have chosen this same project, so the repository
 		// file beside it applies exactly as it would to a bare reference:
 		// KEY-N must not skip claim.ttl and the label/tag requirements that
 		// a bare N reads.
@@ -185,8 +185,8 @@ func targetContext(ctx context.Context, c *core.Core, db *sqlx.DB, a refArg, key
 		// The relative reference means this project, not the named one.
 		return fail(projectConflict(r.Project.Key, a.Value, key))
 	case relative && !isUnresolved(rerr):
-		// A relative reference needs the current project, and a broken pin
-		// is not the same as no pin.
+		// A relative reference needs the current project, and a broken marker
+		// is not the same as no marker.
 		return fail(rerr)
 	}
 	// key already names the project that holds the card, per CardProject in
@@ -205,7 +205,7 @@ func targetContext(ctx context.Context, c *core.Core, db *sqlx.DB, a refArg, key
 }
 
 // namedBoard picks the board in a project a reference named. Only --board
-// applies there: TRELLIS_BOARD and a pin's board describe the current
+// applies there: TRELLIS_BOARD and a marker's board describe the current
 // project. A card is worked on its own board, so that moving OTHER-12 never
 // drags it onto OTHER's default board.
 func namedBoard(ctx context.Context, c *core.Core, p core.Project, collection, ref string) (core.Board, error) {
@@ -235,7 +235,7 @@ func namedBoard(ctx context.Context, c *core.Core, p core.Project, collection, r
 	}
 }
 
-// isUnresolved reports whether err says no pin applies here.
+// isUnresolved reports whether err says no marker applies here.
 func isUnresolved(err error) bool {
 	ce, ok := errors.AsType[*core.Error](err)
 	return ok && ce.Code == "unresolved"

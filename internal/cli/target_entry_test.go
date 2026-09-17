@@ -87,10 +87,10 @@ func TestAnEntryAddressNamesItsProject(t *testing.T) {
 	}
 }
 
-// A vault address consults nothing ambient: no pin, broken or stale, and no
+// A vault address consults nothing ambient: no marker, broken or stale, and no
 // TRELLIS_PROJECT stands between a reader and the vault.
 func TestAVaultAddressIgnoresAmbientState(t *testing.T) {
-	dir := pinEnv(t, "loose")
+	dir := markerEnv(t, "loose")
 	seedProject(t, "ALPHA")
 	refOf(t, "knowledge", "new", "--title", "Conventions", "--project", "ALPHA")
 	promoteByHand(t, "ALPHA", "conventions")
@@ -101,15 +101,15 @@ func TestAVaultAddressIgnoresAmbientState(t *testing.T) {
 		t.Errorf("a relative slug still needs a project: %+v", ce)
 	}
 
-	// Each state builds on the one before; the last has a stale pin and an
+	// Each state builds on the one before; the last has a stale marker and an
 	// environment naming a project that does not exist.
 	for _, state := range []struct {
 		name  string
 		setup func()
 	}{
-		{"no pin", func() {}},
-		{"malformed pin", func() { writePin(t, dir, "ALPHA\n") }},
-		{"stale pin", func() { writePin(t, dir, "/GHOST\n") }},
+		{"no marker", func() {}},
+		{"malformed marker", func() { writeMarker(t, dir, "ALPHA\n") }},
+		{"stale marker", func() { writeMarker(t, dir, "/GHOST\n") }},
 		{"bad env", func() { t.Setenv("TRELLIS_PROJECT", "NOPE") }},
 	} {
 		state.setup()
@@ -134,9 +134,9 @@ func TestAVaultAddressIgnoresAmbientState(t *testing.T) {
 }
 
 // A flag that takes a reference names the command's project as a positional
-// one does, so these all work with no pin at all.
+// one does, so these all work with no marker at all.
 func TestReferenceFlagsNameTheProject(t *testing.T) {
-	pinEnv(t, "loose")
+	markerEnv(t, "loose")
 	seedProject(t, "BETA", "Side")
 	refOf(t, "card", "new", "--title", "beta one", "--project", "BETA")
 	refOf(t, "knowledge", "new", "--title", "Runbook", "--project", "BETA")
@@ -191,7 +191,7 @@ func TestReferenceFlagsNameTheProject(t *testing.T) {
 func TestReferenceFlagsThatDisagreeConflict(t *testing.T) {
 	targetEnv(t)
 	for _, args := range [][]string{
-		// a relative positional means the pinned ALPHA
+		// a relative positional means the marker's ALPHA
 		{"knowledge", "pin", "runbook", "--board", "/BETA/boards/side", "--recap", "x"},
 		{"artifact", "link", "shot.png", "--card", "/BETA/cards/BETA-1"},
 		// two references, two projects
@@ -230,7 +230,7 @@ func TestLinkAndGraphCrossProjects(t *testing.T) {
 }
 
 func TestBoardCommandsTakeAnAddress(t *testing.T) {
-	pinEnv(t, "loose")
+	markerEnv(t, "loose")
 	seedProject(t, "BETA", "Side")
 	runCmd(t, "board", "default", "/BETA/boards/side")
 	if got := showBoard(t, "--project", "BETA").Slug; got != "side" {

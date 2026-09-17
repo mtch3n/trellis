@@ -37,7 +37,7 @@ func newProjectNewCmd() *cobra.Command {
 				return err
 			}
 			return Emit(cmd, p, func() string {
-				return fmt.Sprintf("created project %s · pin a directory to it with: trellis init --key %s", p.Key, p.Key)
+				return fmt.Sprintf("created project %s · mark a directory with it: trellis init --key %s", p.Key, p.Key)
 			})
 		},
 	}
@@ -115,7 +115,7 @@ func newProjectMergeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			pins, skipped, err := resolve.PinsUnder(root)
+			markers, skipped, err := resolve.MarkersUnder(root)
 			if err != nil {
 				return err
 			}
@@ -132,7 +132,7 @@ func newProjectMergeCmd() *cobra.Command {
 			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()
 			plan, err := c.MergeProjects(ctx, normalizeProjectArg(args[0]), normalizeProjectArg(into),
-				core.MergeOptions{Apply: apply, RenameConflicts: rename, ScanRoot: root, Pins: pins, UnreadablePins: skipped})
+				core.MergeOptions{Apply: apply, RenameConflicts: rename, ScanRoot: root, Markers: markers, UnreadableMarkers: skipped})
 			if err != nil {
 				return err
 			}
@@ -187,13 +187,13 @@ func mergeTable(p core.MergePlan, applied bool) string {
 	for _, addr := range p.EntriesRewritten {
 		fmt.Fprintf(&b, "rewrite %s\n", addr)
 	}
-	for _, r := range p.Pins.Rewrite {
-		fmt.Fprintf(&b, "pin     %s: %s -> %s\n", r.Path, r.From, r.To)
+	for _, r := range p.Markers.Rewrite {
+		fmt.Fprintf(&b, "marker  %s: %s -> %s\n", r.Path, r.From, r.To)
 	}
-	for _, left := range p.Pins.Left {
-		fmt.Fprintf(&b, "pin     left as is: %s\n", left)
+	for _, left := range p.Markers.Left {
+		fmt.Fprintf(&b, "marker  left as is: %s\n", left)
 	}
-	fmt.Fprintf(&b, "pins    searched under %s only\n", p.Pins.ScanRoot)
+	fmt.Fprintf(&b, "markers searched under %s only\n", p.Markers.ScanRoot)
 	if p.Backup != "" {
 		fmt.Fprintf(&b, "backup  %s\n", p.Backup)
 	}
@@ -203,7 +203,7 @@ func mergeTable(p core.MergePlan, applied bool) string {
 	switch {
 	case !p.Ready:
 		b.WriteString("not ready: resolve the conflicts, or rerun with --rename-conflicts\n")
-	case applied && len(p.Pins.Rewrite) > 0:
+	case applied && len(p.Markers.Rewrite) > 0:
 		b.WriteString("commit the rewritten .trellis files\n")
 	case !applied:
 		b.WriteString("rerun with --apply to perform it\n")

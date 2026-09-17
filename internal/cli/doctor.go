@@ -300,14 +300,14 @@ func checkProject() Check {
 	if err != nil {
 		return warn("project", "cannot read the working directory: "+err.Error(), "")
 	}
-	pin, found, err := resolve.FindPin(dir)
+	marker, found, err := resolve.FindMarker(dir)
 	if err != nil {
 		return warn("project", err.Error(), "trellis init --key <KEY>")
 	}
 	if !found {
-		return warn("project", "no .trellis pin in this directory or any parent", "trellis init --key <KEY>")
+		return warn("project", "no .trellis marker in this directory or any parent", "trellis init --key <KEY>")
 	}
-	detail := fmt.Sprintf("%s (pin %s)", pin.Target, pin.Path)
+	detail := fmt.Sprintf("%s (marker %s)", marker.Target, marker.Path)
 	path, err := home.DBPath()
 	if err != nil {
 		return warn("project", detail+", but the database cannot be located: "+err.Error(), "")
@@ -323,7 +323,7 @@ func checkProject() Check {
 	}
 	defer db.Close()
 	var n int
-	if err := db.Get(&n, `SELECT count(*) FROM project WHERE key = ?`, pin.Target.Project); err != nil {
+	if err := db.Get(&n, `SELECT count(*) FROM project WHERE key = ?`, marker.Target.Project); err != nil {
 		return warn("project", detail+", but the database cannot be read: "+err.Error(), "")
 	}
 	if n == 0 {
@@ -333,7 +333,7 @@ func checkProject() Check {
 }
 
 // checkProjectKeys lists projects whose key predates the key grammar. They
-// stay reachable with --project, but no pin can name them.
+// stay reachable with --project, but no marker can name them.
 func checkProjectKeys() Check {
 	db, err := openExistingDB()
 	if err != nil {
@@ -346,10 +346,10 @@ func checkProjectKeys() Check {
 	}
 	bad := slices.DeleteFunc(keys, address.ValidKey)
 	if len(bad) == 0 {
-		return ok("project keys", "every key can be pinned")
+		return ok("project keys", "a marker can name every key")
 	}
 	return warn("project keys",
-		fmt.Sprintf("no pin can name %s: %s", plural(len(bad), "this project", "these projects"), strings.Join(bad, ", ")),
+		fmt.Sprintf("no marker can name %s: %s", plural(len(bad), "this project", "these projects"), strings.Join(bad, ", ")),
 		"trellis project merge <KEY> --into <VALID-KEY>")
 }
 

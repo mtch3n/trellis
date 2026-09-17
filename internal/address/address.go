@@ -1,7 +1,7 @@
 // Package address parses Trellis addresses: the names of a project, and of
 // the things inside it, independently of any local directory.
 //
-// A .trellis pin holds one of two shapes:
+// A .trellis marker holds one of two shapes:
 //
 //	/KEY
 //	/KEY/boards/<slug>
@@ -18,11 +18,11 @@ import (
 // GlobalKey names the global vault. It is never a project.
 const GlobalKey = "GLOBAL"
 
-// CollectionBoards is the collection a pin may name inside a project.
+// CollectionBoards is the collection a marker may name inside a project.
 const CollectionBoards = "boards"
 
-// PinShapes lists the forms a pin accepts, for error messages.
-const PinShapes = "/KEY or /KEY/boards/<slug>"
+// MarkerShapes lists the forms a marker accepts, for error messages.
+const MarkerShapes = "/KEY or /KEY/boards/<slug>"
 
 var keyRE = regexp.MustCompile(`^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*$`)
 
@@ -58,24 +58,24 @@ func (p Address) String() string {
 	return "/" + p.Project + "/" + p.Collection + "/" + p.Name
 }
 
-// ParsePin reads the content of a .trellis file. Surrounding whitespace is
+// ParseMarker reads the content of a .trellis file. Surrounding whitespace is
 // ignored, and the key is case-insensitive and returned upper-case. A bare key
-// -- the pin format before addresses -- is rejected with a message that
+// -- the marker format before addresses -- is rejected with a message that
 // says how to fix it.
-func ParsePin(s string) (Address, error) {
+func ParseMarker(s string) (Address, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return Address{}, errors.New("empty; expected " + PinShapes)
+		return Address{}, errors.New("empty; expected " + MarkerShapes)
 	}
 	if strings.ContainsAny(s, "\r\n") {
-		return Address{}, errors.New("more than one line; expected " + PinShapes)
+		return Address{}, errors.New("more than one line; expected " + MarkerShapes)
 	}
 	rest, ok := strings.CutPrefix(s, "/")
 	if !ok {
 		if ValidKey(strings.ToUpper(s)) {
 			return Address{}, fmt.Errorf("%q is the old bare-key format; write /%s instead", s, strings.ToUpper(s))
 		}
-		return Address{}, fmt.Errorf("%q is not a pin; expected %s", s, PinShapes)
+		return Address{}, fmt.Errorf("%q is not a marker; expected %s", s, MarkerShapes)
 	}
 	segs := strings.Split(rest, "/")
 	key, err := projectKey(segs[0])
@@ -91,7 +91,7 @@ func ParsePin(s string) (Address, error) {
 		}
 		return Board(key, segs[2]), nil
 	default:
-		return Address{}, fmt.Errorf("%q is not a pin; expected %s", s, PinShapes)
+		return Address{}, fmt.Errorf("%q is not a marker; expected %s", s, MarkerShapes)
 	}
 }
 

@@ -11,10 +11,10 @@ import (
 	"github.com/mtch3n/trellis/internal/store"
 )
 
-// pinEnv isolates a test from the developer's Trellis state: a private
+// markerEnv isolates a test from the developer's Trellis state: a private
 // storage root and home, no project or board override, and a fresh working
 // directory called name, which it returns.
-func pinEnv(t *testing.T, name string) string {
+func markerEnv(t *testing.T, name string) string {
 	t.Helper()
 	t.Setenv("TRELLIS_HOME", t.TempDir())
 	h := t.TempDir()
@@ -57,7 +57,7 @@ func seedProject(t *testing.T, key string, boards ...string) core.Project {
 	return p
 }
 
-func writePin(t *testing.T, dir, content string) {
+func writeMarker(t *testing.T, dir, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, ".trellis"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)

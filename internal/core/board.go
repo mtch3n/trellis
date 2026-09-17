@@ -328,14 +328,14 @@ func (c *Core) boardByName(tx *sqlx.Tx, projectID, name string) (Board, error) {
 	return b, err
 }
 
-// BoardBySlug finds a board by slug, which is how a pin names one.
+// BoardBySlug finds a board by slug, which is how a marker names one.
 func (c *Core) BoardBySlug(ctx context.Context, projectID, slug string) (Board, error) {
 	return boardBySlug(ctx, c.db, projectID, slug)
 }
 
 // boardBySlug works on the database or inside a caller's transaction. A miss
-// lists the slugs that do exist, because a pin can only be fixed by naming one
-// of them or by creating the board.
+// lists the slugs that do exist, because a marker can only be fixed by naming
+// one of them or by creating the board.
 func boardBySlug(ctx context.Context, q sqlx.QueryerContext, projectID, slug string) (Board, error) {
 	var b Board
 	err := sqlx.GetContext(ctx, q, &b, `SELECT * FROM board WHERE project_id = ? AND slug = ?`, projectID, slug)

@@ -241,10 +241,10 @@ func TestMergeRefusals(t *testing.T) {
 	}
 	plan, err = f.c.MergeProjects(ctx, "API", "MY_APP", MergeOptions{})
 	if err != nil || !strings.Contains(plan.Refused, "MY_APP") {
-		t.Errorf("DST without a pinnable key: %+v, %v", plan, err)
+		t.Errorf("DST without a key a marker can name: %+v, %v", plan, err)
 	}
 	if _, err := f.c.MergeProjects(ctx, "MY_APP", "MONO", MergeOptions{Apply: true}); err != nil {
-		t.Fatalf("a SRC without a pinnable key must merge: %v", err)
+		t.Fatalf("a SRC without a key a marker can name must merge: %v", err)
 	}
 	for _, ref := range []string{"MY_APP-1", "/MONO/cards/MY_APP-1"} {
 		if got, err := f.c.GetCard(ctx, f.mono.ID, ParseCardRef(ref)); err != nil || got.ID != legacy.ID {
@@ -290,23 +290,23 @@ func TestMergeRepointsEarlierMerges(t *testing.T) {
 	}
 }
 
-func TestMergePlansPinRewrites(t *testing.T) {
+func TestMergePlansMarkerRewrites(t *testing.T) {
 	f := newMergeFixture(t)
 	f.board(f.api, "Web")
-	pins := []resolve.Pin{
+	markers := []resolve.Marker{
 		{Path: "/r/api/.trellis", Target: address.Project("API")},
 		{Path: "/r/web/.trellis", Target: address.Board("API", "web")},
 		{Path: "/r/gone/.trellis", Target: address.Board("API", "gone")},
 		{Path: "/r/.trellis", Target: address.Project("MONO")},
 	}
-	plan := f.merge(MergeOptions{ScanRoot: "/r", Pins: pins, UnreadablePins: []string{"/r/bad/.trellis"}})
-	want := []PinRewrite{
+	plan := f.merge(MergeOptions{ScanRoot: "/r", Markers: markers, UnreadableMarkers: []string{"/r/bad/.trellis"}})
+	want := []MarkerRewrite{
 		{Path: "/r/api/.trellis", From: "/API", To: "/MONO/boards/api"},
 		{Path: "/r/web/.trellis", From: "/API/boards/web", To: "/MONO/boards/web"},
 	}
-	if plan.Pins.ScanRoot != "/r" || !slices.Equal(plan.Pins.Rewrite, want) ||
-		!slices.Equal(plan.Pins.Left, []string{"/r/gone/.trellis", "/r/bad/.trellis"}) {
-		t.Errorf("pins = %+v", plan.Pins)
+	if plan.Markers.ScanRoot != "/r" || !slices.Equal(plan.Markers.Rewrite, want) ||
+		!slices.Equal(plan.Markers.Left, []string{"/r/gone/.trellis", "/r/bad/.trellis"}) {
+		t.Errorf("markers = %+v", plan.Markers)
 	}
 }
 
@@ -352,8 +352,8 @@ func TestMergeFinishesAfterTheCommit(t *testing.T) {
 	f := newMergeFixture(t)
 	f.entry(f.api, "Runbook", "x\n")
 	repo := t.TempDir()
-	pinPath := filepath.Join(repo, "api", ".trellis")
-	writeFile(t, pinPath, "/API\n")
+	markerPath := filepath.Join(repo, "api", ".trellis")
+	writeFile(t, markerPath, "/API\n")
 	var notified []string
 	f.c.SetEntryChanged(func(_ context.Context, id string) error {
 		notified = append(notified, id)
@@ -361,10 +361,10 @@ func TestMergeFinishesAfterTheCommit(t *testing.T) {
 	})
 
 	plan := f.merge(MergeOptions{Apply: true, ScanRoot: repo,
-		Pins: []resolve.Pin{{Path: pinPath, Target: address.Project("API")}}})
+		Markers: []resolve.Marker{{Path: markerPath, Target: address.Project("API")}}})
 
-	if got := readFile(t, pinPath); got != "/MONO/boards/api\n" {
-		t.Errorf("pin = %q", got)
+	if got := readFile(t, markerPath); got != "/MONO/boards/api\n" {
+		t.Errorf("marker = %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(f.root, "projects", "API")); !os.IsNotExist(err) {
 		t.Errorf("API's directory is still in the storage root: %v", err)
@@ -380,18 +380,18 @@ func TestMergeFinishesAfterTheCommit(t *testing.T) {
 	}
 }
 
-// A pin changed since the plan is left alone and reported.
-func TestMergeLeavesAPinThatChanged(t *testing.T) {
+// A marker changed since the plan is left alone and reported.
+func TestMergeLeavesAMarkerThatChanged(t *testing.T) {
 	f := newMergeFixture(t)
 	repo := t.TempDir()
-	pinPath := filepath.Join(repo, "api", ".trellis")
-	writeFile(t, pinPath, "/OTHER\n")
+	markerPath := filepath.Join(repo, "api", ".trellis")
+	writeFile(t, markerPath, "/OTHER\n")
 
 	plan := f.merge(MergeOptions{Apply: true, ScanRoot: repo,
-		Pins: []resolve.Pin{{Path: pinPath, Target: address.Project("API")}}})
+		Markers: []resolve.Marker{{Path: markerPath, Target: address.Project("API")}}})
 
-	if got := readFile(t, pinPath); got != "/OTHER\n" {
-		t.Errorf("pin = %q, want it untouched", got)
+	if got := readFile(t, markerPath); got != "/OTHER\n" {
+		t.Errorf("marker = %q, want it untouched", got)
 	}
 	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "OTHER") {
 		t.Errorf("warnings = %v", plan.Warnings)

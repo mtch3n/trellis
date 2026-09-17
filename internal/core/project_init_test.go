@@ -22,9 +22,9 @@ func errCode(t *testing.T, err error) string {
 	return te.Code
 }
 
-func readPinFile(t *testing.T, dir string) string {
+func readMarkerFile(t *testing.T, dir string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(dir, resolve.PinFile))
+	b, err := os.ReadFile(filepath.Join(dir, resolve.MarkerFile))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestBoardBySlug(t *testing.T) {
 	}
 }
 
-func TestInitProjectCreatesAndPins(t *testing.T) {
+func TestInitProjectCreatesAndMarks(t *testing.T) {
 	c := testCore(t)
 	dir := t.TempDir()
 	res, err := c.InitProject(t.Context(), InitRequest{Dir: dir, Key: "alpha", Preset: true})
@@ -134,11 +134,11 @@ func TestInitProjectCreatesAndPins(t *testing.T) {
 	if !res.Created || !res.Wrote || res.Project.Key != "ALPHA" || res.Board != nil {
 		t.Errorf("result = %+v", res)
 	}
-	if res.PinPath != filepath.Join(dir, resolve.PinFile) {
-		t.Errorf("pin path = %s", res.PinPath)
+	if res.MarkerPath != filepath.Join(dir, resolve.MarkerFile) {
+		t.Errorf("marker path = %s", res.MarkerPath)
 	}
-	if got := readPinFile(t, dir); got != "/ALPHA\n" {
-		t.Errorf("pin = %q, want /ALPHA", got)
+	if got := readMarkerFile(t, dir); got != "/ALPHA\n" {
+		t.Errorf("marker = %q, want /ALPHA", got)
 	}
 }
 
@@ -153,8 +153,8 @@ func TestInitProjectJoinsOnlyWhenAsked(t *testing.T) {
 	if got := errCode(t, err); got != "key_collision" {
 		t.Fatalf("code = %s, want key_collision", got)
 	}
-	if _, statErr := os.Stat(filepath.Join(inferred, resolve.PinFile)); !errors.Is(statErr, os.ErrNotExist) {
-		t.Errorf("a refused init wrote a pin: %v", statErr)
+	if _, statErr := os.Stat(filepath.Join(inferred, resolve.MarkerFile)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("a refused init wrote a marker: %v", statErr)
 	}
 	if !strings.Contains(err.Error(), "trellis init --key ALPHA") {
 		t.Errorf("error %q should say how to join deliberately", err)
@@ -173,7 +173,7 @@ func TestInitProjectJoinsOnlyWhenAsked(t *testing.T) {
 	}
 }
 
-func TestInitProjectPinsANamedBoard(t *testing.T) {
+func TestInitProjectMarksANamedBoard(t *testing.T) {
 	c := testCore(t)
 	p, err := c.CreateProject(t.Context(), "ALPHA", false)
 	if err != nil {
@@ -190,8 +190,8 @@ func TestInitProjectPinsANamedBoard(t *testing.T) {
 	if res.Board == nil || res.Board.Slug != "api-work" {
 		t.Errorf("board = %+v", res.Board)
 	}
-	if got := readPinFile(t, dir); got != "/ALPHA/boards/api-work\n" {
-		t.Errorf("pin = %q", got)
+	if got := readMarkerFile(t, dir); got != "/ALPHA/boards/api-work\n" {
+		t.Errorf("marker = %q", got)
 	}
 }
 
@@ -218,7 +218,7 @@ func TestInitProjectIsOneTransaction(t *testing.T) {
 	}
 }
 
-func TestInitProjectNeverWritesAnUnparsablePin(t *testing.T) {
+func TestInitProjectNeverWritesAnUnparsableMarker(t *testing.T) {
 	c := testCore(t)
 	for key, want := range map[string]string{"MY_APP": "bad_key", "GLOBAL": "reserved_key"} {
 		dir := t.TempDir()
@@ -226,44 +226,45 @@ func TestInitProjectNeverWritesAnUnparsablePin(t *testing.T) {
 		if got := errCode(t, err); got != want {
 			t.Errorf("join %s: code = %s, want %s", key, got, want)
 		}
-		if _, statErr := os.Stat(filepath.Join(dir, resolve.PinFile)); !errors.Is(statErr, os.ErrNotExist) {
-			t.Errorf("join %s wrote a pin", key)
+		if _, statErr := os.Stat(filepath.Join(dir, resolve.MarkerFile)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Errorf("join %s wrote a marker", key)
 		}
 	}
 }
 
-func existingPin(t *testing.T, dir, content string) *resolve.Pin {
+func existingMarker(t *testing.T, dir, content string) *resolve.Marker {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, resolve.PinFile), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, resolve.MarkerFile), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	pin, err := resolve.ReadPin(filepath.Join(dir, resolve.PinFile))
+	marker, err := resolve.ReadMarker(filepath.Join(dir, resolve.MarkerFile))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &pin
+	return &marker
 }
 
-// A fresh clone on a new machine: the pin is committed, the database is empty.
-func TestInitProjectMaterializesAnExistingPin(t *testing.T) {
+// A fresh clone on a new machine: the marker is committed, the database is
+// empty.
+func TestInitProjectMaterializesAnExistingMarker(t *testing.T) {
 	c := testCore(t)
 	dir := t.TempDir()
-	res, err := c.InitProject(t.Context(), InitRequest{Dir: dir, Existing: existingPin(t, dir, "/BETA\n")})
+	res, err := c.InitProject(t.Context(), InitRequest{Dir: dir, Existing: existingMarker(t, dir, "/BETA\n")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !res.Created || res.Wrote || res.Project.Key != "BETA" {
 		t.Errorf("result = %+v", res)
 	}
-	if got := readPinFile(t, dir); got != "/BETA\n" {
-		t.Errorf("pin was rewritten: %q", got)
+	if got := readMarkerFile(t, dir); got != "/BETA\n" {
+		t.Errorf("marker was rewritten: %q", got)
 	}
 }
 
-func TestInitProjectDoesNotCreateAPinnedBoard(t *testing.T) {
+func TestInitProjectDoesNotCreateTheMarkersBoard(t *testing.T) {
 	c := testCore(t)
 	dir := t.TempDir()
-	_, err := c.InitProject(t.Context(), InitRequest{Dir: dir, Existing: existingPin(t, dir, "/BETA/boards/api\n")})
+	_, err := c.InitProject(t.Context(), InitRequest{Dir: dir, Existing: existingMarker(t, dir, "/BETA/boards/api\n")})
 	if got := errCode(t, err); got != "unknown_board" {
 		t.Fatalf("code = %s, want unknown_board", got)
 	}
@@ -275,44 +276,45 @@ func TestInitProjectDoesNotCreateAPinnedBoard(t *testing.T) {
 	}
 }
 
-func TestInitProjectRefusesFlagsThatContradictThePin(t *testing.T) {
+func TestInitProjectRefusesFlagsThatContradictTheMarker(t *testing.T) {
 	c := testCore(t)
 	dir := t.TempDir()
-	pin := existingPin(t, dir, "/BETA\n")
+	marker := existingMarker(t, dir, "/BETA\n")
 
-	_, err := c.InitProject(t.Context(), InitRequest{Dir: dir, Key: "GAMMA", Join: true, Existing: pin})
+	_, err := c.InitProject(t.Context(), InitRequest{Dir: dir, Key: "GAMMA", Join: true, Existing: marker})
 	if got := errCode(t, err); got != "pin_exists" {
 		t.Errorf("--key GAMMA: code = %s, want pin_exists", got)
 	}
 
-	if _, err := c.InitProject(t.Context(), InitRequest{Dir: dir, Existing: pin}); err != nil {
+	if _, err := c.InitProject(t.Context(), InitRequest{Dir: dir, Existing: marker}); err != nil {
 		t.Fatal(err)
 	}
-	_, err = c.InitProject(t.Context(), InitRequest{Dir: dir, BoardName: "beta", Existing: pin})
+	_, err = c.InitProject(t.Context(), InitRequest{Dir: dir, BoardName: "beta", Existing: marker})
 	if got := errCode(t, err); got != "pin_exists" {
 		t.Errorf("--board beta against /BETA: code = %s, want pin_exists", got)
 	}
-	if got := readPinFile(t, dir); got != "/BETA\n" {
-		t.Errorf("pin changed: %q", got)
+	if got := readMarkerFile(t, dir); got != "/BETA\n" {
+		t.Errorf("marker changed: %q", got)
 	}
 }
 
-// Another init can publish the pin between this init's commit and its write.
-func TestInitProjectNeverOverwritesAPinWrittenMeanwhile(t *testing.T) {
+// Another init can publish the marker between this init's commit and its
+// write.
+func TestInitProjectNeverOverwritesAMarkerWrittenMeanwhile(t *testing.T) {
 	c := testCore(t)
 
 	same := t.TempDir()
-	existingPin(t, same, "/ALPHA\n")
+	existingMarker(t, same, "/ALPHA\n")
 	res, err := c.InitProject(t.Context(), InitRequest{Dir: same, Key: "ALPHA", Join: true})
 	if err != nil {
-		t.Fatalf("identical pin: %v", err)
+		t.Fatalf("identical marker: %v", err)
 	}
 	if res.Wrote {
-		t.Error("reported writing a pin that was already there")
+		t.Error("reported writing a marker that was already there")
 	}
 
 	other := t.TempDir()
-	existingPin(t, other, "/OTHER\n")
+	existingMarker(t, other, "/OTHER\n")
 	_, err = c.InitProject(t.Context(), InitRequest{Dir: other, Key: "FRESH", Join: true})
 	if got := errCode(t, err); got != "pin_exists" {
 		t.Fatalf("code = %s, want pin_exists", got)
@@ -320,7 +322,7 @@ func TestInitProjectNeverOverwritesAPinWrittenMeanwhile(t *testing.T) {
 	if !strings.Contains(err.Error(), "FRESH was created") {
 		t.Errorf("error %q should say the project it created remains", err)
 	}
-	if got := readPinFile(t, other); got != "/OTHER\n" {
-		t.Errorf("pin was overwritten: %q", got)
+	if got := readMarkerFile(t, other); got != "/OTHER\n" {
+		t.Errorf("marker was overwritten: %q", got)
 	}
 }

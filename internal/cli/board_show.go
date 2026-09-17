@@ -38,7 +38,7 @@ func newBoardShowCmd() *cobra.Command {
 
 			app, err := currentBoard()
 			if err != nil {
-				// No pin applies here, so Trellis is not in use in this
+				// No marker applies here, so Trellis is not in use in this
 				// directory, and the SessionStart hook must stay silent.
 				if ce, ok := errors.AsType[*core.Error](err); ok && ce.Code == "unresolved" {
 					return nil

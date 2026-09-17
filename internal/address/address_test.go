@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestParsePinAcceptsBothShapes(t *testing.T) {
+func TestParseMarkerAcceptsBothShapes(t *testing.T) {
 	cases := map[string]Address{
 		"/TRELLIS":              Project("TRELLIS"),
 		"  /trellis\n":          Project("TRELLIS"),
@@ -16,18 +16,18 @@ func TestParsePinAcceptsBothShapes(t *testing.T) {
 		"/P2024/boards/2024-q1": Board("P2024", "2024-q1"),
 	}
 	for in, want := range cases {
-		got, err := ParsePin(in)
+		got, err := ParseMarker(in)
 		if err != nil {
-			t.Errorf("ParsePin(%q): %v", in, err)
+			t.Errorf("ParseMarker(%q): %v", in, err)
 			continue
 		}
 		if got != want {
-			t.Errorf("ParsePin(%q) = %+v, want %+v", in, got, want)
+			t.Errorf("ParseMarker(%q) = %+v, want %+v", in, got, want)
 		}
 	}
 }
 
-func TestParsePinRejects(t *testing.T) {
+func TestParseMarkerRejects(t *testing.T) {
 	cases := map[string]string{
 		"":                       "empty",
 		"   \n":                  "empty",
@@ -39,31 +39,31 @@ func TestParsePinRejects(t *testing.T) {
 		"/MY_APP":                "not a project key",
 		"/A--B":                  "not a project key",
 		"/GLOBAL":                "global vault",
-		"/MONO/boards":           "not a pin",
-		"/MONO/cards/MONO-1":     "not a pin",
-		"/MONO/boards/api/extra": "not a pin",
+		"/MONO/boards":           "not a marker",
+		"/MONO/cards/MONO-1":     "not a marker",
+		"/MONO/boards/api/extra": "not a marker",
 		"/MONO/boards/API":       "not a board slug",
 		"/MONO/boards/-api":      "not a board slug",
 		"/MONO/boards/a--b":      "not a board slug",
-		"MONO/boards/api":        "not a pin",
+		"MONO/boards/api":        "not a marker",
 	}
 	for in, fragment := range cases {
-		_, err := ParsePin(in)
+		_, err := ParseMarker(in)
 		if err == nil {
-			t.Errorf("ParsePin(%q) succeeded, want an error mentioning %q", in, fragment)
+			t.Errorf("ParseMarker(%q) succeeded, want an error mentioning %q", in, fragment)
 			continue
 		}
 		if !strings.Contains(err.Error(), fragment) {
-			t.Errorf("ParsePin(%q) error = %q, want it to mention %q", in, err, fragment)
+			t.Errorf("ParseMarker(%q) error = %q, want it to mention %q", in, err, fragment)
 		}
 	}
 }
 
 func TestPathStringAndBoard(t *testing.T) {
 	for _, p := range []Address{Project("A"), Board("A-B", "api")} {
-		got, err := ParsePin(p.String())
+		got, err := ParseMarker(p.String())
 		if err != nil || got != p {
-			t.Errorf("ParsePin(%q) = %+v, %v; want %+v", p.String(), got, err, p)
+			t.Errorf("ParseMarker(%q) = %+v, %v; want %+v", p.String(), got, err, p)
 		}
 	}
 	if got := Board("MONO", "api").String(); got != "/MONO/boards/api" {

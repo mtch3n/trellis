@@ -58,10 +58,10 @@ func TestCardHistoryAndDiff(t *testing.T) {
 
 // review-cli #9: card history/diff, knowledge history/diff and knowledge mv
 // never adopted withTarget, so a reference that names its own project failed
-// with unresolved outside any pin, unlike every other reference-taking
+// with unresolved outside any marker, unlike every other reference-taking
 // command.
-func TestHistoryDiffAndMvNeedNoPin(t *testing.T) {
-	pinEnv(t, "loose")
+func TestHistoryDiffAndMvNeedNoMarker(t *testing.T) {
+	markerEnv(t, "loose")
 	seedProject(t, "BETA")
 
 	created := runCmd(t, "card", "new", "--title", "Ship", "--body", "draft", "--project", "BETA", "--json")
@@ -93,29 +93,29 @@ func TestHistoryDiffAndMvNeedNoPin(t *testing.T) {
 	}
 
 	if got := refOf(t, "knowledge", "mv", "/BETA/vault/notes", "notes-2"); got != "/BETA/vault/notes-2" {
-		t.Errorf("knowledge mv with no pin = %s", got)
+		t.Errorf("knowledge mv with no marker = %s", got)
 	}
 }
 
 // knowledge history on a /GLOBAL address needs no project at all, exactly as
 // knowledge show already does.
-func TestKnowledgeHistoryOnAVaultEntryNeedsNoPin(t *testing.T) {
-	pinEnv(t, "loose")
+func TestKnowledgeHistoryOnAVaultEntryNeedsNoMarker(t *testing.T) {
+	markerEnv(t, "loose")
 	seedProject(t, "ALPHA")
 	refOf(t, "knowledge", "new", "--title", "Conventions", "--project", "ALPHA")
 	promoteByHand(t, "ALPHA", "conventions")
 
 	if _, err := runCmdErr(t, "knowledge", "history", "/GLOBAL/vault/conventions"); err != nil {
-		t.Errorf("knowledge history on a vault entry with no pin: %v", err)
+		t.Errorf("knowledge history on a vault entry with no marker: %v", err)
 	}
 }
 
 // review-cli #9: card relate never adopted withTargets for its second card,
 // so it could not name a project of its own -- the same rule card block
-// already follows for --by. With no pin, an address is what names the
+// already follows for --by. With no marker, an address is what names the
 // project: TestABlockerAddressNamesTheProject's pattern, for relate.
 func TestCardRelateOtherCardNamesItsProject(t *testing.T) {
-	pinEnv(t, "loose")
+	markerEnv(t, "loose")
 	seedProject(t, "BETA")
 	refOf(t, "card", "new", "--title", "first", "--project", "BETA")
 	refOf(t, "card", "new", "--title", "second", "--project", "BETA")

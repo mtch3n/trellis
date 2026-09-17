@@ -21,8 +21,8 @@ func showBoard(t *testing.T, args ...string) shownBoard {
 	return v
 }
 
-func TestCommandsRefuseWithoutAPin(t *testing.T) {
-	pinEnv(t, "loose")
+func TestCommandsRefuseWithoutAMarker(t *testing.T) {
+	markerEnv(t, "loose")
 	_, err := execCmd("card", "ls")
 	ce := coreErr(t, err)
 	if ce.Code != "unresolved" || !strings.Contains(ce.Fix, "trellis init --key") {
@@ -30,18 +30,19 @@ func TestCommandsRefuseWithoutAPin(t *testing.T) {
 	}
 }
 
-// The SessionStart hook runs this everywhere; with no pin it must say nothing.
-func TestBriefIsSilentWithoutAPin(t *testing.T) {
-	pinEnv(t, "loose")
+// The SessionStart hook runs this everywhere; with no marker it must say
+// nothing.
+func TestBriefIsSilentWithoutAMarker(t *testing.T) {
+	markerEnv(t, "loose")
 	out, err := execCmd("board", "show", "--brief")
 	if err != nil || out != "" {
 		t.Errorf("brief = %q, %v; want nothing", out, err)
 	}
 }
 
-func TestBriefFailsForAPinnedProjectThatIsMissing(t *testing.T) {
-	dir := pinEnv(t, "clone")
-	writePin(t, dir, "/GHOST\n")
+func TestBriefFailsWhenTheMarkersProjectIsMissing(t *testing.T) {
+	dir := markerEnv(t, "clone")
+	writeMarker(t, dir, "/GHOST\n")
 	_, err := execCmd("board", "show", "--brief")
 	ce := coreErr(t, err)
 	if ce.Code != "project_not_found" || !strings.Contains(ce.Msg, ".trellis") || ce.Exit == 0 {
@@ -49,9 +50,9 @@ func TestBriefFailsForAPinnedProjectThatIsMissing(t *testing.T) {
 	}
 }
 
-func TestMalformedPinIsAUsageError(t *testing.T) {
-	dir := pinEnv(t, "old")
-	writePin(t, dir, "TRELLIS\n")
+func TestMalformedMarkerIsAUsageError(t *testing.T) {
+	dir := markerEnv(t, "old")
+	writeMarker(t, dir, "TRELLIS\n")
 	_, err := execCmd("card", "ls")
 	ce := coreErr(t, err)
 	if ce.Code != "bad_pin" || !strings.Contains(ce.Msg, "old bare-key format") {
@@ -60,18 +61,18 @@ func TestMalformedPinIsAUsageError(t *testing.T) {
 }
 
 func TestProjectPrecedence(t *testing.T) {
-	dir := pinEnv(t, "app")
-	seedProject(t, "PINNED")
+	dir := markerEnv(t, "app")
+	seedProject(t, "MARKED")
 	seedProject(t, "ENVIRON")
 	seedProject(t, "FLAGGED")
-	writePin(t, dir, "/PINNED\n")
+	writeMarker(t, dir, "/MARKED\n")
 
-	if got := showBoard(t).Project; got != "PINNED" {
-		t.Errorf("pin: project = %s", got)
+	if got := showBoard(t).Project; got != "MARKED" {
+		t.Errorf("marker: project = %s", got)
 	}
 	t.Setenv("TRELLIS_PROJECT", "environ")
 	if got := showBoard(t).Project; got != "ENVIRON" {
-		t.Errorf("env over pin: project = %s", got)
+		t.Errorf("env over marker: project = %s", got)
 	}
 	if got := showBoard(t, "--project", "flagged").Project; got != "FLAGGED" {
 		t.Errorf("flag over env: project = %s", got)
@@ -79,30 +80,30 @@ func TestProjectPrecedence(t *testing.T) {
 }
 
 func TestBoardPrecedence(t *testing.T) {
-	dir := pinEnv(t, "mono")
+	dir := markerEnv(t, "mono")
 	seedProject(t, "MONO", "API", "Web")
-	writePin(t, dir, "/MONO/boards/api\n")
+	writeMarker(t, dir, "/MONO/boards/api\n")
 
 	if got := showBoard(t).Slug; got != "api" {
-		t.Errorf("pin board: slug = %s", got)
+		t.Errorf("marker board: slug = %s", got)
 	}
 	t.Setenv("TRELLIS_BOARD", "Web")
 	if got := showBoard(t).Slug; got != "web" {
-		t.Errorf("env over pin: slug = %s", got)
+		t.Errorf("env over marker: slug = %s", got)
 	}
 	if got := showBoard(t, "--board", "mono").Slug; got != "mono" {
 		t.Errorf("flag over env: slug = %s", got)
 	}
 	t.Setenv("TRELLIS_BOARD", "")
 	if got := showBoard(t, "--project", "MONO").Slug; got != "mono" {
-		t.Errorf("--project must ignore the pin's board: slug = %s", got)
+		t.Errorf("--project must ignore the marker's board: slug = %s", got)
 	}
 }
 
-func TestPinnedBoardThatIsMissingNamesThePin(t *testing.T) {
-	dir := pinEnv(t, "mono")
+func TestMissingMarkerBoardNamesTheMarker(t *testing.T) {
+	dir := markerEnv(t, "mono")
 	seedProject(t, "MONO")
-	writePin(t, dir, "/MONO/boards/api\n")
+	writeMarker(t, dir, "/MONO/boards/api\n")
 	_, err := execCmd("card", "ls")
 	ce := coreErr(t, err)
 	if ce.Code != "unknown_board" || !strings.Contains(ce.Msg, ".trellis") {

@@ -20,9 +20,9 @@ func newExtensionConfigCmd() *cobra.Command {
 		Short: "Print the extensions.<name> subtree of .trellis.yaml as JSON",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// The file beside the pin, as every other command reads it. A
-			// project named by --project or TRELLIS_PROJECT has no pin and so
-			// no repository file: the subtree is null.
+			// The file beside the marker, as every other command reads it.
+			// A project named by --project or TRELLIS_PROJECT has no marker
+			// and so no repository file: the subtree is null.
 			var repoDir string
 			if !projectNamed() {
 				dir, err := repoConfigDir()

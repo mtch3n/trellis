@@ -12,7 +12,7 @@ import (
 )
 
 // projectEnv names the project through TRELLIS_PROJECT, so a command needs no
-// pin. A named project is looked up, never created, so it is seeded first.
+// marker. A named project is looked up, never created, so it is seeded first.
 func projectEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("TRELLIS_HOME", t.TempDir())

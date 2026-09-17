@@ -14,16 +14,16 @@ import (
 	"github.com/mtch3n/trellis/internal/resolve"
 )
 
-// resolvedProject is the project a command acts on and, when a pin chose it,
-// that pin.
+// resolvedProject is the project a command acts on and, when a marker chose
+// it, that marker.
 type resolvedProject struct {
 	Project core.Project
-	Pin     *resolve.Pin
+	Marker  *resolve.Marker
 }
 
 // resolveProject picks the project: --project, then TRELLIS_PROJECT, then the
-// nearest .trellis pin. Nothing else -- no git lookup, and no project is ever
-// created here.
+// nearest .trellis marker. Nothing else -- no git lookup, and no project is
+// ever created here.
 func resolveProject(ctx context.Context, c *core.Core) (resolvedProject, error) {
 	key, err := namedProjectKey()
 	if err != nil {
@@ -37,54 +37,54 @@ func resolveProject(ctx context.Context, c *core.Core) (resolvedProject, error) 
 	if err != nil {
 		return resolvedProject{}, err
 	}
-	pin, found, err := resolve.FindPin(dir)
+	marker, found, err := resolve.FindMarker(dir)
 	if err != nil {
-		return resolvedProject{}, pinFailure(err)
+		return resolvedProject{}, markerFailure(err)
 	}
 	if !found {
 		return resolvedProject{}, core.ErrUsage("unresolved",
-			"no .trellis pin in this directory or any parent", "trellis init --key <KEY>")
+			"no .trellis marker in this directory or any parent", "trellis init --key <KEY>")
 	}
-	p, err := c.ProjectByKey(ctx, pin.Target.Project)
+	p, err := c.ProjectByKey(ctx, marker.Target.Project)
 	if ce, ok := errors.AsType[*core.Error](err); ok && ce.Code == "project_not_found" {
 		return resolvedProject{}, core.ErrNotFound("project_not_found",
-			fmt.Sprintf("%s names project %s, which this Trellis database does not have", pin.Path, pin.Target.Project),
-			"trellis init   # in "+filepath.Dir(pin.Path))
+			fmt.Sprintf("%s names project %s, which this Trellis database does not have", marker.Path, marker.Target.Project),
+			"trellis init   # in "+filepath.Dir(marker.Path))
 	}
 	if err != nil {
 		return resolvedProject{}, err
 	}
-	return resolvedProject{Project: p, Pin: &pin}, nil
+	return resolvedProject{Project: p, Marker: &marker}, nil
 }
 
-// pinFailure reports a malformed pin as a usage error. Anything else is an I/O
-// failure and passes through unchanged.
-func pinFailure(err error) error {
-	if pe, ok := errors.AsType[*resolve.PinError](err); ok {
+// markerFailure reports a malformed marker as a usage error. Anything else is
+// an I/O failure and passes through unchanged.
+func markerFailure(err error) error {
+	if pe, ok := errors.AsType[*resolve.MarkerError](err); ok {
 		return core.ErrUsage("bad_pin", pe.Error(),
 			"trellis init --key <KEY>   # after removing "+pe.Path)
 	}
 	return err
 }
 
-// selectBoard picks the board: --board, then TRELLIS_BOARD, then the pin's
-// board when the pin also chose the project, then core.SelectBoard's rules.
+// selectBoard picks the board: --board, then TRELLIS_BOARD, then the marker's
+// board when the marker also chose the project, then core.SelectBoard's rules.
 // Either selector may be a board address.
 func selectBoard(ctx context.Context, c *core.Core, r resolvedProject) (core.Board, error) {
 	if requested := cmp.Or(boardFlag, os.Getenv("TRELLIS_BOARD")); requested != "" {
 		return boardNamed(ctx, c, r.Project, requested)
 	}
-	if r.Pin == nil || r.Pin.Target.Board() == "" {
+	if r.Marker == nil || r.Marker.Target.Board() == "" {
 		return c.SelectBoard(ctx, r.Project.ID, "")
 	}
-	b, err := c.BoardBySlug(ctx, r.Project.ID, r.Pin.Target.Board())
+	b, err := c.BoardBySlug(ctx, r.Project.ID, r.Marker.Target.Board())
 	if ce, ok := errors.AsType[*core.Error](err); ok {
-		ce.Msg = r.Pin.Path + ": " + ce.Msg
+		ce.Msg = r.Marker.Path + ": " + ce.Msg
 	}
 	return b, err
 }
 
-// namedProjectKey is the project named without the pin's help: --project,
+// namedProjectKey is the project named without the marker's help: --project,
 // then the project a --board address names, then TRELLIS_PROJECT. --project
 // and a --board address that disagree are a conflict: the caller stated two
 // targets.

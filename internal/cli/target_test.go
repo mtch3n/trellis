@@ -23,14 +23,14 @@ func refOf(t *testing.T, args ...string) string {
 	return v.Ref
 }
 
-// targetEnv is a directory pinned to ALPHA, with BETA beside it and one card
+// targetEnv is a directory marked with ALPHA, with BETA beside it and one card
 // in each: ALPHA-1 and BETA-1. BETA also has a board named Side.
 func targetEnv(t *testing.T) string {
 	t.Helper()
-	dir := pinEnv(t, "alpha")
+	dir := markerEnv(t, "alpha")
 	seedProject(t, "ALPHA")
 	seedProject(t, "BETA", "Side")
-	writePin(t, dir, "/ALPHA\n")
+	writeMarker(t, dir, "/ALPHA\n")
 	if ref := refOf(t, "card", "new", "--title", "alpha one"); ref != "ALPHA-1" {
 		t.Fatalf("seed card = %s", ref)
 	}
@@ -52,8 +52,8 @@ func TestAQualifiedCardRefNamesItsProject(t *testing.T) {
 	}
 }
 
-func TestACardAddressNeedsNoPin(t *testing.T) {
-	pinEnv(t, "loose")
+func TestACardAddressNeedsNoMarker(t *testing.T) {
+	markerEnv(t, "loose")
 	seedProject(t, "BETA")
 	refOf(t, "card", "new", "--title", "beta one", "--project", "BETA")
 	if got := refOf(t, "card", "show", "/BETA/cards/BETA-1"); got != "BETA-1" {
@@ -126,7 +126,7 @@ func TestMovingANamedCardKeepsItsBoard(t *testing.T) {
 	}
 }
 
-// In a pinned directory a relative card means the pinned project, so a --by
+// In a marked directory a relative card means the marker's project, so a --by
 // naming another one is a conflict. An address whose project differs from
 // its ref's prefix gets through the CLI only when both references name that
 // project, and core refuses it there.
@@ -148,9 +148,9 @@ func TestABlockerFromAnotherProjectIsRefused(t *testing.T) {
 	}
 }
 
-// With no pin, a --by address is what names the project.
+// With no marker, a --by address is what names the project.
 func TestABlockerAddressNamesTheProject(t *testing.T) {
-	pinEnv(t, "loose")
+	markerEnv(t, "loose")
 	seedProject(t, "BETA")
 	refOf(t, "card", "new", "--title", "first", "--project", "BETA")
 	refOf(t, "card", "new", "--title", "second", "--project", "BETA")
@@ -187,8 +187,8 @@ func TestProjectAndBoardSelectorsTakeAddresses(t *testing.T) {
 	}
 }
 
-// review-cli #3: a qualified card ref names the pinned project exactly as a
-// bare reference would, so it must read the repository file beside the pin
+// review-cli #3: a qualified card ref names the marker's project exactly as a
+// bare reference would, so it must read the repository file beside the marker
 // too -- claim.ttl included -- instead of only the global default.
 func TestQualifiedCardRefReadsRepositoryClaimTTL(t *testing.T) {
 	repoEnv(t, "config:\n  claim.ttl: 5h\n")
@@ -208,24 +208,24 @@ func TestQualifiedCardRefReadsRepositoryClaimTTL(t *testing.T) {
 	}
 }
 
-// mergeEnv merges API into MONO inside a pinned, git-boundaried directory and
-// leaves the working directory at repo, still pinned to /MONO. It seeds one
+// mergeEnv merges API into MONO inside a marked, git-boundaried directory and
+// leaves the working directory at repo, still marked with /MONO. It seeds one
 // card in each project before merging, so API-1 survives as a merged-in ref
 // alongside MONO's own MONO-1.
 func mergeEnv(t *testing.T) (repo string) {
 	t.Helper()
-	repo = pinEnv(t, "mono")
+	repo = markerEnv(t, "mono")
 	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	seedProject(t, "MONO")
 	seedProject(t, "API")
-	writePin(t, repo, "/MONO\n")
+	writeMarker(t, repo, "/MONO\n")
 	api := filepath.Join(repo, "api")
 	if err := os.Mkdir(api, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writePin(t, api, "/API\n")
+	writeMarker(t, api, "/API\n")
 
 	t.Chdir(api)
 	if ref := refOf(t, "card", "new", "--title", "from api"); ref != "API-1" {

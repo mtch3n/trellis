@@ -23,30 +23,30 @@ type MergeOptions struct {
 	// RenameConflicts renames SRC's side of a name collision instead of
 	// stopping. Vault entries are never renamed.
 	RenameConflicts bool
-	// ScanRoot, Pins and UnreadablePins describe the pins the caller found.
-	// Core never walks the filesystem for them.
-	ScanRoot       string
-	Pins           []resolve.Pin
-	UnreadablePins []string
+	// ScanRoot, Markers and UnreadableMarkers describe the markers the caller
+	// found. Core never walks the filesystem for them.
+	ScanRoot          string
+	Markers           []resolve.Marker
+	UnreadableMarkers []string
 }
 
 // MergePlan is what a merge would do, or did.
 type MergePlan struct {
-	Src              string       `json:"src"`
-	Dst              string       `json:"dst"`
-	Ready            bool         `json:"ready"`
-	Refused          string       `json:"refused"`
-	Boards           []BoardMove  `json:"boards"`
-	Cards            CardMoves    `json:"cards"`
-	Entries          ItemMoves    `json:"knowledge"`
-	Artifacts        ItemMoves    `json:"artifacts"`
-	Labels           NameMoves    `json:"labels"`
-	Tags             NameMoves    `json:"tags"`
-	ConfigDropped    []ConfigDrop `json:"config_dropped"`
-	EntriesRewritten []string     `json:"documents_rewritten"`
-	Pins             PinRewrites  `json:"pins"`
-	Backup           string       `json:"backup,omitempty"`
-	Warnings         []string     `json:"warnings,omitempty"`
+	Src              string         `json:"src"`
+	Dst              string         `json:"dst"`
+	Ready            bool           `json:"ready"`
+	Refused          string         `json:"refused"`
+	Boards           []BoardMove    `json:"boards"`
+	Cards            CardMoves      `json:"cards"`
+	Entries          ItemMoves      `json:"knowledge"`
+	Artifacts        ItemMoves      `json:"artifacts"`
+	Labels           NameMoves      `json:"labels"`
+	Tags             NameMoves      `json:"tags"`
+	ConfigDropped    []ConfigDrop   `json:"config_dropped"`
+	EntriesRewritten []string       `json:"documents_rewritten"`
+	Markers          MarkerRewrites `json:"pins"`
+	Backup           string         `json:"backup,omitempty"`
+	Warnings         []string       `json:"warnings,omitempty"`
 
 	dstID string
 	files []string // every file the merge moves or rewrites, as it was before
@@ -95,13 +95,13 @@ type ConfigDrop struct {
 	Dst string `db:"dst" json:"dst"`
 }
 
-type PinRewrites struct {
-	ScanRoot string       `json:"scan_root"`
-	Rewrite  []PinRewrite `json:"rewrite"`
-	Left     []string     `json:"left"`
+type MarkerRewrites struct {
+	ScanRoot string          `json:"scan_root"`
+	Rewrite  []MarkerRewrite `json:"rewrite"`
+	Left     []string        `json:"left"`
 }
 
-type PinRewrite struct {
+type MarkerRewrite struct {
 	Path string `json:"path"`
 	From string `json:"from"`
 	To   string `json:"to"`
@@ -258,7 +258,7 @@ func errMergeChanged(path, what string) error {
 //
 // SRC's directory now holds only what the merge left behind -- collapsed
 // files and derived vector files -- so it is kept with the backup rather than
-// deleted. Pins live outside the storage root and are rewritten last.
+// deleted. Markers live outside the storage root and are rewritten last.
 func (c *Core) afterMerge(ctx context.Context, plan *MergePlan) {
 	warn := func(format string, args ...any) {
 		plan.Warnings = append(plan.Warnings, fmt.Sprintf(format, args...))
@@ -271,8 +271,8 @@ func (c *Core) afterMerge(ctx context.Context, plan *MergePlan) {
 			warn("keeping %s with the backup: %v", srcDir, err)
 		}
 	}
-	for _, r := range plan.Pins.Rewrite {
-		if err := rewritePin(r); err != nil {
+	for _, r := range plan.Markers.Rewrite {
+		if err := rewriteMarker(r); err != nil {
 			warn("rewriting %s: %v; it still names %s", r.Path, err, r.From)
 		}
 	}
@@ -283,14 +283,14 @@ func (c *Core) afterMerge(ctx context.Context, plan *MergePlan) {
 	}
 }
 
-// rewritePin points a pin at the survivor, unless it no longer names what
-// the plan found: a pin someone changed since is theirs.
-func rewritePin(r PinRewrite) error {
+// rewriteMarker points a marker at the survivor, unless it no longer names
+// what the plan found: a marker someone changed since is theirs.
+func rewriteMarker(r MarkerRewrite) error {
 	raw, err := os.ReadFile(r.Path)
 	if err != nil {
 		return err
 	}
-	current, err := address.ParsePin(string(raw))
+	current, err := address.ParseMarker(string(raw))
 	if err != nil {
 		return err
 	}
@@ -352,7 +352,7 @@ func (m *merger) run(srcKey, dstKey string) error {
 	}
 	for _, step := range []func() error{
 		m.boards, m.labels, m.tags, m.cards, m.moveEntries, m.moveArtifacts,
-		m.references, m.config, m.pins, m.retire,
+		m.references, m.config, m.markers, m.retire,
 	} {
 		if err := step(); err != nil {
 			return err
@@ -382,7 +382,7 @@ func (m *merger) load(srcKey, dstKey string) (refused bool, err error) {
 	}
 	switch {
 	case !address.ValidKey(m.dst.Key):
-		m.plan.Refused = fmt.Sprintf("%s cannot be named by a pin; merge into a project whose key can", m.dst.Key)
+		m.plan.Refused = fmt.Sprintf("%s cannot be named by a marker; merge into a project whose key can", m.dst.Key)
 	case claimed > 0:
 		m.plan.Refused = fmt.Sprintf("%s has %d %s claimed by an agent right now", m.src.Key, claimed, plural(claimed, "card", "cards"))
 	}
@@ -537,11 +537,11 @@ func (m *merger) config() error {
 		 ORDER BY s.key`, m.dst.ID, m.src.ID)
 }
 
-// pins plans the rewrite of every pin naming SRC, so that a directory keeps
-// opening the board it opened before.
-func (m *merger) pins() error {
-	m.plan.Pins.ScanRoot = m.opts.ScanRoot
-	for _, p := range m.opts.Pins {
+// markers plans the rewrite of every marker naming SRC, so that a directory
+// keeps opening the board it opened before.
+func (m *merger) markers() error {
+	m.plan.Markers.ScanRoot = m.opts.ScanRoot
+	for _, p := range m.opts.Markers {
 		if p.Target.Project != m.src.Key {
 			continue
 		}
@@ -550,14 +550,14 @@ func (m *merger) pins() error {
 			slug = m.boardSlug[b]
 		}
 		if slug == "" {
-			m.plan.Pins.Left = append(m.plan.Pins.Left, p.Path)
+			m.plan.Markers.Left = append(m.plan.Markers.Left, p.Path)
 			continue
 		}
-		m.plan.Pins.Rewrite = append(m.plan.Pins.Rewrite, PinRewrite{
+		m.plan.Markers.Rewrite = append(m.plan.Markers.Rewrite, MarkerRewrite{
 			Path: p.Path, From: p.Target.String(), To: address.Board(m.dst.Key, slug).String(),
 		})
 	}
-	m.plan.Pins.Left = append(m.plan.Pins.Left, m.opts.UnreadablePins...)
+	m.plan.Markers.Left = append(m.plan.Markers.Left, m.opts.UnreadableMarkers...)
 	return nil
 }
 

@@ -32,43 +32,43 @@ func mkdir(t *testing.T, parts ...string) string {
 	return dir
 }
 
-func pinAt(t *testing.T, dir, content string) {
+func markerAt(t *testing.T, dir, content string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, PinFile), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, MarkerFile), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func mustFind(t *testing.T, dir string) Pin {
+func mustFind(t *testing.T, dir string) Marker {
 	t.Helper()
-	pin, found, err := FindPin(dir)
+	marker, found, err := FindMarker(dir)
 	if err != nil {
-		t.Fatalf("FindPin(%s): %v", dir, err)
+		t.Fatalf("FindMarker(%s): %v", dir, err)
 	}
 	if !found {
-		t.Fatalf("FindPin(%s) found nothing", dir)
+		t.Fatalf("FindMarker(%s) found nothing", dir)
 	}
-	return pin
+	return marker
 }
 
 func mustNotFind(t *testing.T, dir string) {
 	t.Helper()
-	pin, found, err := FindPin(dir)
+	marker, found, err := FindMarker(dir)
 	if err != nil {
-		t.Fatalf("FindPin(%s): %v", dir, err)
+		t.Fatalf("FindMarker(%s): %v", dir, err)
 	}
 	if found {
-		t.Fatalf("FindPin(%s) = %+v, want nothing", dir, pin)
+		t.Fatalf("FindMarker(%s) = %+v, want nothing", dir, marker)
 	}
 }
 
-func TestFindPinNearestWins(t *testing.T) {
+func TestFindMarkerNearestWins(t *testing.T) {
 	isolateHome(t)
 	repo := mkdir(t, t.TempDir(), "mono")
 	mkdir(t, repo, ".git")
-	pinAt(t, repo, "/MONO\n")
+	markerAt(t, repo, "/MONO\n")
 	api := mkdir(t, repo, "api")
-	pinAt(t, api, "/API/boards/api\n")
+	markerAt(t, api, "/API/boards/api\n")
 	src := mkdir(t, api, "src", "deep")
 	web := mkdir(t, repo, "web")
 
@@ -79,25 +79,25 @@ func TestFindPinNearestWins(t *testing.T) {
 	if got.Target.Project != "MONO" {
 		t.Errorf("from web: %+v, want /MONO", got.Target)
 	}
-	if want := filepath.Join(normalizeDir(repo), PinFile); got.Path != want {
-		t.Errorf("pin path = %s, want %s", got.Path, want)
+	if want := filepath.Join(normalizeDir(repo), MarkerFile); got.Path != want {
+		t.Errorf("marker path = %s, want %s", got.Path, want)
 	}
 }
 
-func TestFindPinStopsAtGitDirectory(t *testing.T) {
+func TestFindMarkerStopsAtGitDirectory(t *testing.T) {
 	isolateHome(t)
 	parent := t.TempDir()
-	pinAt(t, parent, "/STRAY\n")
+	markerAt(t, parent, "/STRAY\n")
 	repo := mkdir(t, parent, "repo")
 	mkdir(t, repo, ".git")
 	mustNotFind(t, mkdir(t, repo, "sub"))
 }
 
 // A worktree's .git is a file, and must stop the walk just like a directory.
-func TestFindPinStopsAtGitFile(t *testing.T) {
+func TestFindMarkerStopsAtGitFile(t *testing.T) {
 	isolateHome(t)
 	parent := t.TempDir()
-	pinAt(t, parent, "/STRAY\n")
+	markerAt(t, parent, "/STRAY\n")
 	tree := mkdir(t, parent, "worktree")
 	if err := os.WriteFile(filepath.Join(tree, ".git"), []byte("gitdir: /elsewhere\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -105,12 +105,13 @@ func TestFindPinStopsAtGitFile(t *testing.T) {
 	mustNotFind(t, tree)
 }
 
-// A pin at a repository root is found: the pin check comes before the stop.
-func TestFindPinReadsTheRepositoryRoot(t *testing.T) {
+// A marker at a repository root is found: the marker check comes before the
+// stop.
+func TestFindMarkerReadsTheRepositoryRoot(t *testing.T) {
 	isolateHome(t)
 	repo := t.TempDir()
 	mkdir(t, repo, ".git")
-	pinAt(t, repo, "/ROOT\n")
+	markerAt(t, repo, "/ROOT\n")
 	if got := mustFind(t, repo); got.Target.Project != "ROOT" {
 		t.Errorf("got %+v", got.Target)
 	}
@@ -119,34 +120,34 @@ func TestFindPinReadsTheRepositoryRoot(t *testing.T) {
 // The home directory is never inspected. Using a TempDir as $HOME also
 // exercises normalization on macOS, where it is spelled /var/... and resolves
 // to /private/var/....
-func TestFindPinNeverReadsHome(t *testing.T) {
+func TestFindMarkerNeverReadsHome(t *testing.T) {
 	h := isolateHome(t)
-	pinAt(t, h, "/HOMEPIN\n")
+	markerAt(t, h, "/HOMEMARKER\n")
 	mustNotFind(t, mkdir(t, h, "project"))
 }
 
 // The regression test for the storage root: $HOME/.trellis is a directory.
 // Any .trellis that is not a regular file is skipped, not read and not fatal.
-func TestFindPinSkipsATrellisDirectory(t *testing.T) {
+func TestFindMarkerSkipsATrellisDirectory(t *testing.T) {
 	isolateHome(t)
 	top := t.TempDir()
 	mkdir(t, top, ".git")
-	pinAt(t, top, "/TOP\n")
+	markerAt(t, top, "/TOP\n")
 	mid := mkdir(t, top, "mid")
-	mkdir(t, mid, PinFile)
+	mkdir(t, mid, MarkerFile)
 	if got := mustFind(t, mid); got.Target.Project != "TOP" {
-		t.Errorf("got %+v, want the pin above the .trellis directory", got.Target)
+		t.Errorf("got %+v, want the marker above the .trellis directory", got.Target)
 	}
 }
 
-func TestFindPinFollowsASymlinkedPin(t *testing.T) {
+func TestFindMarkerFollowsASymlinkedMarker(t *testing.T) {
 	isolateHome(t)
 	dir := t.TempDir()
-	target := filepath.Join(t.TempDir(), "shared-pin")
+	target := filepath.Join(t.TempDir(), "shared-marker")
 	if err := os.WriteFile(target, []byte("/LINKED\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, filepath.Join(dir, PinFile)); err != nil {
+	if err := os.Symlink(target, filepath.Join(dir, MarkerFile)); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 	mkdir(t, dir, ".git")
@@ -155,90 +156,91 @@ func TestFindPinFollowsASymlinkedPin(t *testing.T) {
 	}
 }
 
-func TestFindPinDanglingSymlinkIsAnError(t *testing.T) {
+func TestFindMarkerDanglingSymlinkIsAnError(t *testing.T) {
 	isolateHome(t)
 	dir := t.TempDir()
-	if err := os.Symlink(filepath.Join(dir, "missing"), filepath.Join(dir, PinFile)); err != nil {
+	if err := os.Symlink(filepath.Join(dir, "missing"), filepath.Join(dir, MarkerFile)); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	_, found, err := FindPin(dir)
+	_, found, err := FindMarker(dir)
 	if err == nil || found {
-		t.Fatalf("FindPin = found %v, err %v; want an error", found, err)
+		t.Fatalf("FindMarker = found %v, err %v; want an error", found, err)
 	}
 }
 
-func TestFindPinMalformedIsAPinError(t *testing.T) {
+func TestFindMarkerMalformedIsAMarkerError(t *testing.T) {
 	isolateHome(t)
 	dir := t.TempDir()
-	pinAt(t, dir, "TRELLIS\n")
-	_, _, err := FindPin(dir)
-	pe, ok := errors.AsType[*PinError](err)
+	markerAt(t, dir, "TRELLIS\n")
+	_, _, err := FindMarker(dir)
+	pe, ok := errors.AsType[*MarkerError](err)
 	if !ok {
-		t.Fatalf("error = %v, want *PinError", err)
+		t.Fatalf("error = %v, want *MarkerError", err)
 	}
-	if !strings.Contains(pe.Error(), "old bare-key format") || !strings.HasSuffix(pe.Path, PinFile) {
-		t.Errorf("PinError = %q (path %s)", pe.Error(), pe.Path)
+	if !strings.Contains(pe.Error(), "old bare-key format") || !strings.HasSuffix(pe.Path, MarkerFile) {
+		t.Errorf("MarkerError = %q (path %s)", pe.Error(), pe.Path)
 	}
 }
 
-// An unreadable pin must never let the walk continue to an ancestor's pin.
-func TestFindPinUnreadablePinIsAnError(t *testing.T) {
+// An unreadable marker must never let the walk continue to an ancestor's
+// marker.
+func TestFindMarkerUnreadableMarkerIsAnError(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("permission bits do not deny reads here")
 	}
 	isolateHome(t)
 	parent := t.TempDir()
-	pinAt(t, parent, "/PARENT\n")
+	markerAt(t, parent, "/PARENT\n")
 	child := mkdir(t, parent, "child")
-	pinAt(t, child, "/CHILD\n")
-	if err := os.Chmod(filepath.Join(child, PinFile), 0o000); err != nil {
+	markerAt(t, child, "/CHILD\n")
+	if err := os.Chmod(filepath.Join(child, MarkerFile), 0o000); err != nil {
 		t.Fatal(err)
 	}
-	_, found, err := FindPin(child)
+	_, found, err := FindMarker(child)
 	if err == nil || found || errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("FindPin = found %v, err %v; want a permission error", found, err)
+		t.Fatalf("FindMarker = found %v, err %v; want a permission error", found, err)
 	}
 }
 
-func TestFindPinUnsearchableDirectoryIsAnError(t *testing.T) {
+func TestFindMarkerUnsearchableDirectoryIsAnError(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("permission bits do not deny access here")
 	}
 	isolateHome(t)
 	parent := t.TempDir()
-	pinAt(t, parent, "/PARENT\n")
+	markerAt(t, parent, "/PARENT\n")
 	locked := mkdir(t, parent, "locked")
 	inner := mkdir(t, locked, "inner")
 	if err := os.Chmod(locked, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(locked, 0o755) })
-	if _, found, err := FindPin(inner); err == nil || found {
-		t.Fatalf("FindPin = found %v, err %v; want an error", found, err)
+	if _, found, err := FindMarker(inner); err == nil || found {
+		t.Fatalf("FindMarker = found %v, err %v; want an error", found, err)
 	}
 }
 
-func TestFindPinWithoutAHomeDirectory(t *testing.T) {
+func TestFindMarkerWithoutAHomeDirectory(t *testing.T) {
 	t.Setenv("HOME", "")
 	t.Setenv("USERPROFILE", "")
 	dir := t.TempDir()
-	pinAt(t, dir, "/NOHOME\n")
+	markerAt(t, dir, "/NOHOME\n")
 	if got := mustFind(t, dir); got.Target.Project != "NOHOME" {
 		t.Errorf("got %+v", got.Target)
 	}
 }
 
-func TestUnpinnable(t *testing.T) {
+func TestUnmarkable(t *testing.T) {
 	h := isolateHome(t)
-	if reason, err := Unpinnable(h); err != nil || reason == "" {
-		t.Errorf("Unpinnable(home) = %q, %v; want a reason", reason, err)
+	if reason, err := Unmarkable(h); err != nil || reason == "" {
+		t.Errorf("Unmarkable(home) = %q, %v; want a reason", reason, err)
 	}
 	root := filepath.VolumeName(h) + string(filepath.Separator)
-	if reason, err := Unpinnable(root); err != nil || reason == "" {
-		t.Errorf("Unpinnable(%s) = %q, %v; want a reason", root, reason, err)
+	if reason, err := Unmarkable(root); err != nil || reason == "" {
+		t.Errorf("Unmarkable(%s) = %q, %v; want a reason", root, reason, err)
 	}
-	if reason, err := Unpinnable(mkdir(t, h, "project")); err != nil || reason != "" {
-		t.Errorf("Unpinnable(project) = %q, %v; want none", reason, err)
+	if reason, err := Unmarkable(mkdir(t, h, "project")); err != nil || reason != "" {
+		t.Errorf("Unmarkable(project) = %q, %v; want none", reason, err)
 	}
 }
 
@@ -255,31 +257,31 @@ func TestScanRootIsTheEnclosingRepository(t *testing.T) {
 	}
 }
 
-func TestPinsUnderSkipsGitAndNestedRepositories(t *testing.T) {
+func TestMarkersUnderSkipsGitAndNestedRepositories(t *testing.T) {
 	isolateHome(t)
 	repo := normalizeDir(t.TempDir())
 	mkdir(t, repo, ".git")
-	pinAt(t, repo, "/MONO\n")
-	pinAt(t, mkdir(t, repo, "api"), "/API\n")
-	pinAt(t, mkdir(t, repo, ".git", "hooks"), "/HIDDEN\n")
+	markerAt(t, repo, "/MONO\n")
+	markerAt(t, mkdir(t, repo, "api"), "/API\n")
+	markerAt(t, mkdir(t, repo, ".git", "hooks"), "/HIDDEN\n")
 	nested := mkdir(t, repo, "vendor", "lib")
 	mkdir(t, nested, ".git")
-	pinAt(t, nested, "/LIB\n")
-	pinAt(t, mkdir(t, repo, "old"), "OLD\n")
+	markerAt(t, nested, "/LIB\n")
+	markerAt(t, mkdir(t, repo, "old"), "OLD\n")
 
-	pins, skipped, err := PinsUnder(repo)
+	markers, skipped, err := MarkersUnder(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var keys []string
-	for _, p := range pins {
+	for _, p := range markers {
 		keys = append(keys, p.Target.Project)
 	}
 	slices.Sort(keys)
 	if !slices.Equal(keys, []string{"API", "MONO"}) {
-		t.Errorf("pins = %v", keys)
+		t.Errorf("markers = %v", keys)
 	}
-	if !slices.Equal(skipped, []string{filepath.Join(repo, "old", PinFile)}) {
+	if !slices.Equal(skipped, []string{filepath.Join(repo, "old", MarkerFile)}) {
 		t.Errorf("skipped = %v", skipped)
 	}
 }

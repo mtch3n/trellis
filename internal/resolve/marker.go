@@ -10,110 +10,110 @@ import (
 	"github.com/mtch3n/trellis/internal/address"
 )
 
-// PinFile is the file that links a directory to a project.
-const PinFile = ".trellis"
+// MarkerFile is the file that links a directory to a project.
+const MarkerFile = ".trellis"
 
 // ErrNotRegular marks a .trellis entry that is not a regular file, such as
 // the storage root $HOME/.trellis. The walk skips it; init refuses it.
 var ErrNotRegular = errors.New("not a regular file")
 
-// Pin is a .trellis file and the address it names.
-type Pin struct {
+// Marker is a .trellis file and the address it names.
+type Marker struct {
 	Path   string // absolute path of the file
 	Target address.Address
 }
 
-// PinError is a .trellis entry that cannot serve as a pin: malformed content,
-// or not a regular file.
-type PinError struct {
+// MarkerError is a .trellis entry that cannot serve as a marker: malformed
+// content, or not a regular file.
+type MarkerError struct {
 	Path string
 	Err  error
 }
 
-func (e *PinError) Error() string { return e.Path + ": " + e.Err.Error() }
-func (e *PinError) Unwrap() error { return e.Err }
+func (e *MarkerError) Error() string { return e.Path + ": " + e.Err.Error() }
+func (e *MarkerError) Unwrap() error { return e.Err }
 
-// ReadPin parses the pin at path. A missing file yields an error wrapping
-// fs.ErrNotExist; a symlink whose target is missing does not, because that is
-// a broken pin rather than an absent one.
-func ReadPin(path string) (Pin, error) {
+// ReadMarker parses the marker at path. A missing file yields an error
+// wrapping fs.ErrNotExist; a symlink whose target is missing does not, because
+// that is a broken marker rather than an absent one.
+func ReadMarker(path string) (Marker, error) {
 	info, err := os.Stat(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		if _, lerr := os.Lstat(path); lerr == nil {
-			return Pin{}, fmt.Errorf("%s is a symlink to a missing file", path)
+			return Marker{}, fmt.Errorf("%s is a symlink to a missing file", path)
 		}
 	}
 	if err != nil {
-		return Pin{}, err
+		return Marker{}, err
 	}
 	if !info.Mode().IsRegular() {
-		return Pin{}, &PinError{Path: path, Err: ErrNotRegular}
+		return Marker{}, &MarkerError{Path: path, Err: ErrNotRegular}
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return Pin{}, err
+		return Marker{}, err
 	}
-	target, err := address.ParsePin(string(b))
+	target, err := address.ParseMarker(string(b))
 	if err != nil {
-		return Pin{}, &PinError{Path: path, Err: err}
+		return Marker{}, &MarkerError{Path: path, Err: err}
 	}
-	return Pin{Path: path, Target: target}, nil
+	return Marker{Path: path, Target: target}, nil
 }
 
-// FindPin walks up from dir to the nearest pin. found is false when no pin
-// applies to dir.
+// FindMarker walks up from dir to the nearest marker. found is false when no
+// marker applies to dir.
 //
-// The walk never inspects $HOME or the filesystem root: a pin there would
+// The walk never inspects $HOME or the filesystem root: a marker there would
 // capture every directory beneath it, and $HOME/.trellis is the default
-// storage root. It stops after a directory that contains .git, so a pin above
-// a repository never applies to it. Pins are committed, and one outside the
-// repository would make the same repository resolve differently depending on
-// where it was cloned. .git is only a stop sign: nothing is read from it, and
-// git is never run.
+// storage root. It stops after a directory that contains .git, so a marker
+// above a repository never applies to it. Markers are committed, and one
+// outside the repository would make the same repository resolve differently
+// depending on where it was cloned. .git is only a stop sign: nothing is read
+// from it, and git is never run.
 //
 // Any failure other than absence is an error. Treating an unreadable .trellis
-// or .git as missing would let the walk continue to an ancestor's pin and
+// or .git as missing would let the walk continue to an ancestor's marker and
 // send work to the wrong board.
-func FindPin(dir string) (pin Pin, found bool, err error) {
+func FindMarker(dir string) (marker Marker, found bool, err error) {
 	start, err := canonicalDir(dir)
 	if err != nil {
-		return Pin{}, false, err
+		return Marker{}, false, err
 	}
 	home := homeDir()
 	for d := start; ; {
 		parent := filepath.Dir(d)
 		if d == home || parent == d {
-			return Pin{}, false, nil
+			return Marker{}, false, nil
 		}
-		p, err := ReadPin(filepath.Join(d, PinFile))
+		p, err := ReadMarker(filepath.Join(d, MarkerFile))
 		switch {
 		case err == nil:
 			return p, true, nil
 		case errors.Is(err, fs.ErrNotExist), errors.Is(err, ErrNotRegular):
 		default:
-			return Pin{}, false, err
+			return Marker{}, false, err
 		}
 		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
-			return Pin{}, false, nil
+			return Marker{}, false, nil
 		} else if !errors.Is(err, fs.ErrNotExist) {
-			return Pin{}, false, err
+			return Marker{}, false, err
 		}
 		d = parent
 	}
 }
 
-// Unpinnable says why a pin written in dir would never be read, or returns
+// Unmarkable says why a marker written in dir would never be read, or returns
 // "" when it would be.
-func Unpinnable(dir string) (reason string, err error) {
+func Unmarkable(dir string) (reason string, err error) {
 	d, err := canonicalDir(dir)
 	if err != nil {
 		return "", err
 	}
 	switch {
 	case filepath.Dir(d) == d:
-		return "the filesystem root is never searched for a pin", nil
+		return "the filesystem root is never searched for a marker", nil
 	case d == homeDir():
-		return "the home directory is never searched for a pin", nil
+		return "the home directory is never searched for a marker", nil
 	}
 	return "", nil
 }
@@ -143,7 +143,7 @@ func homeDir() string {
 	return normalizeDir(h)
 }
 
-// ScanRoot is where a merge looks for pins to rewrite: the nearest ancestor
+// ScanRoot is where a merge looks for markers to rewrite: the nearest ancestor
 // of dir, dir included, that contains .git, within the walk's usual
 // boundaries; dir itself when there is none.
 func ScanRoot(dir string) (string, error) {
@@ -166,12 +166,12 @@ func ScanRoot(dir string) (string, error) {
 	}
 }
 
-// PinsUnder lists the pins beneath root. It skips .git directories and every
-// nested directory holding its own .git: a nested repository has its own pins
-// and its own commits. Symlinks are not followed. A pin that cannot be read
-// or parsed, and a directory that cannot be listed, is reported in skipped
-// rather than failing the scan.
-func PinsUnder(root string) (pins []Pin, skipped []string, err error) {
+// MarkersUnder lists the markers beneath root. It skips .git directories and
+// every nested directory holding its own .git: a nested repository has its own
+// markers and its own commits. Symlinks are not followed. A marker that cannot
+// be read or parsed, and a directory that cannot be listed, is reported in
+// skipped rather than failing the scan.
+func MarkersUnder(root string) (markers []Marker, skipped []string, err error) {
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			skipped = append(skipped, path+": "+walkErr.Error())
@@ -191,16 +191,16 @@ func PinsUnder(root string) (pins []Pin, skipped []string, err error) {
 			}
 			return nil
 		}
-		if d.Name() != PinFile || !d.Type().IsRegular() {
+		if d.Name() != MarkerFile || !d.Type().IsRegular() {
 			return nil
 		}
-		pin, err := ReadPin(path)
+		marker, err := ReadMarker(path)
 		if err != nil {
 			skipped = append(skipped, path)
 			return nil
 		}
-		pins = append(pins, pin)
+		markers = append(markers, marker)
 		return nil
 	})
-	return pins, skipped, err
+	return markers, skipped, err
 }

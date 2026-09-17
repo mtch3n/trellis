@@ -7,13 +7,13 @@ import (
 	"testing"
 )
 
-// repoEnv is a pinned project whose pin directory holds a .trellis.yaml with
-// content. It returns the pin directory, which is also the working directory.
+// repoEnv is a marked directory that also holds a .trellis.yaml with
+// content. It returns that directory, which is also the working directory.
 func repoEnv(t *testing.T, content string) string {
 	t.Helper()
-	dir := pinEnv(t, "repo")
+	dir := markerEnv(t, "repo")
 	seedProject(t, "REPO", "main")
-	writePin(t, dir, "/REPO\n")
+	writeMarker(t, dir, "/REPO\n")
 	if content != "" {
 		if err := os.WriteFile(filepath.Join(dir, ".trellis.yaml"), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
@@ -22,7 +22,7 @@ func repoEnv(t *testing.T, content string) string {
 	return dir
 }
 
-func TestConfigGetReadsTheFileBesideThePin(t *testing.T) {
+func TestConfigGetReadsTheFileBesideTheMarker(t *testing.T) {
 	dir := repoEnv(t, "config:\n  card.ls_limit: 7\n")
 
 	out := runCmd(t, "config", "get", "card.ls_limit", "--json")
@@ -30,7 +30,7 @@ func TestConfigGetReadsTheFileBesideThePin(t *testing.T) {
 		t.Fatalf("config get = %s, want value 7 from repo", out)
 	}
 
-	// From a subdirectory, the file beside the pin still answers.
+	// From a subdirectory, the file beside the marker still answers.
 	sub := filepath.Join(dir, "deep", "inside")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
@@ -48,7 +48,7 @@ func TestANamedProjectReadsNoRepositoryFile(t *testing.T) {
 
 	out := runCmd(t, "config", "get", "card.ls_limit", "--json")
 	if strings.Contains(out, `"source":"repo"`) {
-		t.Fatalf("config get = %s: a project named by TRELLIS_PROJECT has no pin, so no repo file", out)
+		t.Fatalf("config get = %s: a project named by TRELLIS_PROJECT has no marker, so no repo file", out)
 	}
 }
 
@@ -64,7 +64,7 @@ func TestABrokenRepositoryFileFailsOrdinaryCommands(t *testing.T) {
 	}
 }
 
-func TestConfigSetRepoWritesBesideThePin(t *testing.T) {
+func TestConfigSetRepoWritesBesideTheMarker(t *testing.T) {
 	dir := repoEnv(t, "config:\n  claim.ttl: 45m\nextensions:\n  actions:\n    - on: entry.created\n      run: ./review.sh\n")
 	sub := filepath.Join(dir, "sub")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
@@ -129,12 +129,12 @@ func TestConfigSetRepoRefusesAMachineLevelKey(t *testing.T) {
 	}
 }
 
-func TestConfigSetRepoNeedsAPin(t *testing.T) {
+func TestConfigSetRepoNeedsAMarker(t *testing.T) {
 	repoEnv(t, "")
 	t.Setenv("TRELLIS_PROJECT", "REPO")
 	_, err := runCmdErr(t, "config", "set", "--repo", "card.ls_limit", "9")
 	if err == nil {
-		t.Fatal("--repo with TRELLIS_PROJECT has no pin to write beside")
+		t.Fatal("--repo with TRELLIS_PROJECT has no marker to write beside")
 	}
 	if ce := coreErr(t, err); ce.Code != "no_pin" {
 		t.Fatalf("code = %s, want no_pin", ce.Code)
