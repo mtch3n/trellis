@@ -88,6 +88,9 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 				if uerr := undoWrite(w.path, w.old, w.written); uerr != nil {
 					err = errors.Join(err, uerr)
 				}
+				if derr := discardCapturedRevision(w.revisionDest); derr != nil {
+					err = errors.Join(err, derr)
+				}
 			}
 			rewrites = nil
 			if dest != "" {
@@ -103,7 +106,23 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 			}
 		}()
 
-		resolved, rerr := c.resolveSlug(tx, projectID, ref, false)
+		key, err := projectKeyOf(tx, projectID)
+		if err != nil {
+			return err
+		}
+		// ref may be the canonical address show/search/recall print
+		// (/KEY/knowledge/x), not just a bare slug: parse it the way loadDoc
+		// does, so a /GLOBAL address is refused up front and one naming
+		// another project reports wrong_project instead of not-found.
+		d, derr := readDocArg(ref, key)
+		if derr != nil {
+			return derr
+		}
+		if d.scope == docVault {
+			return ErrUsage("global_entry", ref+" is in the global vault; demote it first",
+				"trellis knowledge demote "+ref)
+		}
+		resolved, rerr := c.resolveSlug(tx, projectID, d.slug, false)
 		if rerr != nil {
 			return rerr
 		}
@@ -133,10 +152,6 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		if err := c.refuseResemblingDir(tx, projectID, destDir, newDir); err != nil {
 			return err
 		}
-		var key string
-		if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, projectID); err != nil {
-			return err
-		}
 		vault, err := c.kbDir(key, false)
 		if err != nil {
 			return err
@@ -160,6 +175,12 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		if err := c.recordEvent(tx, "knowledge", doc.ID, "moved", "", oldSlug, newSlug); err != nil {
 			return err
 		}
+		// A move changes the entry's address the same way escalate and
+		// demote do; a wikilink written to the new path before this move,
+		// still a stub, becomes resolvable now.
+		if err := c.resolveDocStubs(tx, &doc); err != nil {
+			return err
+		}
 		if err := c.rewriteInboundWikilinks(tx, &doc, key, oldSlug, &rewrites); err != nil {
 			return err
 		}
@@ -178,6 +199,18 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		if writeLanded(landed == dest, qerr) {
 			err = nil
 		} else {
+			// Newest first, mirroring the deferred undo above: a rewrite of
+			// the entry itself sits at dest and is restored there before the
+			// entry moves back.
+			for i := len(rewrites) - 1; i >= 0; i-- {
+				w := rewrites[i]
+				if uerr := undoWrite(w.path, w.old, w.written); uerr != nil {
+					err = errors.Join(err, uerr)
+				}
+				if derr := discardCapturedRevision(w.revisionDest); derr != nil {
+					err = errors.Join(err, derr)
+				}
+			}
 			if _, merr := moveFileTo(dest, src); merr != nil {
 				err = errors.Join(err, merr)
 			}
@@ -197,9 +230,10 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 // fileWrite is a file a transaction replaced, with what it held before, so
 // the transaction can put it back if it does not complete.
 type fileWrite struct {
-	path    string
-	old     []byte
-	written string // content hash of what was written
+	path         string
+	old          []byte
+	written      string // content hash of what was written
+	revisionDest string // the new version captureKnowledgeRevision wrote, if any
 }
 
 // rewriteInboundWikilinks rewrites every wikilink that resolves to doc so it
@@ -272,7 +306,7 @@ func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, 
 		if newBody == body {
 			continue
 		}
-		if err := c.captureKnowledgeRevision(from.Path, from.Version, raw); err != nil {
+		if _, err := c.captureKnowledgeRevision(from.Path, from.Version, raw); err != nil {
 			return err
 		}
 		now := c.clock.NowMS()
@@ -284,7 +318,6 @@ func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, 
 			}
 			return err
 		}
-		*undo = append(*undo, fileWrite{path: from.Path, old: raw, written: ContentHash(out)})
 		st, err := os.Stat(from.Path)
 		if err != nil {
 			return err
@@ -293,6 +326,14 @@ func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, 
 		from.MTime, from.Size = st.ModTime().UnixMilli(), st.Size()
 		from.Version++
 		from.UpdatedAt = now
+		// The spec's copy table asks for the new file too, captured after any
+		// Trellis write; the pre-write capture above only ever retained the
+		// version this rewrite replaced.
+		revisionDest, err := c.captureKnowledgeRevision(from.Path, from.Version, []byte(out))
+		if err != nil {
+			return err
+		}
+		*undo = append(*undo, fileWrite{path: from.Path, old: raw, written: ContentHash(out), revisionDest: revisionDest})
 		if _, err := tx.Exec(`UPDATE knowledge SET content_hash = ?, mtime = ?, size = ?, version = ?, updated_at = ?
 			WHERE id = ?`, from.ContentHash, from.MTime, from.Size, from.Version, from.UpdatedAt, from.ID); err != nil {
 			return err

@@ -335,6 +335,85 @@ func TestMoveKnowledgeRefusesAGlobalEntry(t *testing.T) {
 	}
 }
 
+// review-knowledge #8: MoveKnowledge gave ref to resolveSlug directly instead
+// of parsing it through readDocArg first, so the canonical address show,
+// search and recall all print (/KEY/knowledge/x) was rejected as
+// knowledge_not_found.
+func TestMoveKnowledgeAcceptsTheCanonicalAddress(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	address := "/" + p.Key + "/knowledge/" + doc.Slug
+	moved, err := c.MoveKnowledge(t.Context(), p.ID, address, "deploy/rollback", false)
+	if err != nil {
+		t.Fatalf("MoveKnowledge(%s): %v", address, err)
+	}
+	if moved.Slug != "deploy/rollback" {
+		t.Errorf("slug = %q, want deploy/rollback", moved.Slug)
+	}
+}
+
+// The virtual-paths spec requires an address naming another project to be
+// refused with wrong_project, not treated as not-found.
+func TestMoveKnowledgeRefusesAnotherProjectsAddress(t *testing.T) {
+	c, p, _ := kbCore(t)
+	p2 := seededProject2(t, c)
+	doc, err := c.CreateKnowledge(t.Context(), p2.ID, NewKnowledge{Title: "Elsewhere"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	address := "/" + p2.Key + "/knowledge/" + doc.Slug
+	if _, err := c.MoveKnowledge(t.Context(), p.ID, address, "new-name", false); pathErrCode(err) != "wrong_project" {
+		t.Fatalf("err = %v, want wrong_project", err)
+	}
+}
+
+// review-knowledge #7: a move changes an entry's address exactly the way
+// escalate and demote do, and resolveDocStubs must run for it too, so a
+// wikilink written to the new path before the move backfills instead of
+// staying a stub until the referrer's own file next changes.
+func TestMoveKnowledgeBackfillsStubsThatNameTheNewPath(t *testing.T) {
+	c, p, _ := kbCore(t)
+	referrer, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Index", Body: "[[deploy/rollback]]\n"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge referrer: %v", err)
+	}
+	target, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge target: %v", err)
+	}
+
+	findings, err := c.Lint(t.Context(), p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stubbedBefore bool
+	for _, f := range findings {
+		if f.Kind == "stub" && f.Doc == referrer.Ref {
+			stubbedBefore = true
+		}
+	}
+	if !stubbedBefore {
+		t.Fatal("the link must be a stub before the move: nothing lives at deploy/rollback yet")
+	}
+
+	if _, err := c.MoveKnowledge(t.Context(), p.ID, target.Slug, "deploy/rollback", false); err != nil {
+		t.Fatalf("MoveKnowledge: %v", err)
+	}
+
+	findings, err = c.Lint(t.Context(), p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Kind == "stub" && f.Doc == referrer.Ref {
+			t.Errorf("still a stub after the move resolved it: %+v", f)
+		}
+	}
+}
+
 func TestMoveKnowledgeMovesTheRevisionDirectoryIfPresent(t *testing.T) {
 	c, p, _ := kbCore(t)
 	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Standup"})
@@ -451,6 +530,55 @@ func TestEscalateKnowledgeMovesTheRevisionDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(revisionDir(global.Path)); err != nil {
 		t.Fatalf("revision directory must have moved: %v", err)
+	}
+}
+
+// review-knowledge #3: escalating a nested entry must move its revision
+// directory to sit beside the entry at its new subpath, not to the vault
+// root -- moving it to <global>/.rollback.md instead of
+// <global>/deployment/.rollback.md detaches its history (revisionDir(dest)
+// then names a directory that does not exist) and collides with a
+// root-level "rollback" escalated from elsewhere afterward.
+func TestEscalateDemoteMoveTheRevisionDirectoryForANestedSlug(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment", Body: "v1\n"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "v2\n", &doc.Version); err != nil {
+		t.Fatalf("EditKnowledge: %v", err)
+	}
+
+	global, err := c.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "reason")
+	if err != nil {
+		t.Fatalf("EscalateKnowledge: %v", err)
+	}
+	if filepath.Base(filepath.Dir(global.Path)) != "deployment" {
+		t.Fatalf("path = %q, want the subpath preserved", global.Path)
+	}
+	// The bug's destination: the revision directory at the vault root
+	// instead of beside the entry under deployment/.
+	rootRevDir := filepath.Join(filepath.Dir(filepath.Dir(global.Path)), ".rollback.md")
+	if _, err := os.Stat(rootRevDir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the revision directory landed at the vault root (%s) instead of beside the entry", rootRevDir)
+	}
+	for v := int64(1); v <= 2; v++ {
+		if _, err := os.Stat(revisionFilePath(global.Path, v)); err != nil {
+			t.Errorf("version %d missing after escalate at %s: %v", v, revisionDir(global.Path), err)
+		}
+	}
+
+	back, err := c.DemoteKnowledge(t.Context(), global.Slug, "reason")
+	if err != nil {
+		t.Fatalf("DemoteKnowledge: %v", err)
+	}
+	if filepath.Base(filepath.Dir(back.Path)) != "deployment" {
+		t.Fatalf("path = %q, want the subpath preserved after demote", back.Path)
+	}
+	for v := int64(1); v <= 2; v++ {
+		if _, err := os.Stat(revisionFilePath(back.Path, v)); err != nil {
+			t.Errorf("version %d missing after demote at %s: %v", v, revisionDir(back.Path), err)
+		}
 	}
 }
 
@@ -752,6 +880,62 @@ func TestMoveKnowledgeRewritesOnlyLinksToTheEntry(t *testing.T) {
 	}
 }
 
+// review-knowledge #6: a wikilink rewrite is a Trellis write like any
+// other, and the spec's copy table calls for the new file to be captured
+// after any Trellis write -- not only the version the rewrite replaced.
+// Without it, a referrer edited directly right after a move loses the
+// rewrite's own version: refreshFromFile jumps straight from N to N+2.
+func TestMoveKnowledgeCapturesTheReferrersRewrittenVersion(t *testing.T) {
+	c, p, _ := kbCore(t)
+	ctx := t.Context()
+	target, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Rollback"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	referrer, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Index", Body: "[[rollback]]\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := c.MoveKnowledge(ctx, p.ID, target.Slug, "deploy/rollback", false); err != nil {
+		t.Fatalf("MoveKnowledge: %v", err)
+	}
+
+	moved, err := c.LoadKnowledge(ctx, p.ID, referrer.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.Version != referrer.Version+1 {
+		t.Fatalf("referrer version = %d, want %d", moved.Version, referrer.Version+1)
+	}
+
+	revs, err := c.ListKnowledgeRevisions(ctx, p.ID, referrer.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotNewVersion bool
+	for _, r := range revs {
+		if r.Version == moved.Version {
+			gotNewVersion = true
+		}
+	}
+	if !gotNewVersion {
+		t.Fatalf("revisions = %+v, want version %d (the rewrite's own new version) retained", revs, moved.Version)
+	}
+
+	retained, err := os.ReadFile(revisionFilePath(moved.Path, moved.Version))
+	if err != nil {
+		t.Fatalf("reading the retained version: %v", err)
+	}
+	current, err := os.ReadFile(moved.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(retained) != string(current) {
+		t.Errorf("retained version %d = %q, want it to match the rewritten file %q", moved.Version, retained, current)
+	}
+}
+
 // A move that fails after rewriting a referrer puts the referrer back.
 func TestMoveKnowledgeFailureRestoresRewrittenReferrers(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
@@ -794,5 +978,62 @@ func TestMoveKnowledgeFailureRestoresRewrittenReferrers(t *testing.T) {
 	back, err := c.LoadKnowledge(ctx, p.ID, target.Slug)
 	if err != nil || back.Slug != "rollback" {
 		t.Errorf("entry after the failed move = %+v, %v", back.Slug, err)
+	}
+}
+
+// review-knowledge #4: once the closure sets done = true, a failure that
+// only shows up when tx.Commit() itself is called -- an ambiguous outcome,
+// not a statement error -- must undo a referrer's rewritten wikilink the
+// same way a failure inside the closure already does. A trigger that fires
+// on the entry's own row update inserts a row whose foreign key SQLite is
+// told to check only at COMMIT (defer_foreign_keys), so the closure
+// completes normally and only the commit fails.
+func TestMoveKnowledgeCommitFailureUndoesRewrittenReferrersToo(t *testing.T) {
+	c, p, _ := kbCore(t)
+	ctx := t.Context()
+	target, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Rollback"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	referrer, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Index", Body: "[[rollback]]\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	referrerRaw, err := os.ReadFile(referrer.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := c.db.Exec(`CREATE TABLE canary (id INTEGER PRIMARY KEY, target TEXT REFERENCES knowledge(id))`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.db.Exec(`CREATE TRIGGER canary_trg AFTER UPDATE OF slug ON knowledge
+		BEGIN INSERT INTO canary (target) VALUES ('does-not-exist'); END`); err != nil {
+		t.Fatal(err)
+	}
+	// Deferred until COMMIT of the very next transaction (SQLite resets this
+	// at the end of every transaction, so it must be set immediately before
+	// the one call under test).
+	if _, err := c.db.Exec(`PRAGMA defer_foreign_keys = ON`); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := c.MoveKnowledge(ctx, p.ID, target.Slug, "deploy/rollback", false); err == nil {
+		t.Fatal("MoveKnowledge succeeded; the deferred foreign key violation should have failed its commit")
+	}
+
+	raw, err := os.ReadFile(referrer.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != string(referrerRaw) {
+		t.Errorf("the referrer was not restored after the commit failure:\ngot  %q\nwant %q", raw, referrerRaw)
+	}
+	if _, err := os.Stat(target.Path); err != nil {
+		t.Errorf("the entry did not move back: %v", err)
+	}
+	back, err := c.LoadKnowledge(ctx, p.ID, target.Slug)
+	if err != nil || back.Slug != "rollback" {
+		t.Errorf("entry after the failed commit = %+v, %v", back.Slug, err)
 	}
 }

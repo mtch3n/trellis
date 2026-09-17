@@ -202,10 +202,23 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		if err != nil {
 			return Knowledge{}, err
 		}
-		fields := map[string][]string{"sources": cleanSources(in.Sources), "summary": {in.Summary}}
-		for k, v := range in.Set {
-			fields[k] = []string{v}
+		// The same fields the edit path checks (template.go's templateProblems
+		// via frontmatterFields), not just sources/summary/--set: a required
+		// or choices rule on title, tags, labels, board or provenance must
+		// hold at creation too, not only from the next edit onward. The board
+		// field uses the name the caller typed; it is only resolved to a row
+		// (and rejected if it does not exist) once creation itself proceeds.
+		checkFM := Frontmatter{
+			Title: in.Title, Summary: in.Summary, Provenance: provenance,
+			Board: in.Board, Tags: in.Tags, Labels: in.Labels, Sources: cleanSources(in.Sources),
 		}
+		if len(in.Set) > 0 {
+			checkFM.Extra = make(map[string]any, len(in.Set))
+			for k, v := range in.Set {
+				checkFM.Extra[k] = v
+			}
+		}
+		fields := frontmatterFields(checkFM)
 		checkSections := body != ""
 		if body == "" {
 			body = stripOptionalMarkers(renderTemplateBody(tmpl.Body, in.Title, in.Set))
@@ -293,6 +306,18 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		}
 		raw := RenderDoc(fm, body)
 		path := filepath.Join(dir, filepath.FromSlash(slug)+".md")
+		// A revision directory can outlive the entry it belonged to when the
+		// file and row are removed outside Trellis -- exactly what
+		// `maintenance prune --orphan-history` exists for. Adopting it here
+		// would hand this new entry someone else's history, so refuse
+		// instead: run the prune first.
+		if _, err := os.Stat(revisionDir(path)); err == nil {
+			return ErrConflict("stale_history",
+				"a revision history for "+slug+" already exists with no entry using it",
+				"trellis maintenance prune --orphan-history")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return err
 		}
@@ -317,7 +342,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		if err := insertKnowledge(tx, doc); err != nil {
 			return err
 		}
-		if err := c.captureKnowledgeRevision(doc.Path, doc.Version, []byte(raw)); err != nil {
+		if _, err := c.captureKnowledgeRevision(doc.Path, doc.Version, []byte(raw)); err != nil {
 			return err
 		}
 		if err := c.syncDocRelations(tx, &doc, fm, body); err != nil {
@@ -464,7 +489,20 @@ func (c *Core) loadDoc(tx *sqlx.Tx, projectID, slug string, out *Knowledge) erro
 // refreshFromFile re-reads the file when mtime or size moved. This is the whole
 // of the "stat sweep": a stat is microseconds, so it runs on every read rather
 // than on a schedule, and an edit in Obsidian is visible to the next command.
-func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
+func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) (err error) {
+	// The capture below writes the retained copy of this version before the
+	// row commits it. If a later step in this function fails, that copy must
+	// not survive: kept, it would be skipped as "already retained" the next
+	// time this version is really reached, and the content that actually
+	// belongs at that version would never be captured.
+	var revisionDest string
+	defer func() {
+		if err != nil && revisionDest != "" {
+			if derr := discardCapturedRevision(revisionDest); derr != nil {
+				err = errors.Join(err, derr)
+			}
+		}
+	}()
 	st, err := os.Stat(doc.Path)
 	if errors.Is(err, os.ErrNotExist) {
 		return ErrNotFound("file_missing", "the file for "+doc.Slug+" is gone: "+doc.Path,
@@ -482,7 +520,12 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 		return err
 	}
 	doc.Title = cmpOr(fm.Title, doc.Title)
-	doc.Template = cmpOr(fm.Template, doc.Template)
+	// Unlike Title, an empty template is meaningful: it means "no template",
+	// not "keep whatever the row had". cmpOr here would make removing the
+	// key by hand a no-op, so ls --template, the Templates recall filter and
+	// Knowledge.Template would all keep reporting a template the file no
+	// longer names.
+	doc.Template = fm.Template
 	doc.Summary = fm.Summary
 	doc.Provenance = fm.Provenance
 	doc.Sources = fm.Sources
@@ -524,7 +567,8 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) error {
 		return err
 	}
 	if contentChanged {
-		if err := c.captureKnowledgeRevision(doc.Path, doc.Version, raw); err != nil {
+		revisionDest, err = c.captureKnowledgeRevision(doc.Path, doc.Version, raw)
+		if err != nil {
 			return err
 		}
 	}
@@ -709,6 +753,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 	var doc Knowledge
 	var oldRaw []byte
 	var written string
+	var revisionDest string
 	var done bool
 	var templateWarnings []string
 	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
@@ -730,6 +775,16 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 					err = errors.Join(err, uerr)
 				}
 				written = ""
+			}
+			if !done && revisionDest != "" {
+				// The new version was captured on the assumption this write
+				// would land. It did not: that capture must go too, or the
+				// real version reached later will find it "already retained"
+				// and skip capturing it.
+				if derr := discardCapturedRevision(revisionDest); derr != nil {
+					err = errors.Join(err, derr)
+				}
+				revisionDest = ""
 			}
 		}()
 
@@ -786,7 +841,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		}
 		base := doc.ContentHash // the hash this write is based on
 		oldRaw = raw
-		if err := c.captureKnowledgeRevision(doc.Path, doc.Version, oldRaw); err != nil {
+		if _, err := c.captureKnowledgeRevision(doc.Path, doc.Version, oldRaw); err != nil {
 			return err
 		}
 		fm, body, err := splitDocFile(doc.Path, raw)
@@ -855,7 +910,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 					return err
 				}
 				templateWarnings = problems
-			case in.Template == nil && isCode(err, "unknown_template"):
+			case in.Template == nil && (isCode(err, "unknown_template") || isCode(err, "bad_template_name")):
 				templateWarnings = []string{"no template " + fm.Template + "; its rules were not checked"}
 			default:
 				return err
@@ -947,7 +1002,8 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 				}
 			}
 		}
-		if err := c.captureKnowledgeRevision(doc.Path, doc.Version, []byte(out)); err != nil {
+		revisionDest, err = c.captureKnowledgeRevision(doc.Path, doc.Version, []byte(out))
+		if err != nil {
 			return err
 		}
 		if err := c.docView(tx, &doc); err != nil {
@@ -969,8 +1025,13 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		qerr := c.db.Get(&landed, `SELECT content_hash FROM knowledge WHERE id = ?`, doc.ID)
 		if writeLanded(landed == written, qerr) {
 			err = nil
-		} else if uerr := undoWrite(doc.Path, oldRaw, written); uerr != nil {
-			err = errors.Join(err, uerr)
+		} else {
+			if uerr := undoWrite(doc.Path, oldRaw, written); uerr != nil {
+				err = errors.Join(err, uerr)
+			}
+			if derr := discardCapturedRevision(revisionDest); derr != nil {
+				err = errors.Join(err, derr)
+			}
 		}
 	}
 	if err == nil {
