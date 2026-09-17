@@ -2,10 +2,18 @@ package core
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
 )
+
+// eventKinds lists every entity_type EventFeed's WHERE clause matches. A
+// --kind naming anything else -- a stale name from before a rename, such as
+// "note" before migration 0021 renamed it to "comment" -- must fail loudly
+// rather than quietly match nothing.
+var eventKinds = []string{"card", "knowledge", "board", "label", "comment"}
 
 // EventQuery filters a read of the event feed. The zero value reads every
 // project's events from the beginning, all kinds, every action but "read".
@@ -114,6 +122,13 @@ func (r feedRow) toFeedEvent() FeedEvent {
 // Constraints in the plan for why ProjectID scoping cannot reach a
 // hard-deleted entity's history.
 func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64, error) {
+	for _, k := range q.Kinds {
+		if !slices.Contains(eventKinds, k) {
+			return nil, nil, ErrUsage("unknown_event_kind",
+				fmt.Sprintf("%q is not an event kind: %s", k, strings.Join(eventKinds, ", ")),
+				"trellis events --kind "+strings.Join(eventKinds, "|"))
+		}
+	}
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 1000
