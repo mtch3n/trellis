@@ -37,6 +37,12 @@ type Server struct {
 	mux    *http.ServeMux
 	listen string
 	token  string
+	// liveConfig re-applies the settings the daemon keeps live (see
+	// core.ApplyGlobalConfig) to both core and write after a successful
+	// PATCH /api/settings write. Both need it independently: WithActor
+	// copied core's state once at construction, so core and write are
+	// separate Core values from then on.
+	liveConfig func(config.Config)
 }
 
 // webActor names whoever is at the browser. The daemon writes as
@@ -81,6 +87,10 @@ func NewServerWithSearch(c *core.Core, db *sqlx.DB, listen string, search *retri
 		search: search,
 		mux:    http.NewServeMux(),
 	}
+	s.liveConfig = func(cfg config.Config) {
+		s.core.ApplyGlobalConfig(cfg)
+		s.write.ApplyGlobalConfig(cfg)
+	}
 	s.registerRoutes()
 	return s
 }
@@ -90,6 +100,17 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/me", s.handleMe)
 	s.mux.HandleFunc("GET /api/projects", s.handleProjects)
 	s.mux.HandleFunc("GET /api/templates", s.handleTemplates)
+	s.mux.HandleFunc("POST /api/templates", s.handleTemplateCreate)
+	s.mux.HandleFunc("GET /api/templates/{name}", s.handleTemplateShow)
+	s.mux.HandleFunc("PUT /api/templates/{name}", s.handleTemplateUpdate)
+	s.mux.HandleFunc("DELETE /api/templates/{name}", s.handleTemplateDelete)
+	s.mux.HandleFunc("POST /api/templates/{name}/reinstall", s.handleTemplateReinstall)
+	s.mux.HandleFunc("GET /api/settings", s.handleGetSettings)
+	s.mux.HandleFunc("PATCH /api/settings", s.handlePatchSettings)
+	s.mux.HandleFunc("GET /api/maintenance", s.handleMaintenance)
+	s.mux.HandleFunc("POST /api/maintenance/prune", s.handleMaintenancePrune)
+	s.mux.HandleFunc("POST /api/maintenance/compact", s.handleMaintenanceCompact)
+	s.mux.HandleFunc("GET /api/logs", s.handleLogs)
 	s.mux.HandleFunc("DELETE /api/p/{key}", s.handleDeleteProject)
 	s.mux.HandleFunc("GET /api/p/{key}/boards", s.handleBoards)
 	s.mux.HandleFunc("GET /api/p/{key}/events", s.handleProjectEvents)
@@ -1112,6 +1133,109 @@ func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, templates)
+}
+
+// templateInfo is one template's shape for the get/put/post/reinstall
+// routes: raw is the whole file, frontmatter and body, so the settings page
+// can edit it as one text blob rather than reassembling it from Template's
+// parsed fields.
+type templateInfo struct {
+	Name    string `json:"name"`
+	BuiltIn bool   `json:"builtin"`
+	Enforce string `json:"enforce"`
+	Raw     string `json:"raw"`
+}
+
+func templateResponse(t core.Template) (templateInfo, error) {
+	raw, err := os.ReadFile(t.Path)
+	if err != nil {
+		return templateInfo{}, err
+	}
+	return templateInfo{Name: t.Name, BuiltIn: t.BuiltIn, Enforce: t.Enforce, Raw: string(raw)}, nil
+}
+
+func (s *Server) writeTemplateResponse(w http.ResponseWriter, status int, t core.Template) {
+	resp, err := templateResponse(t)
+	if err != nil {
+		s.error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, status, resp)
+}
+
+func (s *Server) handleTemplateShow(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	t, err := s.core.ShowTemplate(ctx, r.PathValue("name"))
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	s.writeTemplateResponse(w, http.StatusOK, t)
+}
+
+type templateRawRequest struct {
+	Raw string `json:"raw"`
+}
+
+// handleTemplateUpdate replaces a template's whole file. A template that
+// does not parse or validate gets 400 with the core message, and
+// core.EditTemplate never writes in that case.
+func (s *Server) handleTemplateUpdate(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	var in templateRawRequest
+	if !decodeJSON(w, r, &in) {
+		s.error(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	t, err := s.write.EditTemplate(ctx, r.PathValue("name"), in.Raw)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	s.writeTemplateResponse(w, http.StatusOK, t)
+}
+
+type templateCreateRequest struct {
+	Name string `json:"name"`
+}
+
+func (s *Server) handleTemplateCreate(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	var in templateCreateRequest
+	if !decodeJSON(w, r, &in) {
+		s.error(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	t, err := s.write.NewTemplate(ctx, in.Name)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	s.writeTemplateResponse(w, http.StatusCreated, t)
+}
+
+func (s *Server) handleTemplateDelete(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	if err := s.write.DeleteTemplate(ctx, r.PathValue("name")); err != nil {
+		s.coreError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleTemplateReinstall(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	t, err := s.write.ReinstallTemplate(ctx, r.PathValue("name"))
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	s.writeTemplateResponse(w, http.StatusOK, t)
 }
 
 func (s *Server) handleGlobalKnowledgeList(w http.ResponseWriter, r *http.Request) {
