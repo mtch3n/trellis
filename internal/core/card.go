@@ -255,7 +255,7 @@ func (c *Core) createCard(ctx context.Context, tx *sqlx.Tx, projectID, boardID s
 			prio = *in.Priority
 		}
 		card = Card{
-			ID: NewCardID(), ProjectID: projectID, BoardID: boardID, Seq: seq, Ref: key + "-" + itoa(seq), ColumnID: col.ID,
+			ID: NewID(), ProjectID: projectID, BoardID: boardID, Seq: seq, Ref: key + "-" + itoa(seq), ColumnID: col.ID,
 			Title: in.Title, BodyMD: in.Body, Priority: prio,
 			Version: 1, CreatedAt: now, UpdatedAt: now,
 		}

@@ -123,7 +123,7 @@ func (c *Core) PromoteEntry(ctx context.Context, projectID, slug, reason string)
 	return entry, err
 }
 
-// DemoteEntry returns a global entry to its origin project. An promotion
+// DemoteEntry returns a global entry to its origin project. A promotion
 // mistake must not be permanent.
 func (c *Core) DemoteEntry(ctx context.Context, slug, reason string) (Entry, error) {
 	var entry Entry
@@ -257,8 +257,9 @@ func (c *Core) VerifyEntry(ctx context.Context, slug string) error {
 	})
 }
 
-// Unverified reports whether a global entry is past its review date, which is
-// said out loud at every point of use rather than filed in a report nobody reads.
+// Unverified reports whether a global entry is past its verify date, which is
+// said out loud at every point of use rather than filed in a report nobody
+// reads.
 func (e Entry) Unverified(nowMS int64) bool {
 	return e.Global && e.VerifyBy != nil && nowMS > *e.VerifyBy
 }

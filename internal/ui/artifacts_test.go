@@ -225,7 +225,7 @@ func TestAnSVGRowIsSandboxed(t *testing.T) {
 	if _, err := s.db.Exec(
 		`INSERT INTO artifact (id, project_id, name, kind, mime, size, content_hash, created_at, updated_at)
 		 VALUES (?, ?, 'drawing.svg', 'image', 'image/svg+xml', ?, 'h', 1, 1)`,
-		core.NewCardID(), p.ID, len(svg)); err != nil {
+		core.NewID(), p.ID, len(svg)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -430,7 +430,7 @@ func TestAFilenameCannotBreakTheDispositionHeader(t *testing.T) {
 	if _, err := s.db.Exec(
 		`INSERT INTO artifact (id, project_id, name, kind, mime, size, content_hash, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1)`,
-		core.NewCardID(), p.ID, evil, base.Kind, base.MIME, base.Size, base.ContentHash); err != nil {
+		core.NewID(), p.ID, evil, base.Kind, base.MIME, base.Size, base.ContentHash); err != nil {
 		t.Fatal(err)
 	}
 

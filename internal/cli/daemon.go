@@ -63,7 +63,7 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	if ip := net.ParseIP(bind); ip == nil || !ip.IsLoopback() {
 		return fmt.Errorf("daemon bind address must be loopback")
 	}
-	// Port 0 asks the OS for any free port; the health call reports the one it
+	// Port 0 asks the OS for any free port; the ping reports the one it
 	// got. Callers resolve the configured ui.port before they get here.
 	if port < 0 || port > 65535 {
 		return fmt.Errorf("daemon port %d is out of range", port)
@@ -135,7 +135,7 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	workers.Go(func() {
 		errorsCh <- localdaemon.ServeContext(ctx, ipc, func(ctx context.Context, req localdaemon.Request) (localdaemon.Response, error) {
 			switch req.Method {
-			case "health":
+			case "ping":
 				// An IPC-only daemon reports an empty url, which is how the
 				// CLI tells "no daemon" from "daemon without a web UI".
 				url := ""

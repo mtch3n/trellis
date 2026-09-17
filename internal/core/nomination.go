@@ -40,7 +40,7 @@ func (c *Core) NominateEntry(ctx context.Context, projectID, slug, reason string
 		if _, err := tx.Exec(
 			`INSERT INTO nomination (id, entry_id, actor, reason, created_at) VALUES (?, ?, ?, ?, ?)
 			 ON CONFLICT (entry_id, actor) DO UPDATE SET reason = excluded.reason`,
-			NewCardID(), entry.ID, c.actor, reason, c.clock.NowMS()); err != nil {
+			NewID(), entry.ID, c.actor, reason, c.clock.NowMS()); err != nil {
 			return err
 		}
 		return c.recordEvent(tx, "entry", entry.ID, "nominated", "", "", reason)

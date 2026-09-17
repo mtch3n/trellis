@@ -90,7 +90,7 @@ func (c *Core) PinEntry(ctx context.Context, projectID, slug, recap, board strin
 		if _, err := tx.Exec(
 			`INSERT INTO pin (id, entry_id, board_id, created_at) VALUES (?, ?, ?, ?)
 			 ON CONFLICT `+conflict+` DO UPDATE SET created_at = excluded.created_at`,
-			NewCardID(), entry.ID, boardID, now); err != nil {
+			NewID(), entry.ID, boardID, now); err != nil {
 			return err
 		}
 		pin = Pin{Slug: entry.Slug, Title: entry.Title, Recap: text, BoardName: boardName, CreatedAt: now}

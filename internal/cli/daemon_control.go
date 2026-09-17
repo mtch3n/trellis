@@ -33,13 +33,13 @@ const daemonSpawnWait = 30 * time.Second
 
 func daemonPIDPath(root string) string { return filepath.Join(root, "daemon.pid") }
 
-// daemonHealth asks the running daemon over local IPC. This is the only
+// daemonPing asks the running daemon over local IPC. This is the only
 // authoritative answer to "is it up": a unit can be active while the process
 // is still starting, and a pidfile can outlive the process it names.
-func daemonHealth(ctx context.Context, root string) (url string, ok bool) {
+func daemonPing(ctx context.Context, root string) (url string, ok bool) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	resp, err := daemon.Call(ctx, daemon.Endpoint(root), daemon.Request{Method: "health"})
+	resp, err := daemon.Call(ctx, daemon.Endpoint(root), daemon.Request{Method: "ping"})
 	if err != nil || !resp.OK {
 		return "", false
 	}
@@ -76,15 +76,16 @@ type daemonStatus struct {
 	Root      string        `json:"-"`
 }
 
-// resolveDaemonStatus decides who owns the daemon. Health comes first because
-// it is the only fact; the service manager and pidfile only explain it.
+// resolveDaemonStatus decides who owns the daemon. The ping comes first
+// because it is the only fact; the service manager and pidfile only explain
+// it.
 func resolveDaemonStatus(ctx context.Context) (daemonStatus, error) {
 	root, err := home.Root()
 	if err != nil {
 		return daemonStatus{}, err
 	}
 	status := daemonStatus{Root: root, ManagedBy: managedByNone}
-	status.URL, status.Running = daemonHealth(ctx, root)
+	status.URL, status.Running = daemonPing(ctx, root)
 
 	// A Status error means the service manager itself is broken, which doctor
 	// reports; the control commands still work through the self-managed path.
@@ -205,13 +206,13 @@ func pollUntil(ctx context.Context, deadline time.Time, cond func() bool) (ok bo
 	}
 }
 
-// waitForDaemon polls the health endpoint until it matches want or the budget
+// waitForDaemon pings the daemon until the answer matches want or the budget
 // runs out. Polling beats a fixed sleep: a warm start answers immediately.
 func waitForDaemon(ctx context.Context, root string, want bool) error {
 	deadline := time.Now().Add(daemonSpawnWait)
 	ok, err := pollUntil(ctx, deadline, func() bool {
-		_, healthy := daemonHealth(ctx, root)
-		return healthy == want
+		_, alive := daemonPing(ctx, root)
+		return alive == want
 	})
 	if err != nil {
 		return err
@@ -229,10 +230,10 @@ func waitForDaemon(ctx context.Context, root string, want bool) error {
 // itself to exit. It asks politely first so the daemon releases its SQLite
 // lock and removes its socket on the way out.
 //
-// This waits on process liveness (readDaemonPID), not the health endpoint:
-// daemonHealth carries its own 2-second probe timeout, so a daemon that is
+// This waits on process liveness (readDaemonPID), not the ping:
+// daemonPing carries its own 2-second probe timeout, so a daemon that is
 // merely slow to answer while shutting down under load looks identical to a
-// stopped one if a single failed health call is trusted. Polling the PID
+// stopped one if a single failed ping is trusted. Polling the PID
 // instead means "stopped" only ever means the process is actually gone.
 func stopSelfManaged(ctx context.Context, root string) error {
 	pid, alive := readDaemonPID(root)

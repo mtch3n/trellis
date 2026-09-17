@@ -18,7 +18,7 @@ func newCardArchiveCmd() *cobra.Command {
 			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				action, fn := "archived", app.Core.ArchiveCard
 				if restore {
-					action, fn = "restored", app.Core.UnarchiveCard
+					action, fn = "restored", app.Core.RestoreCard
 				}
 				card, err := fn(cmd.Context(), app.Project.ID, core.ParseCardRef(ref))
 				if err != nil {

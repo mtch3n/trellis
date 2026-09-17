@@ -35,8 +35,8 @@ func (c *Core) ArchiveCard(ctx context.Context, projectID string, ref CardRef) (
 	return card, err
 }
 
-// UnarchiveCard returns an archived card to the board.
-func (c *Core) UnarchiveCard(ctx context.Context, projectID string, ref CardRef) (Card, error) {
+// RestoreCard returns an archived card to the board.
+func (c *Core) RestoreCard(ctx context.Context, projectID string, ref CardRef) (Card, error) {
 	var card Card
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		if err := c.loadCard(tx, projectID, ref, &card); err != nil {

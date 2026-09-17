@@ -277,8 +277,8 @@ func checkPort(status daemonStatus, cfg config.Config) Check {
 	return ok("http port", addr+" is free")
 }
 
-// servingAddress extracts host:port from the daemon's health URL, which
-// carries a session token query string the caller does not want.
+// servingAddress extracts host:port from the URL the daemon's ping reports,
+// which carries a session token query string the caller does not want.
 func servingAddress(rawURL string) string {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {

@@ -2,15 +2,15 @@ package core
 
 import "testing"
 
-func TestNewCardIDIsSortableByTime(t *testing.T) {
+func TestNewIDIsSortableByTime(t *testing.T) {
 	const count = 1000
 	ids := make([]string, count)
 	seen := make(map[string]bool)
 
 	for i := range count {
-		ids[i] = NewCardID()
+		ids[i] = NewID()
 		if seen[ids[i]] {
-			t.Fatalf("NewCardID returned duplicate id at index %d: %q", i, ids[i])
+			t.Fatalf("NewID returned duplicate id at index %d: %q", i, ids[i])
 		}
 		seen[ids[i]] = true
 	}

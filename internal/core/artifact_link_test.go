@@ -200,7 +200,7 @@ func TestANameTakenInTheDatabaseIsNotReused(t *testing.T) {
 	if _, err := c.db.Exec(
 		`INSERT INTO artifact (id, project_id, name, kind, mime, size, content_hash, created_at, updated_at)
 		 VALUES (?, ?, 'x.png', 'image', 'image/png', 3, 'h', 1, 1)`,
-		NewCardID(), p.ID); err != nil {
+		NewID(), p.ID); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 	a := addArtifact(t, c, p.ID, "x.png", "\x89PNG\r\n\x1a\nx")

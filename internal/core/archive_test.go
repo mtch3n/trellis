@@ -42,11 +42,11 @@ func TestArchiveHidesCardAndReleasesClaim(t *testing.T) {
 		t.Errorf("--archived listing returned %d cards, want 1", len(cards))
 	}
 
-	if _, err := c.UnarchiveCard(t.Context(), p.ID, CardRef{Seq: card.Seq}); err != nil {
-		t.Fatalf("UnarchiveCard: %v", err)
+	if _, err := c.RestoreCard(t.Context(), p.ID, CardRef{Seq: card.Seq}); err != nil {
+		t.Fatalf("RestoreCard: %v", err)
 	}
 	cards, _ = c.ListCards(t.Context(), b.ID, CardFilter{})
 	if len(cards) != 1 {
-		t.Errorf("after unarchive: %d cards, want 1", len(cards))
+		t.Errorf("after restore: %d cards, want 1", len(cards))
 	}
 }

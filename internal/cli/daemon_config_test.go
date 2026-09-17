@@ -75,9 +75,9 @@ func TestDaemonAppliesGlobalClaimTTLAndCardRequirements(t *testing.T) {
 	if err := waitForDaemon(ctx, root, true); err != nil {
 		t.Fatalf("daemon never answered: %v", err)
 	}
-	rawURL, healthy := daemonHealth(ctx, root)
-	if !healthy || rawURL == "" {
-		t.Fatalf("health = %q, %v", rawURL, healthy)
+	rawURL, alive := daemonPing(ctx, root)
+	if !alive || rawURL == "" {
+		t.Fatalf("ping = %q, %v", rawURL, alive)
 	}
 	u, err := url.Parse(rawURL)
 	if err != nil {

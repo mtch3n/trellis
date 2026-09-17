@@ -50,7 +50,7 @@ func newDaemonInstallCmd() *cobra.Command {
 			} else if err := waitForDaemon(cmd.Context(), status.Root, true); err != nil {
 				return err
 			}
-			url, _ := daemonHealth(cmd.Context(), status.Root)
+			url, _ := daemonPing(cmd.Context(), status.Root)
 			return Emit(cmd, map[string]any{
 				"installed": true, "manager": manager.Name(), "unit_path": path,
 				"exec": spec.Exec, "bind": bind, "port": port, "linger": linger, "url": url,
@@ -123,7 +123,7 @@ func newDaemonStartCmd() *cobra.Command {
 				if err := waitForDaemon(cmd.Context(), status.Root, true); err != nil {
 					return err
 				}
-				url, _ := daemonHealth(cmd.Context(), status.Root)
+				url, _ := daemonPing(cmd.Context(), status.Root)
 				return Emit(cmd, map[string]any{"running": true, "url": url, "managed_by": managedByService},
 					func() string { return "started trellis daemon via " + service.New().Name() + " at " + url })
 			}
@@ -132,7 +132,7 @@ func newDaemonStartCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			url, _ := daemonHealth(cmd.Context(), status.Root)
+			url, _ := daemonPing(cmd.Context(), status.Root)
 			return Emit(cmd, map[string]any{"running": true, "pid": pid, "url": url, "managed_by": managedBySelf},
 				func() string {
 					return fmt.Sprintf("started trellis daemon (pid %d) at %s\n"+
@@ -217,7 +217,7 @@ func newDaemonRestartCmd() *cobra.Command {
 			if err := waitForDaemon(cmd.Context(), status.Root, true); err != nil {
 				return err
 			}
-			url, _ := daemonHealth(cmd.Context(), status.Root)
+			url, _ := daemonPing(cmd.Context(), status.Root)
 			return Emit(cmd, map[string]any{"running": true, "url": url}, func() string {
 				return "restarted trellis daemon " + servingDescription(url)
 			})

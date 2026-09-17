@@ -77,7 +77,7 @@ func (c *Core) createBoard(tx *sqlx.Tx, projectID, name string, isDefault, seedC
 	}
 
 	b := Board{
-		ID:        NewCardID(),
+		ID:        NewID(),
 		ProjectID: projectID,
 		Name:      name,
 		Slug:      slug,

@@ -79,9 +79,9 @@ func TestDaemonDefaultsFallBackWhenConfigIsEmpty(t *testing.T) {
 	}
 }
 
-func TestDaemonHealthIsFalseWithoutADaemon(t *testing.T) {
-	if _, ok := daemonHealth(context.Background(), t.TempDir()); ok {
-		t.Error("an empty storage root must not report a healthy daemon")
+func TestDaemonPingIsFalseWithoutADaemon(t *testing.T) {
+	if _, ok := daemonPing(context.Background(), t.TempDir()); ok {
+		t.Error("an empty storage root must not report a live daemon")
 	}
 }
 
@@ -94,20 +94,20 @@ func TestStopSelfManagedWithoutPIDFile(t *testing.T) {
 
 // TestStopSelfManagedWaitsForProcessExit is a regression test for TRELLIS-37.
 // stopSelfManaged used to declare the daemon stopped the moment a single
-// daemonHealth probe failed, and daemonHealth carries its own 2-second
+// daemonPing probe failed, and daemonPing carries its own 2-second
 // timeout — so a daemon that is merely slow to answer while it shuts down
 // under load (the "busy machine" case that made TestDaemonLifecycle flaky
 // under parallel load) looked identical to an already-stopped one.
 //
 // This drives that exact shape deterministically with a real subprocess
-// whose health handler always takes longer than the 2-second probe timeout,
+// whose ping handler always takes longer than the 2-second probe timeout,
 // and that only exits a known, fixed interval after receiving the stop
-// signal. It confirms the race precondition directly (health already says
+// signal. It confirms the race precondition directly (the ping already says
 // "not running" while the process is provably still alive), then asserts
 // stopSelfManaged does not report success until the process actually exits.
 //
 // The scenario is Unix-only: it needs the daemon to survive briefly past the
-// stop request so a health probe can race it, and only the Unix terminate()
+// stop request so a ping can race it, and only the Unix terminate()
 // (SIGTERM) is interceptable. On Windows, terminate() is an unconditional
 // TerminateProcess (see daemon_spawn_windows.go) with no graceful window to
 // race against, so the fixture cannot be built there.
@@ -159,11 +159,11 @@ func TestStopSelfManagedWaitsForProcessExit(t *testing.T) {
 	if err := terminate(cmd.Process.Pid); err != nil {
 		t.Fatalf("terminate: %v", err)
 	}
-	if _, healthy := daemonHealth(ctx, root); healthy {
-		t.Fatal("expected the slow handler to time out the health probe")
+	if _, alive := daemonPing(ctx, root); alive {
+		t.Fatal("expected the slow handler to time out the ping")
 	}
 	if !processAlive(cmd.Process.Pid) {
-		t.Fatal("process must still be alive right after its health probe timed out; the fixture is not reproducing the race")
+		t.Fatal("process must still be alive right after its ping timed out; the fixture is not reproducing the race")
 	}
 
 	start := time.Now()
@@ -183,8 +183,8 @@ func TestStopSelfManagedWaitsForProcessExit(t *testing.T) {
 
 // TestHelperSlowDaemon is not a real test. TestStopSelfManagedWaitsForProcessExit
 // re-executes the test binary with -test.run matching only this name to get a
-// real, separate process that behaves like a daemon which answers health
-// checks slower than daemonHealth's 2-second probe timeout and takes a
+// real, separate process that behaves like a daemon which answers pings
+// slower than daemonPing's 2-second probe timeout and takes a
 // fixed, known interval to exit once it receives the stop signal. Without
 // TRELLIS_SLOW_DAEMON_ROOT set, a normal `go test` run just skips it.
 func TestHelperSlowDaemon(t *testing.T) {
@@ -204,7 +204,7 @@ func TestHelperSlowDaemon(t *testing.T) {
 	defer cleanup()
 	go func() {
 		_ = daemon.Serve(listener, func(context.Context, daemon.Request) (daemon.Response, error) {
-			time.Sleep(3 * time.Second) // longer than daemonHealth's 2s probe timeout
+			time.Sleep(3 * time.Second) // longer than daemonPing's 2s probe timeout
 			return daemon.Response{OK: true}, nil
 		})
 	}()

@@ -44,7 +44,7 @@ func (c *Core) CreateLabel(ctx context.Context, projectID, name, description str
 		}
 
 		label = Label{
-			ID:          NewCardID(),
+			ID:          NewID(),
 			ProjectID:   projectID,
 			Name:        name,
 			Description: description,
@@ -289,7 +289,7 @@ func (c *Core) CreateOrGetTag(tx *sqlx.Tx, projectID, name string) (Tag, error) 
 	}
 
 	tag = Tag{
-		ID:        NewCardID(),
+		ID:        NewID(),
 		ProjectID: projectID,
 		Name:      name,
 		CreatedAt: c.clock.NowMS(),
@@ -381,7 +381,7 @@ func (c *Core) SeedDefaultLabels(tx *sqlx.Tx, projectID string) error {
 
 	for _, def := range defaultLabels {
 		label := Label{
-			ID:          NewCardID(),
+			ID:          NewID(),
 			ProjectID:   projectID,
 			Name:        def.name,
 			Description: def.description,

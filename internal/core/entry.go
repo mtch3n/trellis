@@ -333,7 +333,7 @@ func (c *Core) CreateEntry(ctx context.Context, projectID string, in NewEntry) (
 		}
 
 		entry = Entry{
-			ID: NewCardID(), ProjectID: projectID, BoardID: boardID, Slug: slug,
+			ID: NewID(), ProjectID: projectID, BoardID: boardID, Slug: slug,
 			Title: in.Title, Path: path, Template: fm.Template, Summary: in.Summary,
 			Provenance: provenance,
 			Private:    in.Private,

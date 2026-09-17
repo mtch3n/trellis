@@ -182,7 +182,7 @@ func (c *Core) ClaimCard(ctx context.Context, cardID string, ttl int64, steal bo
 				// it thought it claimed.
 				if _, err := tx.Exec(
 					`INSERT INTO comment (id, card_id, actor, body_md, created_at) VALUES (?, ?, ?, ?, ?)`,
-					NewCardID(), cardID, c.actor,
+					NewID(), cardID, c.actor,
 					"claimed from "+*card.ClaimedBy+": "+reason, now); err != nil {
 					return err
 				}

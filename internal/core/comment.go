@@ -42,7 +42,7 @@ func (c *Core) CreateComment(ctx context.Context, cardID, body string) (Comment,
 			return err
 		}
 
-		commentID := NewCardID() // Reuse card ID generation; both are uuids v7
+		commentID := NewID()
 		comment = Comment{
 			ID:        commentID,
 			CardID:    cardID,

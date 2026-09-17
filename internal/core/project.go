@@ -220,7 +220,7 @@ func (c *Core) createProject(tx *sqlx.Tx, key string) (Project, error) {
 		return Project{}, ErrConflict("key_collision",
 			fmt.Sprintf("project %s already exists", key), "trellis project ls")
 	}
-	p := Project{ID: NewCardID(), Key: key, Name: key, CreatedAt: c.clock.NowMS()}
+	p := Project{ID: NewID(), Key: key, Name: key, CreatedAt: c.clock.NowMS()}
 	if _, err := tx.Exec(
 		`INSERT INTO project (id, key, name, created_at) VALUES (?, ?, ?, ?)`,
 		p.ID, p.Key, p.Name, p.CreatedAt); err != nil {
