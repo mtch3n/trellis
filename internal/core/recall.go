@@ -224,7 +224,7 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 				ids = append(ids, h.ID)
 			}
 		}
-		private, err := c.privateAfterRefresh(tx, ids)
+		private, _, err := c.privateAfterRefresh(tx, ids)
 		if err != nil {
 			return err
 		}

@@ -104,7 +104,11 @@ func newVectorStatusCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return Emit(cmd, map[string]any{"enabled": true, "configured_documents": len(docs), "indexed_documents": count, "stale_documents": len(docs) - count}, func() string { return fmt.Sprintf("vector enabled; %d/%d documents indexed", count, len(docs)) })
+		staleCount := len(docs) - count
+		if staleCount < 0 {
+			staleCount = 0
+		}
+		return Emit(cmd, map[string]any{"enabled": true, "configured_documents": len(docs), "indexed_documents": count, "stale_documents": staleCount}, func() string { return fmt.Sprintf("vector enabled; %d/%d documents indexed", count, len(docs)) })
 	}}
 }
 

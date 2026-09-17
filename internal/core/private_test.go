@@ -485,10 +485,10 @@ func TestPrivateAfterRefreshTreatsAMissingFileAsPrivate(t *testing.T) {
 		t.Fatalf("Remove: %v", err)
 	}
 
-	var private map[string]bool
+	var private, missing map[string]bool
 	err = c.Tx(t.Context(), func(tx *sqlx.Tx) error {
 		var txErr error
-		private, txErr = c.privateAfterRefresh(tx, []string{gone.ID, present.ID})
+		private, missing, txErr = c.privateAfterRefresh(tx, []string{gone.ID, present.ID})
 		return txErr
 	})
 	if err != nil {
@@ -499,6 +499,21 @@ func TestPrivateAfterRefreshTreatsAMissingFileAsPrivate(t *testing.T) {
 	}
 	if private[present.ID] {
 		t.Errorf("private[%q] = true, want false: this file is still on disk and was never marked private", present.ID)
+	}
+	if !missing[gone.ID] || missing[present.ID] {
+		t.Errorf("missing = %v, want only %s", missing, gone.ID)
+	}
+
+	// The cold listing withholds the gone entry's content like a private
+	// one's, but says why.
+	cold, err := c.ColdKnowledge(t.Context(), p.ID)
+	if err != nil {
+		t.Fatalf("ColdKnowledge: %v", err)
+	}
+	for _, d := range cold {
+		if d.Missing != (d.ID == gone.ID) {
+			t.Errorf("cold %s: missing = %v", d.Slug, d.Missing)
+		}
 	}
 }
 
@@ -534,6 +549,21 @@ func TestEditOnPrivateRecordsNoContent(t *testing.T) {
 	}
 	if edits == 0 {
 		t.Error("the edit was not recorded at all; the fact of the edit must survive")
+	}
+
+	// Titles are disclosed on purpose, as the created and deleted events
+	// show, so an edited event keeps the new one.
+	if _, err := c.EditKnowledgeFields(t.Context(), p.ID, doc.Slug, KnowledgeEdit{Title: new("Staging access"), IfVersion: new(doc.Version + 1)}); err != nil {
+		t.Fatalf("EditKnowledgeFields: %v", err)
+	}
+	var title string
+	if err := c.db.Get(&title,
+		`SELECT COALESCE(new_value, '') FROM event WHERE entity_id = ? AND action = 'edited' AND field = 'title'`,
+		doc.ID); err != nil {
+		t.Fatalf("read the title edit: %v", err)
+	}
+	if title != "Staging access" {
+		t.Errorf("edited event title = %q, want the new title", title)
 	}
 }
 

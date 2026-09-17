@@ -55,10 +55,18 @@ func (c *Core) Health(ctx context.Context, projectID string) ([]HealthLine, erro
 			projectID, c.clock.NowMS()-readWindowMS()); err != nil {
 			return err
 		}
-		return tx.Get(&stale, `
-			SELECT COUNT(*) FROM pin p JOIN knowledge k ON k.id = p.knowledge_id
-			WHERE k.project_id = ? AND k.recap_hash IS NOT NULL
-			  AND k.recap_hash IS NOT k.content_hash`, projectID)
+
+		pins, err := c.pins(tx, projectID, "", 0)
+		if err != nil {
+			return err
+		}
+		stale = 0
+		for _, pin := range pins {
+			if pin.Stale {
+				stale++
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -134,12 +142,13 @@ func (c *Core) ColdKnowledge(ctx context.Context, projectID string) ([]Knowledge
 		for _, d := range docs {
 			ids = append(ids, d.ID)
 		}
-		private, err := c.privateAfterRefresh(tx, ids)
+		private, missing, err := c.privateAfterRefresh(tx, ids)
 		if err != nil {
 			return err
 		}
 		for i := range docs {
 			docs[i].Private = private[docs[i].ID]
+			docs[i].Missing = missing[docs[i].ID]
 			if err := c.docView(tx, &docs[i]); err != nil {
 				return err
 			}

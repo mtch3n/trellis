@@ -46,6 +46,119 @@ func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
 		t.Errorf("Pins after unpin = %+v, want none", pins)
 	}
 }
+func TestPinWithoutBoardUpdatesExistingPin(t *testing.T) {
+	c, p, _ := kbCore(t)
+	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Concurrency model", Summary: "Leases, not locks", Body: "# Concurrency model\n\nBody.\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Pin the same entry twice without a board
+	_, err = c.PinKnowledge(t.Context(), p.ID, "concurrency-model", "", "")
+	if err != nil {
+		t.Fatalf("First PinKnowledge: %v", err)
+	}
+
+	pin2, err := c.PinKnowledge(t.Context(), p.ID, "concurrency-model", "Updated recap", "")
+	if err != nil {
+		t.Fatalf("Second PinKnowledge: %v", err)
+	}
+
+	// Should have only one pin
+	pins, err := c.Pins(t.Context(), p.ID, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pins) != 1 {
+		t.Errorf("Pins = %+v, want exactly one pin after pinning twice without board", pins)
+	}
+	if pins[0].Recap != "Updated recap" {
+		t.Errorf("Pin recap = %q, want 'Updated recap'", pins[0].Recap)
+	}
+	if pins[0].CreatedAt != pin2.CreatedAt {
+		t.Errorf("Pin created_at = %d, want %d (from second pin)", pins[0].CreatedAt, pin2.CreatedAt)
+	}
+}
+
+func TestPinCreatedWhilePrivateThenUnprivateShowsStale(t *testing.T) {
+	c, p, _ := kbCore(t)
+
+	// Create an entry
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Secret credentials", Body: "private\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Set it as private by editing the file
+	setPrivateInFile(t, doc.Path, true)
+
+	// Pin while private (creates pin with NULL recap)
+	pin, err := c.PinKnowledge(t.Context(), p.ID, doc.Slug, "", "")
+	if err != nil {
+		t.Fatalf("PinKnowledge: %v", err)
+	}
+	if pin.Recap != "" {
+		t.Errorf("Private pin recap = %q, want empty", pin.Recap)
+	}
+
+	// Verify it's not stale while private
+	pins, err := c.Pins(t.Context(), p.ID, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var foundPin Pin
+	for _, p := range pins {
+		if p.Slug == doc.Slug {
+			foundPin = p
+			break
+		}
+	}
+	if foundPin.Slug == "" {
+		t.Fatal("pin not found")
+	}
+	if foundPin.Stale {
+		t.Error("private pin is marked stale, want not stale")
+	}
+
+	// Now mark as non-private by editing the file
+	setPrivateInFile(t, doc.Path, false)
+
+	// Check pins again - should now be stale (has no recap but is non-private)
+	pins, err = c.Pins(t.Context(), p.ID, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range pins {
+		if p.Slug == doc.Slug {
+			foundPin = p
+			break
+		}
+	}
+	if !foundPin.Stale {
+		t.Error("non-private pin with no recap is not marked stale, want stale")
+	}
+
+	// Health count should also report it
+	health, err := c.Health(t.Context(), p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var staleCount int
+	for _, line := range health {
+		if line.What == "stale pinned recaps" {
+			staleCount = line.Count
+			break
+		}
+	}
+	if staleCount == 0 {
+		t.Error("health count 0 stale recaps, want 1: pin with no recap on non-private entry")
+	}
+}
+
 func TestEscalateMovesTheEntryAndKeepsReferences(t *testing.T) {
 	c, p, _ := kbCore(t)
 	target, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Postgres conventions"})

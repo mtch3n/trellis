@@ -24,33 +24,35 @@ import (
 // A file that is gone cannot have its disclosure status confirmed, so it is
 // treated as private rather than disclosed or failed: the id comes back marked
 // private, and the caller does not error out over an unrelated vault file
-// someone deleted. Any other failure to read or parse the file is a real error
-// and propagates.
-func (c *Core) privateAfterRefresh(tx *sqlx.Tx, ids []string) (map[string]bool, error) {
-	out := map[string]bool{}
+// someone deleted. It is also reported in missing, so a listing can say the
+// file is gone rather than call the entry private. Any other failure to read
+// or parse the file is a real error and propagates.
+func (c *Core) privateAfterRefresh(tx *sqlx.Tx, ids []string) (private, missing map[string]bool, err error) {
+	private, missing = map[string]bool{}, map[string]bool{}
 	if len(ids) == 0 {
-		return out, nil
+		return private, missing, nil
 	}
 	q, args, err := sqlx.In(`SELECT * FROM knowledge WHERE id IN (?)`, ids)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var docs []Knowledge
 	if err := tx.Select(&docs, tx.Rebind(q), args...); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for i := range docs {
 		if err := c.refreshFromFile(tx, &docs[i]); err != nil {
 			var coreErr *Error
 			if errors.As(err, &coreErr) && coreErr.Code == "file_missing" {
-				out[docs[i].ID] = true
+				private[docs[i].ID] = true
+				missing[docs[i].ID] = true
 				continue
 			}
-			return nil, err
+			return nil, nil, err
 		}
 		if docs[i].Private {
-			out[docs[i].ID] = true
+			private[docs[i].ID] = true
 		}
 	}
-	return out, nil
+	return private, missing, nil
 }

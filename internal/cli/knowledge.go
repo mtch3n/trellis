@@ -222,7 +222,9 @@ func renderKnowledgeList(docs []core.Knowledge) string {
 			indent = "  "
 		}
 		mark := ""
-		if d.Private {
+		if d.Missing {
+			mark = "missing"
+		} else if d.Private {
 			mark = "private"
 		}
 		fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\n", indent, leaf, d.DocType, d.Provenance, mark, d.Title)

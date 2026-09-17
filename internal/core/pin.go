@@ -79,9 +79,16 @@ func (c *Core) PinKnowledge(ctx context.Context, projectID, slug, recap, board s
 			stored, hash, doc.ID); err != nil {
 			return err
 		}
+
+		// The table's UNIQUE treats NULL boards as distinct, so a project-wide
+		// pin has its own partial index to conflict on.
+		conflict := `(knowledge_id, board_id)`
+		if boardID == nil {
+			conflict = `(knowledge_id) WHERE board_id IS NULL`
+		}
 		if _, err := tx.Exec(
 			`INSERT INTO pin (id, knowledge_id, board_id, created_at) VALUES (?, ?, ?, ?)
-			 ON CONFLICT (knowledge_id, board_id) DO UPDATE SET created_at = excluded.created_at`,
+			 ON CONFLICT `+conflict+` DO UPDATE SET created_at = excluded.created_at`,
 			NewCardID(), doc.ID, boardID, now); err != nil {
 			return err
 		}
@@ -127,54 +134,61 @@ func (c *Core) UnpinKnowledge(ctx context.Context, projectID, slug, board string
 // now be confidently wrong. Limit controls how many pins are returned; 0 means
 // no limit.
 func (c *Core) Pins(ctx context.Context, projectID, boardID string, limit int) ([]Pin, error) {
-	pins := []Pin{}
+	var pins []Pin
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		q := `SELECT k.id, k.slug, k.title, COALESCE(k.recap, '') AS recap,
-		             b.name AS board_name,
-		             (k.recap_hash IS NOT k.content_hash) AS stale, p.created_at
-		      FROM pin p JOIN knowledge k ON k.id = p.knowledge_id
-		      LEFT JOIN board b ON b.id = p.board_id
-		      WHERE k.project_id = ?`
-		args := []any{projectID}
-		if boardID != "" {
-			q += " AND (p.board_id IS NULL OR p.board_id = ?)"
-			args = append(args, boardID)
-		}
-		q += " ORDER BY p.created_at DESC"
-		if limit > 0 {
-			q += " LIMIT ?"
-			args = append(args, limit)
-		}
-		if err := tx.Select(&pins, q, args...); err != nil {
-			return err
-		}
-		ids := make([]string, 0, len(pins))
-		for _, pin := range pins {
-			ids = append(ids, pin.ID)
-		}
-		// The brief is injected without anyone asking for it, so the flag is
-		// read from the files rather than from the mirror, which is one read
-		// stale after a hand edit. Pins are curated, so this is a handful of
-		// stats and reads.
-		private, err := c.privateAfterRefresh(tx, ids)
-		if err != nil {
-			return err
-		}
-		for i := range pins {
-			if private[pins[i].ID] {
-				pins[i].Recap = ""
-			}
-			// Decided after the refresh, not in the SELECT. A purged row has
-			// a NULL recap_hash, which the SELECT reads as stale, but the
-			// SELECT sees each row as it was before this refresh, so the
-			// read that runs the purge would say the opposite.
-			if pins[i].Recap == "" {
-				pins[i].Stale = false
-			}
-		}
-		return nil
+		var err error
+		pins, err = c.pins(tx, projectID, boardID, limit)
+		return err
 	})
 	return pins, err
+}
+
+func (c *Core) pins(tx *sqlx.Tx, projectID, boardID string, limit int) ([]Pin, error) {
+	pins := []Pin{}
+	q := `SELECT k.id, k.slug, k.title, COALESCE(k.recap, '') AS recap,
+	             b.name AS board_name,
+	             (k.recap_hash IS NOT k.content_hash) AS stale, p.created_at
+	      FROM pin p JOIN knowledge k ON k.id = p.knowledge_id
+	      LEFT JOIN board b ON b.id = p.board_id
+	      WHERE k.project_id = ?`
+	args := []any{projectID}
+	if boardID != "" {
+		q += " AND (p.board_id IS NULL OR p.board_id = ?)"
+		args = append(args, boardID)
+	}
+	q += " ORDER BY p.created_at DESC"
+	if limit > 0 {
+		q += " LIMIT ?"
+		args = append(args, limit)
+	}
+	if err := tx.Select(&pins, q, args...); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(pins))
+	for _, pin := range pins {
+		ids = append(ids, pin.ID)
+	}
+	// The brief is injected without anyone asking for it, so the flag is
+	// read from the files rather than from the mirror, which is one read
+	// stale after a hand edit. Pins are curated, so this is a handful of
+	// stats and reads.
+	private, _, err := c.privateAfterRefresh(tx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range pins {
+		// Decided after the refresh, not in the SELECT, which sees each row
+		// as it was before the refresh purged it. A private pin is a pointer
+		// and never needs a recap. Any other pin without one does: it was
+		// made while the entry was private, and nothing else prompts for it.
+		if private[pins[i].ID] {
+			pins[i].Recap = ""
+			pins[i].Stale = false
+		} else if pins[i].Recap == "" {
+			pins[i].Stale = true
+		}
+	}
+	return pins, nil
 }
 
 // Nomination is an agent's argument that an entry is useful beyond its project.

@@ -58,6 +58,7 @@ type Knowledge struct {
 	Labels    []string      `db:"-" json:"labels,omitempty"`
 	Artifacts []ArtifactRef `db:"-" json:"artifacts,omitempty"`
 	Sources   []string      `db:"-" json:"sources,omitempty"`
+	Missing   bool          `db:"-" json:"missing,omitempty"` // file is missing; content withheld
 	// Warnings is set only by CreateKnowledge, when creating from a
 	// template under enforce: warn found a problem: a missing required
 	// field, a value outside its choices, or a missing section. It is
@@ -875,9 +876,10 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 			}
 			// The value is the content. A private entry records that it was
 			// edited and nothing more, because an audit log holding whole
-			// bodies is a copy of them.
+			// bodies is a copy of them. However, titles are disclosed by design
+			// (like in created/deleted events), so keep them.
 			value := fields[field]
-			if doc.Private {
+			if doc.Private && field != "title" {
 				value = ""
 			}
 			if err := c.recordEvent(tx, "knowledge", doc.ID, "edited", field, "", value); err != nil {

@@ -102,6 +102,7 @@ trellis card release XPSCTL-12
 # knowledge
 trellis knowledge new --title "..." --template finding --summary "..." --body @notes.md \
   --source https://... --source /XPSCTL/cards/XPSCTL-12   # decision and finding require at least one
+trellis knowledge new --title "..." --private --body @notes.md   # mark as private to withhold content
 trellis knowledge edit <slug> --body @notes.md --if-version 2
 trellis knowledge pin <slug> --recap "..."     # --remove to unpin
 trellis knowledge pins --stale
