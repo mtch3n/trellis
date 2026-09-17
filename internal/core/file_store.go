@@ -265,6 +265,26 @@ func (s *fileStage) move(from, to string) error {
 	return syncDirectory(filepath.Dir(from))
 }
 
+// create publishes a new file, never replacing one, and removes it on undo.
+// Once the file is linked into place it is registered for removal, even if a
+// later step of the write fails.
+func (s *fileStage) create(path string, data []byte) error {
+	if _, err := os.Lstat(path); err == nil {
+		return fmt.Errorf("cannot create %s: %w", path, os.ErrExist)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	err := writeAtomic(path, data, false)
+	if errors.Is(err, os.ErrExist) {
+		return err
+	}
+	if _, serr := os.Lstat(path); serr == nil {
+		s.undo = append(s.undo, func() error { return os.Remove(path) })
+	}
+	return err
+}
+
 // rewrite replaces a file's content, keeping the old bytes for undo. The undo
 // is registered before the write: writeAtomic can replace the file and then
 // fail to sync its directory, and that file must still be restored. Undoing a

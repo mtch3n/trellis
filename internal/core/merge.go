@@ -153,7 +153,7 @@ func (c *Core) runMerge(ctx context.Context, srcKey, dstKey string, opts MergeOp
 		m := &merger{
 			c: c, tx: tx, plan: &plan, opts: opts, apply: apply, stage: stage, backedUp: backedUp,
 			docPath: map[string]string{}, fromSrc: map[string]bool{}, addr: map[string]string{},
-			renamed: map[string]string{}, boardSlug: map[string]string{},
+			renamed: map[string]string{}, boardSlug: map[string]string{}, origPath: map[string]string{},
 		}
 		if err := m.run(srcKey, dstKey); err != nil {
 			return err
@@ -281,6 +281,9 @@ type merger struct {
 	fromSrc        map[string]bool   // documents that came from SRC and still exist
 	addr           map[string]string // SRC document address -> its address now
 	renamed        map[string]string // SRC slug -> its slug in DST, for renamed entries
+	origPath       map[string]string // SRC document id -> its file path before the merge
+	docMoves       []docMove
+	artMoves       []artifactMove
 }
 
 func (m *merger) run(srcKey, dstKey string) error {
@@ -294,8 +297,20 @@ func (m *merger) run(srcKey, dstKey string) error {
 		}
 		return nil
 	}
-	m.plan.Ready = true
-	for _, step := range []func() error{m.boards, m.labels, m.tags, m.cards, m.config, m.pins, m.retire} {
+	// Every conflict is known before anything changes.
+	for _, detect := range []func() error{m.planDocs, m.planArtifacts} {
+		if err := detect(); err != nil {
+			return err
+		}
+	}
+	m.plan.Ready = len(m.plan.Knowledge.Conflicts) == 0 && len(m.plan.Artifacts.Conflicts) == 0
+	if m.apply && !m.plan.Ready {
+		return mergeNotReady(*m.plan)
+	}
+	for _, step := range []func() error{
+		m.boards, m.labels, m.tags, m.cards, m.moveDocs, m.moveArtifacts,
+		m.references, m.config, m.pins, m.retire,
+	} {
 		if err := step(); err != nil {
 			return err
 		}
@@ -325,20 +340,11 @@ func (m *merger) load(srcKey, dstKey string) (refused bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	// Until documents and artifacts can move, a project that owns any is
-	// refused rather than half-merged.
-	owned, err := m.count(`SELECT (SELECT COUNT(*) FROM knowledge WHERE project_id = ?) +
-	                              (SELECT COUNT(*) FROM artifact WHERE project_id = ?)`, m.src.ID, m.src.ID)
-	if err != nil {
-		return false, err
-	}
 	switch {
 	case !vpath.ValidKey(m.dst.Key):
 		m.plan.Refused = fmt.Sprintf("%s cannot be named by a pin; merge into a project whose key can", m.dst.Key)
 	case held > 0:
 		m.plan.Refused = fmt.Sprintf("%s has %d %s held by an agent right now", m.src.Key, held, plural(held, "card", "cards"))
-	case owned > 0:
-		m.plan.Refused = "merging knowledge and artifacts is not implemented yet"
 	}
 	return m.plan.Refused != "", nil
 }
