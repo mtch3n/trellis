@@ -13,7 +13,7 @@ import (
 	"github.com/mtch3n/trellis/internal/store"
 )
 
-func TestCreateNote(t *testing.T) {
+func TestCreateComment(t *testing.T) {
 	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -52,30 +52,30 @@ func TestCreateNote(t *testing.T) {
 
 	cardRef := card.Ref
 
-	// Test creating a note
-	noteResp := request(http.MethodPost, "/api/p/TEST/b/board1/cards/"+cardRef+"/notes", `{"body":"This is a test note"}`)
-	if noteResp.Code != http.StatusCreated {
-		t.Fatalf("create note status = %d, body = %s", noteResp.Code, noteResp.Body)
+	// Test creating a comment
+	commentResp := request(http.MethodPost, "/api/p/TEST/b/board1/cards/"+cardRef+"/comments", `{"body":"This is a test comment"}`)
+	if commentResp.Code != http.StatusCreated {
+		t.Fatalf("create comment status = %d, body = %s", commentResp.Code, commentResp.Body)
 	}
 
-	var note core.Note
-	if err := json.Unmarshal(noteResp.Body.Bytes(), &note); err != nil {
+	var comment core.Comment
+	if err := json.Unmarshal(commentResp.Body.Bytes(), &comment); err != nil {
 		t.Fatal(err)
 	}
 
-	if note.BodyMD != "This is a test note" {
-		t.Fatalf("expected note body 'This is a test note', got %q", note.BodyMD)
+	if comment.BodyMD != "This is a test comment" {
+		t.Fatalf("expected comment body 'This is a test comment', got %q", comment.BodyMD)
 	}
 
-	// Test creating a note with empty body returns 400
-	emptyResp := request(http.MethodPost, "/api/p/TEST/b/board1/cards/"+cardRef+"/notes", `{"body":""}`)
+	// Test creating a comment with empty body returns 400
+	emptyResp := request(http.MethodPost, "/api/p/TEST/b/board1/cards/"+cardRef+"/comments", `{"body":""}`)
 	if emptyResp.Code != http.StatusBadRequest {
-		t.Fatalf("empty note status = %d, expected 400, body = %s", emptyResp.Code, emptyResp.Body)
+		t.Fatalf("empty comment status = %d, expected 400, body = %s", emptyResp.Code, emptyResp.Body)
 	}
 
-	// Test creating a note for non-existent card returns 404
-	notFoundResp := request(http.MethodPost, "/api/p/TEST/b/board1/cards/TEST-999/notes", `{"body":"test"}`)
+	// Test creating a comment for non-existent card returns 404
+	notFoundResp := request(http.MethodPost, "/api/p/TEST/b/board1/cards/TEST-999/comments", `{"body":"test"}`)
 	if notFoundResp.Code != http.StatusNotFound {
-		t.Fatalf("note for nonexistent card status = %d, expected 404", notFoundResp.Code)
+		t.Fatalf("comment for nonexistent card status = %d, expected 404", notFoundResp.Code)
 	}
 }

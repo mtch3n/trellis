@@ -55,7 +55,7 @@ func TestPolicyRejectsCardNoteAndEdit(t *testing.T) {
 			return err
 		}},
 		{"note.create", func() error {
-			_, err := c.CreateNote(t.Context(), ok.ID, "output with SECRET in it")
+			_, err := c.CreateComment(t.Context(), ok.ID, "output with SECRET in it")
 			return err
 		}},
 	} {
@@ -76,7 +76,7 @@ func TestPolicyRejectsCardNoteAndEdit(t *testing.T) {
 	if len(cards) != 1 {
 		t.Errorf("%d cards, want only the clean one", len(cards))
 	}
-	notes, err := c.GetNotesByCard(t.Context(), ok.ID)
+	notes, err := c.GetCommentsByCard(t.Context(), ok.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

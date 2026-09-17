@@ -196,7 +196,7 @@ func (s *tuiSession) execute(ctx context.Context, line string) (string, error) {
 				return "", err
 			}
 		case "/note":
-			if _, err = app.Core.CreateNote(ctx, card.ID, text); err != nil {
+			if _, err = app.Core.CreateComment(ctx, card.ID, text); err != nil {
 				return "", err
 			}
 		}

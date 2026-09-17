@@ -257,7 +257,7 @@ func (w *terminalWorkspace) selectCard(index int) {
 	w.selected = &card
 	w.session.seen[card.ID] = card.Version
 	text := fmt.Sprintf("[::b]%s  %s[::-]\n[#7ddbc4]%s · %s[-]\n\n%s", tuiText(card.Ref), tuiText(card.Title), tuiText(card.ColumnName), tuiText(card.PriorityName), terminalMarkdown(card.BodyMD))
-	notes, err := w.session.app.Core.GetNotesByCard(w.ctx, card.ID)
+	notes, err := w.session.app.Core.GetCommentsByCard(w.ctx, card.ID)
 	if err != nil {
 		text += "\n\nNotes unavailable: " + tuiText(err.Error())
 	} else {
@@ -734,7 +734,7 @@ func (w *terminalWorkspace) note() {
 		if strings.TrimSpace(body) == "" {
 			return
 		}
-		_, err := w.session.app.Core.CreateNote(w.ctx, card.ID, body)
+		_, err := w.session.app.Core.CreateComment(w.ctx, card.ID, body)
 		if err != nil {
 			form.SetTitle(" " + tuiText(err.Error()) + " ")
 			return

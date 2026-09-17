@@ -23,7 +23,7 @@ func TestDeleteProjectRemovesEverythingItOwns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.CreateNote(ctx, card.ID, "a note"); err != nil {
+	if _, err := c.CreateComment(ctx, card.ID, "a note"); err != nil {
 		t.Fatal(err)
 	}
 	doc, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Design", Body: "See [[elsewhere]].\n"})
@@ -52,7 +52,7 @@ func TestDeleteProjectRemovesEverythingItOwns(t *testing.T) {
 		{`SELECT COUNT(*) FROM project WHERE id = ?`, []any{p.ID}},
 		{`SELECT COUNT(*) FROM board WHERE project_id = ?`, []any{p.ID}},
 		{`SELECT COUNT(*) FROM card WHERE project_id = ?`, []any{p.ID}},
-		{`SELECT COUNT(*) FROM note WHERE card_id = ?`, []any{card.ID}},
+		{`SELECT COUNT(*) FROM comment WHERE card_id = ?`, []any{card.ID}},
 		{`SELECT COUNT(*) FROM knowledge WHERE project_id = ?`, []any{p.ID}},
 		{`SELECT COUNT(*) FROM link WHERE from_id IN (?, ?) OR to_id IN (?, ?)`, []any{card.ID, doc.ID, card.ID, doc.ID}},
 	} {

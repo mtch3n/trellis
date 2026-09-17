@@ -11,7 +11,7 @@ import (
 )
 
 // cardID resolves any accepted reference — 12, XPSCTL-12 or the uuid — to the
-// id the lease and note calls take. Without this, only the uuid worked, which
+// id the lease and comment calls take. Without this, only the uuid worked, which
 // is the one form an agent never has to hand.
 func cardID(cmd *cobra.Command, app *appCtx, ref string) (string, error) {
 	card, err := app.Core.GetCard(cmd.Context(), app.Project.ID, core.ParseCardRef(ref))
@@ -38,7 +38,7 @@ func newCardCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "card", Short: "Work with cards"}
 	cmd.AddCommand(
 		newCardNewCmd(), newCardShowCmd(), newCardLsCmd(), newCardMoveCmd(), newCardEditCmd(), newCardRmCmd(),
-		newCardClaimCmd(), newCardReleaseCmd(), newCardRenewCmd(), newCardNextCmd(), newCardNoteCmd(),
+		newCardClaimCmd(), newCardReleaseCmd(), newCardRenewCmd(), newCardNextCmd(), newCardCommentCmd(),
 		newCardArchiveCmd(), newCardBlockCmd(), newCardRelateCmd(), newCardImportCmd(), newCardHistoryCmd(), newCardDiffCmd())
 	return cmd
 }
@@ -490,33 +490,33 @@ func newCardNextCmd() *cobra.Command {
 	return cmd
 }
 
-func newCardNoteCmd() *cobra.Command {
+func newCardCommentCmd() *cobra.Command {
 	var body TextValue
 	cmd := &cobra.Command{
-		Use:   "note <card>",
-		Short: "Append a note to a card",
+		Use:   "comment <card>",
+		Short: "Append a comment to a card",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !body.Changed() {
-				return core.ErrUsage("missing_body", "a note needs text",
-					`trellis card note <card> --body "..."`)
+				return core.ErrUsage("missing_body", "a comment needs text",
+					`trellis card comment <card> --body "..."`)
 			}
 			return withBoard(func(app *appCtx) error {
 				id, err := cardID(cmd, app, args[0])
 				if err != nil {
 					return err
 				}
-				note, err := app.Core.CreateNote(cmd.Context(), id, body.String())
+				comment, err := app.Core.CreateComment(cmd.Context(), id, body.String())
 				if err != nil {
 					return err
 				}
-				return Emit(cmd, note, func() string {
-					return args[0] + " noted"
+				return Emit(cmd, comment, func() string {
+					return args[0] + " commented"
 				})
 			})
 		},
 	}
-	cmd.Flags().Var(&body, "body", "note text (text, - for stdin, or @file)")
+	cmd.Flags().Var(&body, "body", "comment text (text, - for stdin, or @file)")
 	addActorFlag(cmd)
 	return cmd
 }

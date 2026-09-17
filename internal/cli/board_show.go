@@ -22,10 +22,10 @@ type boardBrief struct {
 }
 
 type cardInfo struct {
-	Ref   string
-	Title string
-	Owner string
-	Note  string
+	Ref     string
+	Title   string
+	Owner   string
+	Comment string
 }
 
 // newBoardShowCmd creates the board show subcommand.
@@ -149,14 +149,14 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 	// YOURS: cards where owner = :me AND lease_until > :now
 	if actor != "" {
 		var owned []struct {
-			ID    string `db:"id"`
-			Ref   string `db:"ref"`
-			Title string `db:"title"`
-			Note  string `db:"body_md"`
+			ID      string `db:"id"`
+			Ref     string `db:"ref"`
+			Title   string `db:"title"`
+			Comment string `db:"body_md"`
 		}
 		err := app.db.SelectContext(ctx, &owned,
 			`SELECT c.id, c.ref, c.title,
-			        COALESCE((SELECT body_md FROM note WHERE card_id = c.id ORDER BY created_at DESC LIMIT 1), '') AS body_md
+			        COALESCE((SELECT body_md FROM comment WHERE card_id = c.id ORDER BY created_at DESC LIMIT 1), '') AS body_md
 			 FROM card c
 			 JOIN column_ col ON col.id = c.column_id
 			 WHERE c.project_id = ? AND c.owner = ? AND c.lease_until > ? AND c.archived_at IS NULL
@@ -167,9 +167,9 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 		}
 		for _, o := range owned {
 			brief.yours = append(brief.yours, cardInfo{
-				Ref:   o.Ref,
-				Title: o.Title,
-				Note:  o.Note,
+				Ref:     o.Ref,
+				Title:   o.Title,
+				Comment: o.Comment,
 			})
 		}
 	}
@@ -177,12 +177,12 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 	// OTHERS: unowned cards left by earlier sessions, most recently updated first.
 	// These are cards where no one is currently working on them (no lease).
 	var otherCards []struct {
-		Ref   string `db:"ref"`
-		Title string `db:"title"`
-		Note  string `db:"body_md"`
+		Ref     string `db:"ref"`
+		Title   string `db:"title"`
+		Comment string `db:"body_md"`
 	}
 	err := app.db.SelectContext(ctx, &otherCards,
-		`SELECT c.ref, c.title, COALESCE((SELECT body_md FROM note WHERE card_id = c.id ORDER BY created_at DESC LIMIT 1), '') AS body_md
+		`SELECT c.ref, c.title, COALESCE((SELECT body_md FROM comment WHERE card_id = c.id ORDER BY created_at DESC LIMIT 1), '') AS body_md
 		 FROM card c
 		 JOIN column_ col ON col.id = c.column_id
 		 WHERE c.project_id = ? AND c.owner IS NULL AND c.archived_at IS NULL AND col.is_done = 0
@@ -193,9 +193,9 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 	}
 	for _, o := range otherCards {
 		brief.others = append(brief.others, cardInfo{
-			Ref:   o.Ref,
-			Title: o.Title,
-			Note:  o.Note,
+			Ref:     o.Ref,
+			Title:   o.Title,
+			Comment: o.Comment,
 		})
 	}
 
@@ -241,12 +241,12 @@ func formatBrief(brief *boardBrief) string {
 		result.WriteString("### yours\n")
 		for _, card := range brief.yours {
 			fmt.Fprintf(&result, "  %s: %s\n", card.Ref, card.Title)
-			if card.Note != "" {
-				note := card.Note
-				if len(note) > 100 {
-					note = note[:100] + "..."
+			if card.Comment != "" {
+				comment := card.Comment
+				if len(comment) > 100 {
+					comment = comment[:100] + "..."
 				}
-				fmt.Fprintf(&result, "    %s\n", note)
+				fmt.Fprintf(&result, "    %s\n", comment)
 			}
 		}
 		result.WriteString("\n")
@@ -260,12 +260,12 @@ func formatBrief(brief *boardBrief) string {
 				break
 			}
 			fmt.Fprintf(&result, "  %s: %s\n", card.Ref, card.Title)
-			if card.Note != "" {
-				note := card.Note
-				if len(note) > 100 {
-					note = note[:100] + "..."
+			if card.Comment != "" {
+				comment := card.Comment
+				if len(comment) > 100 {
+					comment = comment[:100] + "..."
 				}
-				fmt.Fprintf(&result, "    %s\n", note)
+				fmt.Fprintf(&result, "    %s\n", comment)
 			}
 		}
 		result.WriteString("\n")
@@ -314,7 +314,7 @@ func formatBrief(brief *boardBrief) string {
 		result.WriteString("### do this\n")
 		result.WriteString("  `card new --title \"...\"`      create work\n")
 		result.WriteString("  `card next --claim`           claim next unblocked card\n")
-		result.WriteString("  `card note <id> \"...\"`      log progress (renews lease)\n")
+		result.WriteString("  `card comment <id> --body \"...\"`  log progress (renews lease)\n")
 		result.WriteString("  `card move <id> <column>`     move to column\n")
 		result.WriteString("  `knowledge new --title ...`   write down what you learned\n")
 	} else {

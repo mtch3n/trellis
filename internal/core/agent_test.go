@@ -8,7 +8,7 @@ import (
 	"github.com/mtch3n/trellis/internal/store"
 )
 
-func TestHeldWithoutNoteIgnoresFirstColumnAndNotedCards(t *testing.T) {
+func TestHeldWithoutCommentIgnoresFirstColumnAndCommentedCards(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
 	b := seededBoard(t, c, p)
@@ -21,25 +21,25 @@ func TestHeldWithoutNoteIgnoresFirstColumnAndNotedCards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	noted, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "held, wrote it down"})
+	commented, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "held, wrote it down"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, card := range []Card{inBacklog, silent, noted} {
+	for _, card := range []Card{inBacklog, silent, commented} {
 		if _, err := c.ClaimCard(t.Context(), card.ID, 60_000, false, ""); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, card := range []Card{silent, noted} {
+	for _, card := range []Card{silent, commented} {
 		if _, err := c.MoveCard(t.Context(), p.ID, b.ID, CardRef{Seq: card.Seq}, "in-progress"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := c.CreateNote(t.Context(), noted.ID, "what I learned"); err != nil {
+	if _, err := c.CreateComment(t.Context(), commented.ID, "what I learned"); err != nil {
 		t.Fatal(err)
 	}
 
-	held, err := c.HeldWithoutNote(t.Context())
+	held, err := c.HeldWithoutComment(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestHeldWithoutNoteIgnoresFirstColumnAndNotedCards(t *testing.T) {
 		for _, h := range held {
 			refs = append(refs, h.Ref)
 		}
-		t.Fatalf("HeldWithoutNote = %v, want only %s", refs, silent.Ref)
+		t.Fatalf("HeldWithoutComment = %v, want only %s", refs, silent.Ref)
 	}
 }
 
