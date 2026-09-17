@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/core"
 	"github.com/mtch3n/trellis/internal/resolve"
-	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 )
 
@@ -20,7 +20,7 @@ func newInitCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Pin this directory to a project, creating the project if needed",
+		Short: "Mark this directory with a project, creating the project if needed",
 		Long: "Write .trellis here, naming the project -- and, with --board, the board --\n" +
 			"that commands run in this directory act on. Commit the file: every clone\n" +
 			"and worktree then resolves to the same project.\n\n" +
@@ -36,7 +36,7 @@ func newInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			reason, err := resolve.Unpinnable(dir)
+			reason, err := resolve.Unmarkable(dir)
 			if err != nil {
 				return err
 			}
@@ -45,22 +45,22 @@ func newInitCmd() *cobra.Command {
 			}
 
 			req := core.InitRequest{Dir: dir, Key: key, Join: key != "", BoardName: boardFlag, Preset: !noPreset}
-			existing, err := resolve.ReadPin(filepath.Join(dir, resolve.PinFile))
+			existing, err := resolve.ReadMarker(filepath.Join(dir, resolve.MarkerFile))
 			switch {
 			case err == nil:
 				req.Existing = &existing
 			case errors.Is(err, fs.ErrNotExist):
 				if req.Key == "" {
-					if req.Key = vpath.KeyFromName(filepath.Base(dir)); req.Key == "" {
+					if req.Key = address.KeyFromName(filepath.Base(dir)); req.Key == "" {
 						return core.ErrUsage("missing_key",
 							fmt.Sprintf("cannot derive a project key from %q", filepath.Base(dir)),
 							"trellis init --key <KEY>")
 					}
 				}
 			default:
-				return pinFailure(err)
+				return markerFailure(err)
 			}
-			overridden := parentPin(dir, req.Existing)
+			overridden := parentMarker(dir, req.Existing)
 
 			c, db, err := openCore()
 			if err != nil {
@@ -89,7 +89,7 @@ func newInitCmd() *cobra.Command {
 
 			return Emit(cmd, map[string]any{
 				"project": res.Project, "board": board, "columns": cols,
-				"pin_path": res.PinPath, "created": res.Created, "pin_written": res.Wrote,
+				"marker_path": res.MarkerPath, "created": res.Created, "marker_written": res.Wrote,
 				"notes": notes,
 			}, func() string { return initTable(res, board, cols, notes) })
 		},
@@ -99,32 +99,33 @@ func newInitCmd() *cobra.Command {
 	return cmd
 }
 
-// parentPin is the pin a new pin in dir would override, or nil. A directory
-// that holds .git already stops the walk, so nothing above it applies.
-func parentPin(dir string, existing *resolve.Pin) *resolve.Pin {
+// parentMarker is the marker a new marker in dir would override, or nil. A
+// directory that holds .git already stops the walk, so nothing above it
+// applies.
+func parentMarker(dir string, existing *resolve.Marker) *resolve.Marker {
 	if existing != nil {
 		return nil
 	}
 	if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
 		return nil
 	}
-	pin, found, err := resolve.FindPin(filepath.Dir(dir))
+	marker, found, err := resolve.FindMarker(filepath.Dir(dir))
 	if err != nil || !found {
 		return nil
 	}
-	return &pin
+	return &marker
 }
 
-func initNotes(res core.InitResult, overridden *resolve.Pin) []string {
+func initNotes(res core.InitResult, overridden *resolve.Marker) []string {
 	notes := []string{}
 	if res.Wrote {
 		notes = append(notes, "commit .trellis so every clone and worktree resolves to "+res.Project.Key)
 	}
 	if overridden != nil {
-		notes = append(notes, fmt.Sprintf("this pin overrides %s from %s", overridden.Target, overridden.Path))
+		notes = append(notes, fmt.Sprintf("this marker overrides %s from %s", overridden.Target, overridden.Path))
 	}
 	if env := normalizeProjectArg(os.Getenv("TRELLIS_PROJECT")); env != "" && env != res.Project.Key {
-		notes = append(notes, fmt.Sprintf("TRELLIS_PROJECT=%s is set; commands in this environment act on %s, not on this pin", env, env))
+		notes = append(notes, fmt.Sprintf("TRELLIS_PROJECT=%s is set; commands in this environment act on %s, not on this marker", env, env))
 	}
 	return notes
 }
@@ -135,7 +136,7 @@ func initTable(res core.InitResult, board *core.Board, cols []core.Column, notes
 	if res.Created {
 		verb = "created project"
 	}
-	fmt.Fprintf(&b, "%s %s · pin %s", verb, res.Project.Key, res.PinPath)
+	fmt.Fprintf(&b, "%s %s · marker %s", verb, res.Project.Key, res.MarkerPath)
 	if board != nil {
 		names := make([]string, len(cols))
 		for i, c := range cols {

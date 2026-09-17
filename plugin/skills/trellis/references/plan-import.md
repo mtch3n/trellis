@@ -8,8 +8,8 @@ and required validation in `body`; use a concise action-oriented `title`. Keep
 independent tasks independent: `blocked_by` represents a real prerequisite, not
 merely the order in which the plan lists tasks.
 
-Use unique batch-local `id` values for dependencies between new cards. Existing
-card references are also accepted. Check the board's columns and label vocabulary
+Use unique batch-local `id` values for dependencies between new cards. An
+existing card's ref is also accepted. Check the board's columns and labels
 before supplying those fields. Preserve specified priorities; omit unspecified
 values rather than inventing urgency.
 
@@ -33,9 +33,9 @@ PLAN
 
 Supported fields: `id`, `title`, `body`, `column`, `priority`, `labels`, `tags`,
 `blocked_by`. Only `title` is required. Priorities are `urgent`, `high`, `normal`,
-and `low`. `id` is an import-local handle, not the resulting card reference.
+and `low`. `id` is an import-local handle, not the resulting card's ref.
 
 The import is one transaction: all cards and dependencies land, or none. Inspect
-the returned cards to map local IDs to real references. If the command's outcome
+the returned cards to map local ids to real refs. If the command's outcome
 is uncertain, inspect the board before retrying: importing the same payload again
 can create duplicates. File input is supported with `trellis card import @plan.json`.

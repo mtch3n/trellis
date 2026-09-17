@@ -20,7 +20,7 @@ const tuiHelp = `/board [name]           Show cards, or switch board
 /body <card> <text>      Replace its body (use \n for line breaks)
 /move <card> <column>    Move a card
 /comment <card> <text>   Add a comment
-/search <query>          Search project cards and knowledge (up to 50 hits)
+/search <query>          Search project cards and entries (up to 50 hits)
 /help                   Show commands
 /quit                   Exit
 
@@ -31,7 +31,7 @@ var tuiCommands = []string{"/board", "/boards", "/show", "/new", "/title", "/bod
 
 func newTUICmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use: "tui", Short: "Open the interactive terminal workspace", Args: cobra.NoArgs,
+		Use: "tui", Short: "Open the interactive terminal interface", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if forceJSON || !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
 				return core.ErrUsage("terminal_required", "tui requires an interactive terminal and does not support --json", "trellis tui")

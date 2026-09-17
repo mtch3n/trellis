@@ -38,13 +38,13 @@ type terminalWorkspace struct {
 	columns                     []core.Column
 	cards                       []core.Card
 	boards                      []core.Board
-	docs                        []core.Knowledge
+	entries                     []core.Entry
 	lists                       []*tview.List
 	laneCards                   [][]core.Card
 	view                        string
 	lane                        int
 	selected                    *core.Card
-	doc                         *core.Knowledge
+	entry                       *core.Entry
 	filter                      string
 	inputMode                   string
 	modal                       bool
@@ -125,7 +125,7 @@ func (w *terminalWorkspace) reload() error {
 	w.boards, w.columns, w.cards = boards, columns, cards.Cards
 	w.header.SetText(fmt.Sprintf(" [::b]TRELLIS[::-]  /  %s  /  %s\n [#9cabb9]Local workspace · %d cards[-]", tuiText(a.Project.Key), tuiText(a.Board.Name), cards.Total))
 	w.sidebar.Clear()
-	w.sidebar.AddItem("Boards", "", '1', func() { w.switchView("board") }).AddItem("Knowledge", "", '2', func() { w.switchView("knowledge") }).AddItem("Activity", "", '3', func() { w.switchView("activity") })
+	w.sidebar.AddItem("Boards", "", '1', func() { w.switchView("board") }).AddItem("Vault", "", '2', func() { w.switchView("vault") }).AddItem("Events", "", '3', func() { w.switchView("events") })
 	for _, board := range w.boards {
 		label := "  " + board.Name
 		if board.ID == a.Board.ID {
@@ -151,13 +151,13 @@ func (w *terminalWorkspace) switchView(view string) {
 }
 func (w *terminalWorkspace) render() {
 	w.selected = nil
-	w.doc = nil
+	w.entry = nil
 	w.preview.SetText("").ScrollToBeginning()
 	switch w.view {
-	case "knowledge":
-		w.renderKnowledge()
-	case "activity":
-		w.renderActivity()
+	case "vault":
+		w.renderVault()
+	case "events":
+		w.renderEvents()
 	default:
 		w.renderBoard()
 	}
@@ -176,13 +176,13 @@ func (w *terminalWorkspace) layout() {
 		return
 	}
 	switch w.view {
-	case "knowledge":
+	case "vault":
 		if w.width < 90 {
 			w.content.AddItem(w.tree, 0, 1, true)
 		} else {
 			w.content.AddItem(w.tree, 30, 0, true).AddItem(w.preview, 0, 1, false)
 		}
-	case "activity":
+	case "events":
 		w.content.AddItem(w.preview, 0, 1, true)
 	default:
 		board := tview.NewFlex()
@@ -258,54 +258,54 @@ func (w *terminalWorkspace) selectCard(index int) {
 	w.selected = &card
 	w.session.seen[card.ID] = card.Version
 	text := fmt.Sprintf("[::b]%s  %s[::-]\n[#7ddbc4]%s · %s[-]\n\n%s", tuiText(card.Ref), tuiText(card.Title), tuiText(card.ColumnName), tuiText(card.PriorityName), terminalMarkdown(card.BodyMD))
-	notes, err := w.session.app.Core.GetCommentsByCard(w.ctx, card.ID)
+	comments, err := w.session.app.Core.GetCommentsByCard(w.ctx, card.ID)
 	if err != nil {
-		text += "\n\nNotes unavailable: " + tuiText(err.Error())
+		text += "\n\nComments unavailable: " + tuiText(err.Error())
 	} else {
-		for _, note := range notes {
-			text += "\n\n[#7ddbc4]" + tuiText(note.Actor) + "[-]\n" + terminalMarkdown(note.BodyMD)
+		for _, comment := range comments {
+			text += "\n\n[#7ddbc4]" + tuiText(comment.Actor) + "[-]\n" + terminalMarkdown(comment.BodyMD)
 		}
 	}
-	w.preview.SetTitle(" Card · Enter read · e edit · m move · a note ")
+	w.preview.SetTitle(" Card · Enter read · e edit · m move · a comment ")
 	w.preview.SetText(text).ScrollToBeginning()
 }
-func (w *terminalWorkspace) renderKnowledge() {
-	root := tview.NewTreeNode("Documents").SetColor(tuiAccent)
+func (w *terminalWorkspace) renderVault() {
+	root := tview.NewTreeNode("Entries").SetColor(tuiAccent)
 	w.tree = tview.NewTreeView().SetRoot(root).SetCurrentNode(root).SetGraphicsColor(tuiMuted)
-	tuiBox(w.tree.Box, "Knowledge")
-	docs, err := w.session.app.Core.ListKnowledge(w.ctx, w.session.app.Project.ID, core.KnowledgeFilter{})
+	tuiBox(w.tree.Box, "Vault")
+	entries, err := w.session.app.Core.ListEntries(w.ctx, w.session.app.Project.ID, core.EntryFilter{})
 	if err != nil {
 		w.preview.SetText(tuiText(err.Error()))
 		return
 	}
-	w.docs = docs
-	slices.SortFunc(docs, func(a, b core.Knowledge) int { return strings.Compare(a.Template+"/"+a.Title, b.Template+"/"+b.Title) })
+	w.entries = entries
+	slices.SortFunc(entries, func(a, b core.Entry) int { return strings.Compare(a.Template+"/"+a.Title, b.Template+"/"+b.Title) })
 	groups := map[string]*tview.TreeNode{}
 	var first *tview.TreeNode
-	for _, doc := range docs {
-		if !matchesFilter(w.filter, doc.Title, doc.Slug, doc.BodyMD) {
+	for _, entry := range entries {
+		if !matchesFilter(w.filter, entry.Title, entry.Slug, entry.BodyMD) {
 			continue
 		}
-		group := groups[doc.Template]
+		group := groups[entry.Template]
 		if group == nil {
-			group = tview.NewTreeNode(tuiText(doc.Template)).SetColor(tuiAccent)
-			groups[doc.Template] = group
+			group = tview.NewTreeNode(tuiText(entry.Template)).SetColor(tuiAccent)
+			groups[entry.Template] = group
 			root.AddChild(group)
 		}
-		node := tview.NewTreeNode(tuiText(doc.Title)).SetColor(tuiFG).SetReference(doc)
+		node := tview.NewTreeNode(tuiText(entry.Title)).SetColor(tuiFG).SetReference(entry)
 		group.AddChild(node)
 		if first == nil {
 			first = node
 		}
 	}
 	w.tree.SetChangedFunc(func(node *tview.TreeNode) {
-		if doc, ok := node.GetReference().(core.Knowledge); ok {
-			w.selectDoc(doc)
+		if entry, ok := node.GetReference().(core.Entry); ok {
+			w.selectEntry(entry)
 		}
 	})
 	w.tree.SetSelectedFunc(func(node *tview.TreeNode) {
-		if doc, ok := node.GetReference().(core.Knowledge); ok {
-			w.selectDoc(doc)
+		if entry, ok := node.GetReference().(core.Entry); ok {
+			w.selectEntry(entry)
 			w.reading = true
 			w.layout()
 			w.app.SetFocus(w.preview)
@@ -315,15 +315,15 @@ func (w *terminalWorkspace) renderKnowledge() {
 	})
 	if first != nil {
 		w.tree.SetCurrentNode(first)
-		w.selectDoc(first.GetReference().(core.Knowledge))
+		w.selectEntry(first.GetReference().(core.Entry))
 	} else {
-		w.preview.SetText("\n No matching documents.\n Press n to create a knowledge entry.")
+		w.preview.SetText("\n No matching entries.\n Press n to create one.")
 	}
 }
-func (w *terminalWorkspace) selectDoc(doc core.Knowledge) {
-	w.doc = &doc
-	text := "[::b]" + tuiText(doc.Title) + "[::-]\n[#9cabb9]" + tuiText(doc.Ref) + " · " + tuiText(doc.Template) + "[-]\n\n" + terminalMarkdown(doc.BodyMD)
-	links, err := w.session.app.Core.Backlinks(w.ctx, doc.ID)
+func (w *terminalWorkspace) selectEntry(entry core.Entry) {
+	w.entry = &entry
+	text := "[::b]" + tuiText(entry.Title) + "[::-]\n[#9cabb9]" + tuiText(entry.Ref) + " · " + tuiText(entry.Template) + "[-]\n\n" + terminalMarkdown(entry.BodyMD)
+	links, err := w.session.app.Core.Backlinks(w.ctx, entry.ID)
 	if err != nil {
 		text += "\n\nBacklinks unavailable: " + tuiText(err.Error())
 	} else if len(links) > 0 {
@@ -332,29 +332,29 @@ func (w *terminalWorkspace) selectDoc(doc core.Knowledge) {
 			text += tuiText(link.Ref+"  "+link.Title) + "\n"
 		}
 	}
-	w.preview.SetTitle(" Document · Enter read · e edit ")
+	w.preview.SetTitle(" Entry · Enter read · e edit ")
 	w.preview.SetText(text).ScrollToBeginning()
 }
 
-// activityRow is one line of the workspace's activity view.
-type activityRow struct {
+// eventRow is one line of the workspace's events view.
+type eventRow struct {
 	TS     int64  `db:"ts"`
 	Actor  string `db:"actor"`
 	Action string `db:"action"`
-	Kind   string `db:"entity_type"`
+	Entity string `db:"entity_type"`
 	Title  string `db:"title"`
 }
 
-// recentActivity is a project's latest 100 events, newest first, reads
+// recentEvents is a project's latest 100 events, newest first, reads
 // excluded. A comment's title is its card's.
-func recentActivity(ctx context.Context, db *sqlx.DB, projectID string) ([]activityRow, error) {
-	var rows []activityRow
+func recentEvents(ctx context.Context, db *sqlx.DB, projectID string) ([]eventRow, error) {
+	var rows []eventRow
 	err := db.SelectContext(ctx, &rows, `
 		SELECT e.ts, e.actor, e.action, e.entity_type,
 		       COALESCE(c.title, k.title, cc.title, b.name, '') AS title
 		FROM event e
 		LEFT JOIN card c ON e.entity_type = 'card' AND e.entity_id = c.id
-		LEFT JOIN knowledge k ON e.entity_type = 'knowledge' AND e.entity_id = k.id
+		LEFT JOIN entry k ON e.entity_type = 'entry' AND e.entity_id = k.id
 		LEFT JOIN comment cm ON e.entity_type = 'comment' AND e.entity_id = cm.id
 		LEFT JOIN card cc ON cc.id = cm.card_id
 		LEFT JOIN board b ON e.entity_type = 'board' AND e.entity_id = b.id
@@ -363,9 +363,9 @@ func recentActivity(ctx context.Context, db *sqlx.DB, projectID string) ([]activ
 	return rows, err
 }
 
-func (w *terminalWorkspace) renderActivity() {
-	rows, err := recentActivity(w.ctx, w.session.app.db, w.session.app.Project.ID)
-	w.preview.SetTitle(" Activity · latest 100 events ")
+func (w *terminalWorkspace) renderEvents() {
+	rows, err := recentEvents(w.ctx, w.session.app.db, w.session.app.Project.ID)
+	w.preview.SetTitle(" Events · latest 100 events ")
 	if err != nil {
 		w.preview.SetText(tuiText(err.Error()))
 		return
@@ -375,10 +375,10 @@ func (w *terminalWorkspace) renderActivity() {
 		if !matchesFilter(w.filter, row.Title, row.Actor, row.Action) {
 			continue
 		}
-		fmt.Fprintf(&out, "[#9cabb9]%s[-]  [#7ddbc4]%s[-] %s\n  %s · %s\n\n", time.UnixMilli(row.TS).Format("Jan 02 15:04"), tuiText(row.Kind), tuiText(row.Action), tuiText(row.Title), tuiText(row.Actor))
+		fmt.Fprintf(&out, "[#9cabb9]%s[-]  [#7ddbc4]%s[-] %s\n  %s · %s\n\n", time.UnixMilli(row.TS).Format("Jan 02 15:04"), tuiText(row.Entity), tuiText(row.Action), tuiText(row.Title), tuiText(row.Actor))
 	}
 	if out.Len() == 0 {
-		out.WriteString("\n No activity to show.")
+		out.WriteString("\n No events to show.")
 	}
 	w.preview.SetText(out.String())
 }
@@ -406,7 +406,7 @@ func terminalMarkdown(body string) string {
 }
 func (w *terminalWorkspace) hints() {
 	text := " Tab panels  / filter  : commands  n new  e edit  m move  ? help  q quit"
-	if w.view == "knowledge" {
+	if w.view == "vault" {
 		text = " Tab panels  / filter  Enter read  e edit  n new  b sidebar  ? help"
 	}
 	if w.reading {
@@ -421,9 +421,9 @@ func (w *terminalWorkspace) hints() {
 	}
 }
 func (w *terminalWorkspace) focusContent() {
-	if w.reading || w.view == "activity" {
+	if w.reading || w.view == "events" {
 		w.app.SetFocus(w.preview)
-	} else if w.view == "knowledge" {
+	} else if w.view == "vault" {
 		w.app.SetFocus(w.tree)
 	} else if len(w.lists) > 0 {
 		w.app.SetFocus(w.lists[w.lane])
@@ -459,9 +459,9 @@ func (w *terminalWorkspace) key(event *tcell.EventKey) *tcell.EventKey {
 		if !w.hideSidebar && !w.reading && w.width >= 75 {
 			targets = append(targets, w.sidebar)
 		}
-		if w.reading || w.view == "activity" {
+		if w.reading || w.view == "events" {
 			targets = append(targets, w.preview)
-		} else if w.view == "knowledge" {
+		} else if w.view == "vault" {
 			targets = append(targets, w.tree)
 			if w.width >= 90 {
 				targets = append(targets, w.preview)
@@ -501,10 +501,10 @@ func (w *terminalWorkspace) key(event *tcell.EventKey) *tcell.EventKey {
 		w.switchView("board")
 		return nil
 	case '2':
-		w.switchView("knowledge")
+		w.switchView("vault")
 		return nil
 	case '3':
-		w.switchView("activity")
+		w.switchView("events")
 		return nil
 	case 'b':
 		w.hideSidebar = !w.hideSidebar
@@ -534,7 +534,7 @@ func (w *terminalWorkspace) key(event *tcell.EventKey) *tcell.EventKey {
 		w.move()
 		return nil
 	case 'a':
-		w.note()
+		w.comment()
 		return nil
 	case 'j':
 		return tcell.NewEventKey(tcell.KeyDown, 0, event.Modifiers())
@@ -620,17 +620,17 @@ func (w *terminalWorkspace) message(title, body string) {
 }
 func (w *terminalWorkspace) help() {
 	w.message("Keyboard guide", `WORKSPACE
-1 Boards    2 Knowledge    3 Activity
+1 Boards    2 Vault    3 Events
 Tab / Shift-Tab switch panels · b collapse sidebar
 Arrow keys or hjkl navigate · Enter open · Esc back
 / filter current view · : action menu · r refresh · q quit
 
 CARDS
-n create · e edit title and body · m move · a append note
+n create · e edit title and body · m move · a append comment
 
-KNOWLEDGE
-Enter on a group collapses it; Enter on a document expands reading.
-n create a document · e edit its body
+VAULT
+Enter on a group collapses it; Enter on an entry expands reading.
+n create an entry · e edit its body
 Markdown headings, fenced code and quotes are styled.
 
 FORMS
@@ -648,12 +648,12 @@ func (w *terminalWorkspace) palette() {
 		run          func()
 	}{
 		{"Boards", "Switch to the kanban board", func() { w.switchView("board") }},
-		{"Knowledge", "Browse project documents", func() { w.switchView("knowledge") }},
-		{"Activity", "Recent project events", func() { w.switchView("activity") }},
-		{"New item", "Create a card or document", func() { w.edit(true) }},
-		{"Edit selected", "Edit the selected card or document", func() { w.edit(false) }},
+		{"Vault", "Browse project entries", func() { w.switchView("vault") }},
+		{"Events", "Recent project events", func() { w.switchView("events") }},
+		{"New card or entry", "Create a card or entry", func() { w.edit(true) }},
+		{"Edit selected", "Edit the selected card or entry", func() { w.edit(false) }},
 		{"Move card", "Choose a destination column", w.move},
-		{"Add note", "Append a note to the selected card", w.note},
+		{"Add comment", "Append a comment to the selected card", w.comment},
 		{"Filter", "Find text in this view", func() { w.openInput("filter") }},
 		{"Run slash command", "Existing commands and project-wide search", func() { w.openInput("command") }},
 		{"Refresh", "Reload local data", w.refresh},
@@ -665,21 +665,21 @@ func (w *terminalWorkspace) palette() {
 	w.showModal("Actions", list, 65, 26)
 }
 func (w *terminalWorkspace) edit(create bool) {
-	if w.view == "activity" {
+	if w.view == "events" {
 		return
 	}
 	a := w.session.app
-	knowledge := w.view == "knowledge"
-	if !create && ((knowledge && w.doc == nil) || (!knowledge && w.selected == nil)) {
+	vault := w.view == "vault"
+	if !create && ((vault && w.entry == nil) || (!vault && w.selected == nil)) {
 		return
 	}
 	title, body := "", ""
 	var card core.Card
-	var doc core.Knowledge
+	var entry core.Entry
 	if !create {
-		if knowledge {
-			doc = *w.doc
-			title, body = doc.Title, doc.BodyMD
+		if vault {
+			entry = *w.entry
+			title, body = entry.Title, entry.BodyMD
 		} else {
 			card = *w.selected
 			title, body = card.Title, card.BodyMD
@@ -687,18 +687,18 @@ func (w *terminalWorkspace) edit(create bool) {
 	}
 	form := tview.NewForm().SetLabelColor(tuiAccent).SetFieldBackgroundColor(tuiSelected).SetFieldTextColor(tuiFG).SetButtonBackgroundColor(tuiSelected).SetButtonTextColor(tuiFG)
 	tuiBox(form.Box, "Edit · Tab fields · Esc cancel")
-	if create || !knowledge {
+	if create || !vault {
 		form.AddInputField("Title", title, 0, nil, func(v string) { title = v })
 	}
 	form.AddTextArea("Body", body, 0, max(3, min(10, w.height-15)), 0, func(v string) { body = v })
 	errorView := tuiView()
 	form.AddButton("Save", func() {
 		var err error
-		if knowledge {
+		if vault {
 			if create {
-				_, err = a.Core.CreateKnowledge(w.ctx, a.Project.ID, core.NewKnowledge{Title: title, Body: body})
+				_, err = a.Core.CreateEntry(w.ctx, a.Project.ID, core.NewEntry{Title: title, Body: body})
 			} else {
-				_, err = a.Core.EditKnowledge(w.ctx, a.Project.ID, doc.Slug, body, new(doc.Version))
+				_, err = a.Core.EditEntry(w.ctx, a.Project.ID, entry.Slug, body, new(entry.Version))
 			}
 		} else {
 			if create {
@@ -744,15 +744,15 @@ func (w *terminalWorkspace) move() {
 	}
 	w.showModal("Move", list, 50, len(w.columns)+4)
 }
-func (w *terminalWorkspace) note() {
+func (w *terminalWorkspace) comment() {
 	if w.view != "board" || w.selected == nil {
 		return
 	}
 	card := *w.selected
 	body := ""
 	form := tview.NewForm().SetLabelColor(tuiAccent).SetFieldBackgroundColor(tuiSelected).SetFieldTextColor(tuiFG)
-	tuiBox(form.Box, "Note · "+tuiText(card.Ref))
-	form.AddTextArea("Note", "", 0, 5, 0, func(s string) { body = s }).AddButton("Append", func() {
+	tuiBox(form.Box, "Comment · "+tuiText(card.Ref))
+	form.AddTextArea("Comment", "", 0, 5, 0, func(s string) { body = s }).AddButton("Append", func() {
 		if strings.TrimSpace(body) == "" {
 			return
 		}
@@ -765,5 +765,5 @@ func (w *terminalWorkspace) note() {
 		w.refresh()
 		w.focusContent()
 	}).AddButton("Cancel", w.closeModal).SetCancelFunc(w.closeModal)
-	w.showModal("Note", form, 75, 14)
+	w.showModal("Comment", form, 75, 14)
 }

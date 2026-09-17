@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/resolve"
-	"github.com/mtch3n/trellis/internal/vpath"
 )
 
 type mergeFixture struct {
@@ -97,7 +97,7 @@ func (f *mergeFixture) snapshot() string {
 	f.t.Helper()
 	var b strings.Builder
 	for _, table := range []string{"project", "board", "column_", "card", "label", "tag", "card_label",
-		"card_tag", "knowledge", "knowledge_label", "artifact", "link", "event", "merged_project", "project_config"} {
+		"card_tag", "entry", "entry_label", "artifact", "link", "event", "merged_project", "project_config"} {
 		fmt.Fprintf(&b, "%s=%d ", table, f.count("SELECT count(*) FROM "+table))
 	}
 	filepath.WalkDir(f.root, func(path string, d os.DirEntry, err error) error {
@@ -218,19 +218,19 @@ func TestMergeRefusals(t *testing.T) {
 		t.Errorf("missing DST: %s", got)
 	}
 
-	held := f.card(f.api, f.apiBoard, "held", nil, nil)
-	f.exec(`UPDATE card SET owner = 'agent:x', lease_until = ? WHERE id = ?`, f.c.clock.NowMS()+60_000, held.ID)
-	if plan := f.merge(MergeOptions{}); plan.Ready || !strings.Contains(plan.Refused, "held") {
-		t.Errorf("held lease: %+v", plan)
+	claimed := f.card(f.api, f.apiBoard, "claimed", nil, nil)
+	f.exec(`UPDATE card SET claimed_by = 'agent:x', claim_until = ? WHERE id = ?`, f.c.clock.NowMS()+60_000, claimed.ID)
+	if plan := f.merge(MergeOptions{}); plan.Ready || !strings.Contains(plan.Refused, "claimed") {
+		t.Errorf("active claim: %+v", plan)
 	}
 	_, err = f.c.MergeProjects(ctx, "API", "MONO", MergeOptions{Apply: true})
 	if got := errCode(t, err); got != "merge_refused" {
-		t.Errorf("held lease, apply: %s", got)
+		t.Errorf("active claim, apply: %s", got)
 	}
 	if f.count(`SELECT count(*) FROM project WHERE key = 'API'`) != 1 {
 		t.Error("a refused merge removed API")
 	}
-	f.exec(`UPDATE card SET owner = NULL, lease_until = NULL WHERE id = ?`, held.ID)
+	f.exec(`UPDATE card SET claimed_by = NULL, claim_until = NULL WHERE id = ?`, claimed.ID)
 
 	// A key from before the key grammar, with a card whose ref carries it.
 	f.exec(`INSERT INTO project (id, key, name, created_at) VALUES ('odd', 'MY_APP', 'MY_APP', 1)`)
@@ -241,10 +241,10 @@ func TestMergeRefusals(t *testing.T) {
 	}
 	plan, err = f.c.MergeProjects(ctx, "API", "MY_APP", MergeOptions{})
 	if err != nil || !strings.Contains(plan.Refused, "MY_APP") {
-		t.Errorf("DST without a pinnable key: %+v, %v", plan, err)
+		t.Errorf("DST without a key a marker can name: %+v, %v", plan, err)
 	}
 	if _, err := f.c.MergeProjects(ctx, "MY_APP", "MONO", MergeOptions{Apply: true}); err != nil {
-		t.Fatalf("a SRC without a pinnable key must merge: %v", err)
+		t.Fatalf("a SRC without a key a marker can name must merge: %v", err)
 	}
 	for _, ref := range []string{"MY_APP-1", "/MONO/cards/MY_APP-1"} {
 		if got, err := f.c.GetCard(ctx, f.mono.ID, ParseCardRef(ref)); err != nil || got.ID != legacy.ID {
@@ -256,8 +256,8 @@ func TestMergeRefusals(t *testing.T) {
 func TestMergeListsDroppedConfigAndBacksUp(t *testing.T) {
 	f := newMergeFixture(t)
 	f.exec(`INSERT INTO project_config (project_id, key, value, updated_at) VALUES
-	          (?, 'lease.ttl', '10m', 1), (?, 'card.ls_limit', '20', 1), (?, 'search.method', 'fts', 1),
-	          (?, 'lease.ttl', '10m', 1), (?, 'card.ls_limit', '50', 1)`,
+	          (?, 'claim.ttl', '10m', 1), (?, 'card.ls_limit', '20', 1), (?, 'search.method', 'fts', 1),
+	          (?, 'claim.ttl', '10m', 1), (?, 'card.ls_limit', '50', 1)`,
 		f.api.ID, f.api.ID, f.api.ID, f.mono.ID, f.mono.ID)
 
 	plan := f.merge(MergeOptions{Apply: true})
@@ -290,28 +290,28 @@ func TestMergeRepointsEarlierMerges(t *testing.T) {
 	}
 }
 
-func TestMergePlansPinRewrites(t *testing.T) {
+func TestMergePlansMarkerRewrites(t *testing.T) {
 	f := newMergeFixture(t)
 	f.board(f.api, "Web")
-	pins := []resolve.Pin{
-		{Path: "/r/api/.trellis", Target: vpath.ProjectPath("API")},
-		{Path: "/r/web/.trellis", Target: vpath.BoardPath("API", "web")},
-		{Path: "/r/gone/.trellis", Target: vpath.BoardPath("API", "gone")},
-		{Path: "/r/.trellis", Target: vpath.ProjectPath("MONO")},
+	markers := []resolve.Marker{
+		{Path: "/r/api/.trellis", Target: address.Project("API")},
+		{Path: "/r/web/.trellis", Target: address.Board("API", "web")},
+		{Path: "/r/gone/.trellis", Target: address.Board("API", "gone")},
+		{Path: "/r/.trellis", Target: address.Project("MONO")},
 	}
-	plan := f.merge(MergeOptions{ScanRoot: "/r", Pins: pins, UnreadablePins: []string{"/r/bad/.trellis"}})
-	want := []PinRewrite{
+	plan := f.merge(MergeOptions{ScanRoot: "/r", Markers: markers, UnreadableMarkers: []string{"/r/bad/.trellis"}})
+	want := []MarkerRewrite{
 		{Path: "/r/api/.trellis", From: "/API", To: "/MONO/boards/api"},
 		{Path: "/r/web/.trellis", From: "/API/boards/web", To: "/MONO/boards/web"},
 	}
-	if plan.Pins.ScanRoot != "/r" || !slices.Equal(plan.Pins.Rewrite, want) ||
-		!slices.Equal(plan.Pins.Left, []string{"/r/gone/.trellis", "/r/bad/.trellis"}) {
-		t.Errorf("pins = %+v", plan.Pins)
+	if plan.Markers.ScanRoot != "/r" || !slices.Equal(plan.Markers.Rewrite, want) ||
+		!slices.Equal(plan.Markers.Left, []string{"/r/gone/.trellis", "/r/bad/.trellis"}) {
+		t.Errorf("markers = %+v", plan.Markers)
 	}
 }
 
 // A merged card keeps its revisions and its relations, and its history moves
-// with it: DST's event feed shows what happened to the card before the merge.
+// with it: DST's event log shows what happened to the card before the merge.
 func TestMergeCarriesCardRevisionsRelationsAndHistory(t *testing.T) {
 	f := newMergeFixture(t)
 	ctx := t.Context()
@@ -350,21 +350,21 @@ func TestMergeCarriesCardRevisionsRelationsAndHistory(t *testing.T) {
 
 func TestMergeFinishesAfterTheCommit(t *testing.T) {
 	f := newMergeFixture(t)
-	f.doc(f.api, "Runbook", "x\n")
+	f.entry(f.api, "Runbook", "x\n")
 	repo := t.TempDir()
-	pinPath := filepath.Join(repo, "api", ".trellis")
-	writeFile(t, pinPath, "/API\n")
+	markerPath := filepath.Join(repo, "api", ".trellis")
+	writeFile(t, markerPath, "/API\n")
 	var notified []string
-	f.c.SetKnowledgeChanged(func(_ context.Context, id string) error {
+	f.c.SetEntryChanged(func(_ context.Context, id string) error {
 		notified = append(notified, id)
 		return nil
 	})
 
 	plan := f.merge(MergeOptions{Apply: true, ScanRoot: repo,
-		Pins: []resolve.Pin{{Path: pinPath, Target: vpath.ProjectPath("API")}}})
+		Markers: []resolve.Marker{{Path: markerPath, Target: address.Project("API")}}})
 
-	if got := readFile(t, pinPath); got != "/MONO/boards/api\n" {
-		t.Errorf("pin = %q", got)
+	if got := readFile(t, markerPath); got != "/MONO/boards/api\n" {
+		t.Errorf("marker = %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(f.root, "projects", "API")); !os.IsNotExist(err) {
 		t.Errorf("API's directory is still in the storage root: %v", err)
@@ -380,18 +380,18 @@ func TestMergeFinishesAfterTheCommit(t *testing.T) {
 	}
 }
 
-// A pin changed since the plan is left alone and reported.
-func TestMergeLeavesAPinThatChanged(t *testing.T) {
+// A marker changed since the plan is left alone and reported.
+func TestMergeLeavesAMarkerThatChanged(t *testing.T) {
 	f := newMergeFixture(t)
 	repo := t.TempDir()
-	pinPath := filepath.Join(repo, "api", ".trellis")
-	writeFile(t, pinPath, "/OTHER\n")
+	markerPath := filepath.Join(repo, "api", ".trellis")
+	writeFile(t, markerPath, "/OTHER\n")
 
 	plan := f.merge(MergeOptions{Apply: true, ScanRoot: repo,
-		Pins: []resolve.Pin{{Path: pinPath, Target: vpath.ProjectPath("API")}}})
+		Markers: []resolve.Marker{{Path: markerPath, Target: address.Project("API")}}})
 
-	if got := readFile(t, pinPath); got != "/OTHER\n" {
-		t.Errorf("pin = %q, want it untouched", got)
+	if got := readFile(t, markerPath); got != "/OTHER\n" {
+		t.Errorf("marker = %q, want it untouched", got)
 	}
 	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "OTHER") {
 		t.Errorf("warnings = %v", plan.Warnings)
@@ -400,7 +400,7 @@ func TestMergeLeavesAPinThatChanged(t *testing.T) {
 
 func TestMergeReportsAFailedRefresh(t *testing.T) {
 	f := newMergeFixture(t)
-	f.c.SetKnowledgeChanged(func(context.Context, string) error { return errors.New("embedder down") })
+	f.c.SetEntryChanged(func(context.Context, string) error { return errors.New("embedder down") })
 	plan := f.merge(MergeOptions{Apply: true})
 	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "embedder down") {
 		t.Errorf("warnings = %v", plan.Warnings)
@@ -430,7 +430,7 @@ func TestMergeDropsDerivedStateBeforeApplying(t *testing.T) {
 
 // A comment on a merged card is reported under the card's own ref, not a
 // key-seq pair the card does not answer to.
-func TestFeedNamesACommentOnAMergedCardByItsRef(t *testing.T) {
+func TestEventLogNamesACommentOnAMergedCardByItsRef(t *testing.T) {
 	f := newMergeFixture(t)
 	card := f.card(f.api, f.apiBoard, "moved", nil, nil)
 	f.card(f.mono, f.monoBoard, "already here", nil, nil)
@@ -438,7 +438,7 @@ func TestFeedNamesACommentOnAMergedCardByItsRef(t *testing.T) {
 	if _, err := f.c.CreateComment(t.Context(), card.ID, "after the merge"); err != nil {
 		t.Fatal(err)
 	}
-	events, _, err := f.c.EventFeed(t.Context(), EventQuery{ProjectID: f.mono.ID, Kinds: []string{"comment"}})
+	events, _, err := f.c.EventLog(t.Context(), EventQuery{ProjectID: f.mono.ID, Entities: []string{"comment"}})
 	if err != nil {
 		t.Fatal(err)
 	}

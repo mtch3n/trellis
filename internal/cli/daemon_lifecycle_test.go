@@ -61,9 +61,9 @@ func TestDaemonLifecycle(t *testing.T) {
 		t.Fatalf("daemon never answered: %v\n%s", err, body)
 	}
 
-	url, healthy := daemonHealth(ctx, root)
-	if !healthy || url == "" {
-		t.Fatalf("health returned %q %v", url, healthy)
+	url, alive := daemonPing(ctx, root)
+	if !alive || url == "" {
+		t.Fatalf("ping returned %q %v", url, alive)
 	}
 	got := servingAddress(url)
 	host, port, err := net.SplitHostPort(got)
@@ -95,7 +95,7 @@ func TestDaemonLifecycle(t *testing.T) {
 	if err := stopSelfManaged(ctx, root); err != nil {
 		t.Fatalf("stopSelfManaged: %v", err)
 	}
-	if _, healthy := daemonHealth(ctx, root); healthy {
+	if _, alive := daemonPing(ctx, root); alive {
 		t.Error("daemon still answering after stop")
 	}
 	if _, err := os.Stat(daemonPIDPath(root)); !os.IsNotExist(err) {

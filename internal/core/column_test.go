@@ -15,7 +15,7 @@ import (
 // tasks that have no design relationship.
 func seededProject(t *testing.T, c *Core) Project {
 	t.Helper()
-	p := Project{ID: NewCardID(), Key: "XPSCTL", Name: "XPSCTL", CreatedAt: c.clock.NowMS()}
+	p := Project{ID: NewID(), Key: "XPSCTL", Name: "XPSCTL", CreatedAt: c.clock.NowMS()}
 	_, err := c.db.Exec(
 		`INSERT INTO project (id, key, name, created_at) VALUES (?, ?, ?, ?)`,
 		p.ID, p.Key, p.Name, p.CreatedAt)
@@ -29,7 +29,7 @@ func seededProject(t *testing.T, c *Core) Project {
 // projects in the same run (e.g. cross-project scoping checks).
 func seededProject2(t *testing.T, c *Core) Project {
 	t.Helper()
-	p := Project{ID: NewCardID(), Key: "OTHERPROJ", Name: "OTHERPROJ", CreatedAt: c.clock.NowMS()}
+	p := Project{ID: NewID(), Key: "OTHERPROJ", Name: "OTHERPROJ", CreatedAt: c.clock.NowMS()}
 	_, err := c.db.Exec(
 		`INSERT INTO project (id, key, name, created_at) VALUES (?, ?, ?, ?)`,
 		p.ID, p.Key, p.Name, p.CreatedAt)
@@ -157,7 +157,7 @@ func TestFirstColumnErrUsageWhenBoardHasNone(t *testing.T) {
 
 	// A board with no columns at all: insert directly, bypassing createBoard's
 	// seeding, so FirstColumn has nothing to return.
-	boardID := NewCardID()
+	boardID := NewID()
 	_, err := c.db.Exec(
 		`INSERT INTO board (id, project_id, name, slug, is_default, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		boardID, p.ID, "empty", "empty", 0, c.clock.NowMS())

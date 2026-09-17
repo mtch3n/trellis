@@ -23,7 +23,7 @@ type artifactMove struct {
 	into string
 }
 
-// planArtifacts applies the document rules to artifacts, by file name.
+// planArtifacts applies the entry rules to artifacts, by file name.
 // There is no vault for artifacts, so every conflict may be renamed.
 func (m *merger) planArtifacts() error {
 	var src, dst []artifactRow
@@ -131,10 +131,10 @@ func (m *merger) moveArtifacts() error {
 				return err
 			}
 			// A card link's to_raw is the artifact id and must follow it to
-			// the new one. A doc link's to_raw is the artifact's name,
-			// resolved within the document's own project by
+			// the new one. An entry link's to_raw is the artifact's name,
+			// resolved within the entry's own project by
 			// resolveArtifactName, and renaming the id underneath it must not
-			// change what the document typed.
+			// change what the entry typed.
 			if _, err := m.tx.Exec(
 				`UPDATE OR IGNORE link SET to_id = ?,
 				        to_raw = CASE WHEN from_type = 'card' THEN ? ELSE to_raw END
@@ -167,12 +167,12 @@ func (m *merger) moveArtifacts() error {
 
 // rewriteArtifactNames replaces a renamed artifact's old name with its new
 // one wherever text's `artifacts:` frontmatter list names it. planArtifacts
-// renames only the artifact's file and row, never the SRC documents that name
+// renames only the artifact's file and row, never the SRC entries that name
 // it; left alone, such a name would resolve after the merge to whatever DST
-// already has under it (doc_relations.go's resolveArtifactName is scoped to
-// the document's own project, which is DST's by the time this runs).
+// already has under it (entry_relations.go's resolveArtifactName is scoped to
+// the entry's own project, which is DST's by the time this runs).
 func (m *merger) rewriteArtifactNames(path, text string) (string, error) {
-	fm, body, err := splitDocFile(path, []byte(text))
+	fm, body, err := splitEntryFile(path, []byte(text))
 	if err != nil {
 		return "", err
 	}
@@ -186,5 +186,5 @@ func (m *merger) rewriteArtifactNames(path, text string) (string, error) {
 	if !changed {
 		return text, nil
 	}
-	return RenderDoc(fm, body), nil
+	return RenderEntry(fm, body), nil
 }

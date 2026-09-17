@@ -14,11 +14,11 @@ import (
 // RecallHit is one recall result: an identifier plus the single line that
 // decides whether opening it is worth a turn. The body stays on disk.
 type RecallHit struct {
-	Kind    string `db:"kind" json:"kind"` // card or knowledge
+	Kind    string `db:"kind" json:"kind"` // card or entry
 	Ref     string `db:"ref" json:"ref"`
 	Title   string `db:"title" json:"title"`
 	Project string `db:"project" json:"project"`
-	Detail  string `db:"detail" json:"detail,omitempty"` // column for cards, type for entries
+	Detail  string `db:"detail" json:"detail,omitempty"` // column for cards, template for entries
 	Recap   string `db:"recap" json:"recap,omitempty"`
 
 	// ID joins against the link graph. Callers get refs, not internal ids.
@@ -31,7 +31,7 @@ type RecallOpts struct {
 	Terms   int      // terms lifted from the text; default 4
 	Exclude []string // refs the caller already holds, so they are not resent
 
-	// Narrowing to a knowledge dimension drops cards from the result, because
+	// Narrowing to an entry dimension drops cards from the result, because
 	// a card carries neither of these and silently keeping them would make a
 	// filtered recall answer a question nobody asked.
 	Templates   []string
@@ -122,7 +122,7 @@ func recallTerms(text string, limit int) []string {
 	return terms
 }
 
-// Recall finds knowledge entries and cards bearing on a passage of free text.
+// Recall finds entries and cards bearing on a passage of free text.
 //
 // Search quotes its caller's text into one phrase, which is right for someone
 // who means the words they typed. A prompt is not that: matched as a phrase it
@@ -136,7 +136,7 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 	if len(terms) == 0 {
 		return []RecallHit{}, nil
 	}
-	if err := c.SyncKnowledgeSearch(ctx); err != nil {
+	if err := c.SyncEntrySearch(ctx); err != nil {
 		return nil, err
 	}
 	quoted := make([]string, 0, len(terms))
@@ -155,24 +155,24 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 		provClause, provArgs := inClause("k.provenance", o.Provenances)
 		narrowed := typeClause != "" || provClause != ""
 
-		docArgs := append([]any{projectID}, typeArgs...)
-		docArgs = append(docArgs, provArgs...)
-		docArgs = append(docArgs, match, fetch)
+		entryArgs := append([]any{projectID}, typeArgs...)
+		entryArgs = append(entryArgs, provArgs...)
+		entryArgs = append(entryArgs, match, fetch)
 
-		var docs []RecallHit
-		if err := tx.Select(&docs, `
-			SELECT 'knowledge' AS kind, k.id,
-			       `+docAddressSQL+` AS ref,
+		var entries []RecallHit
+		if err := tx.Select(&entries, `
+			SELECT 'entry' AS kind, k.id,
+			       `+entryAddressSQL+` AS ref,
 			       k.title,
 			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
 			       k.template AS detail,
 			       COALESCE(NULLIF(k.recap, ''), k.summary) AS recap
-			FROM knowledge k
-			JOIN knowledge_fts ON knowledge_fts.rowid = k.rowid
+			FROM entry k
+			JOIN entry_fts ON entry_fts.rowid = k.rowid
 			JOIN project p ON p.id = k.project_id
 			WHERE (k.project_id = ? OR k.global = 1)`+typeClause+provClause+`
-			  AND knowledge_fts MATCH ?
-			ORDER BY knowledge_fts.rank LIMIT ?`, docArgs...); err != nil {
+			  AND entry_fts MATCH ?
+			ORDER BY entry_fts.rank LIMIT ?`, entryArgs...); err != nil {
 			return err
 		}
 		var cards []RecallHit
@@ -190,20 +190,20 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 			}
 		}
 
-		boost, err := recallLinkBoosts(tx, docs, cards)
+		boost, err := recallLinkBoosts(tx, entries, cards)
 		if err != nil {
 			return err
 		}
-		rankRecall(docs, boost)
+		rankRecall(entries, boost)
 		rankRecall(cards, boost)
 
-		// Knowledge outranks cards: recall exists to surface what was written
+		// Entries outrank cards: recall exists to surface what was written
 		// down, and open cards already reach the agent through the brief.
 		// A labelled break, not a return: returning here skipped everything
 		// below, which is how recording silently stopped whenever the limit
 		// was actually reached.
 	fill:
-		for _, group := range [][]RecallHit{docs, cards} {
+		for _, group := range [][]RecallHit{entries, cards} {
 			for _, h := range group {
 				if len(hits) == o.Limit {
 					break fill
@@ -220,7 +220,7 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 		// privateAfterRefresh re-reads a file from disk per id.
 		ids := make([]string, 0, len(hits))
 		for _, h := range hits {
-			if h.Kind == "knowledge" {
+			if h.Kind == "entry" {
 				ids = append(ids, h.ID)
 			}
 		}
@@ -242,6 +242,7 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 
 		if o.Record {
 			for _, h := range hits {
+				// A hit's kind is the event log's entity: card or entry.
 				if err := c.recordEvent(tx, h.Kind, h.ID, "injected", "", "", ""); err != nil {
 					return err
 				}
@@ -297,7 +298,7 @@ func recallLinkBoosts(tx *sqlx.Tx, groups ...[]RecallHit) (map[string]float64, e
 	}
 	query, args, err := sqlx.In(`
 		SELECT from_id, to_id FROM link
-		WHERE rel IN ('wikilink', 'documents') AND to_id IS NOT NULL
+		WHERE rel IN ('wikilink', 'cites') AND to_id IS NOT NULL
 		  AND from_id IN (?) AND to_id IN (?)`, ids, ids)
 	if err != nil {
 		return nil, err
@@ -320,7 +321,7 @@ func recallLinkBoosts(tx *sqlx.Tx, groups ...[]RecallHit) (map[string]float64, e
 	}
 	query, args, err = sqlx.In(`
 		SELECT to_id, COUNT(*) AS n FROM link
-		WHERE rel IN ('wikilink', 'documents') AND to_id IN (?)
+		WHERE rel IN ('wikilink', 'cites') AND to_id IN (?)
 		GROUP BY to_id`, targets)
 	if err != nil {
 		return nil, err

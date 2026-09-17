@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/mtch3n/trellis/internal/vpath"
+	"github.com/mtch3n/trellis/internal/address"
 )
 
 type Card struct {
@@ -21,8 +21,8 @@ type Card struct {
 	Title      string   `db:"title" json:"title"`
 	BodyMD     string   `db:"body_md" json:"body"`
 	Priority   Priority `db:"priority" json:"-"`
-	Owner      *string  `db:"owner" json:"owner,omitempty"`
-	LeaseUntil *int64   `db:"lease_until" json:"lease_until,omitempty"`
+	ClaimedBy  *string  `db:"claimed_by" json:"claimed_by,omitempty"`
+	ClaimUntil *int64   `db:"claim_until" json:"claim_until,omitempty"`
 	Version    int64    `db:"version" json:"version"`
 	CreatedAt  int64    `db:"created_at" json:"created_at"`
 	UpdatedAt  int64    `db:"updated_at" json:"updated_at"`
@@ -64,11 +64,11 @@ type CardEdit struct {
 	RemoveTags   []string
 }
 
-func (c *Core) checkCardOwner(card Card) error {
-	if card.Owner == nil || *card.Owner == c.actor || card.LeaseUntil == nil || *card.LeaseUntil < c.clock.NowMS() {
+func (c *Core) checkCardClaim(card Card) error {
+	if card.ClaimedBy == nil || *card.ClaimedBy == c.actor || card.ClaimUntil == nil || *card.ClaimUntil < c.clock.NowMS() {
 		return nil
 	}
-	return ErrConflict("not_owned", fmt.Sprintf("card %s is held by %s", card.Ref, *card.Owner),
+	return ErrConflict("contention", fmt.Sprintf("card %s is claimed by %s", card.Ref, *card.ClaimedBy),
 		"trellis card show "+card.Ref)
 }
 
@@ -165,8 +165,8 @@ func (c *Core) loadCard(tx *sqlx.Tx, projectID string, ref CardRef, out *Card) e
 // looked up in: it is either a card in another project, or no card at all.
 // OTHER-12 typed while working in KEY once opened KEY-12; a ref names one card.
 func cardElsewhere(tx *sqlx.Tx, ref string) error {
-	var holder string
-	err := tx.Get(&holder,
+	var project string
+	err := tx.Get(&project,
 		`SELECT p.key FROM card c JOIN project p ON p.id = c.project_id WHERE c.ref = ?`, ref)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound("card_not_found", "no card "+ref, "trellis card ls")
@@ -174,14 +174,14 @@ func cardElsewhere(tx *sqlx.Tx, ref string) error {
 	if err != nil {
 		return err
 	}
-	return ErrUsage("wrong_project", fmt.Sprintf("%s is a card in project %s", ref, holder),
-		"trellis card show "+vpath.CardPath(holder, ref).String())
+	return ErrUsage("wrong_project", fmt.Sprintf("%s is a card in project %s", ref, project),
+		"trellis card show "+address.Card(project, ref).String())
 }
 
-// CardHolder finds the project that holds the card a qualified ref names,
+// CardProject finds the project that holds the card a qualified ref names,
 // wherever its prefix points: after a merge, API-12 lives in MONO. A bare
 // number or a UUID names no project by itself, so found is false.
-func (c *Core) CardHolder(ctx context.Context, ref string) (Project, bool, error) {
+func (c *Core) CardProject(ctx context.Context, ref string) (Project, bool, error) {
 	r := ParseCardRef(ref)
 	if r.ProjectKey == "" {
 		return Project{}, false, nil
@@ -243,7 +243,7 @@ func (c *Core) createCard(ctx context.Context, tx *sqlx.Tx, projectID, boardID s
 		}
 
 		if err := c.checkWrite(ctx, ProposedWrite{
-			Op: "card.create", EntityType: "card", ProjectID: projectID, BoardID: boardID,
+			Op: "card.create", Entity: "card", ProjectID: projectID, BoardID: boardID,
 			Fields: map[string]string{"title": in.Title, "body": in.Body},
 		}); err != nil {
 			return err
@@ -255,7 +255,7 @@ func (c *Core) createCard(ctx context.Context, tx *sqlx.Tx, projectID, boardID s
 			prio = *in.Priority
 		}
 		card = Card{
-			ID: NewCardID(), ProjectID: projectID, BoardID: boardID, Seq: seq, Ref: key + "-" + itoa(seq), ColumnID: col.ID,
+			ID: NewID(), ProjectID: projectID, BoardID: boardID, Seq: seq, Ref: key + "-" + itoa(seq), ColumnID: col.ID,
 			Title: in.Title, BodyMD: in.Body, Priority: prio,
 			Version: 1, CreatedAt: now, UpdatedAt: now,
 		}
@@ -404,14 +404,14 @@ func (c *Core) ListCardsPage(ctx context.Context, scope CardScope, f CardFilter)
 
 // MoveCard changes a card's column. It is a delta rather than a wholesale
 // replacement, so it does not require --if-version. Moving into a done column
-// releases the lease automatically.
+// releases the claim automatically.
 func (c *Core) MoveCard(ctx context.Context, projectID, boardID string, ref CardRef, column string) (Card, error) {
 	var card Card
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
 			return err
 		}
-		if err := c.checkCardOwner(card); err != nil {
+		if err := c.checkCardClaim(card); err != nil {
 			return err
 		}
 		var targetProject string
@@ -434,20 +434,20 @@ func (c *Core) MoveCard(ctx context.Context, projectID, boardID string, ref Card
 		}
 
 		now := c.clock.NowMS()
-		// If moving to a done column, release the lease automatically.
-		var leaseUpdate string
+		// If moving to a done column, release the claim automatically.
+		var claimUpdate string
 		if to.IsDone {
-			leaseUpdate = ", owner = NULL, lease_until = NULL"
+			claimUpdate = ", claimed_by = NULL, claim_until = NULL"
 		}
 		if _, err := tx.Exec(
-			`UPDATE card SET board_id = ?, column_id = ?, version = version + 1, updated_at = ?`+leaseUpdate+` WHERE id = ?`,
+			`UPDATE card SET board_id = ?, column_id = ?, version = version + 1, updated_at = ?`+claimUpdate+` WHERE id = ?`,
 			boardID, to.ID, now, card.ID); err != nil {
 			return err
 		}
 		card.BoardID, card.ColumnID, card.Version, card.UpdatedAt = boardID, to.ID, card.Version+1, now
 		if to.IsDone {
-			card.Owner = nil
-			card.LeaseUntil = nil
+			card.ClaimedBy = nil
+			card.ClaimUntil = nil
 		}
 
 		if err := c.recordEvent(tx, "card", card.ID, "moved", "column", from, to.Name); err != nil {
@@ -461,14 +461,14 @@ func (c *Core) MoveCard(ctx context.Context, projectID, boardID string, ref Card
 // EditCard applies a partial update. Wholesale replacements (title, body)
 // require the version the caller read; deltas do not. Only the fields supplied
 // are written, so a title edit cannot erase a body changed moments earlier.
-// If the caller owns the card, every write extends the lease (working on a card is the heartbeat).
+// If the caller claims the card, every write extends the claim (working on a card is the heartbeat).
 func (c *Core) EditCard(ctx context.Context, projectID string, ref CardRef, e CardEdit) (Card, error) {
 	var card Card
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
 			return err
 		}
-		if err := c.checkCardOwner(card); err != nil {
+		if err := c.checkCardClaim(card); err != nil {
 			return err
 		}
 
@@ -488,7 +488,7 @@ func (c *Core) EditCard(ctx context.Context, projectID string, ref CardRef, e Ca
 			}
 		}
 		if replaces {
-			// Only when the card has no revision at all yet: a move or lease
+			// Only when the card has no revision at all yet: a move or claim
 			// change between two edits bumps card.Version without touching
 			// title or body, and capturing that in-between version here would
 			// invent a revision nothing actually wrote -- the design captures
@@ -505,7 +505,7 @@ func (c *Core) EditCard(ctx context.Context, projectID string, ref CardRef, e Ca
 		}
 
 		w := ProposedWrite{
-			Op: "card.edit", EntityType: "card", EntityID: card.ID,
+			Op: "card.edit", Entity: "card", EntityID: card.ID,
 			ProjectID: projectID, BoardID: card.BoardID, Fields: map[string]string{},
 		}
 		if e.Title != nil {
@@ -521,10 +521,10 @@ func (c *Core) EditCard(ctx context.Context, projectID string, ref CardRef, e Ca
 		sets := []string{"version = version + 1", "updated_at = ?"}
 		args := []any{c.clock.NowMS()}
 
-		// If we own this card, extend the lease (working on it is the heartbeat).
-		if card.Owner != nil && *card.Owner == c.actor {
-			ttl := c.leaseTTL
-			sets = append(sets, "lease_until = ?")
+		// If we claim this card, extend the claim (working on it is the heartbeat).
+		if card.ClaimedBy != nil && *card.ClaimedBy == c.actor {
+			ttl := c.claimTTL
+			sets = append(sets, "claim_until = ?")
 			args = append(args, c.clock.NowMS()+ttl)
 		}
 
@@ -626,14 +626,14 @@ func (c *Core) EditCard(ctx context.Context, projectID string, ref CardRef, e Ca
 
 // DeleteCard removes a card outright. Archiving (P1) is for finished work;
 // this is for the duplicates an agent creates by mistake. The event log is
-// never touched — it is the change feed.
+// never touched: it records every change, this one included.
 func (c *Core) DeleteCard(ctx context.Context, projectID string, ref CardRef) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var card Card
 		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
 			return err
 		}
-		if err := c.checkCardOwner(card); err != nil {
+		if err := c.checkCardClaim(card); err != nil {
 			return err
 		}
 		if err := c.recordEvent(tx, "card", card.ID, "deleted", "", card.Title, ""); err != nil {

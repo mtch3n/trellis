@@ -52,7 +52,7 @@ func (c *Core) seedDefaultColumns(tx *sqlx.Tx, boardID string) error {
 	for i, col := range columns {
 		if _, err := tx.Exec(
 			`INSERT INTO column_ (id, board_id, name, position, is_done) VALUES (?, ?, ?, ?, ?)`,
-			NewCardID(), boardID, col.Name, i, col.IsDone); err != nil {
+			NewID(), boardID, col.Name, i, col.IsDone); err != nil {
 			return err
 		}
 	}
@@ -85,7 +85,7 @@ func (c *Core) ColumnByName(tx *sqlx.Tx, boardID, name string) (Column, error) {
 		`SELECT name FROM column_ WHERE board_id = ? ORDER BY position`, boardID); err != nil {
 		return Column{}, err
 	}
-	return Column{}, ErrNotFound("unknown_column",
+	return Column{}, ErrNotFound("column_not_found",
 		fmt.Sprintf("no column %q (have: %s)", name, strings.Join(names, ", ")),
 		"trellis column ls")
 }
@@ -129,7 +129,7 @@ func (c *Core) AddColumn(ctx context.Context, boardID, name, after string, done 
 				return err
 			}
 		}
-		out = Column{ID: NewCardID(), BoardID: boardID, Name: name, Position: pos, IsDone: done}
+		out = Column{ID: NewID(), BoardID: boardID, Name: name, Position: pos, IsDone: done}
 		_, err := tx.Exec(`INSERT INTO column_ (id, board_id, name, position, is_done) VALUES (?, ?, ?, ?, ?)`, out.ID, boardID, name, pos, done)
 		return err
 	})

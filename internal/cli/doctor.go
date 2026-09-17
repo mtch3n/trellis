@@ -15,13 +15,13 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/home"
 	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/mtch3n/trellis/internal/service"
 	"github.com/mtch3n/trellis/internal/store"
 	"github.com/mtch3n/trellis/internal/version"
-	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 )
 
@@ -53,7 +53,7 @@ func warn(name, detail, fix string) Check {
 func newDoctorCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
-		Short: "Diagnose this Trellis installation",
+		Short: "Check this Trellis installation",
 		Long: "Check the binary, storage root, database, configuration, daemon and search\n" +
 			"backend, and report what to run for anything that is wrong.\n" +
 			"Exits 1 when a check fails; warnings alone exit 0.",
@@ -256,29 +256,29 @@ func checkWebUI(status daemonStatus, cfg config.Config) Check {
 // keeps the port it was started with, so config drift only bites at the next
 // restart; a stopped daemon cannot start at all if something else holds it.
 func checkPort(status daemonStatus, cfg config.Config) Check {
-	address := net.JoinHostPort(cfg.UI.Bind, strconv.Itoa(cfg.UI.Port))
+	addr := net.JoinHostPort(cfg.UI.Bind, strconv.Itoa(cfg.UI.Port))
 	if !cfg.UI.UIEnabled() {
 		return ok("http port", "no port is bound while ui.enabled is false")
 	}
 	if status.Running && status.URL != "" {
 		serving := servingAddress(status.URL)
-		if serving != "" && serving != address {
-			return warn("http port", fmt.Sprintf("daemon is serving %s, but ui.bind/ui.port say %s", serving, address),
+		if serving != "" && serving != addr {
+			return warn("http port", fmt.Sprintf("daemon is serving %s, but ui.bind/ui.port say %s", serving, addr),
 				"trellis daemon restart to adopt the configured port")
 		}
-		return ok("http port", address+" served by the daemon")
+		return ok("http port", addr+" served by the daemon")
 	}
-	listener, err := net.Listen("tcp", address)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fail("http port", address+" is already in use by another process",
+		return fail("http port", addr+" is already in use by another process",
 			"trellis config set ui.port <other port>")
 	}
 	_ = listener.Close()
-	return ok("http port", address+" is free")
+	return ok("http port", addr+" is free")
 }
 
-// servingAddress extracts host:port from the daemon's health URL, which
-// carries a session token query string the caller does not want.
+// servingAddress extracts host:port from the URL the daemon's ping reports,
+// which carries a session token query string the caller does not want.
 func servingAddress(rawURL string) string {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
@@ -300,14 +300,14 @@ func checkProject() Check {
 	if err != nil {
 		return warn("project", "cannot read the working directory: "+err.Error(), "")
 	}
-	pin, found, err := resolve.FindPin(dir)
+	marker, found, err := resolve.FindMarker(dir)
 	if err != nil {
 		return warn("project", err.Error(), "trellis init --key <KEY>")
 	}
 	if !found {
-		return warn("project", "no .trellis pin in this directory or any parent", "trellis init --key <KEY>")
+		return warn("project", "no .trellis marker in this directory or any parent", "trellis init --key <KEY>")
 	}
-	detail := fmt.Sprintf("%s (pin %s)", pin.Target, pin.Path)
+	detail := fmt.Sprintf("%s (marker %s)", marker.Target, marker.Path)
 	path, err := home.DBPath()
 	if err != nil {
 		return warn("project", detail+", but the database cannot be located: "+err.Error(), "")
@@ -323,7 +323,7 @@ func checkProject() Check {
 	}
 	defer db.Close()
 	var n int
-	if err := db.Get(&n, `SELECT count(*) FROM project WHERE key = ?`, pin.Target.Project); err != nil {
+	if err := db.Get(&n, `SELECT count(*) FROM project WHERE key = ?`, marker.Target.Project); err != nil {
 		return warn("project", detail+", but the database cannot be read: "+err.Error(), "")
 	}
 	if n == 0 {
@@ -333,7 +333,7 @@ func checkProject() Check {
 }
 
 // checkProjectKeys lists projects whose key predates the key grammar. They
-// stay reachable with --project, but no pin can name them.
+// stay reachable with --project, but no marker can name them.
 func checkProjectKeys() Check {
 	db, err := openExistingDB()
 	if err != nil {
@@ -344,12 +344,12 @@ func checkProjectKeys() Check {
 	if err := db.Select(&keys, `SELECT key FROM project ORDER BY key`); err != nil {
 		return warn("project keys", "cannot read project keys: "+err.Error(), "trellis maintenance")
 	}
-	bad := slices.DeleteFunc(keys, vpath.ValidKey)
+	bad := slices.DeleteFunc(keys, address.ValidKey)
 	if len(bad) == 0 {
-		return ok("project keys", "every key can be pinned")
+		return ok("project keys", "a marker can name every key")
 	}
 	return warn("project keys",
-		fmt.Sprintf("no pin can name %s: %s", plural(len(bad), "this project", "these projects"), strings.Join(bad, ", ")),
+		fmt.Sprintf("no marker can name %s: %s", plural(len(bad), "this project", "these projects"), strings.Join(bad, ", ")),
 		"trellis project merge <KEY> --into <VALID-KEY>")
 }
 

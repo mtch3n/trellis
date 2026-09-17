@@ -156,7 +156,7 @@ func sweepStale() {
 	}
 }
 
-// stale reports whether a leftover home's owner is gone. The pid in the
+// stale reports whether a leftover home's creator is gone. The pid in the
 // name answers it directly where a process can be checked; otherwise the
 // directory has to be old enough that no run could still be using it.
 func stale(e fs.DirEntry, dir string) bool {

@@ -3,19 +3,19 @@ package core
 import "testing"
 
 func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
-		Title: "Concurrency model", Summary: "Leases, not locks", Body: "# Concurrency model\n\nBody.\n",
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
+		Title: "Concurrency model", Summary: "One writer at a time", Body: "# Concurrency model\n\nBody.\n",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	pin, err := c.PinKnowledge(t.Context(), p.ID, "concurrency-model", "", "")
+	pin, err := c.PinEntry(t.Context(), p.ID, "concurrency-model", "", "")
 	if err != nil {
-		t.Fatalf("PinKnowledge: %v", err)
+		t.Fatalf("PinEntry: %v", err)
 	}
-	if pin.Recap != "Leases, not locks" {
+	if pin.Recap != "One writer at a time" {
 		t.Errorf("Recap = %q, want the frontmatter summary", pin.Recap)
 	}
 
@@ -28,7 +28,7 @@ func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
 	}
 
 	// The entry moves on; the recap does not. That must be visible.
-	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "Rewritten entirely.\n", &doc.Version); err != nil {
+	if _, err := c.EditEntry(t.Context(), p.ID, entry.Slug, "Rewritten entirely.\n", &entry.Version); err != nil {
 		t.Fatal(err)
 	}
 	pins, err = c.Pins(t.Context(), p.ID, "", 0)
@@ -39,7 +39,7 @@ func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
 		t.Fatalf("Pins = %+v, want the recap marked stale after the entry changed", pins)
 	}
 
-	if err := c.UnpinKnowledge(t.Context(), p.ID, doc.Slug, ""); err != nil {
+	if err := c.UnpinEntry(t.Context(), p.ID, entry.Slug, ""); err != nil {
 		t.Fatal(err)
 	}
 	if pins, _ := c.Pins(t.Context(), p.ID, "", 0); len(pins) != 0 {
@@ -47,23 +47,23 @@ func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
 	}
 }
 func TestPinWithoutBoardUpdatesExistingPin(t *testing.T) {
-	c, p, _ := kbCore(t)
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
-		Title: "Concurrency model", Summary: "Leases, not locks", Body: "# Concurrency model\n\nBody.\n",
+	c, p, _ := vaultCore(t)
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
+		Title: "Concurrency model", Summary: "One writer at a time", Body: "# Concurrency model\n\nBody.\n",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Pin the same entry twice without a board
-	_, err = c.PinKnowledge(t.Context(), p.ID, "concurrency-model", "", "")
+	_, err = c.PinEntry(t.Context(), p.ID, "concurrency-model", "", "")
 	if err != nil {
-		t.Fatalf("First PinKnowledge: %v", err)
+		t.Fatalf("First PinEntry: %v", err)
 	}
 
-	pin2, err := c.PinKnowledge(t.Context(), p.ID, "concurrency-model", "Updated recap", "")
+	pin2, err := c.PinEntry(t.Context(), p.ID, "concurrency-model", "Updated recap", "")
 	if err != nil {
-		t.Fatalf("Second PinKnowledge: %v", err)
+		t.Fatalf("Second PinEntry: %v", err)
 	}
 
 	// Should have only one pin
@@ -83,10 +83,10 @@ func TestPinWithoutBoardUpdatesExistingPin(t *testing.T) {
 }
 
 func TestPinCreatedWhilePrivateThenUnprivateShowsStale(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 
 	// Create an entry
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Secret credentials", Body: "private\n",
 	})
 	if err != nil {
@@ -94,12 +94,12 @@ func TestPinCreatedWhilePrivateThenUnprivateShowsStale(t *testing.T) {
 	}
 
 	// Set it as private by editing the file
-	setPrivateInFile(t, doc.Path, true)
+	setPrivateInFile(t, entry.Path, true)
 
 	// Pin while private (creates pin with NULL recap)
-	pin, err := c.PinKnowledge(t.Context(), p.ID, doc.Slug, "", "")
+	pin, err := c.PinEntry(t.Context(), p.ID, entry.Slug, "", "")
 	if err != nil {
-		t.Fatalf("PinKnowledge: %v", err)
+		t.Fatalf("PinEntry: %v", err)
 	}
 	if pin.Recap != "" {
 		t.Errorf("Private pin recap = %q, want empty", pin.Recap)
@@ -112,7 +112,7 @@ func TestPinCreatedWhilePrivateThenUnprivateShowsStale(t *testing.T) {
 	}
 	var foundPin Pin
 	for _, p := range pins {
-		if p.Slug == doc.Slug {
+		if p.Slug == entry.Slug {
 			foundPin = p
 			break
 		}
@@ -125,7 +125,7 @@ func TestPinCreatedWhilePrivateThenUnprivateShowsStale(t *testing.T) {
 	}
 
 	// Now mark as non-private by editing the file
-	setPrivateInFile(t, doc.Path, false)
+	setPrivateInFile(t, entry.Path, false)
 
 	// Check pins again - should now be stale (has no recap but is non-private)
 	pins, err = c.Pins(t.Context(), p.ID, "", 0)
@@ -133,7 +133,7 @@ func TestPinCreatedWhilePrivateThenUnprivateShowsStale(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, p := range pins {
-		if p.Slug == doc.Slug {
+		if p.Slug == entry.Slug {
 			foundPin = p
 			break
 		}
@@ -156,54 +156,5 @@ func TestPinCreatedWhilePrivateThenUnprivateShowsStale(t *testing.T) {
 	}
 	if staleCount == 0 {
 		t.Error("health count 0 stale recaps, want 1: pin with no recap on non-private entry")
-	}
-}
-
-func TestEscalateMovesTheEntryAndKeepsReferences(t *testing.T) {
-	c, p, _ := kbCore(t)
-	target, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Postgres conventions"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
-		Title: "Setup", Body: "Follow [[postgres-conventions]].\n"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.NominateKnowledge(t.Context(), p.ID, target.Slug, "every repo re-derives this"); err != nil {
-		t.Fatal(err)
-	}
-	noms, err := c.Nominations(t.Context(), p.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(noms) != 1 || noms[0].Cited != 1 || noms[0].Noms != 1 {
-		t.Fatalf("Nominations = %+v, want one with the citation counted", noms)
-	}
-
-	moved, err := c.EscalateKnowledge(t.Context(), p.ID, target.Slug, "needed from three projects")
-	if err != nil {
-		t.Fatalf("EscalateKnowledge: %v", err)
-	}
-	if !moved.Global || moved.Ref != "/GLOBAL/knowledge/postgres-conventions" {
-		t.Errorf("escalated doc = %+v, want a global ref", moved)
-	}
-	if moved.Path == target.Path {
-		t.Error("the file should have moved, not been copied")
-	}
-
-	// The existing reference still resolves: link.to_id stores identity (D35).
-	back, err := c.Backlinks(t.Context(), target.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(back) != 1 {
-		t.Errorf("Backlinks after escalation = %+v, want the reference to survive", back)
-	}
-	if findings, _ := c.Lint(t.Context(), p.ID); len(findings) != 0 {
-		t.Errorf("lint = %+v, want no stub: the reference still resolves", findings)
-	}
-
-	if _, err := c.DemoteKnowledge(t.Context(), target.Slug, "wrong call"); err != nil {
-		t.Fatalf("DemoteKnowledge: %v", err)
 	}
 }

@@ -98,19 +98,19 @@ func (c *Core) LogInvocation(ctx context.Context, argv string, exit int, duratio
 	return err
 }
 
-// HeldWithoutComment lists cards this actor holds that carry no comment from it. The
-// Stop hook reminds once on these: a lease released at session end with nothing
+// ClaimedWithoutComment lists cards this actor claims that carry no comment from it. The
+// Stop hook reminds once on these: a claim released at session end with nothing
 // written down is how the next agent loses what this one learned.
 //
 // The column test is is_done = 0 AND position > 0, never a column name, because
 // columns are configurable.
-func (c *Core) HeldWithoutComment(ctx context.Context) ([]Card, error) {
+func (c *Core) ClaimedWithoutComment(ctx context.Context) ([]Card, error) {
 	cards := []Card{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		if err := tx.Select(&cards,
 			`SELECT c.* FROM card c
 			 JOIN column_ col ON col.id = c.column_id
-			 WHERE c.owner = ? AND c.lease_until > ?
+			 WHERE c.claimed_by = ? AND c.claim_until > ?
 			   AND c.archived_at IS NULL
 			   AND col.is_done = 0 AND col.position > 0
 			   AND NOT EXISTS (SELECT 1 FROM comment cm WHERE cm.card_id = c.id AND cm.actor = ?)

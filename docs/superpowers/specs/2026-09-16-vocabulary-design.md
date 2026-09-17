@@ -394,15 +394,19 @@ are covered by the vocabulary test in §9, not by this table.
 | `doctor` | Diagnose this Trellis installation | Check this Trellis installation |
 | `events` | Read the event feed | Read the event log |
 | `events --kind` | card\|knowledge\|board\|label\|… | `--entity`: card\|entry\|board\|label\|comment |
+| `events --template` | knowledge templates (repeatable) | templates (repeatable) |
 | `import` Long | so an entry can depend on one that has no reference yet | so a card can depend on one that has no ref yet |
 | `init` | Pin this directory to a project, creating the project if needed | Mark this directory with a project, creating the project if needed |
 | `project new` | Create a project without pinning any directory | Create a project without marking any directory |
+| `project merge` Long | Move every board, card, knowledge entry and artifact of SRC into DST, keep card refs such as SRC-12 working, and retire SRC's key. Without --apply the merge only reports what it would do; with --apply it backs up first. A document or artifact that both projects name, with different content, stops the merge; --rename-conflicts renames SRC's side instead. Pins that name SRC under the enclosing repository are rewritten: commit them. | Move every board, card, entry and artifact of SRC into DST, keep card refs such as SRC-12 working, and retire SRC's key. Without --apply the merge only reports what it would do; with --apply it backs up first. An entry or artifact that both projects name, with different content, stops the merge; --rename-conflicts renames SRC's side instead. Markers that name SRC under the enclosing repository are rewritten: commit them. |
 | `knowledge` | Work with knowledge entries | `vault`: Work with entries in the project and global vaults |
 | `new` | Create a knowledge entry | Create an entry |
 | `new --body` | markdown body (default: the template) | markdown body (default: the template's skeleton) |
 | `new --provenance` | ingestion path: … | how the entry was ingested: … |
 | `new --source` | cite what a claim is based on: … | evidence for what the entry says: … |
 | `new --label` | labels from the project vocabulary | labels defined in this project |
+| `new --board` | associate with a board (association, never ownership) | associate with a board (association, never a claim) |
+| `new --private` | do not transmit this body automatically: no vector index, no recap, no content in the event log, pointer-only injection | do not transmit this body automatically: no vector index, no recap, no body in the event log, pointer-only injection |
 | `show`, `edit`, `rm`, `pin`, `nominate`, `promote`, `demote`, `verify`, `history`, `diff` | `<slug>` | `<entry>` |
 | `mv` | `<ref> <new-path>` | `<entry> <new-path>` |
 | `edit --if-version` | … (knowledge show --json) | … (vault show --json) |
@@ -427,6 +431,7 @@ are covered by the vocabulary test in §9, not by this table.
 | `recall` Long | returns identifiers … | returns refs … |
 | `recall --record` | note each hit as injected, so `knowledge uptake` … | record each hit as injected, so `vault uptake` … |
 | `search` | Search cards and knowledge entries | Search cards and entries |
+| `tui` | Open the interactive terminal workspace | Open the interactive terminal interface |
 | `vector` | Manage the optional document vector index | Manage the optional vector index |
 | `vector status` | Show vector configuration and index health | Show vector configuration and index coverage |
 | `vector rebuild` | Embed and rebuild the current project's document index | Embed entries and rebuild the current project's vector index |

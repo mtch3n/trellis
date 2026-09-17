@@ -316,7 +316,7 @@ func upMemoryGroundwork(ctx context.Context, db *sql.DB) (err error) {
 	if err := execSteps(ctx, tx, steps); err != nil {
 		return err
 	}
-	if err := foreignKeyCheck(ctx, tx); err != nil {
+	if err := foreignKeyCheck(ctx, tx, "0014"); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -327,8 +327,9 @@ func firstLine(q string) string {
 	return line
 }
 
-// foreignKeyCheck fails with every violating row named.
-func foreignKeyCheck(ctx context.Context, tx *sql.Tx) error {
+// foreignKeyCheck fails with every violating row named, and names the
+// migration that found them.
+func foreignKeyCheck(ctx context.Context, tx *sql.Tx, migration string) error {
 	rows, err := tx.QueryContext(ctx, `PRAGMA foreign_key_check`)
 	if err != nil {
 		return err
@@ -348,8 +349,8 @@ func foreignKeyCheck(ctx context.Context, tx *sql.Tx) error {
 		return err
 	}
 	if len(broken) > 0 {
-		return fmt.Errorf("foreign key check failed during migration 0014, rolled back: %s",
-			strings.Join(broken, "; "))
+		return fmt.Errorf("foreign key check failed during migration %s, rolled back: %s",
+			migration, strings.Join(broken, "; "))
 	}
 	return nil
 }
@@ -579,7 +580,7 @@ func downMemoryGroundwork(ctx context.Context, db *sql.DB) (err error) {
 		}
 	}
 
-	if err := foreignKeyCheck(ctx, tx); err != nil {
+	if err := foreignKeyCheck(ctx, tx, "0014"); err != nil {
 		return err
 	}
 	return tx.Commit()

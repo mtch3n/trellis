@@ -56,7 +56,7 @@ func newAgentRegisterCmd() *cobra.Command {
 func newAgentLsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
-		Short: "List agents and what they hold",
+		Short: "List agents and the cards they have claimed",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, db, err := openCore()
 			if err != nil {
@@ -168,28 +168,28 @@ func newBackupPruneCmd() *cobra.Command {
 }
 
 // newAgentRemindCmd is what the Stop hook runs: it prints a reminder for cards
-// held with nothing written down, and nothing at all otherwise. Silence is the
+// claimed with nothing written down, and nothing at all otherwise. Silence is the
 // common case, and a hook that speaks every time gets ignored.
 func newAgentRemindCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "remind",
-		Short: "Report cards you hold with no comment",
+		Short: "Report claimed cards with no comment",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, db, err := openCore()
 			if err != nil {
 				return err
 			}
 			defer db.Close()
-			cards, err := c.HeldWithoutComment(cmd.Context())
+			cards, err := c.ClaimedWithoutComment(cmd.Context())
 			if err != nil {
 				return err
 			}
 			if len(cards) == 0 && !forceJSON {
 				return nil
 			}
-			return Emit(cmd, map[string]any{"held_without_comment": cards}, func() string {
+			return Emit(cmd, map[string]any{"claimed_without_comment": cards}, func() string {
 				var b strings.Builder
-				b.WriteString("You still hold work with nothing written down:\n")
+				b.WriteString("You still claim work with nothing written down:\n")
 				for _, c := range cards {
 					fmt.Fprintf(&b, "  %s  %s\n", c.Ref, c.Title)
 				}

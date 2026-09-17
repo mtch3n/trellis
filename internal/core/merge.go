@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/resolve"
-	"github.com/mtch3n/trellis/internal/vpath"
 )
 
 // MergeOptions tunes `trellis project merge`.
@@ -23,30 +23,30 @@ type MergeOptions struct {
 	// RenameConflicts renames SRC's side of a name collision instead of
 	// stopping. Vault entries are never renamed.
 	RenameConflicts bool
-	// ScanRoot, Pins and UnreadablePins describe the pins the caller found.
-	// Core never walks the filesystem for them.
-	ScanRoot       string
-	Pins           []resolve.Pin
-	UnreadablePins []string
+	// ScanRoot, Markers and UnreadableMarkers describe the markers the caller
+	// found. Core never walks the filesystem for them.
+	ScanRoot          string
+	Markers           []resolve.Marker
+	UnreadableMarkers []string
 }
 
 // MergePlan is what a merge would do, or did.
 type MergePlan struct {
-	Src                string       `json:"src"`
-	Dst                string       `json:"dst"`
-	Ready              bool         `json:"ready"`
-	Refused            string       `json:"refused"`
-	Boards             []BoardMove  `json:"boards"`
-	Cards              CardMoves    `json:"cards"`
-	Knowledge          ItemMoves    `json:"knowledge"`
-	Artifacts          ItemMoves    `json:"artifacts"`
-	Labels             NameMoves    `json:"labels"`
-	Tags               NameMoves    `json:"tags"`
-	ConfigDropped      []ConfigDrop `json:"config_dropped"`
-	DocumentsRewritten []string     `json:"documents_rewritten"`
-	Pins               PinRewrites  `json:"pins"`
-	Backup             string       `json:"backup,omitempty"`
-	Warnings           []string     `json:"warnings,omitempty"`
+	Src              string         `json:"src"`
+	Dst              string         `json:"dst"`
+	Ready            bool           `json:"ready"`
+	Refused          string         `json:"refused"`
+	Boards           []BoardMove    `json:"boards"`
+	Cards            CardMoves      `json:"cards"`
+	Entries          ItemMoves      `json:"entries"`
+	Artifacts        ItemMoves      `json:"artifacts"`
+	Labels           NameMoves      `json:"labels"`
+	Tags             NameMoves      `json:"tags"`
+	ConfigDropped    []ConfigDrop   `json:"config_dropped"`
+	EntriesRewritten []string       `json:"entries_rewritten"`
+	Markers          MarkerRewrites `json:"markers"`
+	Backup           string         `json:"backup,omitempty"`
+	Warnings         []string       `json:"warnings,omitempty"`
 
 	dstID string
 	files []string // every file the merge moves or rewrites, as it was before
@@ -95,13 +95,13 @@ type ConfigDrop struct {
 	Dst string `db:"dst" json:"dst"`
 }
 
-type PinRewrites struct {
-	ScanRoot string       `json:"scan_root"`
-	Rewrite  []PinRewrite `json:"rewrite"`
-	Left     []string     `json:"left"`
+type MarkerRewrites struct {
+	ScanRoot string          `json:"scan_root"`
+	Rewrite  []MarkerRewrite `json:"rewrite"`
+	Left     []string        `json:"left"`
 }
 
-type PinRewrite struct {
+type MarkerRewrite struct {
 	Path string `json:"path"`
 	From string `json:"from"`
 	To   string `json:"to"`
@@ -152,7 +152,7 @@ func (c *Core) runMerge(ctx context.Context, srcKey, dstKey string, opts MergeOp
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		m := &merger{
 			c: c, tx: tx, plan: &plan, opts: opts, apply: apply, stage: stage, backedUp: backedUp,
-			docPath: map[string]string{}, fromSrc: map[string]bool{}, addr: map[string]string{},
+			entryPath: map[string]string{}, fromSrc: map[string]bool{}, addr: map[string]string{},
 			renamed: map[string]string{}, boardSlug: map[string]string{}, origPath: map[string]string{},
 			artRenamed: map[string]string{},
 		}
@@ -188,7 +188,7 @@ func mergeNotReady(p MergePlan) error {
 	}
 	var names []string
 	vault := false
-	for _, group := range [][]MergeConflict{p.Knowledge.Conflicts, p.Artifacts.Conflicts} {
+	for _, group := range [][]MergeConflict{p.Entries.Conflicts, p.Artifacts.Conflicts} {
 		for _, conflict := range group {
 			names = append(names, conflict.Name)
 			vault = vault || conflict.Vault
@@ -196,7 +196,7 @@ func mergeNotReady(p MergePlan) error {
 	}
 	fix := "trellis project merge " + p.Src + " --into " + p.Dst + " --rename-conflicts --apply"
 	if vault {
-		fix = "trellis knowledge demote <slug>   # vault entries are never renamed: demote or edit one side"
+		fix = "trellis vault demote <entry>   # vault entries are never renamed: demote or edit one side"
 	}
 	return ErrConflict("merge_conflicts",
 		fmt.Sprintf("%s and %s both hold %s: %s", p.Src, p.Dst,
@@ -258,7 +258,7 @@ func errMergeChanged(path, what string) error {
 //
 // SRC's directory now holds only what the merge left behind -- collapsed
 // files and derived vector files -- so it is kept with the backup rather than
-// deleted. Pins live outside the storage root and are rewritten last.
+// deleted. Markers live outside the storage root and are rewritten last.
 func (c *Core) afterMerge(ctx context.Context, plan *MergePlan) {
 	warn := func(format string, args ...any) {
 		plan.Warnings = append(plan.Warnings, fmt.Sprintf(format, args...))
@@ -271,26 +271,26 @@ func (c *Core) afterMerge(ctx context.Context, plan *MergePlan) {
 			warn("keeping %s with the backup: %v", srcDir, err)
 		}
 	}
-	for _, r := range plan.Pins.Rewrite {
-		if err := rewritePin(r); err != nil {
+	for _, r := range plan.Markers.Rewrite {
+		if err := rewriteMarker(r); err != nil {
 			warn("rewriting %s: %v; it still names %s", r.Path, err, r.From)
 		}
 	}
-	if c.knowledgeChanged != nil {
-		if err := c.knowledgeChanged(ctx, plan.dstID); err != nil {
+	if c.entryChanged != nil {
+		if err := c.entryChanged(ctx, plan.dstID); err != nil {
 			warn("refreshing %s's derived search state: %v", plan.Dst, err)
 		}
 	}
 }
 
-// rewritePin points a pin at the survivor, unless it no longer names what
-// the plan found: a pin someone changed since is theirs.
-func rewritePin(r PinRewrite) error {
+// rewriteMarker points a marker at the survivor, unless it no longer names
+// what the plan found: a marker someone changed since is theirs.
+func rewriteMarker(r MarkerRewrite) error {
 	raw, err := os.ReadFile(r.Path)
 	if err != nil {
 		return err
 	}
-	current, err := vpath.ParsePin(string(raw))
+	current, err := address.ParseMarker(string(raw))
 	if err != nil {
 		return err
 	}
@@ -319,13 +319,13 @@ type merger struct {
 
 	boardSlug      map[string]string // SRC board slug -> its slug in DST
 	srcDefaultSlug string            // DST slug of SRC's default board, or ""
-	docPath        map[string]string // document id -> where its file is now
-	fromSrc        map[string]bool   // documents that came from SRC and still exist
-	addr           map[string]string // SRC document address -> its address now
+	entryPath      map[string]string // entry id -> where its file is now
+	fromSrc        map[string]bool   // entries that came from SRC and still exist
+	addr           map[string]string // SRC entry address -> its address now
 	renamed        map[string]string // SRC slug -> its slug in DST, for renamed entries
-	origPath       map[string]string // SRC document id -> its file path before the merge
+	origPath       map[string]string // SRC entry id -> its file path before the merge
 	artRenamed     map[string]string // SRC artifact name -> its name in DST, for renamed artifacts
-	docMoves       []docMove
+	entryMoves     []entryMove
 	artMoves       []artifactMove
 }
 
@@ -341,18 +341,18 @@ func (m *merger) run(srcKey, dstKey string) error {
 		return nil
 	}
 	// Every conflict is known before anything changes.
-	for _, detect := range []func() error{m.planDocs, m.planArtifacts} {
+	for _, detect := range []func() error{m.planEntries, m.planArtifacts} {
 		if err := detect(); err != nil {
 			return err
 		}
 	}
-	m.plan.Ready = len(m.plan.Knowledge.Conflicts) == 0 && len(m.plan.Artifacts.Conflicts) == 0
+	m.plan.Ready = len(m.plan.Entries.Conflicts) == 0 && len(m.plan.Artifacts.Conflicts) == 0
 	if m.apply && !m.plan.Ready {
 		return mergeNotReady(*m.plan)
 	}
 	for _, step := range []func() error{
-		m.boards, m.labels, m.tags, m.cards, m.moveDocs, m.moveArtifacts,
-		m.references, m.config, m.pins, m.retire,
+		m.boards, m.labels, m.tags, m.cards, m.moveEntries, m.moveArtifacts,
+		m.references, m.config, m.markers, m.retire,
 	} {
 		if err := step(); err != nil {
 			return err
@@ -375,16 +375,16 @@ func (m *merger) load(srcKey, dstKey string) (refused bool, err error) {
 	}
 	m.plan.dstID = m.dst.ID
 
-	held, err := m.count(`SELECT COUNT(*) FROM card WHERE project_id = ? AND owner IS NOT NULL AND lease_until > ?`,
+	claimed, err := m.count(`SELECT COUNT(*) FROM card WHERE project_id = ? AND claimed_by IS NOT NULL AND claim_until > ?`,
 		m.src.ID, m.c.clock.NowMS())
 	if err != nil {
 		return false, err
 	}
 	switch {
-	case !vpath.ValidKey(m.dst.Key):
-		m.plan.Refused = fmt.Sprintf("%s cannot be named by a pin; merge into a project whose key can", m.dst.Key)
-	case held > 0:
-		m.plan.Refused = fmt.Sprintf("%s has %d %s held by an agent right now", m.src.Key, held, plural(held, "card", "cards"))
+	case !address.ValidKey(m.dst.Key):
+		m.plan.Refused = fmt.Sprintf("%s cannot be named by a marker; merge into a project whose key can", m.dst.Key)
+	case claimed > 0:
+		m.plan.Refused = fmt.Sprintf("%s has %d %s claimed by an agent right now", m.src.Key, claimed, plural(claimed, "card", "cards"))
 	}
 	return m.plan.Refused != "", nil
 }
@@ -460,12 +460,12 @@ func freeName(base string, taken map[string]bool) string {
 
 func (m *merger) labels() error {
 	return m.foldNames("label", "label_id", &m.plan.Labels,
-		[][2]string{{"card_label", "card_id"}, {"knowledge_label", "doc_id"}})
+		[][2]string{{"card_label", "card_id"}, {"entry_label", "entry_id"}})
 }
 
 func (m *merger) tags() error {
 	return m.foldNames("tag", "tag_id", &m.plan.Tags,
-		[][2]string{{"card_tag", "card_id"}, {"knowledge_tag", "doc_id"}})
+		[][2]string{{"card_tag", "card_id"}, {"entry_tag", "entry_id"}})
 }
 
 // foldNames moves SRC's rows of a per-project vocabulary into DST. A name DST
@@ -537,11 +537,11 @@ func (m *merger) config() error {
 		 ORDER BY s.key`, m.dst.ID, m.src.ID)
 }
 
-// pins plans the rewrite of every pin naming SRC, so that a directory keeps
-// opening the board it opened before.
-func (m *merger) pins() error {
-	m.plan.Pins.ScanRoot = m.opts.ScanRoot
-	for _, p := range m.opts.Pins {
+// markers plans the rewrite of every marker naming SRC, so that a directory
+// keeps opening the board it opened before.
+func (m *merger) markers() error {
+	m.plan.Markers.ScanRoot = m.opts.ScanRoot
+	for _, p := range m.opts.Markers {
 		if p.Target.Project != m.src.Key {
 			continue
 		}
@@ -550,14 +550,14 @@ func (m *merger) pins() error {
 			slug = m.boardSlug[b]
 		}
 		if slug == "" {
-			m.plan.Pins.Left = append(m.plan.Pins.Left, p.Path)
+			m.plan.Markers.Left = append(m.plan.Markers.Left, p.Path)
 			continue
 		}
-		m.plan.Pins.Rewrite = append(m.plan.Pins.Rewrite, PinRewrite{
-			Path: p.Path, From: p.Target.String(), To: vpath.BoardPath(m.dst.Key, slug).String(),
+		m.plan.Markers.Rewrite = append(m.plan.Markers.Rewrite, MarkerRewrite{
+			Path: p.Path, From: p.Target.String(), To: address.Board(m.dst.Key, slug).String(),
 		})
 	}
-	m.plan.Pins.Left = append(m.plan.Pins.Left, m.opts.UnreadablePins...)
+	m.plan.Markers.Left = append(m.plan.Markers.Left, m.opts.UnreadableMarkers...)
 	return nil
 }
 
@@ -579,7 +579,7 @@ func (m *merger) retire() error {
 			return err
 		}
 	}
-	if err := m.c.rebuildKnowledgeFTS(m.tx); err != nil {
+	if err := m.c.rebuildEntryFTS(m.tx); err != nil {
 		return err
 	}
 	if err := m.c.recordEvent(m.tx, "project", m.dst.ID, "merged", "project", m.src.Key, m.dst.Key); err != nil {

@@ -1,0 +1,104 @@
+package ui
+
+import (
+	"context"
+	"encoding/json/v2"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/mtch3n/trellis/internal/core"
+	"github.com/mtch3n/trellis/internal/store"
+)
+
+// A browser switches an entry to a strict template and meets it in the same
+// save, reads a refusal as a list, and creates an entry inside a directory.
+func TestEntryTemplateSwitchFromTheWeb(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	c := core.New(db, core.FixedClock{MS: 3_000_000}, "ui-switch-test", dir)
+	ctx := context.Background()
+	p, err := c.CreateProject(ctx, "SWITCH", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateBoard(ctx, p.ID, "default", true); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
+	send := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "/api/p/SWITCH/b/default/vault"+path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := send(http.MethodPost, "", `{"title":"Rollback","directory":"ops","body":"plain\n"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create in ops: %d %s", rec.Code, rec.Body)
+	}
+	var entry core.Entry
+	if err := json.Unmarshal(rec.Body.Bytes(), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry.Slug != "ops/rollback" {
+		t.Fatalf("slug = %q, want ops/rollback", entry.Slug)
+	}
+
+	// That field's retired name is an unknown key like any other: it places
+	// nothing, and the entry lands in the vault root. The check lives here,
+	// beside the helper, because spelling the route out again would put
+	// another retired word in the tree.
+	retired := send(http.MethodPost, "", `{"title":"Retired key","dir":"ops","body":"plain\n"}`)
+	if retired.Code != http.StatusCreated {
+		t.Fatalf("create with the retired key: %d %s", retired.Code, retired.Body)
+	}
+	var ignored core.Entry
+	if err := json.Unmarshal(retired.Body.Bytes(), &ignored); err != nil {
+		t.Fatal(err)
+	}
+	if ignored.Slug != "retired-key" {
+		t.Errorf("slug = %q, want retired-key: the retired key must place nothing", ignored.Slug)
+	}
+
+	path := "/ops%2Frollback"
+
+	rec = send(http.MethodPatch, path, `{"template":"decision","version":1}`)
+	var refusal struct {
+		Error    string   `json:"error"`
+		Code     string   `json:"code"`
+		Problems []string `json:"problems"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &refusal); err != nil {
+		t.Fatalf("refusal is not JSON: %v, %s", err, rec.Body)
+	}
+	if rec.Code != http.StatusBadRequest || refusal.Code != "template_violation" ||
+		!strings.Contains(strings.Join(refusal.Problems, "|"), "missing required field sources") ||
+		strings.Contains(refusal.Error, "run:") || strings.Contains(refusal.Error, "\n") {
+		t.Fatalf("refusal = %d %+v", rec.Code, refusal)
+	}
+
+	body := "# Rollback\n\n## Context\n\nc\n\n## Options considered\n\no\n\n## Decision\n\nd\n\n## Consequences\n\nq\n"
+	patch, _ := json.Marshal(map[string]any{
+		"template": "decision", "version": 1, "body": body,
+		"sources": []string{"https://example.com/postmortem"}, "set": map[string]string{"owner": "ops"},
+	})
+	rec = send(http.MethodPatch, path, string(patch))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("switch with sources: %d %s", rec.Code, rec.Body)
+	}
+	got, err := c.ReadEntry(ctx, p.ID, "ops/rollback")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Template != "decision" || len(got.Sources) != 1 {
+		t.Fatalf("after the switch: template %q, sources %v", got.Template, got.Sources)
+	}
+}

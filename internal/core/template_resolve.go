@@ -1,0 +1,219 @@
+package core
+
+import (
+	"database/sql"
+	"errors"
+	"regexp"
+	"strings"
+
+	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/address"
+)
+
+// wikilinkTarget reports whether s is written as a wikilink, [[target]] or
+// [[target|alias]], and if so returns target.
+func wikilinkTarget(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "[[") || !strings.HasSuffix(s, "]]") || len(s) < 4 {
+		return "", false
+	}
+	inner := s[2 : len(s)-2]
+	inner, _, _ = strings.Cut(inner, "|")
+	return strings.TrimSpace(inner), true
+}
+
+// addressPattern is the shape of an absolute Trellis address: a slash, a
+// project key, one of the three known collections, and a name. It is
+// deliberately loose about the key and name — address.Parse validates those
+// — so this only decides which values, or substrings of an entry body,
+// are worth attempting to resolve as an address at all.
+const addressPattern = `/[A-Za-z][A-Za-z0-9-]*/(?:cards|vault|artifacts)/\S+`
+
+// addressShapeRE matches a whole value shaped like an absolute address. A
+// source, or any other value of a field the resolve rule names, earns an
+// address.Parse attempt only when it has this shape in full; any other
+// "/"-prefixed value — a filesystem path such as "/usr/share/doc/x.txt:10" —
+// is external prose and passes the resolve rule unchecked.
+var addressShapeRE = regexp.MustCompile(`^` + addressPattern + `$`)
+
+// absoluteAddressRE finds an address-shaped substring in free text, but
+// only when it starts the text or immediately follows whitespace or "(" —
+// otherwise a URL ("https://example.com/foo/cards/bar") or a relative path
+// ("src/api/cards/handler.go") would yield a false address, since in both
+// the character right before the matching slash is neither a boundary nor
+// the start of the string. Group 1 is that boundary character (or empty,
+// at the very start of the text); group 2 is the address itself.
+var absoluteAddressRE = regexp.MustCompile(`(^|[\s(])(` + addressPattern + `)`)
+
+// bodyAbsoluteAddresses finds every substring of body shaped like an
+// absolute address, skipping code spans and fences the same way
+// ParseWikilinks does, and trimming trailing punctuation a sentence would
+// leave attached ("... see /KEY/cards/KEY-12.").
+func bodyAbsoluteAddresses(body string) []string {
+	clean := fenceRE.ReplaceAllString(body, "")
+	seen := map[string]bool{}
+	var out []string
+	for _, m := range absoluteAddressRE.FindAllStringSubmatch(clean, -1) {
+		addr := strings.TrimRight(m[2], ".,;:)]")
+		if seen[addr] {
+			continue
+		}
+		seen[addr] = true
+		out = append(out, addr)
+	}
+	return out
+}
+
+// resolvesInternalReference reports whether s is recognised as an internal
+// reference — a wikilink or an absolute Trellis address — and, when it is,
+// whether the object it names exists. A value that is neither form is not
+// a reference at all: isRef is false and ok means nothing. A "/"-prefixed
+// value only counts as an address candidate when it has the address shape
+// in full (addressShapeRE); any other "/"-prefixed value, such as a
+// filesystem path, is external and is never even offered to address.Parse.
+// Every accepted form is resolved here, in one place, so a later layer
+// that widens what resolves (cross-project wikilinks, once addresses
+// ship) changes only this function.
+func (c *Core) resolvesInternalReference(tx *sqlx.Tx, projectID, s string) (ok, isRef bool, err error) {
+	if target, is := wikilinkTarget(s); is {
+		toID, err := c.resolveEntryRef(tx, projectID, ParseReference(target))
+		return toID != nil, true, err
+	}
+	trimmed := strings.TrimSpace(s)
+	if !addressShapeRE.MatchString(trimmed) {
+		return false, false, nil
+	}
+	p, perr := address.Parse(trimmed)
+	if perr != nil {
+		// It has the shape of an address and does not even parse: an
+		// unresolved reference, not prose that happens to look like one.
+		return false, true, nil
+	}
+	if p.Collection == address.CollectionVault && p.Project == "GLOBAL" {
+		var n int
+		if err := tx.Get(&n, `SELECT COUNT(*) FROM entry WHERE slug = ? AND global = 1`, p.Name); err != nil {
+			return false, true, err
+		}
+		return n > 0, true, nil
+	}
+	var destProjectID string
+	if err := tx.Get(&destProjectID, `SELECT id FROM project WHERE key = ?`, p.Project); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, true, nil
+		}
+		return false, true, err
+	}
+	switch p.Collection {
+	case address.CollectionCards:
+		ref := ParseCardRef(p.Name)
+		if ref.Seq <= 0 {
+			return false, true, nil
+		}
+		// ref alone (seq) ignores the ref's own prefix: /KEY/cards/OTHER-5
+		// and /KEY/cards/KEY-5 would otherwise "resolve" to the same row.
+		// card.ref is the qualified PREFIX-N form and is unique; match on
+		// it the way loadCard does for a qualified reference.
+		var n int
+		if err := tx.Get(&n, `SELECT COUNT(*) FROM card WHERE ref = ? AND project_id = ?`, ref.qualified(), destProjectID); err != nil {
+			return false, true, err
+		}
+		return n > 0, true, nil
+	case address.CollectionVault:
+		// An entry that promoted out of this project keeps its project_id;
+		// resolveEntryRef's own address branch excludes it (k.global = 0) so
+		// the old project address becomes a stub, not a hit. Match that here.
+		var n int
+		if err := tx.Get(&n, `SELECT COUNT(*) FROM entry WHERE slug = ? AND project_id = ? AND global = 0`, p.Name, destProjectID); err != nil {
+			return false, true, err
+		}
+		return n > 0, true, nil
+	case address.CollectionArtifacts:
+		toID, err := c.resolveArtifactName(tx, destProjectID, p.Name)
+		if err != nil {
+			return false, true, err
+		}
+		return toID != nil, true, nil
+	}
+	return false, true, nil
+}
+
+// resolveFieldValues checks every value of a field the resolve rule names,
+// returning the ones that do not resolve. A value that is not itself a
+// wikilink or an absolute address is not an internal reference and is never
+// flagged: a URL, a path:lines pointer, and prose all pass unchecked, which
+// is the point of keeping sources free-form.
+func (c *Core) resolveFieldValues(tx *sqlx.Tx, projectID string, values []string) ([]string, error) {
+	var unresolved []string
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		ok, isRef, err := c.resolvesInternalReference(tx, projectID, v)
+		if err != nil {
+			return nil, err
+		}
+		if isRef && !ok {
+			unresolved = append(unresolved, v)
+		}
+	}
+	return unresolved, nil
+}
+
+// resolveBody checks every wikilink and absolute address written in an
+// entry body. Wikilinks resolve exactly as resolveEntryRef does today —
+// today's project-and-vault scope, not the cross-project resolution a
+// later address layer adds.
+func (c *Core) resolveBody(tx *sqlx.Tx, projectID, body string) ([]string, error) {
+	var unresolved []string
+	for _, ref := range ParseWikilinks(body) {
+		toID, err := c.resolveEntryRef(tx, projectID, ref)
+		if err != nil {
+			return nil, err
+		}
+		if toID == nil {
+			unresolved = append(unresolved, "[["+ref.Raw+"]]")
+		}
+	}
+	for _, addr := range bodyAbsoluteAddresses(body) {
+		ok, isRef, err := c.resolvesInternalReference(tx, projectID, addr)
+		if err != nil {
+			return nil, err
+		}
+		if isRef && !ok {
+			unresolved = append(unresolved, addr)
+		}
+	}
+	return unresolved, nil
+}
+
+// templateResolveViolations runs a template's resolve rule: every value of
+// each named field, or every reference in the body when the field named is
+// "body", must resolve. It reads in the caller's transaction: the store has
+// one connection, so opening another here would wait on the caller forever.
+func (c *Core) templateResolveViolations(tx *sqlx.Tx, projectID string, t Template,
+	fields map[string][]string, body string) ([]string, error) {
+	if len(t.Resolve) == 0 {
+		return nil, nil
+	}
+	var out []string
+	err := func() error {
+		for _, name := range t.Resolve {
+			var refs []string
+			var err error
+			if name == "body" {
+				refs, err = c.resolveBody(tx, projectID, body)
+			} else {
+				refs, err = c.resolveFieldValues(tx, projectID, fields[name])
+			}
+			if err != nil {
+				return err
+			}
+			for _, v := range refs {
+				out = append(out, name+" cites "+v+", which does not resolve")
+			}
+		}
+		return nil
+	}()
+	return out, err
+}

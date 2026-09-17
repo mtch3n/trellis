@@ -16,22 +16,22 @@ import (
 func newEventsCmd() *cobra.Command {
 	var after int64
 	var limit int
-	var kinds, actions, templates []string
+	var entities, actions, templates []string
 	var notActor, consumer string
 	var allProjects, follow bool
 
 	cmd := &cobra.Command{
 		Use:   "events",
-		Short: "Read the event feed",
+		Short: "Read the event log",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runEventsList(cmd, after, limit, kinds, actions, templates, notActor, consumer, allProjects, follow)
+			return runEventsList(cmd, after, limit, entities, actions, templates, notActor, consumer, allProjects, follow)
 		},
 	}
 	cmd.Flags().Int64Var(&after, "after", 0, "only events after this seq")
 	cmd.Flags().IntVar(&limit, "limit", 0, "row cap (default 1000, max 5000)")
-	cmd.Flags().StringSliceVar(&kinds, "kind", nil, "card|knowledge|board|label|comment (repeatable)")
+	cmd.Flags().StringSliceVar(&entities, "entity", nil, "card|entry|board|label|comment (repeatable)")
 	cmd.Flags().StringSliceVar(&actions, "action", nil, "created, edited, moved, ... (repeatable; default: everything but read)")
-	cmd.Flags().StringSliceVar(&templates, "template", nil, "knowledge templates (repeatable)")
+	cmd.Flags().StringSliceVar(&templates, "template", nil, "templates (repeatable)")
 	cmd.Flags().StringVar(&notActor, "not-actor", "", "skip events written by this actor")
 	cmd.Flags().StringVar(&consumer, "consumer", "", "resume after this named consumer's cursor; creates it on first use")
 	cmd.Flags().BoolVar(&allProjects, "all-projects", false, "every project, not just this one")
@@ -45,7 +45,7 @@ func newEventsCmd() *cobra.Command {
 // consumer resumes from where it left off, unconditionally), reports a gap
 // as its own JSON line before any event, and either prints one page or
 // follows.
-func runEventsList(cmd *cobra.Command, after int64, limit int, kinds, actions, templates []string,
+func runEventsList(cmd *cobra.Command, after int64, limit int, entities, actions, templates []string,
 	notActor, consumer string, allProjects, follow bool) error {
 	var c *core.Core
 	var db interface{ Close() error }
@@ -84,13 +84,13 @@ func runEventsList(cmd *cobra.Command, after int64, limit int, kinds, actions, t
 
 	q := core.EventQuery{
 		ProjectID: projectID, Limit: limit,
-		Kinds: kinds, Actions: actions, Templates: templates, NotActor: notActor,
+		Entities: entities, Actions: actions, Templates: templates, NotActor: notActor,
 	}
-	fetch := func(a int64) ([]core.FeedEvent, *int64, error) {
+	fetch := func(a int64) ([]core.LogEvent, *int64, error) {
 		q.After = a
-		return c.EventFeed(cmd.Context(), q)
+		return c.EventLog(cmd.Context(), q)
 	}
-	emit := func(ev core.FeedEvent) error { return writeJSONLine(cmd, ev) }
+	emit := func(ev core.LogEvent) error { return writeJSONLine(cmd, ev) }
 
 	if !follow {
 		events, _, err := fetch(after)
@@ -113,7 +113,7 @@ func runEventsList(cmd *cobra.Command, after int64, limit int, kinds, actions, t
 // parameter, not a constant, so a test can drive many iterations without
 // waiting on a real clock; the CLI passes a real time.Second.
 func runEventsFollow(ctx context.Context, interval time.Duration, after int64,
-	fetch func(after int64) ([]core.FeedEvent, *int64, error), emit func(core.FeedEvent) error) error {
+	fetch func(after int64) ([]core.LogEvent, *int64, error), emit func(core.LogEvent) error) error {
 	for {
 		events, next, err := fetch(after)
 		if err != nil {

@@ -1,13 +1,12 @@
 ---
 name: writing-knowledge
-description: Use when deciding whether a finding is worth recording and where it belongs - after debugging something non-obvious, when a measurement or decision would otherwise be re-derived, when an approach failed and the reason matters, or when the user says to write something down. Covers what each kind of entry must contain and when a card comment or project memory is the better home instead.
+description: Use when deciding whether a finding is worth recording and where it belongs - after debugging something non-obvious, when a measurement or decision would otherwise be re-derived, when an approach failed and the reason matters, or when the user says to write something down. Covers what each template asks for and when a card comment or project memory is the better home instead.
 ---
 
 # Writing knowledge
 
 Two questions, in order: does this deserve to be written down at all, and where
-does it go. Most findings fail the first question. Commands are in
-`trellis:trellis`.
+does it go. Most candidates fail the first. Commands are in `trellis:trellis`.
 
 ## Does it deserve an entry
 
@@ -23,10 +22,10 @@ session will trust it.
 
 | The thing | Home | Why |
 |---|---|---|
-| Durable fact about *this* repo — a decision, a trap, a measurement | Trellis knowledge | Searchable, linkable, survives a clear |
-| Progress, evidence, what is left on a specific task | Card comment | Belongs to the work, not the vault |
+| Durable fact about *this* repo — a decision, a trap, a measurement | The project vault | Searchable, linkable, survives a clear |
+| Progress, evidence, what is left on a specific task | A card comment | Belongs to the work, not the vault |
 | How the user wants to work, across every project | Project memory / CLAUDE.md | Already the working store; do not migrate it |
-| Fact useful in several repos | Trellis knowledge, then `nominate` | Agents nominate; a human promotes |
+| Fact useful in several repos | The project vault, then `vault nominate` | You nominate; a human promotes |
 | Still a hypothesis | Nowhere yet | Wait until it is verified |
 
 Project memory already holds hundreds of working entries. Do not copy them onto
@@ -34,16 +33,24 @@ the board and do not start a parallel vault for the same class of fact. Split
 knowledge is worse than either store alone — check the incumbent first, and add
 to it when the finding belongs there.
 
-## What each kind must contain
+## What each template asks for
 
-| Kind | Must include |
+`trellis vault template ls` is the live list; `vault template show <name>` gives
+one template's rules and skeleton. What ships:
+
+| Template | Must include |
 |---|---|
-| Decision | Chosen option, the alternatives, and why |
-| Finding | The fact, the evidence, and its scope |
-| Failed approach | What was tried, how it failed, when to reconsider |
-| Measurement | Value, method, conditions, date |
-| Trap | The misleading expectation, the actual behaviour, the verified remedy |
-| Convention | The rule, its scope, its exceptions |
+| `decision` | The context, the options considered, the decision, its consequences — and at least one source |
+| `finding` | The fact, the evidence, its scope — and at least one source |
+| `research` | The question, the method, the findings, the conclusion |
+| `runbook` | When to use it, preconditions, steps, verification, rollback |
+| `glossary` | One `## Terms` table: Term, Means, Not. `trellis:keeping-glossary` writes it |
+| `reference` | Nothing fixed; it only warns |
+
+`decision`, `finding` and `glossary` refuse a write that does not meet them, so
+choose the template that fits what you actually have. An entry created without
+`--template` has no shape to keep, which is the right choice for a note that
+belongs to none of the six.
 
 Prefer evidence and constraints over a transcription of structure. Separate what
 you observed from what you infer. Include source paths, commands, versions, and
@@ -57,14 +64,17 @@ tells it whether to open the entry.
 ## Linking
 
 Write `[[wikilinks]]` to related entries as you go, including ones that do not
-exist yet. An unresolved link is a stub, not an error — it marks the gap and
-`knowledge lint` lists it later. This is how a vault accumulates without anyone
+exist yet. An unresolved link is a stub, not an error — it marks the gap, and
+`vault lint` reports it later. This is how a vault accumulates without anyone
 planning it.
 
-A bare `[[slug]]` means this project. To link another project's entry or a
-vault entry, write its address: `[[/OTHER/knowledge/runbook]]`,
-`[[/GLOBAL/knowledge/conventions]]`. The form `[[KEY/slug]]` is not a
-cross-project link; lint reports it as a stub.
+A bare `[[slug]]` means this project, and it may name a directory:
+`[[ops/db/rollback]]`. Its last segment alone, `[[rollback]]`, also finds it
+while that leaf is unique; lint reports `ambiguous_link` once it is not. To link
+another project's entry or a global one, write its address:
+`[[/OTHER/vault/runbook]]`, `[[/GLOBAL/vault/conventions]]`. The form
+`[[KEY/slug]]` is not a cross-project link — it reads as a directory in this
+project, and lint reports it as a stub.
 
 ## Pinning
 

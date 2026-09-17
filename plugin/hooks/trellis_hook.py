@@ -97,18 +97,18 @@ def handle(event, mode):
 
     reminder = run_cli(["agent", "remind", "--json"], cwd, env)
     if reminder.returncode:
-        return {"systemMessage": "Trellis could not check held cards; check the board before handing off."}
+        return {"systemMessage": "Trellis could not check claimed cards; check the board before handing off."}
     payload = json.loads(reminder.stdout)
     if not isinstance(payload, dict):
         raise ValueError("invalid reminder response")
-    cards = payload.get("held_without_note") or []
+    cards = payload.get("claimed_without_comment") or []
     if not isinstance(cards, list):
         raise ValueError("invalid reminder cards")
     if not cards:
         return None
     # A notice does not manufacture another user turn or require a mutation.
     return {"systemMessage": (
-        f"Trellis: {len(cards)} held card(s) have no note from this actor. "
+        f"Trellis: {len(cards)} claimed card(s) have no comment from this actor. "
         f"Use `{assignment} trellis agent remind --json` to inspect them. "
         "Record a handoff when within the user's task scope."
     )}

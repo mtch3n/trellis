@@ -44,7 +44,7 @@ func (c *Core) CreateLabel(ctx context.Context, projectID, name, description str
 		}
 
 		label = Label{
-			ID:          NewCardID(),
+			ID:          NewID(),
 			ProjectID:   projectID,
 			Name:        name,
 			Description: description,
@@ -82,7 +82,7 @@ func (c *Core) GetLabel(ctx context.Context, projectID, name string) (Label, err
 	return label, err
 }
 
-// DeleteLabel removes a label. If any cards or docs still use it, returns a
+// DeleteLabel removes a label. If any cards or entries still use it, returns a
 // hard reject with exit 4 and instructions to use merge instead.
 func (c *Core) DeleteLabel(ctx context.Context, projectID, name string) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
@@ -162,7 +162,7 @@ func (c *Core) MergeLabel(ctx context.Context, projectID, from, into string) err
 
 		// recordEvent looks up its project_id from the label's own row, so it
 		// must run before that row is gone -- otherwise the event lands with a
-		// NULL project_id and never reaches a project-scoped feed.
+		// NULL project_id and never reaches a project-scoped read.
 		if err := c.recordEvent(tx, "label", fromLabel.ID, "merged", "target", fromLabel.Name, toLabel.Name); err != nil {
 			return err
 		}
@@ -289,7 +289,7 @@ func (c *Core) CreateOrGetTag(tx *sqlx.Tx, projectID, name string) (Tag, error) 
 	}
 
 	tag = Tag{
-		ID:        NewCardID(),
+		ID:        NewID(),
 		ProjectID: projectID,
 		Name:      name,
 		CreatedAt: c.clock.NowMS(),
@@ -381,7 +381,7 @@ func (c *Core) SeedDefaultLabels(tx *sqlx.Tx, projectID string) error {
 
 	for _, def := range defaultLabels {
 		label := Label{
-			ID:          NewCardID(),
+			ID:          NewID(),
 			ProjectID:   projectID,
 			Name:        def.name,
 			Description: def.description,

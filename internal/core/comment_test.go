@@ -63,13 +63,13 @@ func TestCreateComment(t *testing.T) {
 	}
 
 	// Verify the event was recorded
-	events, _, err := core.EventFeed(ctx, EventQuery{ProjectID: proj.ID, Kinds: []string{"comment"}})
+	events, _, err := core.EventLog(ctx, EventQuery{ProjectID: proj.ID, Entities: []string{"comment"}})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if len(events) != 1 {
-		t.Errorf("EventFeed returned %d events, want 1", len(events))
-	} else if events[0].Kind != "comment" {
-		t.Errorf("event Kind = %s, want 'comment'", events[0].Kind)
+		t.Errorf("EventLog returned %d events, want 1", len(events))
+	} else if events[0].Entity != "comment" {
+		t.Errorf("event Entity = %s, want 'comment'", events[0].Entity)
 	}
 }

@@ -35,13 +35,13 @@ var boardFlag string
 
 // actorSuffix holds --as, distinguishing parallel subagents that share a
 // session id. It is not a persistent flag: it is registered on the commands
-// where ownership is at stake, so it does not crowd every unrelated command's
+// where a claim is at stake, so it does not crowd every unrelated command's
 // help with a flag that has no effect there.
 var actorSuffix string
 
 // projectFlagKey holds --project; empty means "resolve from the nearest
-// .trellis pin". An agent working across several repositories in one session
-// would otherwise have to cd before every call.
+// .trellis marker". An agent working across several repositories in one
+// session would otherwise have to cd before every call.
 var projectFlagKey string
 
 func openCore() (*core.Core, *sqlx.DB, error) {
@@ -55,9 +55,9 @@ func openCore() (*core.Core, *sqlx.DB, error) {
 		return nil, nil, err
 	}
 	c := core.New(db, core.RealClock{}, cliActor(), root)
-	if err := c.SyncKnowledgeSearch(context.Background()); err != nil {
+	if err := c.SyncEntrySearch(context.Background()); err != nil {
 		db.Close()
-		return nil, nil, fmt.Errorf("rebuild knowledge search: %w", err)
+		return nil, nil, fmt.Errorf("rebuild entry search: %w", err)
 	}
 	cfg, cfgErr := config.Load(root)
 	if cfgErr != nil {
@@ -65,7 +65,7 @@ func openCore() (*core.Core, *sqlx.DB, error) {
 	}
 	c.ApplyConfig(cfg)
 	search := retrieval.NewService(c, db, path, cfg, root)
-	c.SetKnowledgeChanged(search.ReconcileProject)
+	c.SetEntryChanged(search.ReconcileProject)
 	c.SetDropDerived(search.DropProject)
 	return c, db, nil
 }
@@ -85,8 +85,8 @@ func cliActor() string {
 	return actor
 }
 
-// currentBoard resolves the project and then the board. Standing where no pin
-// applies exits 2 rather than creating anything.
+// currentBoard resolves the project and then the board. Standing where no
+// marker applies exits 2 rather than creating anything.
 func currentBoard() (*appCtx, error) {
 	c, db, err := openCore()
 	if err != nil {
@@ -97,9 +97,9 @@ func currentBoard() (*appCtx, error) {
 
 // boardForCore resolves the project and board for an already-open Core, and
 // layers the repository config over the global one. It is shared by
-// currentBoard and, for the branch of targetContext that resolves the pinned
+// currentBoard and, for the branch of targetContext that resolves the marker's
 // project, targetContext itself: a qualified card ref or address naming the
-// same project a pin would have chosen must not skip the repository file
+// same project a marker would have chosen must not skip the repository file
 // that a bare reference reads. It closes db on any error.
 func boardForCore(ctx context.Context, c *core.Core, db *sqlx.DB) (*appCtx, error) {
 	r, err := resolveProject(ctx, c)
@@ -120,23 +120,23 @@ func boardForCore(ctx context.Context, c *core.Core, db *sqlx.DB) (*appCtx, erro
 	return &appCtx{Core: c, Project: r.Project, Board: b, db: db, cfg: effective}, nil
 }
 
-// applyRepoConfig loads the repository file beside r's pin, if any, layers it
-// over the global config, applies the effective settings to c, and returns
+// applyRepoConfig loads the repository file beside r's marker, if any, layers
+// it over the global config, applies the effective settings to c, and returns
 // the effective config for app.cfg.
 //
-// openCore already applied the Core's lease TTL, default columns, label/tag
+// openCore already applied the Core's claim TTL, default columns, label/tag
 // requirements and history retention from the global file alone. Once the
-// pin that chose the project (if any) is known, this re-derives the same
+// marker that chose the project (if any) is known, this re-derives the same
 // settings with the repository file beside it layered in, and re-applies
 // them with the same c.ApplyConfig openCore used: a repo-safe key wins over
 // the global file. history.keep is not repo-safe, so ApplyConfig's call here
 // re-applies the value the global file already gave -- a no-op, not a second
 // source of truth. A project named by --project or TRELLIS_PROJECT has no
-// pin and reads no repository file.
+// marker and reads no repository file.
 func applyRepoConfig(c *core.Core, r resolvedProject) (config.Config, error) {
 	var repoDir string
-	if r.Pin != nil {
-		repoDir = filepath.Dir(r.Pin.Path)
+	if r.Marker != nil {
+		repoDir = filepath.Dir(r.Marker.Path)
 	}
 	cfg := config.Defaults()
 	if root, rootErr := home.Root(); rootErr == nil {
@@ -156,7 +156,7 @@ func applyRepoConfig(c *core.Core, r resolvedProject) (config.Config, error) {
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "trellis",
-		Short:         "Local kanban and knowledge base for AI agents",
+		Short:         "Local kanban boards and vaults for AI agents",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -171,7 +171,7 @@ func newRootCmd() *cobra.Command {
 	// All commands registered here once; each lives in its own file so later
 	// parallel tasks never edit root.go.
 	root.AddCommand(newInitCmd(), newProjectCmd(), newCardCmd(), newBoardCmd(), newColumnCmd(), newLabelCmd(), newUICmd(), newSearchCmd(), newRecallCmd(), newConfigCmd(), newAgentCmd(), newBackupCmd(), newVersionCmd(), newUpdateCmd(),
-		newKnowledgeCmd(), newArtifactCmd(), newLinkCmd(), newGraphCmd(), newVectorCmd(), newDaemonCmd(), newDoctorCmd(), newMaintenanceCmd(), newTUICmd(), newEventsCmd(), newExtensionCmd())
+		newVaultCmd(), newArtifactCmd(), newLinkCmd(), newGraphCmd(), newVectorCmd(), newDaemonCmd(), newDoctorCmd(), newMaintenanceCmd(), newTUICmd(), newEventsCmd(), newExtensionCmd())
 	return root
 }
 
@@ -260,7 +260,7 @@ func extractCommandAndSuggestions(root *cobra.Command, err error) (string, []str
 // configInt reads a project-effective integer setting, falling back to def when
 // the value is missing or unparseable: a bad setting must not break a listing.
 func configInt(ctx context.Context, app *appCtx, key string, def int) int {
-	raw, _, err := config.EffectiveValue(ctx, app.cfg, map[string]bool{}, config.RepoDoc{}, app.db, app.Project.ID, key)
+	raw, _, err := config.EffectiveValue(ctx, app.cfg, map[string]bool{}, config.RepoFile{}, app.db, app.Project.ID, key)
 	if err != nil {
 		return def
 	}
@@ -272,13 +272,13 @@ func configInt(ctx context.Context, app *appCtx, key string, def int) int {
 }
 
 // projectNamed reports whether --project or $TRELLIS_PROJECT names the
-// project, rather than a pin in the working directory.
+// project, rather than a marker in the working directory.
 func projectNamed() bool {
 	return projectFlagKey != "" || os.Getenv("TRELLIS_PROJECT") != ""
 }
 
 // addActorFlag registers --as on a command whose effect depends on who is
-// acting: claiming, releasing, noting and editing all record or check an owner.
+// acting: claiming, releasing, commenting and editing all record or check a claimant.
 func addActorFlag(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&actorSuffix, "as", "",
 		"act as this subagent, distinct from others in the same session")

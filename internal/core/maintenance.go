@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/atomicfile"
 )
 
 // PruneHistory deletes only explicitly selected historical telemetry. Event
@@ -64,49 +65,49 @@ func (c *Core) Compact(ctx context.Context) error {
 	return nil
 }
 
-// knowledgeWithPaths returns knowledge rows with Path derived and filled in,
+// entriesWithPaths returns entry rows with Path derived and filled in,
 // scoped to projectID (empty means every project). It exists for maintenance
 // and health code that walks a file directly rather than through
-// loadDoc/refreshFromFile, which set Path as a side effect of reading one
+// loadEntry/refreshFromFile, which set Path as a side effect of reading one
 // entry's own file.
-func (c *Core) knowledgeWithPaths(tx *sqlx.Tx, projectID string) ([]Knowledge, error) {
-	q := `SELECT k.*, p.key AS pkey FROM knowledge k JOIN project p ON p.id = k.project_id`
+func (c *Core) entriesWithPaths(tx *sqlx.Tx, projectID string) ([]Entry, error) {
+	q := `SELECT k.*, p.key AS pkey FROM entry k JOIN project p ON p.id = k.project_id`
 	var args []any
 	if projectID != "" {
 		q += ` WHERE k.project_id = ?`
 		args = append(args, projectID)
 	}
 	var rows []struct {
-		Knowledge
+		Entry
 		Key string `db:"pkey"`
 	}
 	if err := tx.Select(&rows, q, args...); err != nil {
 		return nil, err
 	}
-	docs := make([]Knowledge, len(rows))
+	entries := make([]Entry, len(rows))
 	for i, r := range rows {
-		docs[i] = r.Knowledge
-		docs[i].Path = c.docPath(r.Key, docs[i].Global, docs[i].Slug)
+		entries[i] = r.Entry
+		entries[i].Path = c.entryPath(r.Key, entries[i].Global, entries[i].Slug)
 	}
-	return docs, nil
+	return entries, nil
 }
 
-// PruneRevisions trims every knowledge entry's and every card's revisions
+// PruneRevisions trims every entry's and every card's revisions
 // down to history.keep. Capture already enforces the limit going forward;
 // this is for after lowering it, when the excess would otherwise wait for
 // the next write. It returns the number of revisions removed.
 func (c *Core) PruneRevisions(ctx context.Context) (int64, error) {
-	var docs []Knowledge
+	var entries []Entry
 	if err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var err error
-		docs, err = c.knowledgeWithPaths(tx, "")
+		entries, err = c.entriesWithPaths(tx, "")
 		return err
 	}); err != nil {
 		return 0, err
 	}
 	var total int64
-	for _, d := range docs {
-		n, err := trimRevisions(d.Path, c.historyKeep)
+	for _, e := range entries {
+		n, err := trimRevisions(e.Path, c.historyKeep)
 		if err != nil {
 			return total, err
 		}
@@ -167,36 +168,36 @@ func ParseRetention(raw string) (time.Duration, error) {
 	return d, nil
 }
 
-// OrphanHistoryCount reports how many revision directories no entry accounts
-// for, across every project and the global vault -- what the settings page's
-// maintenance stats show before a prune.
-func (c *Core) OrphanHistoryCount(ctx context.Context) (int, error) {
-	orphans, err := c.orphanRevisionDirs(ctx, "")
+// LeftoverRevisionsCount reports how many revision directories no entry
+// accounts for, across every project and the global vault -- what the
+// settings page's maintenance stats show before a prune.
+func (c *Core) LeftoverRevisionsCount(ctx context.Context) (int, error) {
+	leftovers, err := c.leftoverRevisionDirs(ctx, "")
 	if err != nil {
 		return 0, err
 	}
-	return len(orphans), nil
+	return len(leftovers), nil
 }
 
-// PruneOrphanHistory removes revision directories no entry accounts for --
-// what deleting a file and its row outside Trellis leaves behind. It returns
-// the number of directories removed.
+// PruneLeftoverRevisions removes revision directories no entry accounts for
+// -- what deleting a file and its row outside Trellis leaves behind. It
+// returns the number of directories removed.
 //
 // An entry whose file is missing is NOT one of these. The entry is still
-// registered, `knowledge lint` reports the missing file, and its history is
+// registered, `vault lint` reports the missing file, and its history is
 // the only copy of that content left: deleting it here would finish the job
 // the accidental `rm` started.
-func (c *Core) PruneOrphanHistory(ctx context.Context) (int64, error) {
-	orphans, err := c.orphanRevisionDirs(ctx, "")
+func (c *Core) PruneLeftoverRevisions(ctx context.Context) (int64, error) {
+	leftovers, err := c.leftoverRevisionDirs(ctx, "")
 	if err != nil {
 		return 0, err
 	}
 	var removed int64
-	for _, dir := range orphans {
+	for _, dir := range leftovers {
 		if err := os.RemoveAll(dir); err != nil {
 			return removed, err
 		}
-		if err := syncDirectory(filepath.Dir(dir)); err != nil {
+		if err := atomicfile.SyncDir(filepath.Dir(dir)); err != nil {
 			return removed, err
 		}
 		removed++
@@ -204,19 +205,19 @@ func (c *Core) PruneOrphanHistory(ctx context.Context) (int64, error) {
 	return removed, nil
 }
 
-// orphanRevisionDirs lists every ".<name>/" directory in the vaults that no
-// knowledge row accounts for, sorted. An empty projectID covers every project
+// leftoverRevisionDirs lists every ".<name>/" directory in the vaults that no
+// entry row accounts for, sorted. An empty projectID covers every project
 // and the global vault; otherwise it covers that project's vault and the
 // directories its own entries live in. Liveness is always checked against
 // every project's rows, never just the ones a project filter selects: the
 // global vault is walked unconditionally, and another project's entry
-// escalated into it must not be reported as this project's orphan.
-func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]string, error) {
-	var allDocs []Knowledge
+// promoted into it must not be reported as this project's leftover.
+func (c *Core) leftoverRevisionDirs(ctx context.Context, projectID string) ([]string, error) {
+	var allEntries []Entry
 	var keys []string
 	if err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var err error
-		if allDocs, err = c.knowledgeWithPaths(tx, ""); err != nil {
+		if allEntries, err = c.entriesWithPaths(tx, ""); err != nil {
 			return err
 		}
 		kq := `SELECT key FROM project`
@@ -231,23 +232,23 @@ func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]stri
 	}
 
 	// The vaults to walk: every project's own directory, plus the global one.
-	vaults := map[string]bool{c.docDir(GlobalKey, true): true}
+	vaults := map[string]bool{c.vaultDir(GlobalKey, true): true}
 	for _, key := range keys {
-		vaults[c.docDir(key, false)] = true
+		vaults[c.vaultDir(key, false)] = true
 	}
-	live := make(map[string]bool, len(allDocs))
-	for _, d := range allDocs {
-		live[d.Path] = true
-		if projectID == "" || d.ProjectID == projectID {
-			vaults[filepath.Dir(d.Path)] = true
+	live := make(map[string]bool, len(allEntries))
+	for _, e := range allEntries {
+		live[e.Path] = true
+		if projectID == "" || e.ProjectID == projectID {
+			vaults[filepath.Dir(e.Path)] = true
 		}
 	}
 	// A vault nested under another one being walked is walked twice, once by
-	// the ancestor's recursion and once on its own: drop it here so an orphan
+	// the ancestor's recursion and once on its own: drop it here so a leftover
 	// inside it is not reported (and removed) twice.
 	vaults = topLevelDirs(vaults)
 
-	var orphans []string
+	var leftovers []string
 	for vault := range vaults {
 		err := filepath.WalkDir(vault, func(path string, e fs.DirEntry, err error) error {
 			if err != nil {
@@ -265,7 +266,7 @@ func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]stri
 			// A revision directory is ".<entry file name>" beside its entry.
 			if looksLikeRevisionDir(path, e.Name()) {
 				if !live[filepath.Join(filepath.Dir(path), strings.TrimPrefix(e.Name(), "."))] {
-					orphans = append(orphans, path)
+					leftovers = append(leftovers, path)
 				}
 			}
 			// Revision directories never nest, and neither does anything else
@@ -276,17 +277,17 @@ func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]stri
 			return nil, err
 		}
 	}
-	slices.Sort(orphans)
-	return orphans, nil
+	slices.Sort(leftovers)
+	return leftovers, nil
 }
 
 // looksLikeRevisionDir reports whether the directory at path, whose name is
-// name, could be a knowledge entry's revision directory: its name must be a
-// dot followed by something ending in ".md" (the only extension a knowledge
+// name, could be an entry's revision directory: its name must be a
+// dot followed by something ending in ".md" (the only extension an
 // entry file has), and every entry inside it must be a regular file whose
 // name parseRevisionVersion accepts. Anything else — ".git", ".obsidian", a
 // user's own dot-directory — is left alone, never walked into and never
-// treated as an orphan.
+// treated as a leftover.
 func looksLikeRevisionDir(path, name string) bool {
 	if !strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".md") {
 		return false

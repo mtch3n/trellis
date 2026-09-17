@@ -73,19 +73,19 @@ func itemBySlug(t *testing.T, items []map[string]any, slug string) map[string]an
 	return nil
 }
 
-func TestKnowledgeListsCarryArtifacts(t *testing.T) {
+func TestEntryListsCarryArtifacts(t *testing.T) {
 	s, c, p := artifactTestServer(t)
 	a := storeArtifact(t, c, p.ID, "clip.mp3", []byte("ID3 audio"))
 
-	with, err := c.CreateKnowledge(t.Context(), p.ID, core.NewKnowledge{Title: "With"})
+	with, err := c.CreateEntry(t.Context(), p.ID, core.NewEntry{Title: "With"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.LinkArtifactToDoc(t.Context(), p.ID, with.Slug, a.Name); err != nil {
+	if _, err := c.LinkArtifactToEntry(t.Context(), p.ID, with.Slug, a.Name); err != nil {
 		t.Fatal(err)
 	}
 
-	stub, err := c.CreateKnowledge(t.Context(), p.ID, core.NewKnowledge{Title: "Stub"})
+	stub, err := c.CreateEntry(t.Context(), p.ID, core.NewEntry{Title: "Stub"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,16 +98,16 @@ func TestKnowledgeListsCarryArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	fm.Artifacts = []string{"absent.pdf"}
-	if err := os.WriteFile(stub.Path, []byte(core.RenderDoc(fm, body)), 0o600); err != nil {
+	if err := os.WriteFile(stub.Path, []byte(core.RenderEntry(fm, body)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	plain, err := c.CreateKnowledge(t.Context(), p.ID, core.NewKnowledge{Title: "Plain"})
+	plain, err := c.CreateEntry(t.Context(), p.ID, core.NewEntry{Title: "Plain"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	for _, path := range []string{"/api/p/ART/knowledge", "/api/p/ART/b/default/knowledge"} {
+	for _, path := range []string{"/api/p/ART/vault", "/api/p/ART/b/default/vault"} {
 		t.Run(path, func(t *testing.T) {
 			items := getJSON(t, s, path)
 
@@ -225,7 +225,7 @@ func TestAnSVGRowIsSandboxed(t *testing.T) {
 	if _, err := s.db.Exec(
 		`INSERT INTO artifact (id, project_id, name, kind, mime, size, content_hash, created_at, updated_at)
 		 VALUES (?, ?, 'drawing.svg', 'image', 'image/svg+xml', ?, 'h', 1, 1)`,
-		core.NewCardID(), p.ID, len(svg)); err != nil {
+		core.NewID(), p.ID, len(svg)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -430,7 +430,7 @@ func TestAFilenameCannotBreakTheDispositionHeader(t *testing.T) {
 	if _, err := s.db.Exec(
 		`INSERT INTO artifact (id, project_id, name, kind, mime, size, content_hash, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1)`,
-		core.NewCardID(), p.ID, evil, base.Kind, base.MIME, base.Size, base.ContentHash); err != nil {
+		core.NewID(), p.ID, evil, base.Kind, base.MIME, base.Size, base.ContentHash); err != nil {
 		t.Fatal(err)
 	}
 

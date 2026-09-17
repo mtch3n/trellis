@@ -7,14 +7,14 @@ import (
 )
 
 // ArchiveCard hides a card from the default listing without deleting it.
-// Archiving releases any lease: an archived card is not work in flight.
+// Archiving releases any claim: an archived card is not work in flight.
 func (c *Core) ArchiveCard(ctx context.Context, projectID string, ref CardRef) (Card, error) {
 	var card Card
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
 			return err
 		}
-		if err := c.checkCardOwner(card); err != nil {
+		if err := c.checkCardClaim(card); err != nil {
 			return err
 		}
 		if card.ArchivedAt != nil {
@@ -22,7 +22,7 @@ func (c *Core) ArchiveCard(ctx context.Context, projectID string, ref CardRef) (
 		}
 		now := c.clock.NowMS()
 		if _, err := tx.Exec(
-			`UPDATE card SET archived_at = ?, owner = NULL, lease_until = NULL,
+			`UPDATE card SET archived_at = ?, claimed_by = NULL, claim_until = NULL,
 			                 version = version + 1, updated_at = ? WHERE id = ?`,
 			now, now, card.ID); err != nil {
 			return err
@@ -35,14 +35,14 @@ func (c *Core) ArchiveCard(ctx context.Context, projectID string, ref CardRef) (
 	return card, err
 }
 
-// UnarchiveCard returns an archived card to the board.
-func (c *Core) UnarchiveCard(ctx context.Context, projectID string, ref CardRef) (Card, error) {
+// RestoreCard returns an archived card to the board.
+func (c *Core) RestoreCard(ctx context.Context, projectID string, ref CardRef) (Card, error) {
 	var card Card
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
 			return err
 		}
-		if err := c.checkCardOwner(card); err != nil {
+		if err := c.checkCardClaim(card); err != nil {
 			return err
 		}
 		if card.ArchivedAt == nil {
@@ -53,7 +53,7 @@ func (c *Core) UnarchiveCard(ctx context.Context, projectID string, ref CardRef)
 			c.clock.NowMS(), card.ID); err != nil {
 			return err
 		}
-		if err := c.recordEvent(tx, "card", card.ID, "unarchived", "", "", ""); err != nil {
+		if err := c.recordEvent(tx, "card", card.ID, "restored", "", "", ""); err != nil {
 			return err
 		}
 		return c.loadCard(tx, projectID, ref, &card)

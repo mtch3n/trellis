@@ -22,7 +22,7 @@ func newSearchCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "search <query>",
-		Short: "Search cards and knowledge entries",
+		Short: "Search cards and entries",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := core.SearchOpts{Limit: limit, AllProjects: allProjects, Label: label}
@@ -97,8 +97,8 @@ func emitHits(cmd *cobra.Command, hits []core.SearchHit, showProject bool) error
 		w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 		for _, h := range hits {
 			title := h.Title
-			if h.Unreviewed {
-				title += "  (unreviewed)"
+			if h.Unverified {
+				title += "  (unverified)"
 			}
 			if showProject {
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", h.Project, h.Ref, h.Detail, title)

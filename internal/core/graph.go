@@ -9,7 +9,7 @@ import (
 
 // GraphNode is one entity in a neighbourhood.
 type GraphNode struct {
-	Type  string `db:"type" json:"type"` // card, doc, or artifact
+	Type  string `db:"type" json:"type"` // card, entry, or artifact
 	ID    string `db:"id" json:"id"`
 	Ref   string `db:"ref" json:"ref"`
 	Title string `db:"title" json:"title"`
@@ -86,15 +86,15 @@ func (c *Core) Traverse(ctx context.Context, startID string, depth int, rels []s
 				}
 				node.Type, node.Ref, node.Title, node.Done = "card", card.Ref, card.Title, done
 			} else {
-				var doc Knowledge
-				if err := tx.Get(&doc, `SELECT * FROM knowledge WHERE id = ?`, r.ID); err == nil {
+				var entry Entry
+				if err := tx.Get(&entry, `SELECT * FROM entry WHERE id = ?`, r.ID); err == nil {
 					key := GlobalKey
-					if !doc.Global {
-						if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, doc.ProjectID); err != nil {
+					if !entry.Global {
+						if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, entry.ProjectID); err != nil {
 							return err
 						}
 					}
-					node.Type, node.Ref, node.Title = "doc", DocAddress(key, doc.Global, doc.Slug), doc.Title
+					node.Type, node.Ref, node.Title = "entry", EntryAddress(key, entry.Global, entry.Slug), entry.Title
 				} else {
 					var artifact Artifact
 					if err := tx.Get(&artifact, `SELECT * FROM artifact WHERE id = ?`, r.ID); err != nil {

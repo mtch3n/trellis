@@ -118,7 +118,7 @@ func TestHandleCardDetailNoRelations(t *testing.T) {
 	}
 
 	// Relations field should be empty array or omitted
-	if resp.Relations != nil && len(resp.Relations) != 0 {
+	if len(resp.Relations) != 0 {
 		t.Errorf("expected empty relations, got %v", resp.Relations)
 	}
 }

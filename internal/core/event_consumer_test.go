@@ -25,13 +25,13 @@ func TestEnsureEventConsumerCreatesOnFirstUse(t *testing.T) {
 }
 
 func TestAckAdvancesTheCursor(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if len(events) == 0 {
 		t.Fatal("no events to ack")
@@ -50,16 +50,16 @@ func TestAckAdvancesTheCursor(t *testing.T) {
 }
 
 func TestAckNeverMovesBackwards(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "b"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	last := events[len(events)-1].Seq
 	first := events[0].Seq
@@ -77,13 +77,13 @@ func TestAckNeverMovesBackwards(t *testing.T) {
 }
 
 func TestAckRefusesASeqPastTheNewest(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	newest := events[len(events)-1].Seq
 
@@ -96,19 +96,19 @@ func TestAckRefusesASeqPastTheNewest(t *testing.T) {
 // A single FixedClock timestamps every write identically, so PruneHistory's
 // timestamp cutoff cannot express "prune some but not all" within one Core.
 // This test opens a second Core on the same database, one tick later, the
-// same technique internal/core/lease_test.go:474-478 already uses to test
+// same technique internal/core/claim_test.go already uses to test
 // time-dependent behavior against a shared connection.
 func TestEventGapAfterPartialPruning(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "b"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if _, err := c.AckEventConsumer(t.Context(), "worker", events[0].Seq); err != nil {
 		t.Fatalf("AckEventConsumer: %v", err)
@@ -145,13 +145,13 @@ func TestEventGapAfterPartialPruning(t *testing.T) {
 // all of them to the prune, means the consumer never saw those newer ones.
 func TestEventGapWhenEveryEventIsPruned(t *testing.T) {
 	t.Run("caught up", func(t *testing.T) {
-		c, p, b := kbCore(t)
+		c, p, b := vaultCore(t)
 		if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 			t.Fatalf("CreateCard: %v", err)
 		}
-		events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+		events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID})
 		if err != nil {
-			t.Fatalf("EventFeed: %v", err)
+			t.Fatalf("EventLog: %v", err)
 		}
 		newest := events[len(events)-1].Seq
 		if _, err := c.AckEventConsumer(t.Context(), "worker", newest); err != nil {
@@ -172,13 +172,13 @@ func TestEventGapWhenEveryEventIsPruned(t *testing.T) {
 	})
 
 	t.Run("behind", func(t *testing.T) {
-		c, p, b := kbCore(t)
+		c, p, b := vaultCore(t)
 		if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 			t.Fatalf("CreateCard: %v", err)
 		}
-		events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+		events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID})
 		if err != nil {
-			t.Fatalf("EventFeed: %v", err)
+			t.Fatalf("EventLog: %v", err)
 		}
 		acked := events[0].Seq
 		if _, err := c.AckEventConsumer(t.Context(), "worker", acked); err != nil {
@@ -203,7 +203,7 @@ func TestEventGapWhenEveryEventIsPruned(t *testing.T) {
 }
 
 func TestEventGapIsFalseForABrandNewConsumer(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
@@ -221,16 +221,16 @@ func TestEventGapIsFalseForABrandNewConsumer(t *testing.T) {
 }
 
 func TestListEventConsumersReportsCursorLagAndGap(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "b"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if _, err := c.AckEventConsumer(t.Context(), "worker", events[0].Seq); err != nil {
 		t.Fatalf("AckEventConsumer: %v", err)

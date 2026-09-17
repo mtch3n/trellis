@@ -23,13 +23,13 @@ type Spec struct {
 	Exec   string
 	Bind   string
 	Port   int
-	Home   string // TRELLIS_HOME to pin into the unit; empty means inherit.
+	Home   string // the fixed root, set as TRELLIS_HOME in the unit; empty means inherit.
 	Linger bool   // Linux only: keep running when no session is open.
 }
 
 // State is a snapshot of what the service manager believes. Running is the
 // manager's opinion; the CLI cross-checks it against the daemon's own IPC
-// health endpoint, and `daemon doctor` reports when the two disagree.
+// ping, and `daemon doctor` reports when the two disagree.
 type State struct {
 	Installed bool   `json:"installed"`
 	Enabled   bool   `json:"enabled"`

@@ -1,0 +1,158 @@
+# Uses of retired words the tree still has. Each task of the vocabulary
+# plan deletes lines; a line that stays says why after a fourth tab.
+.claude-plugin/marketplace.json	owner	1	# why: the Claude Code marketplace schema's owner field, not a card claimant
+docs/ui-operation-parity.md	feed	1	# why: the handoff's own vocabulary note, retiring the word by naming it
+docs/ui-operation-parity.md	knowledge-ident	4	# why: KnowledgePage, KnowledgeNav and lib/knowledge-graph.ts, web names still spelled this way on disk; the web session renames them
+internal/address/address.go	vpath	1	# why: spec file path
+internal/cli/daemon.go	attach	1	# why: workers attaching to a running daemon process
+internal/cli/daemon_control.go	attach	4	# why: a detached child process, not an artifact
+internal/cli/daemon_lifecycle_test.go	attach	1	# why: a detached child process, not an artifact
+internal/cli/daemon_spawn_unix.go	attach	2	# why: detach(cmd), which puts the daemon in its own session
+internal/cli/daemon_spawn_windows.go	attach	3	# why: detach(cmd) and Windows DETACHED_PROCESS
+internal/cli/events_cmd_test.go	card-note	2	# why: a regression test that `events --entity note` is refused
+internal/cli/link_test.go	vpath	1	# why: spec file path
+internal/cli/vault_cmd_test.go	owner	5	# why: an example template field name, not a card claimant
+internal/cli/vault_dir_cmd_test.go	doc	2	# why: a vault directory literally named docs
+internal/cli/vault_metadata_edit_test.go	owner	2	# why: an example template field name, not a card claimant
+internal/cli/vault_template.go	owner	1	# why: an example template field name in the command's example, not a card claimant
+internal/cli/vault_template_test.go	card-note	1	# why: asserts that `note` is not among the shipped templates
+internal/cli/vault_template_test.go	owner	2	# why: an example template field name, not a card claimant
+internal/config/config.go	document	2	# why: a YAML document tree
+internal/core/artifact.go	document	1	# why: the artifact kind `document`, a file type such as a PDF
+internal/core/artifact_mime_test.go	doc	1	# why: the fixture filename doc.pdf
+internal/core/artifact_mime_test.go	document	2	# why: the artifact kind `document`, a file type such as a PDF
+internal/core/board_test.go	owner	1	# why: this machine's owner, a person, not a card claimant
+internal/core/card.go	owner	1	# why: the SQLite write lock, not a card claimant
+internal/core/claim.go	owner	1	# why: the SQLite write lock, not a card claimant
+internal/core/comment.go	attach	1	# why: a comment attached to a card, ordinary English, not an artifact
+internal/core/entry.go	owner	1	# why: holder of a cached entry version, not a card claimant
+internal/core/entry_dir_test.go	attach	1	# why: a moved entry detaching its revision directory
+internal/core/entry_dir_test.go	doc	6	# why: a vault directory literally named docs
+internal/core/entry_mv.go	owner	1	# why: what a replaced file held before the write, not a card claimant
+internal/core/entry_path_test.go	doc	2	# why: the docs/dogs pair, a look-alike-directory fixture
+internal/core/entry_race_test.go	attach	1	# why: attaching a test Policy to a Core, not an artifact
+internal/core/entry_race_test.go	owner	1	# why: the SQLite write lock, not a card claimant
+internal/core/entry_template_edit_test.go	owner	5	# why: an example template field name, not a card claimant
+internal/core/entry_test.go	owner	14	# why: an example template field name, not a card claimant
+internal/core/event_log.go	card-note	1	# why: names the pre-migration entity value so an old query fails loudly
+internal/core/event_log_test.go	card-note	3	# why: a regression test that the entity `note` is refused
+internal/core/label.go	doc	1	# why: the seeded label "docs", user vocabulary for documentation
+internal/core/label_test.go	doc	1	# why: the seeded label "docs", user vocabulary for documentation
+internal/core/lint.go	owner	1	# why: a wikilink held by an entry, ordinary English, not a card claimant
+internal/core/markdown.go	owner	1	# why: an example template field name in a doc comment, not a card claimant
+internal/core/markdown_test.go	doc	2	# why: the fixture wikilink [[design-doc]]
+internal/core/markdown_test.go	owner	3	# why: an example template field name, not a card claimant
+internal/core/merge_artifacts_test.go	doc	2	# why: the fixture body "design doc"
+internal/core/policy.go	attach	2	# why: attaching a policy to a Core, not an artifact
+internal/core/policy_test.go	attach	1	# why: attaching a policy to a Core, not an artifact
+internal/core/private_test.go	corpus	7	# why: the set of entries offered to the vector index, distinct from the index itself
+internal/core/purge.go	corpus	1	# why: the set of entries offered to the vector index, distinct from the index itself
+internal/core/search.go	corpus	2	# why: the set of entries offered to the vector index, distinct from the index itself
+internal/core/search_test.go	doc	1	# why: a card titled "Update docs"
+internal/core/template_lint_test.go	owner	4	# why: an example template field name, not a card claimant
+internal/core/template_resolve.go	attach	1	# why: an anchor left attached to a reference, not an artifact
+internal/core/template_test.go	owner	4	# why: an example template field name, not a card claimant
+internal/service/launchd.go	type-field	1	# why: the plist <!DOCTYPE> declaration
+internal/store/db_test.go	owner	1	# why: a write held until after another commits, not a card claimant
+internal/ui/artifacts.go	attach	2	# why: the HTTP Content-Disposition: attachment header
+internal/ui/artifacts.go	document	3	# why: a browser document, the CSP unit a response renders as
+internal/ui/artifacts_test.go	attach	1	# why: the HTTP Content-Disposition: attachment header
+internal/ui/artifacts_test.go	kb	1	# why: KB, kilobytes, in a preview size cap
+internal/ui/artifacts_test.go	type-field	1	# why: a <!DOCTYPE html> payload in an XSS fixture
+internal/ui/entry_get_test.go	owner	5	# why: an example template field name, not a card claimant
+internal/ui/entry_template_switch_test.go	owner	1	# why: an example template field name, not a card claimant
+internal/ui/templates_test.go	card-note	1	# why: asserts that `note` is not among the shipped templates
+internal/ui/templates_test.go	owner	1	# why: an example template field name, not a card claimant
+internal/vector/index.go	doc	1	# why: sqlite-vec module column doc_id
+internal/vector/index.go	owner	1	# why: sqlite-vec shadow-table lock owner column, not a card claimant
+plugin/integrations/README.md	knowledge-ident	1	# why: knowledge as a mass noun, capitalised at the start of a sentence
+plugin/plugin-build.json	owner	1	# why: the Claude Code marketplace schema's owner field, not a card claimant
+plugin/skills/trellis/SKILL.md	owner	1	# why: an example template field name in `vault edit --set`, not a card claimant
+plugin/skills/using-glossary/SKILL.md	kb	1	# why: the worked example quotes "kb" as a Not word the glossary forbids
+plugin/skills/writing-knowledge/SKILL.md	finding-umbrella	1	# why: the `research` template's own Findings section
+scripts/gen_manifests.py	owner	2	# why: the Claude Code marketplace schema's owner field, not a card claimant
+scripts/rewrite_type_to_template.py	card-note	1	# why: runs before the migration, on pre-rename files whose `type:` is still `note`
+scripts/rewrite_type_to_template.py	knowledge-ident	4	# why: runs before the migration, when the directory is still named knowledge/
+scripts/tests/test_rewrite_type_to_template.py	card-note	3	# why: fixtures for a script that runs before the migration, on pre-rename files
+scripts/tests/test_rewrite_type_to_template.py	knowledge-ident	10	# why: fixtures for a script that runs before the migration, on pre-rename files
+scripts/ui-browser-smoke.sh	document	2	# why: document.querySelector, the DOM API
+scripts/ui-browser-smoke.sh	knowledge-base	1	# why: waits on UI text the web session renames (R35)
+scripts/ui-browser-smoke.sh	knowledge-ident	2	# why: waits on UI text the web session renames (R35)
+scripts/ui-browser-smoke.sh	lease	3	# why: the steal flow's UI label and wait, plus the reason string typed into that form; the web session renames them (R35)
+web/COMPONENTS.md	attach	2
+web/COMPONENTS.md	dangling	1
+web/COMPONENTS.md	document	3
+web/COMPONENTS.md	feed	1
+web/COMPONENTS.md	kb	1
+web/COMPONENTS.md	knowledge-ident	7
+web/COMPONENTS.md	lease	6
+web/COMPONENTS.md	owner	10
+web/COMPONENTS.md	stale-other	1
+web/index.html	document	1
+web/index.html	type-field	1
+web/scripts/ui-audit.js	doc	1
+web/src/App.tsx	knowledge-ident	8
+web/src/components/wrappers/ActionRow.tsx	document	3
+web/src/components/wrappers/AppShell.tsx	knowledge-ident	2
+web/src/components/wrappers/AppShell.tsx	lease	2
+web/src/components/wrappers/AppShell.tsx	owner	2
+web/src/components/wrappers/AppShell.tsx	stale-other	2
+web/src/components/wrappers/ArtifactList.tsx	attach	5
+web/src/components/wrappers/ArtifactList.tsx	document	3
+web/src/components/wrappers/CardDialog.tsx	lease	2
+web/src/components/wrappers/CardDialog.tsx	owner	5
+web/src/components/wrappers/CardTimeline.tsx	lease	2
+web/src/components/wrappers/CardTimeline.tsx	unarchive	2
+web/src/components/wrappers/CardView.tsx	doc	1
+web/src/components/wrappers/CardView.tsx	lease	11
+web/src/components/wrappers/CardView.tsx	owner	25
+web/src/components/wrappers/DeleteProjectDialog.tsx	knowledge-ident	1
+web/src/components/wrappers/DeleteProjectDialog.tsx	lease	1
+web/src/components/wrappers/DeleteProjectDialog.tsx	owner	1
+web/src/components/wrappers/EditInPlace.tsx	document	1
+web/src/components/wrappers/EntryView.tsx	knowledge-ident	3
+web/src/components/wrappers/ForceGraph.tsx	knowledge-ident	4
+web/src/components/wrappers/ForceGraph.tsx	owner	2
+web/src/components/wrappers/GraphDock.tsx	knowledge-ident	3
+web/src/components/wrappers/GraphExplorer.tsx	knowledge-base	1
+web/src/components/wrappers/GraphExplorer.tsx	knowledge-ident	4
+web/src/components/wrappers/KnowledgeNav.tsx	document	1
+web/src/components/wrappers/KnowledgeNav.tsx	escalate	1
+web/src/components/wrappers/KnowledgeNav.tsx	knowledge-ident	6
+web/src/components/wrappers/Lamp.tsx	lease	1
+web/src/components/wrappers/Lamp.tsx	owner	6
+web/src/components/wrappers/MarkdownEditorImpl.tsx	doc	1
+web/src/components/wrappers/MarkdownEditorImpl.tsx	document	1
+web/src/components/wrappers/MetaPanel.tsx	owner	3
+web/src/components/wrappers/NewEntryDialog.tsx	knowledge-ident	4
+web/src/components/wrappers/PageHeader.tsx	owner	3
+web/src/components/wrappers/Paged.tsx	owner	1
+web/src/components/wrappers/ProjectSwitcher.tsx	lease	2
+web/src/components/wrappers/ProjectSwitcher.tsx	owner	3
+web/src/components/wrappers/ProjectSwitcher.tsx	stale-other	2
+web/src/components/wrappers/ProjectTimeline.tsx	knowledge-ident	2
+web/src/components/wrappers/ProjectTimeline.tsx	owner	2
+web/src/components/wrappers/ThemeToggle.tsx	document	2
+web/src/lib/cards.ts	owner	5
+web/src/lib/format.ts	kb	1
+web/src/lib/knowledge-graph.ts	knowledge-ident	6
+web/src/lib/knowledge-graph.ts	old-address	1
+web/src/lib/sources.ts	knowledge-ident	2
+web/src/lib/timeline-marks.ts	owner	2
+web/src/lib/vault-tree.ts	escalate	1
+web/src/lib/vault-tree.ts	knowledge-ident	7
+web/src/main.tsx	document	1
+web/src/pages/BoardPage.tsx	lease	9
+web/src/pages/BoardPage.tsx	owner	24
+web/src/pages/CardPage.tsx	lease	5
+web/src/pages/CardPage.tsx	owner	8
+web/src/pages/KnowledgePage.tsx	attach	4
+web/src/pages/KnowledgePage.tsx	knowledge-ident	26
+web/src/pages/OverviewPage.tsx	knowledge-ident	7
+web/src/pages/OverviewPage.tsx	lease	2
+web/src/pages/OverviewPage.tsx	owner	15
+web/src/pages/OverviewPage.tsx	stale-other	2
+web/src/pages/ProjectsPage.tsx	lease	5
+web/src/pages/ProjectsPage.tsx	owner	3
+web/src/pages/ProjectsPage.tsx	stale-other	5
+web/src/pages/SearchPage.tsx	review	1

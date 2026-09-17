@@ -8,12 +8,12 @@ import (
 )
 
 func TestLintReportsAnUnknownFrontmatterKey(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Typo'd"})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Typo'd"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
-	raw, err := os.ReadFile(doc.Path)
+	raw, err := os.ReadFile(entry.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,24 +21,24 @@ func TestLintReportsAnUnknownFrontmatterKey(t *testing.T) {
 	if edited == string(raw) {
 		t.Fatal("setup: expected the title line to be found and rewritten")
 	}
-	if err := os.WriteFile(doc.Path, []byte(edited), 0o600); err != nil {
+	if err := os.WriteFile(entry.Path, []byte(edited), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	found := findingsFor(t, c, p.ID, doc)
-	var got *LintFinding
+	found := diagnosticsFor(t, c, p.ID, entry)
+	var got *Diagnostic
 	for i := range found {
 		if found[i].Kind == "unknown_field" {
 			got = &found[i]
 		}
 	}
 	if got == nil || got.Ref != "provenence" {
-		t.Fatalf("findings = %+v, want an unknown_field naming provenence", found)
+		t.Fatalf("diagnostics = %+v, want an unknown_field naming provenence", found)
 	}
 }
 
 func TestLintDoesNotReportAFieldATemplateNames(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	dir, err := c.templatesDir()
 	if err != nil {
 		t.Fatal(err)
@@ -47,14 +47,14 @@ func TestLintDoesNotReportAFieldATemplateNames(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "owned.md"), []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Has an owner", Template: "owned", Set: map[string]string{"owner": "alice"},
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
-	for _, f := range findingsFor(t, c, p.ID, doc) {
+	for _, f := range diagnosticsFor(t, c, p.ID, entry) {
 		if f.Kind == "unknown_field" {
 			t.Errorf("owner was flagged as unknown, but the owned template names it: %+v", f)
 		}

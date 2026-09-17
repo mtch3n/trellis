@@ -14,18 +14,18 @@ func TestMaintenancePruneRequiresASelector(t *testing.T) {
 
 func TestMaintenancePruneRevisionsNeedsNoBefore(t *testing.T) {
 	projectEnv(t)
-	runCmd(t, "knowledge", "new", "--title", "Entry")
+	runCmd(t, "vault", "new", "--title", "Entry")
 	out := runCmd(t, "maintenance", "prune", "--revisions", "--json")
 	if !strings.Contains(out, `"deleted"`) {
 		t.Fatalf("out = %s, want a deleted count", out)
 	}
 }
 
-func TestMaintenancePruneOrphanHistoryNeedsNoBefore(t *testing.T) {
+func TestMaintenancePruneLeftoverRevisionsNeedsNoBefore(t *testing.T) {
 	projectEnv(t)
-	out := runCmd(t, "maintenance", "prune", "--orphan-history", "--json")
+	out := runCmd(t, "maintenance", "prune", "--leftover-revisions", "--json")
 	if !strings.Contains(out, `"deleted":0`) {
-		t.Fatalf("out = %s, want zero orphans in a fresh vault", out)
+		t.Fatalf("out = %s, want zero leftovers in a fresh vault", out)
 	}
 }
 

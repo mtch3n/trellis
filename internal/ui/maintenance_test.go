@@ -12,7 +12,7 @@ import (
 	"github.com/mtch3n/trellis/internal/home"
 )
 
-func TestGetMaintenanceReportsSizesAndOrphanCount(t *testing.T) {
+func TestGetMaintenanceReportsSizesAndLeftoverCount(t *testing.T) {
 	s := settingsTestServer(t)
 
 	rec := request(t, s, http.MethodGet, "/api/maintenance", "")
@@ -20,10 +20,10 @@ func TestGetMaintenanceReportsSizesAndOrphanCount(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
 	}
 	var out struct {
-		DatabaseBytes int64 `json:"database_bytes"`
-		WALBytes      int64 `json:"wal_bytes"`
-		OrphanHistory int   `json:"orphan_history"`
-		HistoryKeep   int   `json:"history_keep"`
+		DatabaseBytes     int64 `json:"database_bytes"`
+		WALBytes          int64 `json:"wal_bytes"`
+		LeftoverRevisions *int  `json:"leftover_revisions"`
+		HistoryKeep       int   `json:"history_keep"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("not JSON: %v, body = %s", err, rec.Body)
@@ -31,8 +31,8 @@ func TestGetMaintenanceReportsSizesAndOrphanCount(t *testing.T) {
 	if out.DatabaseBytes <= 0 {
 		t.Errorf("database_bytes = %d, want > 0: trellis.db already exists", out.DatabaseBytes)
 	}
-	if out.OrphanHistory != 0 {
-		t.Errorf("orphan_history = %d, want 0 on a fresh vault", out.OrphanHistory)
+	if out.LeftoverRevisions == nil || *out.LeftoverRevisions != 0 {
+		t.Errorf("leftover_revisions = %v, want 0 on a fresh vault: %s", out.LeftoverRevisions, rec.Body)
 	}
 	if out.HistoryKeep != 100 {
 		t.Errorf("history_keep = %d, want 100 (the default)", out.HistoryKeep)
@@ -53,6 +53,23 @@ func TestMaintenancePruneNothingSelectedIs400(t *testing.T) {
 	}
 	if out.Code != "nothing_to_prune" {
 		t.Errorf("code = %q, want nothing_to_prune", out.Code)
+	}
+}
+
+func TestMaintenancePruneLeftoverRevisions(t *testing.T) {
+	s := settingsTestServer(t)
+	rec := request(t, s, http.MethodPost, "/api/maintenance/prune", `{"leftover_revisions":true}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	var out struct {
+		Deleted *int64 `json:"deleted"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("not JSON: %v, body = %s", err, rec.Body)
+	}
+	if out.Deleted == nil || *out.Deleted != 0 {
+		t.Errorf("deleted = %v, want 0 on a fresh vault: %s", out.Deleted, rec.Body)
 	}
 }
 

@@ -52,8 +52,8 @@ type Server struct {
 }
 
 // webActor names whoever is at the browser. The daemon writes as
-// daemon:<pid>, which changes at every restart: a lease taken in the UI could
-// then never be released, because releasing one requires being its owner. A
+// daemon:<pid>, which changes at every restart: a claim taken in the UI could
+// then never be released, because releasing one requires being its claimant. A
 // person at this machine is the same principal across restarts. TRELLIS_AGENT
 // still wins where it is set, so a scripted UI keeps the identity it was
 // given.
@@ -83,7 +83,7 @@ func NewServer(c *core.Core, db *sqlx.DB, listen, dbPath string) *Server {
 // NewServerWithSearch lets the daemon give HTTP and IPC the same long-lived
 // retrieval service and provider lifecycle.
 func NewServerWithSearch(c *core.Core, db *sqlx.DB, listen, root string, search *retrieval.Service) *Server {
-	c.SetKnowledgeChanged(search.ReconcileProject)
+	c.SetEntryChanged(search.ReconcileProject)
 	c.SetDropDerived(search.DropProject)
 	actor := webActor()
 	s := &Server{
@@ -141,30 +141,30 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/comments", s.handleCreateComment)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/relations", s.handleCreateCardRelation)
 	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/cards/{card}/relations/{rel}/{ref}", s.handleDeleteCardRelation)
-	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/knowledge", s.handleKnowledgeList)
-	s.mux.HandleFunc("GET /api/p/{key}/knowledge", s.handleProjectKnowledgeList)
-	s.mux.HandleFunc("GET /api/p/{key}/links/knowledge", s.handleKnowledgeLinks)
-	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}/history", s.handleKnowledgeHistory)
-	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}/diff", s.handleKnowledgeDiff)
-	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}", s.handleGetKnowledge)
+	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/vault", s.handleEntryList)
+	s.mux.HandleFunc("GET /api/p/{key}/vault", s.handleProjectEntryList)
+	s.mux.HandleFunc("GET /api/p/{key}/links/vault", s.handleEntryLinks)
+	s.mux.HandleFunc("GET /api/p/{key}/vault/{slug}/history", s.handleEntryHistory)
+	s.mux.HandleFunc("GET /api/p/{key}/vault/{slug}/diff", s.handleEntryDiff)
+	s.mux.HandleFunc("GET /api/p/{key}/vault/{slug}", s.handleGetEntry)
 	s.mux.HandleFunc("GET /api/p/{key}/artifacts/{name}", s.handleArtifact)
-	s.mux.HandleFunc("GET /api/global/knowledge", s.handleGlobalKnowledgeList)
-	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/knowledge", s.handleKnowledgeCreate)
-	s.mux.HandleFunc("PATCH /api/p/{key}/b/{board}/knowledge/{slug}", s.handleKnowledgeEdit)
-	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/knowledge/{slug}", s.handleDeleteKnowledge)
+	s.mux.HandleFunc("GET /api/global/vault", s.handleGlobalEntryList)
+	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/vault", s.handleEntryCreate)
+	s.mux.HandleFunc("PATCH /api/p/{key}/b/{board}/vault/{slug}", s.handleEntryEdit)
+	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/vault/{slug}", s.handleDeleteEntry)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/graph/{entity}", s.handleGraph)
 	s.mux.HandleFunc("GET /api/p/{key}/labels", s.handleLabels)
 	s.mux.HandleFunc("POST /api/p/{key}/labels", s.handleCreateLabel)
 	s.mux.HandleFunc("DELETE /api/p/{key}/labels/{name}", s.handleDeleteLabel)
 	s.mux.HandleFunc("POST /api/p/{key}/labels/merge", s.handleLabelMerge)
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
-	s.mux.HandleFunc("GET /api/activity", s.handleActivity)
+	s.mux.HandleFunc("GET /api/events", s.handleEvents)
 	// SPA fallback
 	s.mux.HandleFunc("/", s.handleSPA)
 }
 
 // handleMe says which principal this server writes as, so the browser can
-// tell a lease it holds from one an agent holds.
+// tell a claim it holds from one an agent holds.
 func (s *Server) handleMe(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, struct {
 		Actor string `json:"actor"`
@@ -177,7 +177,7 @@ type projectInfo struct {
 	Name          string       `json:"name"`
 	BoardCount    int          `json:"board_count"`
 	InProgress    int          `json:"in_progress"`
-	StaleLeases   int          `json:"stale_leases"`
+	ExpiredClaims int          `json:"expired_claims"`
 	RecentChanges int          `json:"recent_changes"`
 	Boards        []boardInfo  `json:"boards"`
 	Columns       []columnInfo `json:"columns"`
@@ -241,16 +241,16 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 				IsDone:    columnDone[name],
 			})
 		}
-		var inProgress, staleLeases, recentChanges int
+		var inProgress, expiredClaims, recentChanges int
 		if err := s.db.GetContext(ctx, &inProgress, `
 			SELECT COUNT(*) FROM card c JOIN column_ col ON col.id = c.column_id
 			WHERE c.project_id = ? AND c.archived_at IS NULL AND col.is_done = 0`, p.ID); err != nil {
 			s.error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if err := s.db.GetContext(ctx, &staleLeases, `
+		if err := s.db.GetContext(ctx, &expiredClaims, `
 			SELECT COUNT(*) FROM card
-			WHERE project_id = ? AND owner IS NOT NULL AND (lease_until IS NULL OR lease_until < ?)`, p.ID, time.Now().UnixMilli()); err != nil {
+			WHERE project_id = ? AND claimed_by IS NOT NULL AND (claim_until IS NULL OR claim_until < ?)`, p.ID, time.Now().UnixMilli()); err != nil {
 			s.error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -258,7 +258,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 			SELECT COUNT(*) FROM event e
 			WHERE e.ts > ? AND (
 				EXISTS (SELECT 1 FROM card c WHERE c.id = e.entity_id AND c.project_id = ?) OR
-				EXISTS (SELECT 1 FROM knowledge k WHERE k.id = e.entity_id AND k.project_id = ?))`,
+				EXISTS (SELECT 1 FROM entry k WHERE k.id = e.entity_id AND k.project_id = ?))`,
 			time.Now().Add(-24*time.Hour).UnixMilli(), p.ID, p.ID); err != nil {
 			s.error(w, http.StatusInternalServerError, err.Error())
 			return
@@ -273,7 +273,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 			Name:          p.Name,
 			BoardCount:    len(boards),
 			InProgress:    inProgress,
-			StaleLeases:   staleLeases,
+			ExpiredClaims: expiredClaims,
 			RecentChanges: recentChanges,
 			Boards:        boardInfos,
 			Columns:       cols,
@@ -293,23 +293,18 @@ type boardInfo struct {
 	IsDefault bool `json:"is_default"`
 }
 
-type activityInfo struct {
+type eventInfo struct {
 	Seq        int64  `db:"seq" json:"seq"`
 	Timestamp  int64  `db:"ts" json:"timestamp"`
 	Actor      string `db:"actor" json:"actor"`
-	EntityType string `db:"entity_type" json:"entity_type"`
+	Entity     string `db:"entity_type" json:"entity"`
 	Action     string `db:"action" json:"action"`
 	Field      string `db:"field" json:"field,omitempty"`
 	Title      string `db:"title" json:"title"`
 	ProjectKey string `db:"project_key" json:"project"`
 }
 
-const (
-	projectEventsPage    = 1000
-	projectEventsPageMax = 5000
-)
-
-// handleProjectEvents returns the events of a project's cards and knowledge,
+// handleProjectEvents returns the events of a project's cards and entries,
 // oldest first, a page at a time. The event log only shrinks through
 // maintenance, so the caller pages forward with ?after=<next> and can poll the
 // same way for what is new.
@@ -341,14 +336,14 @@ func (s *Server) handleProjectEvents(w http.ResponseWriter, r *http.Request) {
 		limit = v
 	}
 
-	events, next, err := s.core.EventFeed(ctx, core.EventQuery{ProjectID: p.ID, After: after, Limit: limit})
+	events, next, err := s.core.EventLog(ctx, core.EventQuery{ProjectID: p.ID, After: after, Limit: limit})
 	if err != nil {
 		s.coreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, struct {
-		Events []core.FeedEvent `json:"events"`
-		Next   *int64           `json:"next"`
+		Events []core.LogEvent `json:"events"`
+		Next   *int64          `json:"next"`
 	}{events, next})
 }
 
@@ -374,7 +369,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, hits)
 }
 
-func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	limit := 50
@@ -384,13 +379,13 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// A deleted entity has no row left to join, so its event falls back to the
-	// name it recorded when it went. project narrows the feed to one
+	// name it recorded when it went. project narrows the event log to one
 	// project's events, which is what an overview asks for; it filters on
 	// the event's own project_id rather than a live-row join, so a deleted
 	// card or entry, and label and comment events (never joined below), stay
-	// in a project-scoped feed instead of only the unfiltered one.
+	// in a project-scoped read instead of only the unfiltered one.
 	project := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("project")))
-	events := []activityInfo{}
+	events := []eventInfo{}
 	err := s.db.SelectContext(ctx, &events, `
 		SELECT e.seq, e.ts, e.actor, e.entity_type, e.action,
 		       COALESCE(e.field, '') AS field,
@@ -401,7 +396,7 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 		FROM event e
 		LEFT JOIN card c ON c.id = e.entity_id AND e.entity_type = 'card'
 		LEFT JOIN project pc ON pc.id = c.project_id
-		LEFT JOIN knowledge k ON k.id = e.entity_id AND e.entity_type = 'knowledge'
+		LEFT JOIN entry k ON k.id = e.entity_id AND e.entity_type = 'entry'
 		LEFT JOIN project pk ON pk.id = k.project_id
 		LEFT JOIN board b ON b.id = e.entity_id AND e.entity_type = 'board'
 		LEFT JOIN project pb ON pb.id = b.project_id
@@ -524,13 +519,13 @@ func (s *Server) handleCreateBoard(w http.ResponseWriter, r *http.Request) {
 
 // cardInfo contains card info for board view.
 type cardInfo struct {
-	ID       string  `json:"id"`
-	Ref      string  `json:"ref"`
-	Title    string  `json:"title"`
-	Body     string  `json:"body"`
-	Priority string  `json:"priority"`
-	Version  int64   `json:"version"`
-	Owner    *string `json:"owner,omitempty"`
+	ID        string  `json:"id"`
+	Ref       string  `json:"ref"`
+	Title     string  `json:"title"`
+	Body      string  `json:"body"`
+	Priority  string  `json:"priority"`
+	Version   int64   `json:"version"`
+	ClaimedBy *string `json:"claimed_by,omitempty"`
 	// Unix milliseconds, as the single-card endpoint reports them. The
 	// overview's timeline places each card on the day it was created.
 	CreatedAt int64    `json:"created_at"`
@@ -574,13 +569,13 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 		Title     string        `db:"title"`
 		Body      string        `db:"body_md"`
 		Priority  core.Priority `db:"priority"`
-		Owner     *string       `db:"owner"`
+		ClaimedBy *string       `db:"claimed_by"`
 		Version   int64         `db:"version"`
 		CreatedAt int64         `db:"created_at"`
 		UpdatedAt int64         `db:"updated_at"`
 	}
 	if err := s.db.SelectContext(ctx, &allCards,
-		`SELECT id, column_id, ref, title, body_md, priority, owner, version, created_at, updated_at FROM card WHERE board_id = ? AND archived_at IS NULL ORDER BY priority, rank`,
+		`SELECT id, column_id, ref, title, body_md, priority, claimed_by, version, created_at, updated_at FROM card WHERE board_id = ? AND archived_at IS NULL ORDER BY priority, rank`,
 		b.ID); err != nil {
 		s.error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -680,7 +675,7 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 				Title:     c.Title,
 				Body:      c.Body,
 				Priority:  c.Priority.String(),
-				Owner:     c.Owner,
+				ClaimedBy: c.ClaimedBy,
 				Version:   c.Version,
 				CreatedAt: c.CreatedAt,
 				UpdatedAt: c.UpdatedAt,
@@ -730,7 +725,7 @@ func (s *Server) handleBoardEvents(w http.ResponseWriter, r *http.Request) {
 				SELECT 1 FROM card c
 				WHERE c.id = e.entity_id AND c.project_id = ? AND c.board_id = ?
 			) OR EXISTS (
-				SELECT 1 FROM knowledge k
+				SELECT 1 FROM entry k
 				WHERE k.id = e.entity_id AND k.project_id = ? AND k.board_id = ?
 			)`, p.ID, b.ID, p.ID, b.ID); err != nil {
 			return
@@ -770,7 +765,7 @@ type cardEvent struct {
 type cardDetail struct {
 	Card      core.Card           `json:"card"`
 	Comments  []core.Comment      `json:"comments"`
-	Activity  []cardEvent         `json:"activity"`
+	Events    []cardEvent         `json:"events"`
 	Relations []core.CardRelation `json:"relations"`
 }
 
@@ -810,15 +805,15 @@ func (s *Server) handleCardDetail(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
-	activity := []cardEvent{}
-	if err := s.db.SelectContext(ctx, &activity, `
+	events := []cardEvent{}
+	if err := s.db.SelectContext(ctx, &events, `
 		SELECT seq, ts, actor, action, COALESCE(field, '') AS field,
 		       COALESCE(old_value, '') AS old_value, COALESCE(new_value, '') AS new_value
 		FROM event WHERE entity_type = 'card' AND entity_id = ? ORDER BY seq DESC LIMIT 100`, card.ID); err != nil {
 		s.error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, cardDetail{Card: card, Comments: comments, Activity: activity, Relations: relations})
+	writeJSON(w, http.StatusOK, cardDetail{Card: card, Comments: comments, Events: events, Relations: relations})
 }
 
 type cardPatch struct {
@@ -846,7 +841,7 @@ type claimRequest struct {
 type commentRequest struct {
 	Body string `json:"body"`
 }
-type knowledgeRequest struct {
+type entryRequest struct {
 	Title    string `json:"title"`
 	Body     string `json:"body"`
 	Summary  string `json:"summary"`
@@ -861,8 +856,8 @@ type knowledgeRequest struct {
 	// the only way to create from such a template would be the CLI.
 	Sources []string          `json:"sources"`
 	Set     map[string]string `json:"set"`
-	// Dir places the entry in a vault directory; empty is the root.
-	Dir string `json:"dir"`
+	// Directory places the entry in a vault directory; empty is the root.
+	Directory string `json:"directory"`
 }
 type labelMergeRequest struct {
 	From string `json:"from"`
@@ -922,7 +917,7 @@ func (s *Server) handleClaimCard(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "invalid JSON; nothing changed")
 		return
 	}
-	// TTL is optional; defaults to configured lease TTL
+	// TTL is optional; defaults to configured claim TTL
 	var ttlMS int64 = 0
 	if in.TTLMinutes != nil && *in.TTLMinutes > 0 {
 		ttlMS = *in.TTLMinutes * 60 * 1000
@@ -1075,7 +1070,7 @@ func (s *Server) handleDeleteCardRelation(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, relations)
 }
 
-func (s *Server) handleKnowledgeList(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleEntryList(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	p, b, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
@@ -1083,16 +1078,16 @@ func (s *Server) handleKnowledgeList(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusNotFound, err.Error())
 		return
 	}
-	docs, err := s.core.ListKnowledge(ctx, p.ID, core.KnowledgeFilter{BoardID: b.ID})
+	entries, err := s.core.ListEntries(ctx, p.ID, core.EntryFilter{BoardID: b.ID})
 	if err != nil {
 		s.coreError(w, err)
 		return
 	}
-	withoutContent(docs)
-	writeJSON(w, http.StatusOK, knowledgeItems(p.Key, docs))
+	withoutContent(entries)
+	writeJSON(w, http.StatusOK, entryItems(p.Key, entries))
 }
 
-func (s *Server) handleProjectKnowledgeList(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleProjectEntryList(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	var p core.Project
@@ -1100,16 +1095,16 @@ func (s *Server) handleProjectKnowledgeList(w http.ResponseWriter, r *http.Reque
 		s.error(w, http.StatusNotFound, "project not found")
 		return
 	}
-	docs, err := s.core.ListKnowledge(ctx, p.ID, core.KnowledgeFilter{})
+	entries, err := s.core.ListEntries(ctx, p.ID, core.EntryFilter{})
 	if err != nil {
 		s.coreError(w, err)
 		return
 	}
-	withoutContent(docs)
-	writeJSON(w, http.StatusOK, knowledgeItems(p.Key, docs))
+	withoutContent(entries)
+	writeJSON(w, http.StatusOK, entryItems(p.Key, entries))
 }
 
-func (s *Server) handleKnowledgeLinks(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleEntryLinks(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	p, err := s.projectByKey(ctx, r.PathValue("key"))
@@ -1117,7 +1112,7 @@ func (s *Server) handleKnowledgeLinks(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
-	links, err := s.core.KnowledgeLinks(ctx, p.ID)
+	links, err := s.core.EntryLinks(ctx, p.ID)
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -1125,7 +1120,7 @@ func (s *Server) handleKnowledgeLinks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, links)
 }
 
-// handleTemplates lists every knowledge template, built-in and the user's.
+// handleTemplates lists every entry template, built-in and the user's.
 // Templates belong to the Trellis home, not to a project.
 func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
@@ -1241,24 +1236,24 @@ func (s *Server) handleTemplateReinstall(w http.ResponseWriter, r *http.Request)
 	s.writeTemplateResponse(w, http.StatusOK, t)
 }
 
-func (s *Server) handleGlobalKnowledgeList(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGlobalEntryList(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
-	docs, err := s.core.ListGlobalKnowledge(ctx)
+	entries, err := s.core.ListGlobalEntries(ctx)
 	if err != nil {
 		s.coreError(w, err)
 		return
 	}
-	withoutContent(docs)
+	withoutContent(entries)
 	// An artifact belongs to a project; the global list spans every project
 	// (and the vault, which has none), so it never carries artifacts.
-	for i := range docs {
-		docs[i].Artifacts = nil
+	for i := range entries {
+		entries[i].Artifacts = nil
 	}
-	writeJSON(w, http.StatusOK, docs)
+	writeJSON(w, http.StatusOK, entries)
 }
 
-func (s *Server) handleGetKnowledge(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGetEntry(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	p, err := s.projectByKey(ctx, r.PathValue("key"))
@@ -1266,14 +1261,14 @@ func (s *Server) handleGetKnowledge(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
-	doc, err := s.core.ReadKnowledge(ctx, p.ID, r.PathValue("slug"))
+	entry, err := s.core.ReadEntry(ctx, p.ID, r.PathValue("slug"))
 	if err != nil {
 		s.coreError(w, err)
 		return
 	}
-	// Build the knowledgeItem response with artifacts
-	item := knowledgeItem{Knowledge: doc}
-	for _, a := range doc.Artifacts {
+	// Build the entryItem response with artifacts
+	item := entryItem{Entry: entry}
+	for _, a := range entry.Artifacts {
 		artifactItem := artifactItem{ArtifactRef: a}
 		if !a.Missing {
 			artifactItem.URL = artifactURL(p.Key, a.Name)
@@ -1283,7 +1278,7 @@ func (s *Server) handleGetKnowledge(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
-func (s *Server) handleKnowledgeCreate(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleEntryCreate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	p, b, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
@@ -1291,25 +1286,25 @@ func (s *Server) handleKnowledgeCreate(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusNotFound, err.Error())
 		return
 	}
-	var in knowledgeRequest
+	var in entryRequest
 	if !decodeJSON(w, r, &in) || strings.TrimSpace(in.Title) == "" {
-		s.error(w, http.StatusBadRequest, "knowledge title required")
+		s.error(w, http.StatusBadRequest, "entry title required")
 		return
 	}
-	doc, err := s.write.CreateKnowledge(ctx, p.ID, core.NewKnowledge{
+	entry, err := s.write.CreateEntry(ctx, p.ID, core.NewEntry{
 		Title: in.Title, Body: in.Body, Summary: in.Summary, Template: in.Template,
-		Private: in.Private, Board: b.Name, Sources: in.Sources, Set: in.Set, Dir: in.Dir,
+		Private: in.Private, Board: b.Name, Sources: in.Sources, Set: in.Set, Dir: in.Directory,
 	})
 	if err != nil {
 		s.coreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, doc)
+	writeJSON(w, http.StatusCreated, entry)
 }
 
-// knowledgePatch is a save from the editor. A field that is absent keeps its
+// entryPatch is a save from the editor. A field that is absent keeps its
 // value; one that is present replaces it.
-type knowledgePatch struct {
+type entryPatch struct {
 	Title    *string   `json:"title"`
 	Summary  *string   `json:"summary"`
 	Body     *string   `json:"body"`
@@ -1324,7 +1319,7 @@ type knowledgePatch struct {
 	Version *int64            `json:"version"`
 }
 
-func (s *Server) handleKnowledgeEdit(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleEntryEdit(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	p, _, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
@@ -1332,12 +1327,12 @@ func (s *Server) handleKnowledgeEdit(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusNotFound, err.Error())
 		return
 	}
-	var in knowledgePatch
+	var in entryPatch
 	if !decodeJSON(w, r, &in) {
-		s.error(w, http.StatusBadRequest, "invalid knowledge JSON")
+		s.error(w, http.StatusBadRequest, "invalid entry JSON")
 		return
 	}
-	doc, err := s.write.EditKnowledgeFields(ctx, p.ID, r.PathValue("slug"), core.KnowledgeEdit{
+	entry, err := s.write.EditEntryFields(ctx, p.ID, r.PathValue("slug"), core.EntryEdit{
 		Title: in.Title, Summary: in.Summary, Body: in.Body, IfVersion: in.Version,
 		Template: in.Template, Private: in.Private, Tags: in.Tags, Labels: in.Labels,
 		Sources: in.Sources, Set: in.Set,
@@ -1346,10 +1341,10 @@ func (s *Server) handleKnowledgeEdit(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, doc)
+	writeJSON(w, http.StatusOK, entry)
 }
 
-func (s *Server) handleDeleteKnowledge(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	p, _, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
@@ -1358,7 +1353,7 @@ func (s *Server) handleDeleteKnowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slug := r.PathValue("slug")
-	if err := s.write.DeleteKnowledge(ctx, p.ID, slug); err != nil {
+	if err := s.write.DeleteEntry(ctx, p.ID, slug); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -1375,8 +1370,8 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	}
 	entity := r.PathValue("entity")
 	startID := ""
-	if doc, docErr := s.core.LoadKnowledge(ctx, p.ID, entity); docErr == nil {
-		startID = doc.ID
+	if entry, entryErr := s.core.LoadEntry(ctx, p.ID, entity); entryErr == nil {
+		startID = entry.ID
 	} else if card, cardErr := s.core.GetCard(ctx, p.ID, core.ParseCardRef(entity)); cardErr == nil {
 		startID = card.ID
 	} else {
@@ -1600,15 +1595,15 @@ func (s *Server) error(w http.ResponseWriter, status int, msg string) {
 	w.Write(b)
 }
 
-// withoutContent removes body and (for private entries) summary/recap from knowledge
+// withoutContent removes body and (for private entries) summary/recap from
 // entries, matching the CLI's withholdContent behavior for listings.
-func withoutContent(docs []core.Knowledge) {
-	for i := range docs {
-		docs[i].BodyMD = ""
-		if docs[i].Private {
-			docs[i].Summary = ""
-			docs[i].Recap = nil
-			docs[i].Fields = make(map[string]any)
+func withoutContent(entries []core.Entry) {
+	for i := range entries {
+		entries[i].BodyMD = ""
+		if entries[i].Private {
+			entries[i].Summary = ""
+			entries[i].Recap = nil
+			entries[i].Fields = make(map[string]any)
 		}
 	}
 }

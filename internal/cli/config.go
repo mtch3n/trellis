@@ -26,7 +26,7 @@ type projectContext struct {
 	db      *sqlx.DB
 	cfg     config.Config
 	present map[string]bool
-	repo    config.RepoDoc
+	repo    config.RepoFile
 }
 
 // loadGlobalConfig resolves the storage root and loads the global config
@@ -45,8 +45,8 @@ func loadGlobalConfig() (config.Config, map[string]bool) {
 }
 
 // currentProject resolves the current project without requiring a board. It
-// also resolves the directory that answered — the .trellis pin's directory,
-// or the repository root when there is no pin yet — and loads that
+// also resolves the directory that answered — the .trellis marker's directory,
+// or the repository root when there is no marker yet — and loads that
 // directory's .trellis.yaml, if any. A project named by --project or
 // TRELLIS_PROJECT skips directory resolution entirely, so it reads no
 // repository file, matching the design.
@@ -62,12 +62,12 @@ func currentProject() (*projectContext, error) {
 		return nil, err
 	}
 	p := r.Project
-	// The repository file sits beside the pin that chose the project. A
-	// project named by --project or TRELLIS_PROJECT has no pin, so it reads
+	// The repository file sits beside the marker that chose the project. A
+	// project named by --project or TRELLIS_PROJECT has no marker, so it reads
 	// no repository file.
 	var repoDir string
-	if r.Pin != nil {
-		repoDir = filepath.Dir(r.Pin.Path)
+	if r.Marker != nil {
+		repoDir = filepath.Dir(r.Marker.Path)
 	}
 
 	// Config file issues are warnings, not hard stops: loadGlobalConfig falls
@@ -221,7 +221,7 @@ func newConfigSetCmd() *cobra.Command {
 					return core.ErrUsage("not_repo_safe", fmt.Sprintf("%q may not be set by a repository", key), "trellis config ls")
 				}
 				if err := config.ValidateRepoValue(key, value); err != nil {
-					return core.ErrUsage("invalid_value", err.Error(), "trellis config set --repo lease.ttl 30m")
+					return core.ErrUsage("invalid_value", err.Error(), "trellis config set --repo claim.ttl 30m")
 				}
 				dir, err := repoConfigDir()
 				if err != nil {
@@ -352,31 +352,33 @@ func formatConfigTable(rows []configRow) string {
 }
 
 // resolveConfigProject returns the project whose overrides apply, or nil when
-// no pin applies here: the global defaults are still a real answer. A bad
-// --project, a malformed pin, or a pin naming a missing project is an error.
+// no marker applies here: the global defaults are still a real answer. A bad
+// --project, a malformed marker, or a marker naming a missing project is an
+// error.
 // repoConfigDir is the directory whose .trellis.yaml --repo edits: the one
-// holding the pin that resolves the working directory. It is never simply the
-// working directory, because a file written anywhere else would never be read.
-// A project named by --project or TRELLIS_PROJECT has no pin to write beside.
+// holding the marker that resolves the working directory. It is never simply
+// the working directory, because a file written anywhere else would never be
+// read. A project named by --project or TRELLIS_PROJECT has no marker to write
+// beside.
 func repoConfigDir() (string, error) {
 	if projectNamed() {
-		return "", core.ErrUsage("no_pin",
-			"--repo writes beside a .trellis pin, and --project or TRELLIS_PROJECT names a project without one",
-			"run the command inside the pinned directory, without --project")
+		return "", core.ErrUsage("no_marker",
+			"--repo writes beside a .trellis marker, and --project or TRELLIS_PROJECT names a project without one",
+			"run the command inside the marked directory, without --project")
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
-	pin, found, err := resolve.FindPin(cwd)
+	marker, found, err := resolve.FindMarker(cwd)
 	if err != nil {
-		return "", pinFailure(err)
+		return "", markerFailure(err)
 	}
 	if !found {
 		return "", core.ErrUsage("unresolved",
-			"no .trellis pin in this directory or any parent", "trellis init --key <KEY>")
+			"no .trellis marker in this directory or any parent", "trellis init --key <KEY>")
 	}
-	return filepath.Dir(pin.Path), nil
+	return filepath.Dir(marker.Path), nil
 }
 
 func resolveConfigProject() (*projectContext, error) {

@@ -189,18 +189,18 @@ func TestCheckVectorSearch(t *testing.T) {
 	}
 }
 
-func TestCheckProjectFromAPin(t *testing.T) {
-	dir := pinEnv(t, "app")
+func TestCheckProjectFromAMarker(t *testing.T) {
+	dir := markerEnv(t, "app")
 	seedProject(t, "APP")
-	writePin(t, dir, "/APP\n")
+	writeMarker(t, dir, "/APP\n")
 	got := checkProject()
-	if got.Status != checkOK || !strings.Contains(got.Detail, "/APP (pin ") {
+	if got.Status != checkOK || !strings.Contains(got.Detail, "/APP (marker ") {
 		t.Errorf("check = %+v", got)
 	}
 }
 
-func TestCheckProjectWithoutAPinWarns(t *testing.T) {
-	pinEnv(t, "loose")
+func TestCheckProjectWithoutAMarkerWarns(t *testing.T) {
+	markerEnv(t, "loose")
 	got := checkProject()
 	if got.Status != checkWarn || got.Fix != "trellis init --key <KEY>" {
 		t.Errorf("check = %+v", got)
@@ -208,7 +208,7 @@ func TestCheckProjectWithoutAPinWarns(t *testing.T) {
 }
 
 func TestCheckProjectNamesItsSource(t *testing.T) {
-	pinEnv(t, "loose")
+	markerEnv(t, "loose")
 	t.Setenv("TRELLIS_PROJECT", "envkey")
 	if got := checkProject(); !strings.Contains(got.Detail, "ENVKEY (from TRELLIS_PROJECT)") {
 		t.Errorf("env: %+v", got)
@@ -224,20 +224,20 @@ func TestCheckProjectNamesItsSource(t *testing.T) {
 	}
 }
 
-func TestCheckProjectWarnsWhenThePinnedProjectIsMissing(t *testing.T) {
-	dir := pinEnv(t, "clone")
+func TestCheckProjectWarnsWhenTheMarkersProjectIsMissing(t *testing.T) {
+	dir := markerEnv(t, "clone")
 	seedProject(t, "OTHER")
-	writePin(t, dir, "/GHOST\n")
+	writeMarker(t, dir, "/GHOST\n")
 	got := checkProject()
 	if got.Status != checkWarn || got.Fix != "trellis init" {
 		t.Errorf("check = %+v", got)
 	}
 }
 
-// A fresh clone: the pin is committed, and this machine has no database yet.
+// A fresh clone: the marker is committed, and this machine has no database yet.
 func TestCheckProjectWithoutADatabaseWarns(t *testing.T) {
-	dir := pinEnv(t, "clone")
-	writePin(t, dir, "/APP\n")
+	dir := markerEnv(t, "clone")
+	writeMarker(t, dir, "/APP\n")
 	got := checkProject()
 	if got.Status != checkWarn || got.Fix != "trellis init" || !strings.Contains(got.Detail, "no database here yet") {
 		t.Errorf("check = %+v", got)
@@ -251,8 +251,8 @@ func TestCheckProjectWithoutADatabaseWarns(t *testing.T) {
 	}
 }
 
-func TestCheckProjectKeysFlagsKeysAPinCannotName(t *testing.T) {
-	pinEnv(t, "anywhere")
+func TestCheckProjectKeysFlagsKeysAMarkerCannotName(t *testing.T) {
+	markerEnv(t, "anywhere")
 	seedProject(t, "GOOD")
 	path, err := home.DBPath()
 	if err != nil {

@@ -14,7 +14,7 @@ func TestRunEventsFollowPrintsAnEventWrittenAfterItStarted(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	var seen []int64
 	calls := 0
-	fetch := func(after int64) ([]core.FeedEvent, *int64, error) {
+	fetch := func(after int64) ([]core.LogEvent, *int64, error) {
 		calls++
 		if calls == 1 {
 			// Nothing yet: this is the poll that runs before anything new
@@ -25,10 +25,10 @@ func TestRunEventsFollowPrintsAnEventWrittenAfterItStarted(t *testing.T) {
 		// Stop the loop once the second poll has found the new event, so
 		// the test does not depend on a real clock.
 		cancel()
-		return []core.FeedEvent{{Seq: seq, Kind: "card", Action: "created"}}, &seq, nil
+		return []core.LogEvent{{Seq: seq, Entity: "card", Action: "created"}}, &seq, nil
 	}
 
-	err := runEventsFollow(ctx, time.Millisecond, 0, fetch, func(ev core.FeedEvent) error {
+	err := runEventsFollow(ctx, time.Millisecond, 0, fetch, func(ev core.LogEvent) error {
 		seen = append(seen, ev.Seq)
 		return nil
 	})
@@ -44,10 +44,10 @@ func TestRunEventsFollowStopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	calls := 0
-	err := runEventsFollow(ctx, time.Millisecond, 0, func(int64) ([]core.FeedEvent, *int64, error) {
+	err := runEventsFollow(ctx, time.Millisecond, 0, func(int64) ([]core.LogEvent, *int64, error) {
 		calls++
 		return nil, nil, nil
-	}, func(core.FeedEvent) error { return nil })
+	}, func(core.LogEvent) error { return nil })
 	if err != nil {
 		t.Fatalf("runEventsFollow: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestEventsListsCreatedCards(t *testing.T) {
 	runCmd(t, "card", "new", "--title", "First")
 
 	out := runCmd(t, "events")
-	if !strings.Contains(out, `"action":"created"`) || !strings.Contains(out, `"kind":"card"`) {
+	if !strings.Contains(out, `"action":"created"`) || !strings.Contains(out, `"entity":"card"`) {
 		t.Fatalf("events output missing the card creation:\n%s", out)
 	}
 }
@@ -92,32 +92,32 @@ func itoaTest(n int64) string {
 	return string(b)
 }
 
-func TestEventsKindFilter(t *testing.T) {
+func TestEventsEntityFilter(t *testing.T) {
 	projectEnv(t)
 	runCmd(t, "card", "new", "--title", "Card")
 	runCmd(t, "label", "new", "urgent", "--description", "needs attention")
 
-	out := runCmd(t, "events", "--kind", "label")
-	if strings.Contains(out, `"kind":"card"`) {
-		t.Errorf("--kind label still printed a card event:\n%s", out)
+	out := runCmd(t, "events", "--entity", "label")
+	if strings.Contains(out, `"entity":"card"`) {
+		t.Errorf("--entity label still printed a card event:\n%s", out)
 	}
-	if !strings.Contains(out, `"kind":"label"`) {
-		t.Errorf("--kind label printed no label event:\n%s", out)
+	if !strings.Contains(out, `"entity":"label"`) {
+		t.Errorf("--entity label printed no label event:\n%s", out)
 	}
 }
 
 // review-cli #8: "note" was renamed to "comment" in migration 0021; asking
 // for the stale name must fail loudly instead of printing nothing.
-func TestEventsRejectsAStaleKindName(t *testing.T) {
+func TestEventsRejectsAStaleEntityName(t *testing.T) {
 	projectEnv(t)
 	runCmd(t, "card", "new", "--title", "Card")
 
-	_, err := runCmdErr(t, "events", "--kind", "note")
+	_, err := runCmdErr(t, "events", "--entity", "note")
 	if err == nil {
-		t.Fatal("events --kind note was accepted")
+		t.Fatal("events --entity note was accepted")
 	}
-	if ce := coreErr(t, err); ce.Code != "unknown_event_kind" {
-		t.Errorf("code = %s, want unknown_event_kind", ce.Code)
+	if ce := coreErr(t, err); ce.Code != "unknown_entity" {
+		t.Errorf("code = %s, want unknown_entity", ce.Code)
 	}
 }
 

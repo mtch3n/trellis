@@ -24,7 +24,7 @@ An integration must:
 1. Read the harness's event from stdin and pull out the free text.
 2. Call one Trellis command. All judgement lives in the CLI, so two harnesses
    cannot drift into recalling different things.
-3. Inject **identifiers, never bodies**. Opening an entry costs a turn and is
+3. Inject **refs, never bodies**. Opening an entry costs a turn and is
    the agent's call; not knowing it exists is not.
 4. Bound what it injects, and not resend what this session already saw. A
    prompt hook runs every turn, and an injected token is paid for once on cache

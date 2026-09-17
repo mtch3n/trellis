@@ -15,8 +15,8 @@ import (
 )
 
 // A write from the browser is a person's. The daemon's own actor carries its
-// pid and changes at every restart, which would strand a lease taken in the
-// UI: releasing one requires being its owner.
+// pid and changes at every restart, which would strand a claim taken in the
+// UI: releasing one requires being its claimant.
 func TestServerWritesAsAHumanNotTheDaemon(t *testing.T) {
 	t.Setenv("TRELLIS_AGENT", "")
 	dir := t.TempDir()
@@ -68,14 +68,14 @@ func TestServerWritesAsAHumanNotTheDaemon(t *testing.T) {
 		t.Fatalf("card events written by %v, want only %q", actors, want)
 	}
 
-	// The lease is the reason this matters: its owner must be the same
+	// The claim is the reason this matters: its claimant must be the same
 	// principal the next request arrives as.
-	var owner string
-	if err := db.Get(&owner, `SELECT owner FROM card WHERE seq = 1`); err != nil {
+	var claimant string
+	if err := db.Get(&claimant, `SELECT claimed_by FROM card WHERE seq = 1`); err != nil {
 		t.Fatal(err)
 	}
-	if owner != want {
-		t.Fatalf("lease owner = %q, want %q", owner, want)
+	if claimant != want {
+		t.Fatalf("claimant = %q, want %q", claimant, want)
 	}
 }
 

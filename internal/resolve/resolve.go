@@ -1,5 +1,5 @@
-// Package resolve maps a working directory to the project it is pinned to.
-// A .trellis file is the only link; see FindPin.
+// Package resolve maps a working directory to the project its marker names.
+// A .trellis file is the only link; see FindMarker.
 package resolve
 
 import "path/filepath"

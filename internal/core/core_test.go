@@ -9,7 +9,7 @@ import (
 
 // TestNewPanicsOnEmptyRoot guards the TRELLIS-48 invariant: an empty root is
 // a programming error, not user input, and must never fall back to the
-// user's real home the way the old kbRoot/home.Root() fallback did.
+// user's real home the way the removed home.Root() fallback did.
 func TestNewPanicsOnEmptyRoot(t *testing.T) {
 	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {

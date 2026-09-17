@@ -13,13 +13,14 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/mtch3n/trellis/internal/vpath"
+	"github.com/mtch3n/trellis/internal/address"
+	"github.com/mtch3n/trellis/internal/atomicfile"
 	"gopkg.in/yaml.v3"
 )
 
-// TemplateRules is a template file's own frontmatter — the rules a document
-// created from it must satisfy. It is a different shape from Frontmatter (a
-// document's metadata), so it gets its own type rather than reusing it.
+// TemplateRules is a template file's own frontmatter — the rules an entry
+// created from it must satisfy. It is a different shape from Frontmatter (an
+// entry's metadata), so it gets its own type rather than reusing it.
 type TemplateRules struct {
 	// Enforce is "reject" or "warn". Empty means warn.
 	Enforce string `yaml:"enforce,omitempty"`
@@ -31,11 +32,11 @@ type TemplateRules struct {
 	// appear here without being Required, in which case it may be
 	// omitted, but if supplied it must be one of its choices.
 	Choices map[string][]string `yaml:"choices,omitempty"`
-	// Verify names fields (or the literal "body") whose internal
+	// Resolve names fields (or the literal "body") whose internal
 	// references must resolve. Anything that is not a wikilink or an
 	// absolute Trellis address passes unchecked: a URL, a path:lines
-	// pointer and prose all cite without being verifiable.
-	Verify []string `yaml:"verify,omitempty"`
+	// pointer and prose all cite without being resolvable.
+	Resolve []string `yaml:"resolve,omitempty"`
 }
 
 // Template is a parsed template file: its rules, its skeleton body (with
@@ -46,13 +47,13 @@ type Template struct {
 	Enforce  string
 	Required []string
 	Choices  map[string][]string
-	Verify   []string
+	Resolve  []string
 	Body     string
 	BuiltIn  bool
 }
 
 // TemplateSection is one "## " heading a template's skeleton declares, and
-// whether a document must have it to satisfy the template.
+// whether an entry must have it to satisfy the template.
 type TemplateSection struct {
 	Heading  string
 	Optional bool
@@ -85,7 +86,7 @@ func templateSections(body string) []TemplateSection {
 	return out
 }
 
-// requiredSections is the subset of a skeleton's sections a document must
+// requiredSections is the subset of a skeleton's sections an entry must
 // have to satisfy the template — every one not marked <!-- optional -->.
 func requiredSections(body string) []string {
 	var out []string
@@ -97,7 +98,7 @@ func requiredSections(body string) []string {
 	return out
 }
 
-// presentSections is the set of "## " headings an actual document body has.
+// presentSections is the set of "## " headings an actual entry body has.
 func presentSections(body string) map[string]bool {
 	set := map[string]bool{}
 	for _, s := range templateSections(body) {
@@ -107,7 +108,7 @@ func presentSections(body string) map[string]bool {
 }
 
 // stripOptionalMarkers removes the <!-- optional --> marker from a rendered
-// document's headings. Only the skeleton carries the marker; the document it
+// entry's headings. Only the skeleton carries the marker; the entry it
 // produces must not.
 func stripOptionalMarkers(body string) string {
 	lines := strings.Split(body, "\n")
@@ -168,10 +169,10 @@ func validateTemplateRules(rules TemplateRules) error {
 // `template rm ../../x` nor a --template naming another entry's address can
 // ever resolve outside <root>/templates.
 func checkTemplateName(name string) error {
-	if !vpath.ValidSlug(name) {
+	if !address.ValidSlug(name) {
 		return ErrUsage("bad_template_name",
 			`"`+name+`" is not a valid template name: use lower-case letters and digits joined by single hyphens`,
-			"trellis knowledge template ls")
+			"trellis vault template ls")
 	}
 	return nil
 }
@@ -189,7 +190,7 @@ func loadTemplate(dir, name string) (Template, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return Template{}, ErrUsage("unknown_template", "no template "+name, "trellis knowledge template ls")
+			return Template{}, ErrUsage("unknown_template", "no template "+name, "trellis vault template ls")
 		}
 		return Template{}, err
 	}
@@ -199,11 +200,11 @@ func loadTemplate(dir, name string) (Template, error) {
 		if err := yaml.Unmarshal([]byte(header), &rules); err != nil {
 			return Template{}, ErrUsage("bad_template",
 				path+": the template's frontmatter does not parse: "+err.Error(),
-				"trellis knowledge template edit "+name)
+				"trellis vault template edit "+name)
 		}
 	}
 	if err := validateTemplateRules(rules); err != nil {
-		return Template{}, ErrUsage("bad_template", path+": "+err.Error(), "trellis knowledge template edit "+name)
+		return Template{}, ErrUsage("bad_template", path+": "+err.Error(), "trellis vault template edit "+name)
 	}
 	enforce := rules.Enforce
 	if enforce == "" {
@@ -211,7 +212,7 @@ func loadTemplate(dir, name string) (Template, error) {
 	}
 	return Template{
 		Name: name, Path: path, Enforce: enforce,
-		Required: rules.Required, Choices: rules.Choices, Verify: rules.Verify, Body: body,
+		Required: rules.Required, Choices: rules.Choices, Resolve: rules.Resolve, Body: body,
 	}, nil
 }
 
@@ -242,7 +243,7 @@ func seedTemplates(dir string) error {
 		if err != nil {
 			return err
 		}
-		if err := writeAtomic(filepath.Join(dir, name+".md"), raw, false); err != nil {
+		if err := atomicfile.Write(filepath.Join(dir, name+".md"), raw, false); err != nil {
 			return err
 		}
 	}
@@ -318,17 +319,17 @@ func (c *Core) templateNamed(name string) (Template, error) {
 	return loadTemplate(dir, name)
 }
 
-// templateProblems is every way a document falls short of its template: the
-// field and section rules, then the verify rule, read in the caller's
+// templateProblems is every way an entry falls short of its template: the
+// field and section rules, then the resolve rule, read in the caller's
 // transaction.
 func (c *Core) templateProblems(tx *sqlx.Tx, projectID string, t Template, fields map[string][]string,
 	body string, checkSections bool) ([]string, error) {
 	problems := templateViolations(t, fields, body, checkSections)
-	unresolved, err := c.templateVerifyViolations(tx, projectID, t, fields, body)
+	unresolved, err := c.templateResolveViolations(tx, projectID, t, fields, body)
 	return append(problems, unresolved...), err
 }
 
-// enforceTemplate refuses a document under a reject template that has
+// enforceTemplate refuses an entry under a reject template that has
 // problems. Under warn the problems are the caller's warnings.
 func enforceTemplate(t Template, problems []string) error {
 	if len(problems) == 0 || t.Enforce != "reject" {
@@ -339,7 +340,7 @@ func enforceTemplate(t Template, problems []string) error {
 		Fix: templateViolationFix(t.Name, problems)}
 }
 
-// frontmatterFields is a document's frontmatter as template fields: every
+// frontmatterFields is an entry's frontmatter as template fields: every
 // value a required or choices rule can name. A list contributes each item.
 func frontmatterFields(fm Frontmatter) map[string][]string {
 	fields := map[string][]string{
@@ -428,10 +429,10 @@ func (c *Core) NewTemplate(ctx context.Context, name string) (Template, error) {
 	}
 	path := filepath.Join(dir, name+".md")
 	raw := "---\nenforce: warn\n---\n# {{title}}\n"
-	if err := writeAtomic(path, []byte(raw), false); err != nil {
+	if err := atomicfile.Write(path, []byte(raw), false); err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return Template{}, ErrConflict("template_exists", "a template named "+name+" already exists",
-				"trellis knowledge template edit "+name)
+				"trellis vault template edit "+name)
 		}
 		return Template{}, err
 	}
@@ -451,7 +452,7 @@ func (c *Core) EditTemplate(ctx context.Context, name, raw string) (Template, er
 	path := filepath.Join(dir, name+".md")
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
-			return Template{}, ErrUsage("unknown_template", "no template "+name, "trellis knowledge template ls")
+			return Template{}, ErrUsage("unknown_template", "no template "+name, "trellis vault template ls")
 		}
 		return Template{}, err
 	}
@@ -466,7 +467,7 @@ func (c *Core) EditTemplate(ctx context.Context, name, raw string) (Template, er
 	if err := validateTemplateRules(rules); err != nil {
 		return Template{}, ErrUsage("bad_template", err.Error(), "")
 	}
-	if err := writeAtomic(path, []byte(raw), true); err != nil {
+	if err := atomicfile.Write(path, []byte(raw), true); err != nil {
 		return Template{}, err
 	}
 	return loadTemplate(dir, name)
@@ -485,11 +486,11 @@ func (c *Core) DeleteTemplate(ctx context.Context, name string) error {
 	path := filepath.Join(dir, name+".md")
 	if err := os.Remove(path); err != nil {
 		if os.IsNotExist(err) {
-			return ErrUsage("unknown_template", "no template "+name, "trellis knowledge template ls")
+			return ErrUsage("unknown_template", "no template "+name, "trellis vault template ls")
 		}
 		return err
 	}
-	return syncDirectory(dir)
+	return atomicfile.SyncDir(dir)
 }
 
 // ReinstallTemplate overwrites name with its shipped version. It recreates
@@ -498,7 +499,7 @@ func (c *Core) DeleteTemplate(ctx context.Context, name string) error {
 func (c *Core) ReinstallTemplate(ctx context.Context, name string) (Template, error) {
 	if !slices.Contains(Templates(), name) {
 		return Template{}, ErrUsage("not_builtin", name+" is not a built-in template",
-			"trellis knowledge template ls   # built-ins: "+strings.Join(Templates(), ", "))
+			"trellis vault template ls   # built-ins: "+strings.Join(Templates(), ", "))
 	}
 	dir, err := c.templatesDir()
 	if err != nil {
@@ -508,7 +509,7 @@ func (c *Core) ReinstallTemplate(ctx context.Context, name string) (Template, er
 	if err != nil {
 		return Template{}, err
 	}
-	if err := writeAtomic(filepath.Join(dir, name+".md"), raw, true); err != nil {
+	if err := atomicfile.Write(filepath.Join(dir, name+".md"), raw, true); err != nil {
 		return Template{}, err
 	}
 	t, err := loadTemplate(dir, name)
@@ -517,8 +518,8 @@ func (c *Core) ReinstallTemplate(ctx context.Context, name string) (Template, er
 }
 
 // CheckTemplate reports name's violations against slug's current fields and
-// sections, plus its verify rule — the same three lint and edit check. It
-// never blocks and never errors because of a violation — the document
+// sections, plus its resolve rule — the same three lint and edit check. It
+// never blocks and never errors because of a violation — the entry
 // already exists.
 func (c *Core) CheckTemplate(ctx context.Context, projectID, name, slug string) ([]string, error) {
 	dir, err := c.templatesDir()
@@ -529,15 +530,15 @@ func (c *Core) CheckTemplate(ctx context.Context, projectID, name, slug string) 
 	if err != nil {
 		return nil, err
 	}
-	doc, err := c.LoadKnowledge(ctx, projectID, slug)
+	entry, err := c.LoadEntry(ctx, projectID, slug)
 	if err != nil {
 		return nil, err
 	}
-	raw, err := os.ReadFile(doc.Path)
+	raw, err := os.ReadFile(entry.Path)
 	if err != nil {
 		return nil, err
 	}
-	fm, body, err := splitDocFile(doc.Path, raw)
+	fm, body, err := splitEntryFile(entry.Path, raw)
 	if err != nil {
 		return nil, err
 	}
@@ -557,10 +558,10 @@ func (c *Core) CheckTemplate(ctx context.Context, projectID, name, slug string) 
 func templateViolationFix(tmplName string, violations []string) string {
 	for _, v := range violations {
 		if strings.Contains(v, "sources") {
-			return `trellis knowledge new --template ` + tmplName +
+			return `trellis vault new --template ` + tmplName +
 				` --title "<title>" --source </KEY/cards/KEY-12|[[slug]]|url>` +
-				"\n  trellis knowledge template show " + tmplName
+				"\n  trellis vault template show " + tmplName
 		}
 	}
-	return "trellis knowledge template show " + tmplName
+	return "trellis vault template show " + tmplName
 }

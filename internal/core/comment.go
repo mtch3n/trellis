@@ -36,13 +36,13 @@ func (c *Core) CreateComment(ctx context.Context, cardID, body string) (Comment,
 		}
 
 		if err := c.checkWrite(ctx, ProposedWrite{
-			Op: "comment.create", EntityType: "comment", EntityID: cardID, ProjectID: projectID,
+			Op: "comment.create", Entity: "comment", EntityID: cardID, ProjectID: projectID,
 			Fields: map[string]string{"body": body},
 		}); err != nil {
 			return err
 		}
 
-		commentID := NewCardID() // Reuse card ID generation; both are uuids v7
+		commentID := NewID()
 		comment = Comment{
 			ID:        commentID,
 			CardID:    cardID,

@@ -12,8 +12,8 @@ import (
 type Profile string
 
 const (
-	Documents Profile = "documents"
-	Memories  Profile = "memories"
+	Entries  Profile = "entries"
+	Memories Profile = "memories"
 )
 
 type Embedder interface {

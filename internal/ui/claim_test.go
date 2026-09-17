@@ -64,13 +64,13 @@ func TestClaimAndReleaseCard(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if claimedCard.Owner == nil {
-		t.Fatal("expected card to have an owner after claiming")
+	if claimedCard.ClaimedBy == nil {
+		t.Fatal("expected card to have a claimant after claiming")
 	}
 
-	firstOwner := *claimedCard.Owner
+	firstClaimant := *claimedCard.ClaimedBy
 
-	// Test claiming an already claimed card with the same actor succeeds (extends lease)
+	// Test claiming an already claimed card with the same actor succeeds (extends claim)
 	claimAgainResp := request(http.MethodPost, "/api/p/TEST/b/board1/cards/"+cardRef+"/claim", `{"ttl_minutes":30}`)
 	if claimAgainResp.Code != http.StatusOK {
 		t.Fatalf("claim already claimed card (same actor) status = %d, expected 200, body = %s", claimAgainResp.Code, claimAgainResp.Body)
@@ -80,8 +80,8 @@ func TestClaimAndReleaseCard(t *testing.T) {
 	if err := json.Unmarshal(claimAgainResp.Body.Bytes(), &claimedAgain); err != nil {
 		t.Fatal(err)
 	}
-	if claimedAgain.Owner == nil || *claimedAgain.Owner != firstOwner {
-		t.Fatalf("expected same owner after re-claiming")
+	if claimedAgain.ClaimedBy == nil || *claimedAgain.ClaimedBy != firstClaimant {
+		t.Fatalf("expected same claimant after re-claiming")
 	}
 
 	// Test releasing a card
@@ -95,11 +95,11 @@ func TestClaimAndReleaseCard(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if releasedCard.Owner != nil {
-		t.Fatalf("expected card owner to be nil after release, got %v", releasedCard.Owner)
+	if releasedCard.ClaimedBy != nil {
+		t.Fatalf("expected card claimant to be nil after release, got %v", releasedCard.ClaimedBy)
 	}
 
-	// Test that claiming again extends the lease
+	// Test that claiming again extends the claim
 	claimResp = request(http.MethodPost, "/api/p/TEST/b/board1/cards/"+cardRef+"/claim", `{"ttl_minutes":60}`)
 	if claimResp.Code != http.StatusOK {
 		t.Fatalf("claim card status = %d", claimResp.Code)

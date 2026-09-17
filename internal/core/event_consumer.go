@@ -6,7 +6,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// EventConsumer is a named, durable cursor into the event feed.
+// EventConsumer is a named, durable cursor into the event log.
 type EventConsumer struct {
 	Name      string `db:"name" json:"name"`
 	Cursor    int64  `db:"cursor" json:"cursor"`

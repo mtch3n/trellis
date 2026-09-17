@@ -7,8 +7,8 @@ import (
 )
 
 func TestDecisionTemplateRejectsWithNoSources(t *testing.T) {
-	c, p, _ := kbCore(t)
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Pick a queue", Template: "decision"})
+	c, p, _ := vaultCore(t)
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Pick a queue", Template: "decision"})
 	e, ok := errors.AsType[*Error](err)
 	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "sources") {
 		t.Fatalf("err = %v, want template_violation naming sources", err)
@@ -19,8 +19,8 @@ func TestDecisionTemplateRejectsWithNoSources(t *testing.T) {
 }
 
 func TestMissingSourcesFixIsARunnableSourceExample(t *testing.T) {
-	c, p, _ := kbCore(t)
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "X", Template: "decision"})
+	c, p, _ := vaultCore(t)
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "X", Template: "decision"})
 	e, ok := errors.AsType[*Error](err)
 	if !ok {
 		t.Fatalf("err = %v, want *Error", err)
@@ -35,7 +35,7 @@ func TestMissingSourcesFixIsARunnableSourceExample(t *testing.T) {
 // <name>", are level-3 headings and must never be mistaken for a missing
 // required section.
 func TestFilledInDecisionIsAccepted(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	body := `# Use SQLite over Postgres
 
 ## Context
@@ -64,21 +64,21 @@ SQLite: Trellis is single-writer by design already.
 
 Backups are a file copy. A future multi-writer feature would need a rethink.
 `
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Use SQLite over Postgres", Template: "decision", Body: body,
 		Sources: []string{"https://sqlite.org/whentouse.html"},
 	})
 	if err != nil {
 		t.Fatalf("a filled-in decision must be accepted: %v", err)
 	}
-	if len(doc.Warnings) != 0 {
-		t.Errorf("Warnings = %v, want none", doc.Warnings)
+	if len(entry.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none", entry.Warnings)
 	}
 }
 
 func TestFindingTemplateRejectsWithNoSources(t *testing.T) {
-	c, p, _ := kbCore(t)
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Flaky test", Template: "finding"})
+	c, p, _ := vaultCore(t)
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Flaky test", Template: "finding"})
 	e, ok := errors.AsType[*Error](err)
 	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "sources") {
 		t.Fatalf("err = %v, want template_violation naming sources", err)
@@ -86,16 +86,16 @@ func TestFindingTemplateRejectsWithNoSources(t *testing.T) {
 }
 
 func TestFindingTemplateSkeletonHasFactEvidenceScope(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Flaky test", Template: "finding", Sources: []string{"https://ci.example.com/run/482"},
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	for _, heading := range []string{"## Fact", "## Evidence", "## Scope"} {
-		if !strings.Contains(doc.BodyMD, heading) {
-			t.Errorf("body missing %q:\n%s", heading, doc.BodyMD)
+		if !strings.Contains(entry.BodyMD, heading) {
+			t.Errorf("body missing %q:\n%s", heading, entry.BodyMD)
 		}
 	}
 }

@@ -28,7 +28,7 @@ func (c *Core) captureCardRevision(tx *sqlx.Tx, cardID string, version int64, ti
 
 // cardHasRevision reports whether a card has any retained revision at all.
 // EditCard's "before" capture is gated on this rather than on the card's
-// current version, so a version bump with no content change (a move, a lease
+// current version, so a version bump with no content change (a move, a claim
 // change) between two edits does not get invented into a revision of its own.
 func (c *Core) cardHasRevision(tx *sqlx.Tx, cardID string) (bool, error) {
 	var exists bool

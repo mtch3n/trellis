@@ -21,14 +21,14 @@ func TestListenCallAndCleanup(t *testing.T) {
 	go func() {
 		defer close(done)
 		_ = Serve(listener, func(_ context.Context, req Request) (Response, error) {
-			if req.Method != "health" {
-				t.Errorf("method = %q, want health", req.Method)
+			if req.Method != "ping" {
+				t.Errorf("method = %q, want ping", req.Method)
 			}
 			return Response{OK: true}, nil
 		})
 	}()
 
-	resp, err := Call(t.Context(), Endpoint(root), Request{Method: "health"})
+	resp, err := Call(t.Context(), Endpoint(root), Request{Method: "ping"})
 	if err != nil {
 		t.Fatal(err)
 	}

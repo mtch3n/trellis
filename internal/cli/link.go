@@ -6,34 +6,34 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 )
 
-// newLinkCmd is the structured card-to-doc relationship (§10.2). Wikilinks
-// cover doc-to-doc; this is how a card says which entry documents it.
+// newLinkCmd is the structured card-to-entry relationship (§10.2). Wikilinks
+// cover entry-to-entry; this is how a card says which entry it cites.
 //
-// The spec allows link to cross projects on purpose ("trellis link <card>
-// <doc> may link a card to another project's document"), so doc is not a
+// The spec allows link to cross projects on purpose (`trellis link <card>
+// <entry>` may link a card to another project's entry), so the entry is not a
 // second refArg: that would make withTargets reject the very thing this
-// command exists to do, any time doc is given as an address naming a
+// command exists to do, any time the entry is given as an address naming a
 // different project than the card. What must not happen instead is a
-// *relative* doc silently reading the card's project when a current project
-// actually resolves and disagrees -- conflictIfDocElsewhere covers that case
+// *relative* entry silently reading the card's project when a current project
+// actually resolves and disagrees -- conflictIfEntryElsewhere covers that case
 // alone, the same way a relative reference conflicts with a named one
 // everywhere else in the CLI.
 func newLinkCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "link <card> <entry[#anchor]>",
-		Short: "Link a card to a knowledge entry",
+		Short: "Link a card to an entry",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
-				if err := conflictIfDocElsewhere(app, args[0], args[1]); err != nil {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+				if err := conflictIfEntryElsewhere(app, args[0], args[1]); err != nil {
 					return err
 				}
-				if err := app.Core.LinkCardToDoc(cmd.Context(), app.Project.ID,
+				if err := app.Core.LinkCardToEntry(cmd.Context(), app.Project.ID,
 					core.ParseCardRef(ref), args[1]); err != nil {
 					return err
 				}
@@ -44,17 +44,17 @@ func newLinkCmd() *cobra.Command {
 	}
 }
 
-// conflictIfDocElsewhere refuses a relative doc argument that would silently
+// conflictIfEntryElsewhere refuses a relative entry argument that would silently
 // resolve in another project than the one standing in the working directory:
 // a relative reference means the current project everywhere else in the CLI,
 // so "design" must not quietly become the card's project's design when they
-// differ. An address such as /OTHER/knowledge/design names its own project on
+// differ. An address such as /OTHER/vault/design names its own project on
 // purpose -- link's documented exception -- so only a relative argument is
 // checked, and only once a current project actually resolves; with none, the
 // card's project is the only candidate, exactly as withTargets falls back
 // elsewhere.
-func conflictIfDocElsewhere(app *appCtx, cardArg, doc string) error {
-	if strings.HasPrefix(strings.TrimSpace(doc), "/") {
+func conflictIfEntryElsewhere(app *appCtx, cardArg, entry string) error {
+	if strings.HasPrefix(strings.TrimSpace(entry), "/") {
 		return nil
 	}
 	r, err := resolveProject(context.Background(), app.Core)
@@ -69,7 +69,7 @@ func conflictIfDocElsewhere(app *appCtx, cardArg, doc string) error {
 
 // keyNamesProject reports whether key names a project this database has,
 // including one that was merged away. A qualified card ref routes to the
-// card path only then; a knowledge slug that merely looks like PREFIX-N
+// card path only then; an entry slug that merely looks like PREFIX-N
 // (release-2026, adr-12) is not a card ref just because it matches the
 // grammar, and falls through to the relative lookup instead, which tries an
 // entry first.
@@ -115,34 +115,34 @@ func newGraphCmd() *cobra.Command {
 			}
 			switch {
 			case strings.HasPrefix(arg, "/"):
-				target, _ := vpath.SplitAnchor(arg)
-				p, err := vpath.Parse(strings.TrimSpace(target))
+				target, _ := address.SplitAnchor(arg)
+				p, err := address.Parse(strings.TrimSpace(target))
 				if err != nil {
-					return core.ErrUsage("bad_path", err.Error(), "trellis search <words>   # results carry valid addresses")
+					return core.ErrUsage("bad_address", err.Error(), "trellis search <words>   # results carry valid addresses")
 				}
 				switch p.Collection {
-				case vpath.CollectionCards, vpath.CollectionKnowledge, vpath.CollectionArtifacts:
+				case address.CollectionCards, address.CollectionVault, address.CollectionArtifacts:
 				default:
 					return core.ErrUsage("wrong_collection",
 						arg+" names a project or a board; a graph starts from a card, an entry or an artifact",
 						"trellis card ls")
 				}
 				return withTarget(refArg{Collection: p.Collection, Value: arg, NoProject: true}, run(p.Collection))
-			case vpath.ValidCardRef(strings.ToUpper(arg)) && keyNamesProject(core.ParseCardRef(arg).ProjectKey):
+			case address.ValidCardRef(strings.ToUpper(arg)) && keyNamesProject(core.ParseCardRef(arg).ProjectKey):
 				// KEY-N is a card ref everywhere, but only once KEY actually
-				// names a project (existing or merged): a knowledge slug that
+				// names a project (existing or merged): an entry slug that
 				// merely looks like PREFIX-N, such as release-2026, is not a
 				// card ref just because it matches the grammar, and falls
 				// through to the relative lookup below, which tries an entry
 				// first.
-				return withTarget(refArg{Collection: vpath.CollectionCards, Value: arg}, run(vpath.CollectionCards))
+				return withTarget(refArg{Collection: address.CollectionCards, Value: arg}, run(address.CollectionCards))
 			}
 			relative := run("")
 			return withBoard(func(app *appCtx) error { return relative(app, arg) })
 		},
 	}
 	cmd.Flags().IntVar(&depth, "depth", 2, "how many hops to walk")
-	cmd.Flags().StringSliceVar(&rels, "rel", nil, "blocked_by, documents, wikilink")
+	cmd.Flags().StringSliceVar(&rels, "rel", nil, "blocked_by, cites, wikilink")
 	cmd.Flags().BoolVar(&reverse, "reverse", false, "walk inbound: what breaks if this changes")
 	return cmd
 }
@@ -152,23 +152,23 @@ func newGraphCmd() *cobra.Command {
 func resolveEntity(cmd *cobra.Command, app *appCtx, collection, ref string) (string, error) {
 	ctx := cmd.Context()
 	switch collection {
-	case vpath.CollectionKnowledge:
-		doc, err := app.Core.LoadKnowledge(ctx, app.Project.ID, ref)
-		return doc.ID, err
-	case vpath.CollectionCards:
+	case address.CollectionVault:
+		entry, err := app.Core.LoadEntry(ctx, app.Project.ID, ref)
+		return entry.ID, err
+	case address.CollectionCards:
 		card, err := app.Core.GetCard(ctx, app.Project.ID, core.ParseCardRef(ref))
 		return card.ID, err
-	case vpath.CollectionArtifacts:
+	case address.CollectionArtifacts:
 		a, err := app.Core.ResolveArtifact(ctx, app.Project.ID, ref)
 		return a.ID, err
 	}
-	if doc, err := app.Core.LoadKnowledge(ctx, app.Project.ID, ref); err == nil {
-		return doc.ID, nil
+	if entry, err := app.Core.LoadEntry(ctx, app.Project.ID, ref); err == nil {
+		return entry.ID, nil
 	}
 	card, err := app.Core.GetCard(ctx, app.Project.ID, core.ParseCardRef(ref))
 	if err != nil {
-		return "", core.ErrNotFound("not_found", "no card or knowledge entry "+ref,
-			"trellis card ls   # or: trellis knowledge ls")
+		return "", core.ErrNotFound("not_found", "no card or entry "+ref,
+			"trellis card ls   # or: trellis vault ls")
 	}
 	return card.ID, nil
 }

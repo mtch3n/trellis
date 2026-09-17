@@ -12,9 +12,9 @@ import (
 	"github.com/mtch3n/trellis/internal/store"
 )
 
-// The timeline reads the same feed an extension does: every event carries a
-// title, knowledge carries its type, and reads stay out.
-func TestProjectEventsComeFromTheFeed(t *testing.T) {
+// The timeline reads the same event log an extension does: every event
+// carries a title, an entry carries its template, and reads stay out.
+func TestProjectEventsComeFromTheEventLog(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
@@ -23,7 +23,7 @@ func TestProjectEventsComeFromTheFeed(t *testing.T) {
 	defer db.Close()
 	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-events-test", dir)
 	ctx := context.Background()
-	p, err := c.CreateProject(ctx, "FEED", false)
+	p, err := c.CreateProject(ctx, "LOG", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,26 +34,26 @@ func TestProjectEventsComeFromTheFeed(t *testing.T) {
 	if _, err := c.CreateCard(ctx, p.ID, b.ID, core.NewCard{Title: "Ship it"}); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := c.CreateKnowledge(ctx, p.ID, core.NewKnowledge{
+	entry, err := c.CreateEntry(ctx, p.ID, core.NewEntry{
 		Title: "Cache stampede", Template: "finding", Sources: []string{"https://example.com/incident"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.ReadKnowledge(ctx, p.ID, doc.Slug); err != nil {
+	if _, err := c.ReadEntry(ctx, p.ID, entry.Slug); err != nil {
 		t.Fatal(err)
 	}
 
 	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
-	req := httptest.NewRequest(http.MethodGet, "/api/p/FEED/events", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/p/LOG/events", nil)
 	rec := httptest.NewRecorder()
 	s.mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
 	}
 	var got struct {
-		Events []core.FeedEvent `json:"events"`
-		Next   *int64           `json:"next"`
+		Events []core.LogEvent `json:"events"`
+		Next   *int64          `json:"next"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
@@ -64,16 +64,16 @@ func TestProjectEventsComeFromTheFeed(t *testing.T) {
 		if ev.Action == "read" {
 			t.Errorf("a read event reached the timeline: %+v", ev)
 		}
-		if ev.Kind == "card" && ev.Action == "created" {
+		if ev.Entity == "card" && ev.Action == "created" {
 			sawCard = true
-			if ev.Title != "Ship it" || ev.Ref != "FEED-1" {
+			if ev.Title != "Ship it" || ev.Ref != "LOG-1" {
 				t.Errorf("card event = %+v, want title and ref", ev)
 			}
 		}
-		if ev.Kind == "knowledge" && ev.Action == "created" {
+		if ev.Entity == "entry" && ev.Action == "created" {
 			sawFinding = true
-			if ev.Template != "finding" || ev.Title != "Cache stampede" || ev.Ref != doc.Ref {
-				t.Errorf("knowledge event = %+v, want template, title and ref", ev)
+			if ev.Template != "finding" || ev.Title != "Cache stampede" || ev.Ref != entry.Ref {
+				t.Errorf("entry event = %+v, want template, title and ref", ev)
 			}
 		}
 	}

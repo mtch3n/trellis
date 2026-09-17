@@ -34,7 +34,7 @@ func TestOptionalSectionIsNotRequiredAndMarkerIsStripped(t *testing.T) {
 	}
 }
 
-func TestPresentSectionsMatchesADocumentBody(t *testing.T) {
+func TestPresentSectionsMatchesAnEntryBody(t *testing.T) {
 	body := "# Title\n\n## Preconditions\n\nSome text.\n\n## Steps\n\n1. Do it.\n"
 	set := presentSections(body)
 	if !set["Preconditions"] || !set["Steps"] {
@@ -180,18 +180,18 @@ func TestTemplateWritesRejectPathTraversalNames(t *testing.T) {
 // The disclosure scenario the finding calls out by name: a --template value
 // that is really a path to a private entry's own file must never load that
 // file as a "template" and copy its body into a new, non-private entry.
-func TestCreateKnowledgeRefusesPathTraversalTemplateName(t *testing.T) {
-	c, p, _ := kbCore(t)
-	secret, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+func TestCreateEntryRefusesPathTraversalTemplateName(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	secret, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Secret", Body: "the private body must never leak\n", Private: true,
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge secret: %v", err)
+		t.Fatalf("CreateEntry secret: %v", err)
 	}
-	traversal := "../projects/" + p.Key + "/knowledge/" + secret.Slug
-	_, err = c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Copy", Template: traversal})
+	traversal := "../projects/" + p.Key + "/vault/" + secret.Slug
+	_, err = c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Copy", Template: traversal})
 	if !isCode(err, "bad_template_name") {
-		t.Fatalf("CreateKnowledge --template %s: err = %v, want bad_template_name", traversal, err)
+		t.Fatalf("CreateEntry --template %s: err = %v, want bad_template_name", traversal, err)
 	}
 }
 
@@ -201,7 +201,7 @@ func TestCreateKnowledgeRefusesPathTraversalTemplateName(t *testing.T) {
 // when the entry plainly had that field -- disagreeing with edit and lint,
 // which both use frontmatterFields.
 func TestCheckTemplateSeesBuiltInFields(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	if _, err := c.NewTemplate(t.Context(), "strict"); err != nil {
 		t.Fatalf("NewTemplate: %v", err)
 	}
@@ -209,14 +209,14 @@ func TestCheckTemplateSeesBuiltInFields(t *testing.T) {
 		"---\nenforce: warn\nrequired: [summary, sources]\n---\n# {{title}}\n"); err != nil {
 		t.Fatalf("EditTemplate: %v", err)
 	}
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Has both", Summary: "a summary", Sources: []string{"https://example.com"},
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
-	violations, err := c.CheckTemplate(t.Context(), p.ID, "strict", doc.Slug)
+	violations, err := c.CheckTemplate(t.Context(), p.ID, "strict", entry.Slug)
 	if err != nil {
 		t.Fatalf("CheckTemplate: %v", err)
 	}
@@ -227,12 +227,12 @@ func TestCheckTemplateSeesBuiltInFields(t *testing.T) {
 	}
 }
 
-// review-knowledge #10: CreateKnowledge's template check only ever looked at
+// review-knowledge #10: CreateEntry's template check only ever looked at
 // summary, sources and --set values, so title, tags, labels, board and
 // provenance were never checked at creation even though the edit path
 // checks all of them via frontmatterFields.
-func TestCreateKnowledgeTemplateChecksTags(t *testing.T) {
-	c, p, _ := kbCore(t)
+func TestCreateEntryTemplateChecksTags(t *testing.T) {
+	c, p, _ := vaultCore(t)
 	if _, err := c.NewTemplate(t.Context(), "needs-tag"); err != nil {
 		t.Fatalf("NewTemplate: %v", err)
 	}
@@ -240,17 +240,17 @@ func TestCreateKnowledgeTemplateChecksTags(t *testing.T) {
 		"---\nenforce: reject\nrequired: [tags]\n---\n# {{title}}\n"); err != nil {
 		t.Fatalf("EditTemplate: %v", err)
 	}
-	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Tagged", Template: "needs-tag", Tags: []string{"ops"},
 	}); err != nil {
-		t.Fatalf("CreateKnowledge with --tag should satisfy required: [tags]: %v", err)
+		t.Fatalf("CreateEntry with --tag should satisfy required: [tags]: %v", err)
 	}
 }
 
 // A choices rule on provenance is likewise never checked at creation today,
 // so a reject template accepts a value it would refuse on the next edit.
-func TestCreateKnowledgeTemplateChecksProvenanceChoices(t *testing.T) {
-	c, p, _ := kbCore(t)
+func TestCreateEntryTemplateChecksProvenanceChoices(t *testing.T) {
+	c, p, _ := vaultCore(t)
 	if _, err := c.NewTemplate(t.Context(), "extracted-only"); err != nil {
 		t.Fatalf("NewTemplate: %v", err)
 	}
@@ -258,10 +258,10 @@ func TestCreateKnowledgeTemplateChecksProvenanceChoices(t *testing.T) {
 		"---\nenforce: reject\nchoices:\n  provenance: [extracted]\n---\n# {{title}}\n"); err != nil {
 		t.Fatalf("EditTemplate: %v", err)
 	}
-	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Authored", Template: "extracted-only", Provenance: "authored",
 	}); err == nil {
-		t.Fatal("CreateKnowledge should be refused: provenance \"authored\" is not in choices [extracted]")
+		t.Fatal("CreateEntry should be refused: provenance \"authored\" is not in choices [extracted]")
 	}
 }
 

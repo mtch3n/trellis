@@ -59,7 +59,7 @@ func newColumnAddCmd() *cobra.Command {
 		return Emit(cmd, col, func() string { return "added " + col.Name })
 	}}
 	cmd.Flags().StringVar(&after, "after", "", "insert after this column")
-	cmd.Flags().BoolVar(&done, "done", false, "mark as terminal")
+	cmd.Flags().BoolVar(&done, "done", false, "make this a done column")
 	return cmd
 }
 
@@ -96,7 +96,7 @@ func newColumnMoveCmd() *cobra.Command {
 
 func newColumnRmCmd() *cobra.Command {
 	var move string
-	cmd := &cobra.Command{Use: "rm <name>", Short: "Remove a column", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "rm <name>", Short: "Delete a column", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		app, err := currentBoard()
 		if err != nil {
 			return err

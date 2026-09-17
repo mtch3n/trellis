@@ -46,9 +46,9 @@ func (c *Core) RecallUptake(ctx context.Context, projectID string) ([]RecallUpta
 			               AND r.seq > i.seq
 			           ) THEN 1 ELSE 0 END) AS opened
 			FROM event i
-			JOIN knowledge k ON k.id = i.entity_id
+			JOIN entry k ON k.id = i.entity_id
 			WHERE i.action = 'injected'
-			  AND i.entity_type = 'knowledge'
+			  AND i.entity_type = 'entry'
 			  AND (k.project_id = ? OR k.global = 1)
 			GROUP BY k.provenance
 			ORDER BY k.provenance`, projectID)

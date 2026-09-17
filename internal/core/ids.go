@@ -5,16 +5,16 @@ import (
 	"strings"
 	"uuid"
 
-	"github.com/mtch3n/trellis/internal/vpath"
+	"github.com/mtch3n/trellis/internal/address"
 )
 
-// NewCardID returns a uuid v7, which is time-ordered so card ids sort by creation.
-// Card ranking relies on this property. The stdlib guarantees uuid v7 is
-// monotonically increasing within a process via a 12-bit sub-millisecond
-// fraction and a monotonic bump under mutex when timestamps repeat. This
-// guarantee holds only within a process; code must not assume ordering across
-// separate processes.
-func NewCardID() string { return uuid.NewV7().String() }
+// NewID mints every id Trellis stores: a uuid v7, which is time-ordered so
+// ids sort by creation. Card ranking relies on this property. The stdlib
+// guarantees uuid v7 is monotonically increasing within a process via a
+// 12-bit sub-millisecond fraction and a monotonic bump under mutex when
+// timestamps repeat. This guarantee holds only within a process; code must
+// not assume ordering across separate processes.
+func NewID() string { return uuid.NewV7().String() }
 
 // CardRef is a parsed card reference. Exactly one of UUID or Seq is set.
 type CardRef struct {
@@ -31,11 +31,11 @@ type CardRef struct {
 func ParseCardRef(s string) CardRef {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "/") {
-		p, err := vpath.Parse(s)
-		if err != nil || p.Collection != vpath.CollectionCards {
+		p, err := address.Parse(s)
+		if err != nil || p.Collection != address.CollectionCards {
 			return CardRef{}
 		}
-		// vpath has checked the PREFIX-N shape; only the number can still
+		// address.Parse has checked the PREFIX-N shape; only the number can still
 		// fail, by overflowing.
 		key, num, _ := strings.CutLast(p.Name, "-")
 		n, err := strconv.ParseInt(num, 10, 64)
@@ -70,7 +70,7 @@ func (r CardRef) String() string {
 	case r.UUID != "":
 		return r.UUID
 	case r.Project != "":
-		return vpath.CardPath(r.Project, r.qualified()).String()
+		return address.Card(r.Project, r.qualified()).String()
 	case r.ProjectKey != "":
 		return r.qualified()
 	case r.Seq > 0:

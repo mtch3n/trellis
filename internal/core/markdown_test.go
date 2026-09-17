@@ -7,7 +7,7 @@ import (
 )
 
 func TestParseWikilinksFormsAndSkips(t *testing.T) {
-	body := "See [[design]] and [[/XPSCTL/knowledge/concurrency-model#parallel safety]].\n" +
+	body := "See [[design]] and [[/XPSCTL/vault/concurrency-model#parallel safety]].\n" +
 		"Alias [[design|the design]] is the same target.\n" +
 		"```\nnot a [[link]] in code\n```\n" +
 		"Nor `[[inline]]`.\n" +
@@ -15,7 +15,7 @@ func TestParseWikilinksFormsAndSkips(t *testing.T) {
 	got := ParseWikilinks(body)
 	want := []Reference{
 		{Raw: "design", Slug: "design"},
-		{Raw: "/XPSCTL/knowledge/concurrency-model#parallel safety", ProjectKey: "XPSCTL",
+		{Raw: "/XPSCTL/vault/concurrency-model#parallel safety", ProjectKey: "XPSCTL",
 			Slug: "concurrency-model", Anchor: "parallel-safety"},
 		{Raw: "/XPSCTL/cards/XPSCTL-1", Slug: "/XPSCTL/cards/XPSCTL-1"},
 		{Raw: "xpsctl/design", Slug: "xpsctl/design"},
@@ -27,11 +27,11 @@ func TestParseWikilinksFormsAndSkips(t *testing.T) {
 
 func TestParseReference(t *testing.T) {
 	cases := map[string]Reference{
-		"design#Why Not":                  {Raw: "design#Why Not", Slug: "design", Anchor: "why-not"},
-		"a/b":                             {Raw: "a/b", Slug: "a/b"},
-		"/other/knowledge/runbook":        {Raw: "/other/knowledge/runbook", ProjectKey: "OTHER", Slug: "runbook"},
-		"/GLOBAL/knowledge/conventions#x": {Raw: "/GLOBAL/knowledge/conventions#x", ProjectKey: "GLOBAL", Slug: "conventions", Anchor: "x"},
-		"/bad_key/knowledge/x":            {Raw: "/bad_key/knowledge/x", Slug: "/bad_key/knowledge/x"},
+		"design#Why Not":              {Raw: "design#Why Not", Slug: "design", Anchor: "why-not"},
+		"a/b":                         {Raw: "a/b", Slug: "a/b"},
+		"/other/vault/runbook":        {Raw: "/other/vault/runbook", ProjectKey: "OTHER", Slug: "runbook"},
+		"/GLOBAL/vault/conventions#x": {Raw: "/GLOBAL/vault/conventions#x", ProjectKey: "GLOBAL", Slug: "conventions", Anchor: "x"},
+		"/bad_key/vault/x":            {Raw: "/bad_key/vault/x", Slug: "/bad_key/vault/x"},
 	}
 	for in, want := range cases {
 		if got := ParseReference(in); got != want {
@@ -51,7 +51,7 @@ func TestParseInlineTagsIgnoresHeadings(t *testing.T) {
 
 func TestFrontmatterRoundTrip(t *testing.T) {
 	fm := Frontmatter{Title: "Concurrency model", Template: "decision", Tags: []string{"sqlite"}}
-	raw := RenderDoc(fm, "# Concurrency model\n\nLeases, not locks.\n")
+	raw := RenderEntry(fm, "# Concurrency model\n\nOne writer at a time.\n")
 	back, body, err := SplitFrontmatter(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +59,7 @@ func TestFrontmatterRoundTrip(t *testing.T) {
 	if back.Title != fm.Title || back.Template != fm.Template || len(back.Tags) != 1 {
 		t.Errorf("round trip lost fields: %+v", back)
 	}
-	if FirstParagraph(body) != "Leases, not locks." {
+	if FirstParagraph(body) != "One writer at a time." {
 		t.Errorf("FirstParagraph = %q", FirstParagraph(body))
 	}
 }
@@ -88,7 +88,7 @@ func TestFrontmatterExtraKeysRoundTrip(t *testing.T) {
 	if fm.Extra["owner"] != "alice" || fm.Extra["severity"] != "high" {
 		t.Fatalf("Extra = %+v, want owner and severity kept", fm.Extra)
 	}
-	out := RenderDoc(fm, body)
+	out := RenderEntry(fm, body)
 	back, _, err := SplitFrontmatter(out)
 	if err != nil {
 		t.Fatal(err)
@@ -104,9 +104,9 @@ func TestFrontmatterExtraKeysRoundTrip(t *testing.T) {
 func TestFrontmatterExtraKeysRenderInStableOrder(t *testing.T) {
 	a := Frontmatter{Title: "X", Extra: map[string]any{"zebra": "z", "apple": "a", "mango": "m"}}
 	b := Frontmatter{Title: "X", Extra: map[string]any{"mango": "m", "apple": "a", "zebra": "z"}}
-	rendered := RenderDoc(a, "body\n")
+	rendered := RenderEntry(a, "body\n")
 	for range 20 {
-		if got := RenderDoc(b, "body\n"); got != rendered {
+		if got := RenderEntry(b, "body\n"); got != rendered {
 			t.Fatalf("rendering is not deterministic:\n%q\n%q", rendered, got)
 		}
 	}
@@ -117,16 +117,16 @@ func TestFrontmatterExtraKeysRenderInStableOrder(t *testing.T) {
 
 func TestFrontmatterWithNoExtraKeysIsUnchanged(t *testing.T) {
 	fm := Frontmatter{Title: "Plain", Template: "decision"}
-	got := RenderDoc(fm, "body\n")
+	got := RenderEntry(fm, "body\n")
 	want := "---\ntitle: Plain\ntemplate: decision\n---\n\nbody\n"
 	if got != want {
-		t.Errorf("RenderDoc with no Extra = %q, want %q", got, want)
+		t.Errorf("RenderEntry with no Extra = %q, want %q", got, want)
 	}
 }
 
 func TestFrontmatterSourcesRoundTrip(t *testing.T) {
 	fm := Frontmatter{Title: "X", Sources: []string{"https://example.com", "[[design-doc]]"}}
-	raw := RenderDoc(fm, "body\n")
+	raw := RenderEntry(fm, "body\n")
 	back, _, err := SplitFrontmatter(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -137,24 +137,24 @@ func TestFrontmatterSourcesRoundTrip(t *testing.T) {
 }
 
 func TestRewriteWikilinks(t *testing.T) {
-	text := "See [[/API/knowledge/runbook#Roll back|the runbook]] and [[design]].\n" +
-		"Inline `[[/API/knowledge/runbook]]` stays.\n" +
-		"```\n[[/API/knowledge/runbook]]\n```\n" +
-		"Also [[/api/knowledge/runbook]] and [[/OTHER/knowledge/runbook]].\n"
+	text := "See [[/API/vault/runbook#Roll back|the runbook]] and [[design]].\n" +
+		"Inline `[[/API/vault/runbook]]` stays.\n" +
+		"```\n[[/API/vault/runbook]]\n```\n" +
+		"Also [[/api/vault/runbook]] and [[/OTHER/vault/runbook]].\n"
 	got := RewriteWikilinks(text, func(ref Reference) (string, bool) {
 		if ref.ProjectKey != "API" || ref.Slug != "runbook" {
 			return "", false
 		}
-		target := "/MONO/knowledge/runbook-api"
+		target := "/MONO/vault/runbook-api"
 		if i := strings.Index(ref.Raw, "#"); i >= 0 {
 			target += ref.Raw[i:]
 		}
 		return target, true
 	})
-	want := "See [[/MONO/knowledge/runbook-api#Roll back|the runbook]] and [[design]].\n" +
-		"Inline `[[/API/knowledge/runbook]]` stays.\n" +
-		"```\n[[/API/knowledge/runbook]]\n```\n" +
-		"Also [[/MONO/knowledge/runbook-api]] and [[/OTHER/knowledge/runbook]].\n"
+	want := "See [[/MONO/vault/runbook-api#Roll back|the runbook]] and [[design]].\n" +
+		"Inline `[[/API/vault/runbook]]` stays.\n" +
+		"```\n[[/API/vault/runbook]]\n```\n" +
+		"Also [[/MONO/vault/runbook-api]] and [[/OTHER/vault/runbook]].\n"
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}

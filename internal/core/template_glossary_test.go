@@ -7,8 +7,8 @@ import (
 )
 
 func TestGlossaryTemplateKeepsItsTermsSection(t *testing.T) {
-	c, p, _ := kbCore(t)
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	c, p, _ := vaultCore(t)
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Glossary", Template: "glossary",
 		Body: "| Term | Means | Not |\n|---|---|---|\n",
 	})
@@ -19,8 +19,8 @@ func TestGlossaryTemplateKeepsItsTermsSection(t *testing.T) {
 }
 
 func TestGlossaryTemplateRendersItsTable(t *testing.T) {
-	c, p, _ := kbCore(t)
-	entry, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Glossary", Template: "glossary"})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Glossary", Template: "glossary"})
 	if err != nil {
 		t.Fatal(err)
 	}

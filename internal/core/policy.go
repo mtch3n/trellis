@@ -6,13 +6,13 @@ import "context"
 // the text being written. Fields carries only user-authored content — titles,
 // bodies, note text — because that is what a policy has an opinion about.
 type ProposedWrite struct {
-	Op         string            `json:"op"` // "card.create", "card.edit", "note.create", "doc.write"
-	EntityType string            `json:"entity_type"`
-	EntityID   string            `json:"entity_id,omitempty"` // empty on create
-	ProjectID  string            `json:"project_id,omitempty"`
-	BoardID    string            `json:"board_id,omitempty"`
-	Actor      string            `json:"actor"`
-	Fields     map[string]string `json:"fields,omitempty"`
+	Op        string            `json:"op"` // "card.create", "card.edit", "comment.create", "entry.write"
+	Entity    string            `json:"entity"`
+	EntityID  string            `json:"entity_id,omitempty"` // empty on create
+	ProjectID string            `json:"project_id,omitempty"`
+	BoardID   string            `json:"board_id,omitempty"`
+	Actor     string            `json:"actor"`
+	Fields    map[string]string `json:"fields,omitempty"`
 }
 
 // Policy inspects a proposed write and may reject it. trellis ships none: a
@@ -20,7 +20,7 @@ type ProposedWrite struct {
 // interface exists so a user can add theirs without patching core.
 //
 // Consequence, stated plainly: nothing here prevents a credential being written
-// into a card, a note or a doc. That is a deliberate non-goal.
+// into a card, a comment or an entry. That is a deliberate non-goal.
 type Policy interface {
 	Name() string
 	Check(ctx context.Context, w ProposedWrite) error

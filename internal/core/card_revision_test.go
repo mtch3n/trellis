@@ -25,7 +25,7 @@ func cardRevisionVersions(t *testing.T, c *Core, cardID string) []int64 {
 }
 
 func TestCreateCardCapturesVersionOne(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Ship", Body: "draft"})
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)
@@ -44,7 +44,7 @@ func TestCreateCardCapturesVersionOne(t *testing.T) {
 }
 
 func TestEditingTitleOrBodyCapturesBothVersions(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Ship", Body: "v1"})
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)
@@ -64,7 +64,7 @@ func TestEditingTitleOrBodyCapturesBothVersions(t *testing.T) {
 // not write a revision. The card's next body edit does, numbered with the
 // card's version at that time -- which is why versions have gaps.
 func TestMovingACardWritesNoRevisionButTheNextEditDoes(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Ship"})
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)
@@ -92,7 +92,7 @@ func TestMovingACardWritesNoRevisionButTheNextEditDoes(t *testing.T) {
 }
 
 func TestFirstEditOfAPreexistingCardCapturesItsPriorState(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Old", Body: "v1"})
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)
@@ -114,7 +114,7 @@ func TestFirstEditOfAPreexistingCardCapturesItsPriorState(t *testing.T) {
 }
 
 func TestEditCardTrimsToHistoryKeep(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	c.historyKeep = 3
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Busy", Body: "v1"})
 	if err != nil {
@@ -135,7 +135,7 @@ func TestEditCardTrimsToHistoryKeep(t *testing.T) {
 }
 
 func TestHistoryKeepZeroCapturesNoCardRevisions(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	c.historyKeep = 0
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Off"})
 	if err != nil {
@@ -154,7 +154,7 @@ func TestHistoryKeepZeroCapturesNoCardRevisions(t *testing.T) {
 }
 
 func TestDeletingACardRemovesItsRevisions(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Ship"})
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)
@@ -171,7 +171,7 @@ func TestDeletingACardRemovesItsRevisions(t *testing.T) {
 }
 
 func TestListCardRevisionsCarriesTheActor(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Ship"})
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)
@@ -186,7 +186,7 @@ func TestListCardRevisionsCarriesTheActor(t *testing.T) {
 }
 
 func TestDiffCardRendersTitleAndBody(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Ship", Body: "draft"})
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)

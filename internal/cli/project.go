@@ -24,7 +24,7 @@ func newProjectNewCmd() *cobra.Command {
 	var noPreset bool
 	cmd := &cobra.Command{
 		Use:   "new <KEY>",
-		Short: "Create a project without pinning any directory",
+		Short: "Create a project without marking any directory",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, db, err := openCore()
@@ -37,7 +37,7 @@ func newProjectNewCmd() *cobra.Command {
 				return err
 			}
 			return Emit(cmd, p, func() string {
-				return fmt.Sprintf("created project %s · pin a directory to it with: trellis init --key %s", p.Key, p.Key)
+				return fmt.Sprintf("created project %s · mark a directory for it: trellis init --key %s", p.Key, p.Key)
 			})
 		},
 	}
@@ -95,12 +95,12 @@ func newProjectMergeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "merge <SRC> --into <DST>",
 		Short: "Merge one project into another; prints the plan unless --apply",
-		Long: "Move every board, card, knowledge entry and artifact of SRC into DST, keep\n" +
-			"card refs such as SRC-12 working, and retire SRC's key. Without --apply the\n" +
-			"merge only reports what it would do; with --apply it backs up first.\n\n" +
-			"A document or artifact that both projects name, with different content, stops\n" +
-			"the merge; --rename-conflicts renames SRC's side instead. Pins that name SRC\n" +
-			"under the enclosing repository are rewritten: commit them.",
+		Long: "Move every board, card, entry and artifact of SRC into DST, keep card refs\n" +
+			"such as SRC-12 working, and retire SRC's key. Without --apply the merge only\n" +
+			"reports what it would do; with --apply it backs up first.\n\n" +
+			"An entry or artifact that both projects name, with different content, stops\n" +
+			"the merge; --rename-conflicts renames SRC's side instead. Markers that name\n" +
+			"SRC under the enclosing repository are rewritten: commit them.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if into == "" {
@@ -115,7 +115,7 @@ func newProjectMergeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			pins, skipped, err := resolve.PinsUnder(root)
+			markers, skipped, err := resolve.MarkersUnder(root)
 			if err != nil {
 				return err
 			}
@@ -132,7 +132,7 @@ func newProjectMergeCmd() *cobra.Command {
 			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()
 			plan, err := c.MergeProjects(ctx, normalizeProjectArg(args[0]), normalizeProjectArg(into),
-				core.MergeOptions{Apply: apply, RenameConflicts: rename, ScanRoot: root, Pins: pins, UnreadablePins: skipped})
+				core.MergeOptions{Apply: apply, RenameConflicts: rename, ScanRoot: root, Markers: markers, UnreadableMarkers: skipped})
 			if err != nil {
 				return err
 			}
@@ -165,7 +165,7 @@ func mergeTable(p core.MergePlan, applied bool) string {
 	for _, group := range []struct {
 		name  string
 		moves core.ItemMoves
-	}{{"knowledge", p.Knowledge}, {"artifacts", p.Artifacts}} {
+	}{{"entries", p.Entries}, {"artifacts", p.Artifacts}} {
 		fmt.Fprintf(&b, "%-9s %d moved, %d collapsed, %d renamed, %d in conflict\n", group.name,
 			group.moves.Moved, len(group.moves.Collapsed), len(group.moves.Renamed), len(group.moves.Conflicts))
 		for _, r := range group.moves.Renamed {
@@ -184,16 +184,16 @@ func mergeTable(p core.MergePlan, applied bool) string {
 	for _, d := range p.ConfigDropped {
 		fmt.Fprintf(&b, "config  %s=%s dropped (%s keeps %q)\n", d.Key, d.Src, p.Dst, d.Dst)
 	}
-	for _, addr := range p.DocumentsRewritten {
+	for _, addr := range p.EntriesRewritten {
 		fmt.Fprintf(&b, "rewrite %s\n", addr)
 	}
-	for _, r := range p.Pins.Rewrite {
-		fmt.Fprintf(&b, "pin     %s: %s -> %s\n", r.Path, r.From, r.To)
+	for _, r := range p.Markers.Rewrite {
+		fmt.Fprintf(&b, "marker  %s: %s -> %s\n", r.Path, r.From, r.To)
 	}
-	for _, left := range p.Pins.Left {
-		fmt.Fprintf(&b, "pin     left as is: %s\n", left)
+	for _, left := range p.Markers.Left {
+		fmt.Fprintf(&b, "marker  left as is: %s\n", left)
 	}
-	fmt.Fprintf(&b, "pins    searched under %s only\n", p.Pins.ScanRoot)
+	fmt.Fprintf(&b, "markers searched under %s only\n", p.Markers.ScanRoot)
 	if p.Backup != "" {
 		fmt.Fprintf(&b, "backup  %s\n", p.Backup)
 	}
@@ -203,7 +203,7 @@ func mergeTable(p core.MergePlan, applied bool) string {
 	switch {
 	case !p.Ready:
 		b.WriteString("not ready: resolve the conflicts, or rerun with --rename-conflicts\n")
-	case applied && len(p.Pins.Rewrite) > 0:
+	case applied && len(p.Markers.Rewrite) > 0:
 		b.WriteString("commit the rewritten .trellis files\n")
 	case !applied:
 		b.WriteString("rerun with --apply to perform it\n")

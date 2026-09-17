@@ -53,7 +53,7 @@ func TestServerCardLifecycleAndEmbeddedSPA(t *testing.T) {
 		t.Fatalf("created ref = %q, want UITEST-1", card.Ref)
 	}
 	detail := request(http.MethodGet, "/api/p/UITEST/b/default/cards/UITEST-1", "")
-	if detail.Code != http.StatusOK || !bytes.Contains(detail.Body.Bytes(), []byte(`"activity"`)) {
+	if detail.Code != http.StatusOK || !bytes.Contains(detail.Body.Bytes(), []byte(`"events"`)) {
 		t.Fatalf("detail status = %d, body = %s", detail.Code, detail.Body)
 	}
 	projectDetail := request(http.MethodGet, "/api/p/UITEST/cards/UITEST-1", "")
@@ -95,7 +95,7 @@ func TestServerCardLifecycleAndEmbeddedSPA(t *testing.T) {
 	}
 }
 
-func TestServerKnowledgeGraphLabelsAndStealRoutes(t *testing.T) {
+func TestServerVaultGraphLabelsAndStealRoutes(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
@@ -127,45 +127,45 @@ func TestServerKnowledgeGraphLabelsAndStealRoutes(t *testing.T) {
 		return rec
 	}
 
-	created := request(http.MethodPost, "/api/p/P5TEST/b/default/knowledge", `{"title":"Concurrency","summary":"leases","body":"first"}`)
+	created := request(http.MethodPost, "/api/p/P5TEST/b/default/vault", `{"title":"Concurrency","summary":"one writer at a time","body":"first"}`)
 	if created.Code != http.StatusCreated {
-		t.Fatalf("knowledge create status = %d, body = %s", created.Code, created.Body)
+		t.Fatalf("entry create status = %d, body = %s", created.Code, created.Body)
 	}
-	var doc core.Knowledge
-	if err := json.Unmarshal(created.Body.Bytes(), &doc); err != nil {
+	var entry core.Entry
+	if err := json.Unmarshal(created.Body.Bytes(), &entry); err != nil {
 		t.Fatal(err)
 	}
-	if doc.Slug == "" || doc.Version == 0 {
-		t.Fatalf("created knowledge = %+v", doc)
+	if entry.Slug == "" || entry.Version == 0 {
+		t.Fatalf("created entry = %+v", entry)
 	}
 
-	listed := request(http.MethodGet, "/api/p/P5TEST/b/default/knowledge", "")
-	if listed.Code != http.StatusOK || !bytes.Contains(listed.Body.Bytes(), []byte(`"slug":"`+doc.Slug+`"`)) {
-		t.Fatalf("knowledge list status = %d, body = %s", listed.Code, listed.Body)
+	listed := request(http.MethodGet, "/api/p/P5TEST/b/default/vault", "")
+	if listed.Code != http.StatusOK || !bytes.Contains(listed.Body.Bytes(), []byte(`"slug":"`+entry.Slug+`"`)) {
+		t.Fatalf("entry list status = %d, body = %s", listed.Code, listed.Body)
 	}
-	projectKnowledge := request(http.MethodGet, "/api/p/P5TEST/knowledge", "")
-	if projectKnowledge.Code != http.StatusOK || !bytes.Contains(projectKnowledge.Body.Bytes(), []byte(`"slug":"`+doc.Slug+`"`)) {
-		t.Fatalf("project knowledge status = %d, body = %s", projectKnowledge.Code, projectKnowledge.Body)
+	projectEntries := request(http.MethodGet, "/api/p/P5TEST/vault", "")
+	if projectEntries.Code != http.StatusOK || !bytes.Contains(projectEntries.Body.Bytes(), []byte(`"slug":"`+entry.Slug+`"`)) {
+		t.Fatalf("project entry status = %d, body = %s", projectEntries.Code, projectEntries.Body)
 	}
-	globalKnowledge := request(http.MethodGet, "/api/global/knowledge", "")
-	if globalKnowledge.Code != http.StatusOK {
-		t.Fatalf("global knowledge status = %d, body = %s", globalKnowledge.Code, globalKnowledge.Body)
+	globalEntries := request(http.MethodGet, "/api/global/vault", "")
+	if globalEntries.Code != http.StatusOK {
+		t.Fatalf("global entry status = %d, body = %s", globalEntries.Code, globalEntries.Body)
 	}
-	edited := request(http.MethodPatch, "/api/p/P5TEST/b/default/knowledge/"+doc.Slug, `{"body":"second","version":1}`)
+	edited := request(http.MethodPatch, "/api/p/P5TEST/b/default/vault/"+entry.Slug, `{"body":"second","version":1}`)
 	if edited.Code != http.StatusOK || !bytes.Contains(edited.Body.Bytes(), []byte("second")) {
-		t.Fatalf("knowledge edit status = %d, body = %s", edited.Code, edited.Body)
+		t.Fatalf("entry edit status = %d, body = %s", edited.Code, edited.Body)
 	}
-	graph := request(http.MethodGet, "/api/p/P5TEST/b/default/graph/"+doc.Slug, "")
+	graph := request(http.MethodGet, "/api/p/P5TEST/b/default/graph/"+entry.Slug, "")
 	if graph.Code != http.StatusOK || !bytes.Contains(graph.Body.Bytes(), []byte(`"nodes"`)) {
 		t.Fatalf("graph status = %d, body = %s", graph.Code, graph.Body)
 	}
 	search := request(http.MethodGet, "/api/search?q=Concurrency", "")
-	if search.Code != http.StatusOK || !bytes.Contains(search.Body.Bytes(), []byte(`"kind":"knowledge"`)) {
+	if search.Code != http.StatusOK || !bytes.Contains(search.Body.Bytes(), []byte(`"kind":"entry"`)) {
 		t.Fatalf("search status = %d, body = %s", search.Code, search.Body)
 	}
-	activity := request(http.MethodGet, "/api/activity?limit=10", "")
-	if activity.Code != http.StatusOK || !bytes.Contains(activity.Body.Bytes(), []byte(`"entity_type":"knowledge"`)) {
-		t.Fatalf("activity status = %d, body = %s", activity.Code, activity.Body)
+	events := request(http.MethodGet, "/api/events?limit=10", "")
+	if events.Code != http.StatusOK || !bytes.Contains(events.Body.Bytes(), []byte(`"entity":"entry"`)) {
+		t.Fatalf("events status = %d, body = %s", events.Code, events.Body)
 	}
 
 	labels := request(http.MethodGet, "/api/p/P5TEST/labels", "")
@@ -184,14 +184,14 @@ func TestServerKnowledgeGraphLabelsAndStealRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	card, err := c.CreateCard(context.Background(), p.ID, board.ID, core.NewCard{Title: "Held"})
+	card, err := c.CreateCard(context.Background(), p.ID, board.ID, core.NewCard{Title: "Claimed"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.ClaimCard(context.Background(), card.ID, 30*60*1000, false, ""); err != nil {
 		t.Fatal(err)
 	}
-	stolen := request(http.MethodPost, "/api/p/P5TEST/b/default/cards/"+card.Ref+"/steal", `{"reason":"owner is inactive"}`)
+	stolen := request(http.MethodPost, "/api/p/P5TEST/b/default/cards/"+card.Ref+"/steal", `{"reason":"claimant is inactive"}`)
 	if stolen.Code != http.StatusOK {
 		t.Fatalf("steal status = %d, body = %s", stolen.Code, stolen.Body)
 	}
@@ -232,10 +232,10 @@ func TestServerDeletesAProjectOnlyWhenTheKeyIsRetyped(t *testing.T) {
 		t.Fatalf("create status = %d, body = %s", rec.Code, rec.Body)
 	}
 
-	scoped := request(http.MethodGet, "/api/activity?project=KEPT", "")
+	scoped := request(http.MethodGet, "/api/events?project=KEPT", "")
 	if scoped.Code != http.StatusOK || bytes.Contains(scoped.Body.Bytes(), []byte("doomed")) ||
 		!bytes.Contains(scoped.Body.Bytes(), []byte("kept board")) {
-		t.Fatalf("activity scoped to KEPT = %d, body = %s", scoped.Code, scoped.Body)
+		t.Fatalf("events scoped to KEPT = %d, body = %s", scoped.Code, scoped.Body)
 	}
 
 	if rec := request(http.MethodDelete, "/api/p/GONE", `not json`); rec.Code != http.StatusBadRequest {
@@ -267,13 +267,13 @@ func TestServerDeletesAProjectOnlyWhenTheKeyIsRetyped(t *testing.T) {
 	}
 }
 
-// TestActivityScopedToProjectIncludesDeletedLabelAndCommentEvents guards
-// against computing the activity feed's project filter from live-row joins:
+// TestEventsScopedToProjectIncludesDeletedLabelAndCommentEvents guards
+// against computing the event log's project filter from live-row joins:
 // a deleted card has no row left to join, and label and comment events are
 // never joined at all, so a naive filter drops all three from a
-// project-scoped feed even though the event rows themselves carry the
+// project-scoped read even though the event rows themselves carry the
 // project.
-func TestActivityScopedToProjectIncludesDeletedLabelAndCommentEvents(t *testing.T) {
+func TestEventsScopedToProjectIncludesDeletedLabelAndCommentEvents(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
@@ -281,7 +281,7 @@ func TestActivityScopedToProjectIncludesDeletedLabelAndCommentEvents(t *testing.
 	}
 	defer db.Close()
 
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-activity-test", dir)
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-events-test", dir)
 	p, err := c.CreateProject(context.Background(), "SCOPE", false)
 	if err != nil {
 		t.Fatal(err)
@@ -326,19 +326,19 @@ func TestActivityScopedToProjectIncludesDeletedLabelAndCommentEvents(t *testing.
 		t.Fatalf("create comment status = %d, body = %s", rec.Code, rec.Body)
 	}
 
-	scoped := request(http.MethodGet, "/api/activity?project=SCOPE", "")
+	scoped := request(http.MethodGet, "/api/events?project=SCOPE", "")
 	if scoped.Code != http.StatusOK {
-		t.Fatalf("scoped activity status = %d, body = %s", scoped.Code, scoped.Body)
+		t.Fatalf("scoped events status = %d, body = %s", scoped.Code, scoped.Body)
 	}
 	body := scoped.Body.Bytes()
 	if !bytes.Contains(body, []byte(`"action":"deleted"`)) {
-		t.Errorf("scoped activity is missing the deleted card event: %s", body)
+		t.Errorf("scoped events is missing the deleted card event: %s", body)
 	}
-	if !bytes.Contains(body, []byte(`"entity_type":"label"`)) {
-		t.Errorf("scoped activity is missing the label merge event: %s", body)
+	if !bytes.Contains(body, []byte(`"entity":"label"`)) {
+		t.Errorf("scoped events is missing the label merge event: %s", body)
 	}
-	if !bytes.Contains(body, []byte(`"entity_type":"comment"`)) {
-		t.Errorf("scoped activity is missing the comment event: %s", body)
+	if !bytes.Contains(body, []byte(`"entity":"comment"`)) {
+		t.Errorf("scoped events is missing the comment event: %s", body)
 	}
 }
 
@@ -398,7 +398,7 @@ func TestServerBoardListsCardsByPriorityThenRank(t *testing.T) {
 	}
 }
 
-func TestServerProjectEventsPageThroughCardAndKnowledgeHistory(t *testing.T) {
+func TestServerProjectEventsPageThroughCardAndEntryHistory(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
@@ -426,19 +426,19 @@ func TestServerProjectEventsPageThroughCardAndKnowledgeHistory(t *testing.T) {
 	if _, err := c.ClaimCard(ctx, card.ID, 60_000, false, ""); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := c.CreateKnowledge(ctx, p.ID, core.NewKnowledge{Title: "Findings", Body: "first secret\n"})
+	entry, err := c.CreateEntry(ctx, p.ID, core.NewEntry{Title: "Findings", Body: "first secret\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	body := "second secret\n"
-	if _, err := c.EditKnowledgeFields(ctx, p.ID, doc.Slug, core.KnowledgeEdit{Body: &body, IfVersion: &doc.Version}); err != nil {
+	if _, err := c.EditEntryFields(ctx, p.ID, entry.Slug, core.EntryEdit{Body: &body, IfVersion: &entry.Version}); err != nil {
 		t.Fatal(err)
 	}
 
 	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	type page struct {
-		Events []core.FeedEvent `json:"events"`
-		Next   *int64           `json:"next"`
+		Events []core.LogEvent `json:"events"`
+		Next   *int64          `json:"next"`
 	}
 	get := func(path string) (page, []byte) {
 		t.Helper()
@@ -464,15 +464,15 @@ func TestServerProjectEventsPageThroughCardAndKnowledgeHistory(t *testing.T) {
 			t.Fatalf("events out of order: %v", all.Events)
 		}
 		if event.Field != "column" && (event.Old != "" || event.New != "") {
-			t.Errorf("%s %s %s carries values %q -> %q; only column moves may", event.Kind, event.Action, event.Field, event.Old, event.New)
+			t.Errorf("%s %s %s carries values %q -> %q; only column moves may", event.Entity, event.Action, event.Field, event.Old, event.New)
 		}
 		switch {
-		case event.Kind == "card" && event.Action == "moved":
+		case event.Entity == "card" && event.Action == "moved":
 			moved = event.Ref == "EVT-1" && event.Old == "backlog" && event.New == "in-progress"
-		case event.Kind == "card" && event.Action == "claimed":
+		case event.Entity == "card" && event.Action == "claimed":
 			claimed = event.Ref == "EVT-1" && event.Actor == "ui-events-test"
-		case event.Kind == "knowledge" && event.Action == "edited":
-			edited = event.Ref == "/EVT/knowledge/"+doc.Slug
+		case event.Entity == "entry" && event.Action == "edited":
+			edited = event.Ref == "/EVT/vault/"+entry.Slug
 		}
 	}
 	if !moved || !claimed || !edited {
@@ -561,8 +561,8 @@ func TestServerClaimCardValidatesJSON(t *testing.T) {
 	if err := json.Unmarshal(detail.Body.Bytes(), &cardDetail); err != nil {
 		t.Fatal(err)
 	}
-	if cardDetail.LeaseUntil != nil {
-		t.Fatalf("card claimed after malformed JSON request; LeaseUntil = %v", cardDetail.LeaseUntil)
+	if cardDetail.ClaimUntil != nil {
+		t.Fatalf("card claimed after malformed JSON request; ClaimUntil = %v", cardDetail.ClaimUntil)
 	}
 
 	// Test empty body succeeds and claims the card
@@ -574,7 +574,7 @@ func TestServerClaimCardValidatesJSON(t *testing.T) {
 	if err := json.Unmarshal(empty.Body.Bytes(), &claimedCard); err != nil {
 		t.Fatal(err)
 	}
-	if claimedCard.LeaseUntil == nil {
+	if claimedCard.ClaimUntil == nil {
 		t.Fatalf("card not claimed after successful request")
 	}
 }

@@ -22,7 +22,7 @@ import (
 // zero-value defaults since YAML parsing leaves unset fields as zero values.
 type Config struct {
 	UI      UIConfig      `yaml:"ui"`
-	Lease   LeaseConfig   `yaml:"lease"`
+	Claim   ClaimConfig   `yaml:"claim"`
 	Board   BoardConfig   `yaml:"board"`
 	Labels  LabelsConfig  `yaml:"labels"`
 	Tags    TagsConfig    `yaml:"tags"`
@@ -45,7 +45,7 @@ type UIConfig struct {
 // means yes.
 func (u UIConfig) UIEnabled() bool { return u.Enabled == nil || *u.Enabled }
 
-type LeaseConfig struct {
+type ClaimConfig struct {
 	TTL string `yaml:"ttl"` // e.g., "30m"
 }
 
@@ -70,7 +70,7 @@ type SearchConfig struct {
 	Vector VectorSearchConfig `yaml:"vector"`
 }
 
-// HistoryConfig controls revision retention for knowledge entries and cards.
+// HistoryConfig controls revision retention for entries and cards.
 type HistoryConfig struct {
 	// Keep is a pointer because zero is a real, meaningful value -- it turns
 	// capture off -- and a plain int cannot tell that apart from "absent from
@@ -88,7 +88,7 @@ func (h HistoryConfig) EffectiveKeep() int {
 	return *h.Keep
 }
 
-// VectorSearchConfig controls the optional semantic document index. The
+// VectorSearchConfig controls the optional semantic entry index. The
 // embedding executable receives UTF-8 text on stdin and must print either a
 // JSON float array or {"embedding":[...]} on stdout.
 type VectorSearchConfig struct {
@@ -111,7 +111,7 @@ func Defaults() Config {
 			Bind:    "127.0.0.1",
 			Enabled: ptr(true),
 		},
-		Lease: LeaseConfig{
+		Claim: ClaimConfig{
 			TTL: "30m",
 		},
 		Board: BoardConfig{
@@ -135,7 +135,7 @@ func Defaults() Config {
 }
 
 // configPath returns config.yaml inside root. The caller resolves root
-// (TRELLIS_HOME or the platform default) and passes it in, so a pinned root
+// (TRELLIS_HOME or the platform default) and passes it in, so a fixed root
 // whose config still came from a different home never serves the wrong port
 // for the daemon installed against it.
 func configPath(root string) string {
@@ -203,8 +203,8 @@ func applyDefaults(cfg *Config) {
 	if cfg.UI.Enabled == nil {
 		cfg.UI.Enabled = defaults.UI.Enabled
 	}
-	if cfg.Lease.TTL == "" {
-		cfg.Lease.TTL = defaults.Lease.TTL
+	if cfg.Claim.TTL == "" {
+		cfg.Claim.TTL = defaults.Claim.TTL
 	}
 	if len(cfg.Board.DefaultColumns) == 0 {
 		cfg.Board.DefaultColumns = defaults.Board.DefaultColumns
@@ -240,8 +240,8 @@ func GetValue(cfg Config, key string) (string, bool) {
 		return cfg.UI.Bind, true
 	case "ui.enabled":
 		return fmt.Sprintf("%v", cfg.UI.UIEnabled()), true
-	case "lease.ttl":
-		return cfg.Lease.TTL, true
+	case "claim.ttl":
+		return cfg.Claim.TTL, true
 	case "board.default_columns":
 		// For arrays, return comma-separated values.
 		return fmt.Sprintf("[%s]", fmt.Sprint(cfg.Board.DefaultColumns)), true
@@ -280,7 +280,7 @@ func GetValue(cfg Config, key string) (string, bool) {
 
 // ValidateValue rejects a value for a key with semantic constraints beyond
 // being a known key: history.keep's zero disables capture but its negative
-// values are nonsensical, not a synonym for "unlimited"; lease.ttl is a
+// values are nonsensical, not a synonym for "unlimited"; claim.ttl is a
 // wait, so a zero or negative duration means "immediately"; search.method
 // must name a method the retrieval service actually implements.
 func ValidateValue(key, value string) error {
@@ -294,7 +294,7 @@ func ValidateValue(key, value string) error {
 			return fmt.Errorf("history.keep: must not be negative, got %d", n)
 		}
 		return nil
-	case "lease.ttl":
+	case "claim.ttl":
 		return validatePositiveDuration(key, value)
 	case "search.method":
 		return validateChoice(key, value, searchMethods)
@@ -328,7 +328,7 @@ func validateChoice(key, raw string, choices []string) error {
 // highest: built-in defaults, the global config file, a repository's
 // .trellis.yaml, then a project override in the database. source names
 // whichever layer answered: "default", "config", "repo" or "project".
-func EffectiveValue(ctx context.Context, cfg Config, present map[string]bool, repo RepoDoc, db *sqlx.DB, projectID, key string) (value, source string, err error) {
+func EffectiveValue(ctx context.Context, cfg Config, present map[string]bool, repo RepoFile, db *sqlx.DB, projectID, key string) (value, source string, err error) {
 	value, found := GetValue(cfg, key)
 	if !found {
 		return "", "", fmt.Errorf("unknown config key: %q", key)
@@ -417,7 +417,7 @@ func ListProjectConfigs(ctx context.Context, db *sqlx.DB, projectID string) (map
 func RepoSafe(key string) bool {
 	switch key {
 	case "card.ls_limit",
-		"lease.ttl",
+		"claim.ttl",
 		"board.default_columns",
 		"labels.require_on_card",
 		"tags.require_on_card",
@@ -458,47 +458,47 @@ func RepoConfigPath(dir string) (string, error) {
 	}
 }
 
-// RepoDoc is a parsed, validated .trellis.yaml. Config holds only the keys
+// RepoFile is a parsed, validated .trellis.yaml. Config holds only the keys
 // RepoSafe allows, decoded onto a zero Config so GetValue can read them back
 // with its existing per-key formatting. Present marks exactly which dotted
 // keys the file set, distinguishing an explicit value from one that happens
 // to share Config's zero value. Extensions is the "extensions" subtree
 // exactly as written, decoded to a generic value: core parses it as YAML and
 // never interprets it.
-type RepoDoc struct {
+type RepoFile struct {
 	Config     Config
 	Present    map[string]bool
 	Extensions any
 }
 
 // LoadRepo reads and validates the repository config file in dir. ok is
-// false with a zero RepoDoc when dir has no ".trellis.yaml"/".trellis.yml"
+// false with a zero RepoFile when dir has no ".trellis.yaml"/".trellis.yml"
 // (including dir == ""); err is non-nil when one exists but is invalid —
 // both files present, an unknown top-level key, a key a repository may not
 // set, or a value that does not parse for its key — and always names the
 // file and, where applicable, the key.
-func LoadRepo(dir string) (doc RepoDoc, path string, ok bool, err error) {
+func LoadRepo(dir string) (repo RepoFile, path string, ok bool, err error) {
 	path, err = RepoConfigPath(dir)
 	if err != nil || path == "" {
-		return RepoDoc{}, path, false, err
+		return RepoFile{}, path, false, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return RepoDoc{}, path, false, fmt.Errorf("read %s: %w", path, err)
+		return RepoFile{}, path, false, fmt.Errorf("read %s: %w", path, err)
 	}
 
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
-		return RepoDoc{}, path, false, fmt.Errorf("parse %s: %w", path, err)
+		return RepoFile{}, path, false, fmt.Errorf("parse %s: %w", path, err)
 	}
-	doc = RepoDoc{Config: Config{}, Present: map[string]bool{}}
+	repo = RepoFile{Config: Config{}, Present: map[string]bool{}}
 	if len(root.Content) == 0 {
-		// An empty file: a valid, empty document.
-		return doc, path, true, nil
+		// An empty file is valid and sets nothing.
+		return repo, path, true, nil
 	}
 	body := root.Content[0]
 	if body.Kind != yaml.MappingNode {
-		return RepoDoc{}, path, false, fmt.Errorf("%s: the document must be a mapping", path)
+		return RepoFile{}, path, false, fmt.Errorf("%s: the file must be a mapping", path)
 	}
 
 	for i := 0; i+1 < len(body.Content); i += 2 {
@@ -507,30 +507,30 @@ func LoadRepo(dir string) (doc RepoDoc, path string, ok bool, err error) {
 		switch topKey {
 		case "config":
 			if topVal.Kind != yaml.MappingNode {
-				return RepoDoc{}, path, false, fmt.Errorf("%s: config must be a mapping of dotted keys to values", path)
+				return RepoFile{}, path, false, fmt.Errorf("%s: config must be a mapping of dotted keys to values", path)
 			}
 			for j := 0; j+1 < len(topVal.Content); j += 2 {
 				key := topVal.Content[j].Value
 				valueNode := topVal.Content[j+1]
 				if !RepoSafe(key) {
-					return RepoDoc{}, path, false, fmt.Errorf("%s: %q may not be set by a repository", path, key)
+					return RepoFile{}, path, false, fmt.Errorf("%s: %q may not be set by a repository", path, key)
 				}
-				if err := setConfigField(&doc.Config, key, valueNode); err != nil {
-					return RepoDoc{}, path, false, fmt.Errorf("%s: %q: %w", path, key, err)
+				if err := setConfigField(&repo.Config, key, valueNode); err != nil {
+					return RepoFile{}, path, false, fmt.Errorf("%s: %q: %w", path, key, err)
 				}
-				doc.Present[key] = true
+				repo.Present[key] = true
 			}
 		case "extensions":
 			var ext any
 			if err := topVal.Decode(&ext); err != nil {
-				return RepoDoc{}, path, false, fmt.Errorf("%s: extensions: %w", path, err)
+				return RepoFile{}, path, false, fmt.Errorf("%s: extensions: %w", path, err)
 			}
-			doc.Extensions = ext
+			repo.Extensions = ext
 		default:
-			return RepoDoc{}, path, false, fmt.Errorf("%s: unknown top-level key %q", path, topKey)
+			return RepoFile{}, path, false, fmt.Errorf("%s: unknown top-level key %q", path, topKey)
 		}
 	}
-	return doc, path, true, nil
+	return repo, path, true, nil
 }
 
 // searchMethods lists every value search.method accepts: internal/retrieval's
@@ -542,7 +542,7 @@ var searchMethods = []string{"fts", "vector", "hybrid"}
 // matching field of cfg, and rejects a value that would not parse for its
 // key -- not merely one of the wrong YAML type. A repository file is
 // committed and arrives with every clone, so a value only type-checked here
-// (lease.ttl and search.method are both plain strings, so any string passes
+// (claim.ttl and search.method are both plain strings, so any string passes
 // a type check) can silently disable the setting for everyone who clones it.
 // Every key RepoSafe allows is handled here.
 func setConfigField(cfg *Config, key string, node *yaml.Node) error {
@@ -552,7 +552,7 @@ func setConfigField(cfg *Config, key string, node *yaml.Node) error {
 			return err
 		}
 		return positiveNumber(cfg.Card.LsLimit)
-	case "lease.ttl":
+	case "claim.ttl":
 		var raw string
 		if err := node.Decode(&raw); err != nil {
 			return err
@@ -560,7 +560,7 @@ func setConfigField(cfg *Config, key string, node *yaml.Node) error {
 		if _, err := time.ParseDuration(raw); err != nil {
 			return fmt.Errorf("not a duration: %w", err)
 		}
-		cfg.Lease.TTL = raw
+		cfg.Claim.TTL = raw
 		return nil
 	case "board.default_columns":
 		return node.Decode(&cfg.Board.DefaultColumns)
@@ -599,7 +599,7 @@ func positiveNumber(n int) error {
 func AllKeys() []string {
 	return []string{
 		"ui.port", "ui.bind", "ui.enabled",
-		"lease.ttl",
+		"claim.ttl",
 		"board.default_columns",
 		"labels.require_on_card",
 		"tags.require_on_card",
@@ -663,7 +663,7 @@ func Describe() []KeyInfo {
 			Description: "The loopback address the daemon's web UI and API bind to."},
 		{Key: "ui.enabled", Type: TypeBool, Editable: false, Restart: true,
 			Description: "Whether the daemon serves the web UI at all, or stays on local IPC only."},
-		{Key: "lease.ttl", Type: TypeDuration, Editable: true, Restart: false,
+		{Key: "claim.ttl", Type: TypeDuration, Editable: true, Restart: false,
 			Description: "How long a claim lasts before it expires."},
 		{Key: "board.default_columns", Type: TypeList, Editable: true, Restart: false,
 			Description: "The columns a new board starts with."},
@@ -674,7 +674,7 @@ func Describe() []KeyInfo {
 		{Key: "card.ls_limit", Type: TypeInt, Editable: true, Restart: false,
 			Description: "The default number of cards a listing returns."},
 		{Key: "search.method", Type: TypeEnum, Choices: slices.Clone(searchMethods), Editable: true, Restart: true,
-			Description: "Which method finds cards and knowledge entries: full-text, vector, or hybrid."},
+			Description: "Which method finds cards and vault entries: full-text, vector, or hybrid."},
 		{Key: "search.vector.enabled", Type: TypeBool, Editable: false, Restart: true,
 			Description: "Whether the optional semantic vector index is built and searched."},
 		{Key: "search.vector.provider", Type: TypeString, Editable: false, Restart: true,
@@ -690,7 +690,7 @@ func Describe() []KeyInfo {
 		{Key: "search.vector.limit", Type: TypeInt, Editable: false, Restart: true,
 			Description: "The default number of vector search results."},
 		{Key: "history.keep", Type: TypeInt, Min: ptr(0), Editable: true, Restart: false,
-			Description: "How many revisions each knowledge entry and card retains."},
+			Description: "How many revisions each vault entry and card retains."},
 	}
 }
 
@@ -716,8 +716,8 @@ func TypedValue(cfg Config, key string) (value any, ok bool) {
 		return cfg.UI.Bind, true
 	case "ui.enabled":
 		return cfg.UI.UIEnabled(), true
-	case "lease.ttl":
-		return cfg.Lease.TTL, true
+	case "claim.ttl":
+		return cfg.Claim.TTL, true
 	case "board.default_columns":
 		return slices.Clone(cfg.Board.DefaultColumns), true
 	case "labels.require_on_card":
@@ -996,7 +996,7 @@ func readOrNewConfigRoot(path string) (*yaml.Node, error) {
 // setNestedValue sets the value at path inside mapping node m, creating
 // intermediate mappings as needed. Unlike setMapValueNode, which
 // SetRepoValue uses for a repository file's flat dotted-string keys,
-// config.yaml is a real nested tree -- "lease.ttl" lives at m["lease"]["ttl"]
+// config.yaml is a real nested tree -- "claim.ttl" lives at m["claim"]["ttl"]
 // -- so this walks path one segment at a time.
 func setNestedValue(m *yaml.Node, path []string, value *yaml.Node) {
 	if len(path) == 1 {
@@ -1109,16 +1109,16 @@ func presentKeys(raw Config) map[string]bool {
 // ApplyRepoOverrides returns cfg with every repository-safe key repo.Present
 // sets copied on top, field by field. EffectiveValue answers one key at a
 // time against a database; this is for a caller — currentBoard, priming the
-// Core's lease TTL, default columns and label/tag requirements — that needs
+// Core's claim TTL, default columns and label/tag requirements — that needs
 // a whole Config to seed something with, before any per-key project override
 // is even in the picture.
-func ApplyRepoOverrides(cfg Config, repo RepoDoc) Config {
+func ApplyRepoOverrides(cfg Config, repo RepoFile) Config {
 	for key := range repo.Present {
 		switch key {
 		case "card.ls_limit":
 			cfg.Card.LsLimit = repo.Config.Card.LsLimit
-		case "lease.ttl":
-			cfg.Lease.TTL = repo.Config.Lease.TTL
+		case "claim.ttl":
+			cfg.Claim.TTL = repo.Config.Claim.TTL
 		case "board.default_columns":
 			cfg.Board.DefaultColumns = repo.Config.Board.DefaultColumns
 		case "labels.require_on_card":
@@ -1284,8 +1284,8 @@ func writeRepoRoot(path string, root *yaml.Node) error {
 
 // writeFileAtomic writes data to path via a temp file and rename, so a
 // process killed mid-write never leaves a torn .trellis.yaml. This is
-// separate from internal/core's writeAtomic: a repository config file is not
-// knowledge content, has no database row to keep in sync with, and is
+// separate from internal/atomicfile.Write: a repository config file is not
+// an entry's body, has no database row to keep in sync with, and is
 // deliberately overwritten on every set/unset rather than written
 // no-clobber-once.
 func writeFileAtomic(path string, data []byte) error {
