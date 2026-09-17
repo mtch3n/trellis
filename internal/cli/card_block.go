@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/mtch3n/trellis/internal/core"
+	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 )
 
@@ -19,16 +20,21 @@ func newCardBlockCmd() *cobra.Command {
 				return core.ErrUsage("missing_blocker", "say which card blocks it",
 					"trellis card block "+args[0]+" --by 12")
 			}
-			return withBoard(func(app *appCtx) error {
+			// --by takes a reference too, so it can name the project: a
+			// blocker lives in its card's project.
+			return withTargets([]refArg{
+				{Collection: vpath.CollectionCards, Value: args[0]},
+				{Collection: vpath.CollectionCards, Value: by},
+			}, func(app *appCtx, refs []string) error {
 				link := app.Core.BlockCard
 				if remove {
 					link = app.Core.UnblockCard
 				}
 				if err := link(cmd.Context(), app.Project.ID,
-					core.ParseCardRef(args[0]), core.ParseCardRef(by)); err != nil {
+					core.ParseCardRef(refs[0]), core.ParseCardRef(refs[1])); err != nil {
 					return err
 				}
-				return emitBlockers(cmd, app, args[0])
+				return emitBlockers(cmd, app, refs[0])
 			})
 		},
 	}

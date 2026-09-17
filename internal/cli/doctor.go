@@ -292,9 +292,9 @@ func servingAddress(rawURL string) string {
 func checkProject() Check {
 	switch {
 	case projectFlagKey != "":
-		return ok("project", strings.ToUpper(projectFlagKey)+" (from --project)")
+		return ok("project", normalizeProjectArg(projectFlagKey)+" (from --project)")
 	case os.Getenv("TRELLIS_PROJECT") != "":
-		return ok("project", strings.ToUpper(os.Getenv("TRELLIS_PROJECT"))+" (from TRELLIS_PROJECT)")
+		return ok("project", normalizeProjectArg(os.Getenv("TRELLIS_PROJECT"))+" (from TRELLIS_PROJECT)")
 	}
 	dir, err := os.Getwd()
 	if err != nil {

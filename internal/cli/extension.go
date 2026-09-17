@@ -24,7 +24,7 @@ func newExtensionConfigCmd() *cobra.Command {
 			// project named by --project or TRELLIS_PROJECT has no pin and so
 			// no repository file: the subtree is null.
 			var repoDir string
-			if projectKey() == "" {
+			if !projectNamed() {
 				dir, err := repoConfigDir()
 				if err != nil {
 					return err

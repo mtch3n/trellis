@@ -213,6 +213,10 @@ func TestCheckProjectNamesItsSource(t *testing.T) {
 	if got := checkProject(); !strings.Contains(got.Detail, "ENVKEY (from TRELLIS_PROJECT)") {
 		t.Errorf("env: %+v", got)
 	}
+	t.Setenv("TRELLIS_PROJECT", "/envkey")
+	if got := checkProject(); !strings.Contains(got.Detail, "ENVKEY (from TRELLIS_PROJECT)") {
+		t.Errorf("env address: %+v", got)
+	}
 	projectFlagKey = "flagkey"
 	t.Cleanup(func() { projectFlagKey = "" })
 	if got := checkProject(); !strings.Contains(got.Detail, "FLAGKEY (from --project)") {
