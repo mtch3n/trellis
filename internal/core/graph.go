@@ -87,7 +87,7 @@ func (c *Core) Traverse(ctx context.Context, startID string, depth int, rels []s
 				node.Type, node.Ref, node.Title, node.Done = "card", card.Ref, card.Title, done
 			} else {
 				var doc Knowledge
-				if err := tx.Get(&doc, `SELECT * FROM knowledge WHERE id = ?`, r.ID); err == nil {
+				if err := tx.Get(&doc, `SELECT * FROM entry WHERE id = ?`, r.ID); err == nil {
 					key := GlobalKey
 					if !doc.Global {
 						if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, doc.ProjectID); err != nil {

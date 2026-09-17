@@ -62,7 +62,7 @@ func (c *Core) ProjectByKey(ctx context.Context, key string) (Project, error) {
 // ownedEntities selects every id a project owns that a link row can name.
 // Links carry no foreign key, so the cascade from project never reaches them.
 const ownedEntities = `SELECT id FROM card WHERE project_id = ?
-	UNION ALL SELECT id FROM knowledge WHERE project_id = ?
+	UNION ALL SELECT id FROM entry WHERE project_id = ?
 	UNION ALL SELECT id FROM artifact WHERE project_id = ?`
 
 // DeleteProject removes a project and everything it owns: boards, cards,
@@ -97,7 +97,7 @@ func (c *Core) DeleteProject(ctx context.Context, key string) error {
 
 		var held int
 		if err := tx.Get(&held,
-			`SELECT COUNT(*) FROM card WHERE project_id = ? AND owner IS NOT NULL AND lease_until > ?`,
+			`SELECT COUNT(*) FROM card WHERE project_id = ? AND claimed_by IS NOT NULL AND claim_until > ?`,
 			p.ID, c.clock.NowMS()); err != nil {
 			return err
 		}
@@ -108,7 +108,7 @@ func (c *Core) DeleteProject(ctx context.Context, key string) error {
 		}
 
 		var vault int
-		if err := tx.Get(&vault, `SELECT COUNT(*) FROM knowledge WHERE project_id = ? AND global = 1`, p.ID); err != nil {
+		if err := tx.Get(&vault, `SELECT COUNT(*) FROM entry WHERE project_id = ? AND global = 1`, p.ID); err != nil {
 			return err
 		}
 		if vault > 0 {

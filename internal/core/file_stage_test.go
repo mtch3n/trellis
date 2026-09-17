@@ -32,9 +32,9 @@ func exists(path string) bool {
 
 func TestFileStageRollsBackInReverseOrder(t *testing.T) {
 	root := t.TempDir()
-	src := filepath.Join(root, "projects", "API", "knowledge", "a.md")
-	dst := filepath.Join(root, "projects", "MONO", "knowledge", "a.md")
-	other := filepath.Join(root, "projects", "CORE", "knowledge", "b.md")
+	src := filepath.Join(root, "projects", "API", "vault", "a.md")
+	dst := filepath.Join(root, "projects", "MONO", "vault", "a.md")
+	other := filepath.Join(root, "projects", "CORE", "vault", "b.md")
 	writeFile(t, src, "moved")
 	writeFile(t, other, "before")
 
@@ -127,8 +127,8 @@ func TestFileStageNeverOverwritesOnMove(t *testing.T) {
 
 func TestCopyUnderKeepsThePathsBelowTheRoot(t *testing.T) {
 	root := t.TempDir()
-	a := filepath.Join(root, "projects", "API", "knowledge", "a.md")
-	b := filepath.Join(root, "global", "knowledge", "b.md")
+	a := filepath.Join(root, "projects", "API", "vault", "a.md")
+	b := filepath.Join(root, "global", "vault", "b.md")
 	writeFile(t, a, "A")
 	writeFile(t, b, "B")
 	out := filepath.Join(t.TempDir(), "files")
@@ -139,8 +139,8 @@ func TestCopyUnderKeepsThePathsBelowTheRoot(t *testing.T) {
 	if want, _ := fileHash(a); hashes[a] != want || len(hashes) != 2 {
 		t.Errorf("hashes = %v", hashes)
 	}
-	if readFile(t, filepath.Join(out, "projects", "API", "knowledge", "a.md")) != "A" ||
-		readFile(t, filepath.Join(out, "global", "knowledge", "b.md")) != "B" {
+	if readFile(t, filepath.Join(out, "projects", "API", "vault", "a.md")) != "A" ||
+		readFile(t, filepath.Join(out, "global", "vault", "b.md")) != "B" {
 		t.Error("the copies are not laid out as under the root")
 	}
 	if _, err := copyUnder(root, out, []string{filepath.Join(t.TempDir(), "x.md")}); err == nil {

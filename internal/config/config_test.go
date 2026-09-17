@@ -359,17 +359,17 @@ func TestValidateValueRejectsNegativeHistoryKeep(t *testing.T) {
 }
 
 func TestValidateValueRejectsBadLeaseTTLAndSearchMethod(t *testing.T) {
-	if err := ValidateValue("lease.ttl", "banana"); err == nil {
-		t.Error("ValidateValue(lease.ttl, banana), want an error")
+	if err := ValidateValue("claim.ttl", "banana"); err == nil {
+		t.Error("ValidateValue(claim.ttl, banana), want an error")
 	}
-	if err := ValidateValue("lease.ttl", "-5m"); err == nil {
-		t.Error("ValidateValue(lease.ttl, -5m), want an error: not positive")
+	if err := ValidateValue("claim.ttl", "-5m"); err == nil {
+		t.Error("ValidateValue(claim.ttl, -5m), want an error: not positive")
 	}
-	if err := ValidateValue("lease.ttl", "0s"); err == nil {
-		t.Error("ValidateValue(lease.ttl, 0s), want an error: not positive")
+	if err := ValidateValue("claim.ttl", "0s"); err == nil {
+		t.Error("ValidateValue(claim.ttl, 0s), want an error: not positive")
 	}
-	if err := ValidateValue("lease.ttl", "30m"); err != nil {
-		t.Errorf("ValidateValue(lease.ttl, 30m): %v, want nil", err)
+	if err := ValidateValue("claim.ttl", "30m"); err != nil {
+		t.Errorf("ValidateValue(claim.ttl, 30m): %v, want nil", err)
 	}
 	if err := ValidateValue("search.method", "bogus"); err == nil {
 		t.Error("ValidateValue(search.method, bogus), want an error")
@@ -427,7 +427,7 @@ func TestDescribeSearchMethodIsAnEnumWithChoices(t *testing.T) {
 
 func TestSetGlobalValuesRoundTripsCommentsAndExtensions(t *testing.T) {
 	root := t.TempDir()
-	original := "# a comment\nlease:\n  ttl: 20m\nextensions:\n  actions: [a, b]\n"
+	original := "# a comment\nclaim:\n  ttl: 20m\nextensions:\n  actions: [a, b]\n"
 	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte(original), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -470,7 +470,7 @@ func readFile(t *testing.T, path string) string {
 func TestSetGlobalValuesRejectsWholeBatchOnOneBadValue(t *testing.T) {
 	root := t.TempDir()
 	_, err := SetGlobalValues(root, map[string]any{
-		"lease.ttl":              "45m",
+		"claim.ttl":              "45m",
 		"history.keep":           -1,
 		"labels.require_on_card": true,
 	}, nil)
@@ -485,7 +485,7 @@ func TestSetGlobalValuesRejectsWholeBatchOnOneBadValue(t *testing.T) {
 func TestSetGlobalValuesThenLoadReadsTypedValuesBack(t *testing.T) {
 	root := t.TempDir()
 	cfg, err := SetGlobalValues(root, map[string]any{
-		"lease.ttl":             "45m",
+		"claim.ttl":             "45m",
 		"history.keep":          50,
 		"board.default_columns": []any{"todo", "done"},
 	}, nil)
@@ -596,7 +596,7 @@ func writeRepoFile(t *testing.T, dir, name, content string) {
 func TestRepoSafeKeys(t *testing.T) {
 	safe := []string{
 		"card.ls_limit",
-		"lease.ttl", "board.default_columns",
+		"claim.ttl", "board.default_columns",
 		"labels.require_on_card", "tags.require_on_card",
 		"search.method",
 	}
@@ -617,8 +617,8 @@ func TestRepoSafeKeys(t *testing.T) {
 
 func TestRepoConfigPathBothPresentIsAnError(t *testing.T) {
 	dir := t.TempDir()
-	writeRepoFile(t, dir, ".trellis.yaml", "config:\n  lease.ttl: 45m\n")
-	writeRepoFile(t, dir, ".trellis.yml", "config:\n  lease.ttl: 45m\n")
+	writeRepoFile(t, dir, ".trellis.yaml", "config:\n  claim.ttl: 45m\n")
+	writeRepoFile(t, dir, ".trellis.yml", "config:\n  claim.ttl: 45m\n")
 
 	if _, err := RepoConfigPath(dir); err == nil {
 		t.Fatal("want an error naming both files")
@@ -627,7 +627,7 @@ func TestRepoConfigPathBothPresentIsAnError(t *testing.T) {
 
 func TestRepoConfigPathAcceptsEitherExtension(t *testing.T) {
 	dir := t.TempDir()
-	writeRepoFile(t, dir, ".trellis.yml", "config:\n  lease.ttl: 45m\n")
+	writeRepoFile(t, dir, ".trellis.yml", "config:\n  claim.ttl: 45m\n")
 	path, err := RepoConfigPath(dir)
 	if err != nil {
 		t.Fatalf("RepoConfigPath: %v", err)
@@ -655,7 +655,7 @@ func TestLoadRepoAppliesAllowedKeys(t *testing.T) {
 	dir := t.TempDir()
 	writeRepoFile(t, dir, ".trellis.yaml", `config:
   card.ls_limit: 25
-  lease.ttl: 45m
+  claim.ttl: 45m
   labels.require_on_card: true
   board.default_columns: [todo, doing, done]
 `)
@@ -678,7 +678,7 @@ func TestLoadRepoAppliesAllowedKeys(t *testing.T) {
 	if len(doc.Config.Board.DefaultColumns) != 3 || doc.Config.Board.DefaultColumns[0] != "todo" {
 		t.Errorf("Board.DefaultColumns = %v", doc.Config.Board.DefaultColumns)
 	}
-	for _, k := range []string{"card.ls_limit", "lease.ttl", "labels.require_on_card", "board.default_columns"} {
+	for _, k := range []string{"card.ls_limit", "claim.ttl", "labels.require_on_card", "board.default_columns"} {
 		if !doc.Present[k] {
 			t.Errorf("Present[%q] = false, want true", k)
 		}
@@ -719,14 +719,14 @@ func TestLoadRepoRejectsABadValue(t *testing.T) {
 	}
 }
 
-// review-cli #7: lease.ttl and search.method are plain strings, so a YAML
+// review-cli #7: claim.ttl and search.method are plain strings, so a YAML
 // type check alone never catches a value that does not parse for its key.
 func TestLoadRepoRejectsAnUnparseableLeaseTTL(t *testing.T) {
 	dir := t.TempDir()
-	writeRepoFile(t, dir, ".trellis.yaml", "config:\n  lease.ttl: banana\n")
+	writeRepoFile(t, dir, ".trellis.yaml", "config:\n  claim.ttl: banana\n")
 	_, _, _, err := LoadRepo(dir)
-	if err == nil || !strings.Contains(err.Error(), "lease.ttl") {
-		t.Fatalf("err = %v, want an error naming lease.ttl", err)
+	if err == nil || !strings.Contains(err.Error(), "claim.ttl") {
+		t.Fatalf("err = %v, want an error naming claim.ttl", err)
 	}
 }
 
@@ -773,11 +773,11 @@ func TestLoadRepoRejectsAnUnknownTopLevelKey(t *testing.T) {
 func TestLoadRepoPassesExtensionsThroughUntouched(t *testing.T) {
 	dir := t.TempDir()
 	writeRepoFile(t, dir, ".trellis.yaml", `config:
-  lease.ttl: 45m
+  claim.ttl: 45m
 
 extensions:
   actions:
-    - on: knowledge.created
+    - on: entry.created
       type: finding
       run: ./scripts/review-finding.sh
 `)
@@ -808,14 +808,14 @@ func TestAllKeysIncludesEveryKeyGetValueKnows(t *testing.T) {
 			t.Errorf("AllKeys lists %q, but GetValue does not recognize it", k)
 		}
 	}
-	if !slices.Contains(AllKeys(), "lease.ttl") {
-		t.Error("AllKeys is missing lease.ttl")
+	if !slices.Contains(AllKeys(), "claim.ttl") {
+		t.Error("AllKeys is missing claim.ttl")
 	}
 }
 
 func TestLoadWithPresenceDistinguishesFileFromDefault(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte("lease:\n  ttl: 10m\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte("claim:\n  ttl: 10m\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	cfg, present, err := LoadWithPresence(root)
@@ -825,8 +825,8 @@ func TestLoadWithPresenceDistinguishesFileFromDefault(t *testing.T) {
 	if cfg.Lease.TTL != "10m" {
 		t.Fatalf("Lease.TTL = %q, want 10m", cfg.Lease.TTL)
 	}
-	if !present["lease.ttl"] {
-		t.Error(`present["lease.ttl"] = false, want true: the file set it`)
+	if !present["claim.ttl"] {
+		t.Error(`present["claim.ttl"] = false, want true: the file set it`)
 	}
 	if present["card.ls_limit"] {
 		t.Error(`present["card.ls_limit"] = true, but the file never mentioned it`)
@@ -852,7 +852,7 @@ func TestEffectiveValueReportsDefaultThenConfigThenRepoThenProject(t *testing.T)
 	ctx := context.Background()
 
 	// 1. Nothing set anywhere: default.
-	value, source, err := EffectiveValue(ctx, Defaults(), map[string]bool{}, RepoDoc{}, db, "p1", "lease.ttl")
+	value, source, err := EffectiveValue(ctx, Defaults(), map[string]bool{}, RepoDoc{}, db, "p1", "claim.ttl")
 	if err != nil {
 		t.Fatalf("EffectiveValue: %v", err)
 	}
@@ -863,7 +863,7 @@ func TestEffectiveValueReportsDefaultThenConfigThenRepoThenProject(t *testing.T)
 	// 2. The global file set it: config.
 	globalCfg := Defaults()
 	globalCfg.Lease.TTL = "20m"
-	value, source, err = EffectiveValue(ctx, globalCfg, map[string]bool{"lease.ttl": true}, RepoDoc{}, db, "p1", "lease.ttl")
+	value, source, err = EffectiveValue(ctx, globalCfg, map[string]bool{"claim.ttl": true}, RepoDoc{}, db, "p1", "claim.ttl")
 	if err != nil {
 		t.Fatalf("EffectiveValue: %v", err)
 	}
@@ -872,8 +872,8 @@ func TestEffectiveValueReportsDefaultThenConfigThenRepoThenProject(t *testing.T)
 	}
 
 	// 3. The repository file also set it: repo wins over the global file.
-	repo := RepoDoc{Config: Config{Lease: LeaseConfig{TTL: "45m"}}, Present: map[string]bool{"lease.ttl": true}}
-	value, source, err = EffectiveValue(ctx, globalCfg, map[string]bool{"lease.ttl": true}, repo, db, "p1", "lease.ttl")
+	repo := RepoDoc{Config: Config{Lease: LeaseConfig{TTL: "45m"}}, Present: map[string]bool{"claim.ttl": true}}
+	value, source, err = EffectiveValue(ctx, globalCfg, map[string]bool{"claim.ttl": true}, repo, db, "p1", "claim.ttl")
 	if err != nil {
 		t.Fatalf("EffectiveValue: %v", err)
 	}
@@ -882,10 +882,10 @@ func TestEffectiveValueReportsDefaultThenConfigThenRepoThenProject(t *testing.T)
 	}
 
 	// 4. A project override wins over everything.
-	if err := SetProjectConfig(ctx, db, "p1", "lease.ttl", "5m"); err != nil {
+	if err := SetProjectConfig(ctx, db, "p1", "claim.ttl", "5m"); err != nil {
 		t.Fatalf("SetProjectConfig: %v", err)
 	}
-	value, source, err = EffectiveValue(ctx, globalCfg, map[string]bool{"lease.ttl": true}, repo, db, "p1", "lease.ttl")
+	value, source, err = EffectiveValue(ctx, globalCfg, map[string]bool{"claim.ttl": true}, repo, db, "p1", "claim.ttl")
 	if err != nil {
 		t.Fatalf("EffectiveValue: %v", err)
 	}
@@ -911,7 +911,7 @@ func TestApplyRepoOverridesCopiesEveryPresentKey(t *testing.T) {
 			Search: SearchConfig{Method: "vector"},
 			Tags:   TagsConfig{RequireOnCard: true},
 		},
-		Present: map[string]bool{"card.ls_limit": true, "lease.ttl": true, "search.method": true, "tags.require_on_card": true},
+		Present: map[string]bool{"card.ls_limit": true, "claim.ttl": true, "search.method": true, "tags.require_on_card": true},
 	}
 	merged := ApplyRepoOverrides(cfg, repo)
 	if merged.Card.LsLimit != 5 {
@@ -935,7 +935,7 @@ func TestApplyRepoOverridesCopiesEveryPresentKey(t *testing.T) {
 // The settings page matches each problem to its field by the "key: " prefix.
 func TestSetGlobalValuesProblemsStartWithTheirKey(t *testing.T) {
 	set := map[string]any{
-		"lease.ttl":     "soon",
+		"claim.ttl":     "soon",
 		"search.method": "grep",
 		"history.keep":  -1,
 		"card.ls_limit": "many",

@@ -120,10 +120,10 @@ func TestParseEachCollection(t *testing.T) {
 	}{
 		{"/TRELLIS/cards/TRELLIS-12", Path{"TRELLIS", CollectionCards, "TRELLIS-12"}},
 		{"/trellis/cards/trellis-12", Path{"TRELLIS", CollectionCards, "TRELLIS-12"}},
-		{"/TRELLIS/knowledge/concurrency-model", Path{"TRELLIS", CollectionKnowledge, "concurrency-model"}},
-		{"/GLOBAL/knowledge/pain-point-analysis", Path{"GLOBAL", CollectionKnowledge, "pain-point-analysis"}},
-		{"/TRELLIS/knowledge/ops/deploy/rollback", Path{"TRELLIS", CollectionKnowledge, "ops/deploy/rollback"}},
-		{"/global/knowledge/pain-point-analysis", Path{"GLOBAL", CollectionKnowledge, "pain-point-analysis"}},
+		{"/TRELLIS/vault/concurrency-model", Path{"TRELLIS", CollectionKnowledge, "concurrency-model"}},
+		{"/GLOBAL/vault/pain-point-analysis", Path{"GLOBAL", CollectionKnowledge, "pain-point-analysis"}},
+		{"/TRELLIS/vault/ops/deploy/rollback", Path{"TRELLIS", CollectionKnowledge, "ops/deploy/rollback"}},
+		{"/global/vault/pain-point-analysis", Path{"GLOBAL", CollectionKnowledge, "pain-point-analysis"}},
 		{"/TRELLIS/artifacts/photo.PNG", Path{"TRELLIS", CollectionArtifacts, "photo.PNG"}},
 	}
 	for _, c := range cases {
@@ -144,12 +144,12 @@ func TestParseRejectsMalformedAddresses(t *testing.T) {
 		"/1BAD/cards/1BAD-1",
 		"/GLOBAL/cards/GLOBAL-1",
 		"/TRELLIS/artifacts/..",
-		"/TRELLIS/knowledge/Not_A_Slug",
+		"/TRELLIS/vault/Not_A_Slug",
 		"not/absolute/at/all",
-		"/TRELLIS/knowledge/",
-		"/TRELLIS/knowledge",
-		"/TRELLIS/knowledge/ops/",
-		"/TRELLIS/knowledge/ops//rollback",
+		"/TRELLIS/vault/",
+		"/TRELLIS/vault",
+		"/TRELLIS/vault/ops/",
+		"/TRELLIS/vault/ops//rollback",
 		"/TRELLIS/cards/TRELLIS-1/extra",
 		"/TRELLIS/artifacts/dir/photo.png",
 	}

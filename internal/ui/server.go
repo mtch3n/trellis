@@ -250,7 +250,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := s.db.GetContext(ctx, &staleLeases, `
 			SELECT COUNT(*) FROM card
-			WHERE project_id = ? AND owner IS NOT NULL AND (lease_until IS NULL OR lease_until < ?)`, p.ID, time.Now().UnixMilli()); err != nil {
+			WHERE project_id = ? AND claimed_by IS NOT NULL AND (claim_until IS NULL OR claim_until < ?)`, p.ID, time.Now().UnixMilli()); err != nil {
 			s.error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -258,7 +258,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 			SELECT COUNT(*) FROM event e
 			WHERE e.ts > ? AND (
 				EXISTS (SELECT 1 FROM card c WHERE c.id = e.entity_id AND c.project_id = ?) OR
-				EXISTS (SELECT 1 FROM knowledge k WHERE k.id = e.entity_id AND k.project_id = ?))`,
+				EXISTS (SELECT 1 FROM entry k WHERE k.id = e.entity_id AND k.project_id = ?))`,
 			time.Now().Add(-24*time.Hour).UnixMilli(), p.ID, p.ID); err != nil {
 			s.error(w, http.StatusInternalServerError, err.Error())
 			return
@@ -401,7 +401,7 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 		FROM event e
 		LEFT JOIN card c ON c.id = e.entity_id AND e.entity_type = 'card'
 		LEFT JOIN project pc ON pc.id = c.project_id
-		LEFT JOIN knowledge k ON k.id = e.entity_id AND e.entity_type = 'knowledge'
+		LEFT JOIN entry k ON k.id = e.entity_id AND e.entity_type = 'entry'
 		LEFT JOIN project pk ON pk.id = k.project_id
 		LEFT JOIN board b ON b.id = e.entity_id AND e.entity_type = 'board'
 		LEFT JOIN project pb ON pb.id = b.project_id
@@ -574,13 +574,13 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 		Title     string        `db:"title"`
 		Body      string        `db:"body_md"`
 		Priority  core.Priority `db:"priority"`
-		Owner     *string       `db:"owner"`
+		Owner     *string       `db:"claimed_by"`
 		Version   int64         `db:"version"`
 		CreatedAt int64         `db:"created_at"`
 		UpdatedAt int64         `db:"updated_at"`
 	}
 	if err := s.db.SelectContext(ctx, &allCards,
-		`SELECT id, column_id, ref, title, body_md, priority, owner, version, created_at, updated_at FROM card WHERE board_id = ? AND archived_at IS NULL ORDER BY priority, rank`,
+		`SELECT id, column_id, ref, title, body_md, priority, claimed_by, version, created_at, updated_at FROM card WHERE board_id = ? AND archived_at IS NULL ORDER BY priority, rank`,
 		b.ID); err != nil {
 		s.error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -730,7 +730,7 @@ func (s *Server) handleBoardEvents(w http.ResponseWriter, r *http.Request) {
 				SELECT 1 FROM card c
 				WHERE c.id = e.entity_id AND c.project_id = ? AND c.board_id = ?
 			) OR EXISTS (
-				SELECT 1 FROM knowledge k
+				SELECT 1 FROM entry k
 				WHERE k.id = e.entity_id AND k.project_id = ? AND k.board_id = ?
 			)`, p.ID, b.ID, p.ID, b.ID); err != nil {
 			return

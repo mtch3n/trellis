@@ -30,10 +30,11 @@ func mustExec(t *testing.T, db *sqlx.DB, q string) {
 	}
 }
 
+// migrateUp stops at 14: later migrations rename what these tests query.
 func migrateUp(t *testing.T, db *sqlx.DB) {
 	t.Helper()
-	if err := goose.Up(db.DB, "migrations"); err != nil {
-		t.Fatalf("Up: %v", err)
+	if err := goose.UpTo(db.DB, "migrations", 14); err != nil {
+		t.Fatalf("UpTo(14): %v", err)
 	}
 }
 

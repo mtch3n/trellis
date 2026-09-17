@@ -96,8 +96,8 @@ func TestKnowledgeLinksEndpoint(t *testing.T) {
 	if links[0].Raw != "target" {
 		t.Errorf("expected raw 'target', got %q", links[0].Raw)
 	}
-	if links[0].From != "/UITEST/knowledge/source" {
-		t.Errorf("expected from '/UITEST/knowledge/source', got %q", links[0].From)
+	if links[0].From != "/UITEST/vault/source" {
+		t.Errorf("expected from '/UITEST/vault/source', got %q", links[0].From)
 	}
 	if links[0].To != nil {
 		t.Errorf("expected to be null (stub), got %q", *links[0].To)

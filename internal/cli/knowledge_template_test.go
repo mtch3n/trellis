@@ -43,7 +43,7 @@ func TestTemplateNewRefusesAnExistingName(t *testing.T) {
 func TestTemplateNewEditRmRefusePathTraversalNames(t *testing.T) {
 	projectEnv(t)
 	entryPath := newEntry(t, "--title", "Runbook")
-	traversal := "../projects/TEST/knowledge/runbook"
+	traversal := "../projects/TEST/vault/runbook"
 
 	if _, err := runCmdErr(t, "knowledge", "template", "new", "../evil"); cliErrCode(err) != "bad_template_name" {
 		t.Errorf("template new ../evil: err = %v, want bad_template_name", err)

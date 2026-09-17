@@ -27,14 +27,14 @@ func TestWikilinkResolvesInAnotherProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
-		Title: "Setup", Body: "Follow [[/OTHERPROJ/knowledge/runbook]].\n"}); err != nil {
+		Title: "Setup", Body: "Follow [[/OTHERPROJ/vault/runbook]].\n"}); err != nil {
 		t.Fatal(err)
 	}
 	back, err := c.Backlinks(ctx, target.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(back) != 1 || back[0].Ref != "/XPSCTL/knowledge/setup" {
+	if len(back) != 1 || back[0].Ref != "/XPSCTL/vault/setup" {
 		t.Errorf("backlinks = %+v", back)
 	}
 	if _, findings := lintKinds(t, c, p.ID); len(findings) != 0 {
@@ -47,7 +47,7 @@ func TestCrossProjectStubIsBackfilled(t *testing.T) {
 	ctx := t.Context()
 	other := seededProject2(t, c)
 	if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
-		Title: "Setup", Body: "Follow [[/OTHERPROJ/knowledge/later]].\n"}); err != nil {
+		Title: "Setup", Body: "Follow [[/OTHERPROJ/vault/later]].\n"}); err != nil {
 		t.Fatal(err)
 	}
 	_, findings := lintKinds(t, c, p.ID)
@@ -70,14 +70,14 @@ func TestCrossProjectStubIsBackfilled(t *testing.T) {
 func TestLinkToAProjectThatDoesNotExistIsAStub(t *testing.T) {
 	c, p, _ := kbCore(t)
 	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
-		Title: "Setup", Body: "See [[/NOPE/knowledge/x]].\n"}); err != nil {
+		Title: "Setup", Body: "See [[/NOPE/vault/x]].\n"}); err != nil {
 		t.Fatalf("writing a link to a missing project must not fail: %v", err)
 	}
 	_, findings := lintKinds(t, c, p.ID)
-	if len(findings) != 1 || findings[0].Kind != "stub" || findings[0].Ref != "/NOPE/knowledge/x" {
+	if len(findings) != 1 || findings[0].Kind != "stub" || findings[0].Ref != "/NOPE/vault/x" {
 		t.Errorf("findings = %+v", findings)
 	}
-	if findings[0].Doc != "/XPSCTL/knowledge/setup" {
+	if findings[0].Doc != "/XPSCTL/vault/setup" {
 		t.Errorf("finding names its entry as %q, want its address", findings[0].Doc)
 	}
 }
@@ -103,7 +103,7 @@ func TestARelativeLinkFallsBackToTheVault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(back) != 1 || back[0].Ref != "/XPSCTL/knowledge/setup" {
+	if len(back) != 1 || back[0].Ref != "/XPSCTL/vault/setup" {
 		t.Errorf("vault backlinks = %+v", back)
 	}
 	if kinds, findings := lintKinds(t, c, p.ID); kinds["stub"] != 0 {
@@ -123,7 +123,7 @@ func TestARelativeLinkFallsBackToTheVault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(back) != 1 || back[0].Ref != "/XPSCTL/knowledge/onboarding" {
+	if len(back) != 1 || back[0].Ref != "/XPSCTL/vault/onboarding" {
 		t.Errorf("own backlinks = %+v, want the project entry to win", back)
 	}
 }
@@ -153,7 +153,7 @@ func TestTheOldQualifiedFormIsARelativeStub(t *testing.T) {
 func TestLintNamesAddressesThatNameNoEntry(t *testing.T) {
 	c, p, _ := kbCore(t)
 	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
-		Title: "Setup", Body: "A card: [[/XPSCTL/cards/XPSCTL-1]]. Broken: [[/xps_ctl/knowledge/x]].\n"}); err != nil {
+		Title: "Setup", Body: "A card: [[/XPSCTL/cards/XPSCTL-1]]. Broken: [[/xps_ctl/vault/x]].\n"}); err != nil {
 		t.Fatal(err)
 	}
 	kinds, findings := lintKinds(t, c, p.ID)
@@ -175,7 +175,7 @@ func TestAnchorsAreCheckedOnTheLinkedEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Setup",
-		Body: "Local [[runbook#steps]], remote [[/OTHERPROJ/knowledge/runbook#rollback]].\n"}); err != nil {
+		Body: "Local [[runbook#steps]], remote [[/OTHERPROJ/vault/runbook#rollback]].\n"}); err != nil {
 		t.Fatal(err)
 	}
 	if kinds, findings := lintKinds(t, c, p.ID); kinds["broken_anchor"] != 0 {
@@ -200,8 +200,8 @@ func TestMissingHeadingsInForeignAndVaultTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Setup", Body: "" +
-		"Foreign [[/OTHERPROJ/knowledge/runbook#rollback]] and [[/OTHERPROJ/knowledge/runbook#nope]].\n" +
-		"Vault [[/GLOBAL/knowledge/conventions#naming]] and [[conventions#missing]].\n"}); err != nil {
+		"Foreign [[/OTHERPROJ/vault/runbook#rollback]] and [[/OTHERPROJ/vault/runbook#nope]].\n" +
+		"Vault [[/GLOBAL/vault/conventions#naming]] and [[conventions#missing]].\n"}); err != nil {
 		t.Fatal(err)
 	}
 	_, findings := lintKinds(t, c, p.ID)
@@ -214,10 +214,10 @@ func TestMissingHeadingsInForeignAndVaultTargets(t *testing.T) {
 	if len(broken) != 2 {
 		t.Fatalf("broken anchors = %v, want two; findings: %+v", broken, findings)
 	}
-	if fix := broken["/OTHERPROJ/knowledge/runbook#nope"]; !strings.Contains(fix, "trellis knowledge show /OTHERPROJ/knowledge/runbook") {
+	if fix := broken["/OTHERPROJ/vault/runbook#nope"]; !strings.Contains(fix, "trellis knowledge show /OTHERPROJ/vault/runbook") {
 		t.Errorf("foreign fix = %q", fix)
 	}
-	if fix := broken["conventions#missing"]; !strings.Contains(fix, "trellis knowledge show /GLOBAL/knowledge/conventions") {
+	if fix := broken["conventions#missing"]; !strings.Contains(fix, "trellis knowledge show /GLOBAL/vault/conventions") {
 		t.Errorf("vault fix = %q", fix)
 	}
 }
@@ -235,7 +235,7 @@ func TestLinkCardToDocAcrossProjects(t *testing.T) {
 		t.Fatal(err)
 	}
 	ref := CardRef{Seq: card.Seq}
-	if err := c.LinkCardToDoc(ctx, p.ID, ref, "/OTHERPROJ/knowledge/runbook#rollback"); err != nil {
+	if err := c.LinkCardToDoc(ctx, p.ID, ref, "/OTHERPROJ/vault/runbook#rollback"); err != nil {
 		t.Fatalf("LinkCardToDoc: %v", err)
 	}
 	back, err := c.Backlinks(ctx, target.ID)
@@ -249,7 +249,7 @@ func TestLinkCardToDocAcrossProjects(t *testing.T) {
 	if got := errCode(t, err); got != "wrong_collection" {
 		t.Errorf("card address: code = %s", got)
 	}
-	err = c.LinkCardToDoc(ctx, p.ID, ref, "/OTHERPROJ/knowledge/missing")
+	err = c.LinkCardToDoc(ctx, p.ID, ref, "/OTHERPROJ/vault/missing")
 	if got := errCode(t, err); got != "knowledge_not_found" {
 		t.Errorf("missing entry: code = %s", got)
 	}

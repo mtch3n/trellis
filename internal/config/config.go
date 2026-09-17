@@ -22,7 +22,7 @@ import (
 // zero-value defaults since YAML parsing leaves unset fields as zero values.
 type Config struct {
 	UI      UIConfig      `yaml:"ui"`
-	Lease   LeaseConfig   `yaml:"lease"`
+	Lease   LeaseConfig   `yaml:"claim"`
 	Board   BoardConfig   `yaml:"board"`
 	Labels  LabelsConfig  `yaml:"labels"`
 	Tags    TagsConfig    `yaml:"tags"`
@@ -240,7 +240,7 @@ func GetValue(cfg Config, key string) (string, bool) {
 		return cfg.UI.Bind, true
 	case "ui.enabled":
 		return fmt.Sprintf("%v", cfg.UI.UIEnabled()), true
-	case "lease.ttl":
+	case "claim.ttl":
 		return cfg.Lease.TTL, true
 	case "board.default_columns":
 		// For arrays, return comma-separated values.
@@ -280,7 +280,7 @@ func GetValue(cfg Config, key string) (string, bool) {
 
 // ValidateValue rejects a value for a key with semantic constraints beyond
 // being a known key: history.keep's zero disables capture but its negative
-// values are nonsensical, not a synonym for "unlimited"; lease.ttl is a
+// values are nonsensical, not a synonym for "unlimited"; claim.ttl is a
 // wait, so a zero or negative duration means "immediately"; search.method
 // must name a method the retrieval service actually implements.
 func ValidateValue(key, value string) error {
@@ -294,7 +294,7 @@ func ValidateValue(key, value string) error {
 			return fmt.Errorf("history.keep: must not be negative, got %d", n)
 		}
 		return nil
-	case "lease.ttl":
+	case "claim.ttl":
 		return validatePositiveDuration(key, value)
 	case "search.method":
 		return validateChoice(key, value, searchMethods)
@@ -417,7 +417,7 @@ func ListProjectConfigs(ctx context.Context, db *sqlx.DB, projectID string) (map
 func RepoSafe(key string) bool {
 	switch key {
 	case "card.ls_limit",
-		"lease.ttl",
+		"claim.ttl",
 		"board.default_columns",
 		"labels.require_on_card",
 		"tags.require_on_card",
@@ -542,7 +542,7 @@ var searchMethods = []string{"fts", "vector", "hybrid"}
 // matching field of cfg, and rejects a value that would not parse for its
 // key -- not merely one of the wrong YAML type. A repository file is
 // committed and arrives with every clone, so a value only type-checked here
-// (lease.ttl and search.method are both plain strings, so any string passes
+// (claim.ttl and search.method are both plain strings, so any string passes
 // a type check) can silently disable the setting for everyone who clones it.
 // Every key RepoSafe allows is handled here.
 func setConfigField(cfg *Config, key string, node *yaml.Node) error {
@@ -552,7 +552,7 @@ func setConfigField(cfg *Config, key string, node *yaml.Node) error {
 			return err
 		}
 		return positiveNumber(cfg.Card.LsLimit)
-	case "lease.ttl":
+	case "claim.ttl":
 		var raw string
 		if err := node.Decode(&raw); err != nil {
 			return err
@@ -599,7 +599,7 @@ func positiveNumber(n int) error {
 func AllKeys() []string {
 	return []string{
 		"ui.port", "ui.bind", "ui.enabled",
-		"lease.ttl",
+		"claim.ttl",
 		"board.default_columns",
 		"labels.require_on_card",
 		"tags.require_on_card",
@@ -663,7 +663,7 @@ func Describe() []KeyInfo {
 			Description: "The loopback address the daemon's web UI and API bind to."},
 		{Key: "ui.enabled", Type: TypeBool, Editable: false, Restart: true,
 			Description: "Whether the daemon serves the web UI at all, or stays on local IPC only."},
-		{Key: "lease.ttl", Type: TypeDuration, Editable: true, Restart: false,
+		{Key: "claim.ttl", Type: TypeDuration, Editable: true, Restart: false,
 			Description: "How long a claim lasts before it expires."},
 		{Key: "board.default_columns", Type: TypeList, Editable: true, Restart: false,
 			Description: "The columns a new board starts with."},
@@ -716,7 +716,7 @@ func TypedValue(cfg Config, key string) (value any, ok bool) {
 		return cfg.UI.Bind, true
 	case "ui.enabled":
 		return cfg.UI.UIEnabled(), true
-	case "lease.ttl":
+	case "claim.ttl":
 		return cfg.Lease.TTL, true
 	case "board.default_columns":
 		return slices.Clone(cfg.Board.DefaultColumns), true
@@ -996,7 +996,7 @@ func readOrNewConfigRoot(path string) (*yaml.Node, error) {
 // setNestedValue sets the value at path inside mapping node m, creating
 // intermediate mappings as needed. Unlike setMapValueNode, which
 // SetRepoValue uses for a repository file's flat dotted-string keys,
-// config.yaml is a real nested tree -- "lease.ttl" lives at m["lease"]["ttl"]
+// config.yaml is a real nested tree -- "claim.ttl" lives at m["claim"]["ttl"]
 // -- so this walks path one segment at a time.
 func setNestedValue(m *yaml.Node, path []string, value *yaml.Node) {
 	if len(path) == 1 {
@@ -1117,7 +1117,7 @@ func ApplyRepoOverrides(cfg Config, repo RepoDoc) Config {
 		switch key {
 		case "card.ls_limit":
 			cfg.Card.LsLimit = repo.Config.Card.LsLimit
-		case "lease.ttl":
+		case "claim.ttl":
 			cfg.Lease.TTL = repo.Config.Lease.TTL
 		case "board.default_columns":
 			cfg.Board.DefaultColumns = repo.Config.Board.DefaultColumns
@@ -1284,7 +1284,7 @@ func writeRepoRoot(path string, root *yaml.Node) error {
 
 // writeFileAtomic writes data to path via a temp file and rename, so a
 // process killed mid-write never leaves a torn .trellis.yaml. This is
-// separate from internal/core's writeAtomic: a repository config file is not
+// separate from internal/atomicfile.Write: a repository config file is not
 // knowledge content, has no database row to keep in sync with, and is
 // deliberately overwritten on every set/unset rather than written
 // no-clobber-once.

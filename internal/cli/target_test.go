@@ -81,9 +81,9 @@ func TestAnAddressBeatsTrellisProjectAndConflictsWithTheFlag(t *testing.T) {
 
 func TestAMisdirectedOrMalformedAddress(t *testing.T) {
 	targetEnv(t)
-	_, err := execCmd("card", "show", "/BETA/knowledge/notes")
+	_, err := execCmd("card", "show", "/BETA/vault/notes")
 	ce := coreErr(t, err)
-	if ce.Code != "wrong_collection" || !strings.Contains(ce.Fix, "trellis knowledge show /BETA/knowledge/notes") {
+	if ce.Code != "wrong_collection" || !strings.Contains(ce.Fix, "trellis knowledge show /BETA/vault/notes") {
 		t.Errorf("error = %+v", ce)
 	}
 	_, err = execCmd("card", "show", "/BETA/cards/12")
@@ -189,22 +189,22 @@ func TestProjectAndBoardSelectorsTakeAddresses(t *testing.T) {
 
 // review-cli #3: a qualified card ref names the pinned project exactly as a
 // bare reference would, so it must read the repository file beside the pin
-// too -- lease.ttl included -- instead of only the global default.
+// too -- claim.ttl included -- instead of only the global default.
 func TestQualifiedCardRefReadsRepositoryLeaseTTL(t *testing.T) {
-	repoEnv(t, "config:\n  lease.ttl: 5h\n")
+	repoEnv(t, "config:\n  claim.ttl: 5h\n")
 	ref := refOf(t, "card", "new", "--title", "x") // REPO-1
 
 	before := time.Now().UnixMilli()
 	out := runCmd(t, "card", "claim", ref, "--json")
 	var v struct {
-		LeaseUntil int64 `json:"lease_until"`
+		LeaseUntil int64 `json:"claim_until"`
 	}
 	if err := json.Unmarshal([]byte(out), &v); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	got := time.Duration(v.LeaseUntil-before) * time.Millisecond
 	if got < 4*time.Hour || got > 6*time.Hour {
-		t.Errorf("claim %s: lease in %v, want ~5h from the repository lease.ttl", ref, got)
+		t.Errorf("claim %s: lease in %v, want ~5h from the repository claim.ttl", ref, got)
 	}
 }
 

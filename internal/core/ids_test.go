@@ -79,7 +79,7 @@ func TestParseCardRefReadsACardAddress(t *testing.T) {
 			t.Errorf("ParseCardRef(%q) = %+v, want %+v", in, got, want)
 		}
 	}
-	for _, s := range []string{"/XPSCTL/knowledge/design", "/XPSCTL/cards/12", "/XPSCTL", "/XPSCTL/cards/XPSCTL-99999999999999999999"} {
+	for _, s := range []string{"/XPSCTL/vault/design", "/XPSCTL/cards/12", "/XPSCTL", "/XPSCTL/cards/XPSCTL-99999999999999999999"} {
 		if got := ParseCardRef(s); got != (CardRef{}) {
 			t.Errorf("ParseCardRef(%q) = %+v, want the empty ref", s, got)
 		}

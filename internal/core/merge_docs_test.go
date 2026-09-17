@@ -38,11 +38,11 @@ func TestMergeMovesDocumentsAndRewritesAddresses(t *testing.T) {
 	ctx := t.Context()
 	core, _ := f.project("CORE")
 	runbook := f.doc(f.api, "Runbook", "Roll back with care.\n\n## Steps\n\nDo it.\n")
-	f.doc(f.api, "Index", "See [[runbook#steps]] and [[/API/knowledge/runbook]].\n")
-	cite := f.doc(core, "Citations", "Read [[/API/knowledge/runbook#steps|the runbook]].\n\n`[[/API/knowledge/runbook]]`\n")
+	f.doc(f.api, "Index", "See [[runbook#steps]] and [[/API/vault/runbook]].\n")
+	cite := f.doc(core, "Citations", "Read [[/API/vault/runbook#steps|the runbook]].\n\n`[[/API/vault/runbook]]`\n")
 	f.doc(f.mono, "Overview", "Waits for [[runbook]].\n")
 	card := f.card(f.api, f.apiBoard, "linked", nil, nil)
-	if err := f.c.LinkCardToDoc(ctx, f.api.ID, ParseCardRef(card.Ref), "/API/knowledge/runbook#steps"); err != nil {
+	if err := f.c.LinkCardToDoc(ctx, f.api.ID, ParseCardRef(card.Ref), "/API/vault/runbook#steps"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -53,13 +53,13 @@ func TestMergeMovesDocumentsAndRewritesAddresses(t *testing.T) {
 	}
 	rewritten := slices.Clone(plan.DocumentsRewritten)
 	slices.Sort(rewritten)
-	if !slices.Equal(rewritten, []string{"/CORE/knowledge/citations", "/MONO/knowledge/index"}) {
+	if !slices.Equal(rewritten, []string{"/CORE/vault/citations", "/MONO/vault/index"}) {
 		t.Errorf("rewritten = %v", plan.DocumentsRewritten)
 	}
 
-	moved := filepath.Join(f.root, "projects", "MONO", "knowledge", "runbook.md")
+	moved := filepath.Join(f.root, "projects", "MONO", "vault", "runbook.md")
 	doc, err := f.c.ReadKnowledge(ctx, f.mono.ID, "runbook")
-	if err != nil || doc.Path != moved || doc.Ref != "/MONO/knowledge/runbook" {
+	if err != nil || doc.Path != moved || doc.Ref != "/MONO/vault/runbook" {
 		t.Fatalf("runbook = %+v, %v", doc, err)
 	}
 	if _, err := os.Stat(moved); err != nil {
@@ -67,25 +67,25 @@ func TestMergeMovesDocumentsAndRewritesAddresses(t *testing.T) {
 	}
 
 	text := readFile(t, cite.Path)
-	if !strings.Contains(text, "[[/MONO/knowledge/runbook#steps|the runbook]]") ||
-		!strings.Contains(text, "`[[/API/knowledge/runbook]]`") {
+	if !strings.Contains(text, "[[/MONO/vault/runbook#steps|the runbook]]") ||
+		!strings.Contains(text, "`[[/API/vault/runbook]]`") {
 		t.Errorf("citations file:\n%s", text)
 	}
 	index, err := f.c.ReadKnowledge(ctx, f.mono.ID, "index")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(index.BodyMD, "[[runbook#steps]]") || !strings.Contains(index.BodyMD, "[[/MONO/knowledge/runbook]]") {
+	if !strings.Contains(index.BodyMD, "[[runbook#steps]]") || !strings.Contains(index.BodyMD, "[[/MONO/vault/runbook]]") {
 		t.Errorf("index body:\n%s", index.BodyMD)
 	}
 
 	refs := backlinkRefs(t, f.c, runbook.ID)
-	for _, want := range []string{"/CORE/knowledge/citations", "/MONO/knowledge/index", "/MONO/knowledge/overview", "API-1"} {
+	for _, want := range []string{"/CORE/vault/citations", "/MONO/vault/index", "/MONO/vault/overview", "API-1"} {
 		if !slices.Contains(refs, want) {
 			t.Errorf("backlinks %v lack %s", refs, want)
 		}
 	}
-	if n := f.count(`SELECT count(*) FROM link WHERE from_type = 'card' AND to_raw = '/MONO/knowledge/runbook#steps'`); n != 1 {
+	if n := f.count(`SELECT count(*) FROM link WHERE from_type = 'card' AND to_raw = '/MONO/vault/runbook#steps'`); n != 1 {
 		t.Errorf("card link targets rewritten: %d", n)
 	}
 }
@@ -108,10 +108,10 @@ func TestMergeCollapsesAnIdenticalDocument(t *testing.T) {
 	if !slices.Equal(plan.Knowledge.Collapsed, []string{"shared"}) || plan.Knowledge.Moved != 1 {
 		t.Errorf("knowledge = %+v", plan.Knowledge)
 	}
-	if n := f.count(`SELECT count(*) FROM knowledge WHERE slug = 'shared'`); n != 1 {
+	if n := f.count(`SELECT count(*) FROM entry WHERE slug = 'shared'`); n != 1 {
 		t.Errorf("%d shared entries remain", n)
 	}
-	if refs := backlinkRefs(t, f.c, m.ID); !slices.Contains(refs, "/MONO/knowledge/citer") {
+	if refs := backlinkRefs(t, f.c, m.ID); !slices.Contains(refs, "/MONO/vault/citer") {
 		t.Errorf("backlinks of the survivor = %v", refs)
 	}
 }
@@ -133,7 +133,7 @@ func TestMergeCollapsedDocumentEventIsProjectScoped(t *testing.T) {
 
 	f.merge(MergeOptions{Apply: true})
 
-	events, _, err := f.c.EventFeed(ctx, EventQuery{ProjectID: f.mono.ID, Kinds: []string{"knowledge"}})
+	events, _, err := f.c.EventFeed(ctx, EventQuery{ProjectID: f.mono.ID, Kinds: []string{"entry"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,23 +171,23 @@ func TestMergeRenamesConflictsOnRequest(t *testing.T) {
 	core, _ := f.project("CORE")
 	f.doc(f.api, "Runbook", "API's way.\n")
 	f.doc(f.mono, "Runbook", "MONO's way.\n")
-	f.doc(f.api, "Index", "[[runbook]] and [[/API/knowledge/runbook#x]]\n")
+	f.doc(f.api, "Index", "[[runbook]] and [[/API/vault/runbook#x]]\n")
 	home := f.doc(f.mono, "Home", "[[runbook]]\n")
-	elsewhere := f.doc(core, "Elsewhere", "[[/API/knowledge/runbook]]\n")
+	elsewhere := f.doc(core, "Elsewhere", "[[/API/vault/runbook]]\n")
 
 	plan := f.merge(MergeOptions{Apply: true, RenameConflicts: true})
 
 	if !slices.Equal(plan.Knowledge.Renamed, []Rename{{From: "runbook", To: "runbook-api"}}) {
 		t.Errorf("renamed = %+v", plan.Knowledge.Renamed)
 	}
-	index := readFile(t, filepath.Join(f.root, "projects", "MONO", "knowledge", "index.md"))
-	if !strings.Contains(index, "[[runbook-api]] and [[/MONO/knowledge/runbook-api#x]]") {
+	index := readFile(t, filepath.Join(f.root, "projects", "MONO", "vault", "index.md"))
+	if !strings.Contains(index, "[[runbook-api]] and [[/MONO/vault/runbook-api#x]]") {
 		t.Errorf("index:\n%s", index)
 	}
 	if got := readFile(t, home.Path); !strings.Contains(got, "[[runbook]]") || strings.Contains(got, "runbook-api") {
 		t.Errorf("MONO's own link changed:\n%s", got)
 	}
-	if got := readFile(t, elsewhere.Path); !strings.Contains(got, "[[/MONO/knowledge/runbook-api]]") {
+	if got := readFile(t, elsewhere.Path); !strings.Contains(got, "[[/MONO/vault/runbook-api]]") {
 		t.Errorf("elsewhere:\n%s", got)
 	}
 	renamed, err := f.c.ReadKnowledge(ctx, f.mono.ID, "runbook-api")
@@ -231,14 +231,14 @@ func TestMergeMovesAVaultEntryItOwns(t *testing.T) {
 		Global    bool   `db:"global"`
 		Slug      string `db:"slug"`
 	}
-	if err := f.c.db.Get(&row, `SELECT project_id, global, slug FROM knowledge WHERE id = ?`, escalated.ID); err != nil {
+	if err := f.c.db.Get(&row, `SELECT project_id, global, slug FROM entry WHERE id = ?`, escalated.ID); err != nil {
 		t.Fatal(err)
 	}
 	if row.ProjectID != f.mono.ID || !row.Global || f.c.docPath(GlobalKey, true, row.Slug) != vaultPath {
 		t.Errorf("vault row = %+v", row)
 	}
-	got, err := f.c.ReadKnowledge(ctx, "", "/GLOBAL/knowledge/conventions")
-	if err != nil || got.Ref != "/GLOBAL/knowledge/conventions" {
+	got, err := f.c.ReadKnowledge(ctx, "", "/GLOBAL/vault/conventions")
+	if err != nil || got.Ref != "/GLOBAL/vault/conventions" {
 		t.Errorf("vault entry = %+v, %v", got, err)
 	}
 }
@@ -246,7 +246,7 @@ func TestMergeMovesAVaultEntryItOwns(t *testing.T) {
 func TestMergeDocumentPlanMatchesApply(t *testing.T) {
 	f := newMergeFixture(t)
 	f.doc(f.api, "Runbook", "x\n")
-	f.doc(f.api, "Index", "[[/API/knowledge/runbook]]\n")
+	f.doc(f.api, "Index", "[[/API/vault/runbook]]\n")
 	plan := f.merge(MergeOptions{})
 	applied := f.merge(MergeOptions{Apply: true})
 	applied.Backup, applied.Warnings = "", nil
@@ -258,7 +258,7 @@ func TestMergeDocumentPlanMatchesApply(t *testing.T) {
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("backups: %v, %v", entries, err)
 	}
-	copied := filepath.Join(backup, entries[0].Name(), "files", "projects", "API", "knowledge", "runbook.md")
+	copied := filepath.Join(backup, entries[0].Name(), "files", "projects", "API", "vault", "runbook.md")
 	if _, err := os.Stat(copied); err != nil {
 		t.Errorf("the backup lacks the moved file: %v", err)
 	}
@@ -282,11 +282,11 @@ func TestMergeFailureRestoresFiles(t *testing.T) {
 	if _, err := f.c.EditKnowledge(t.Context(), f.api.ID, runbook.Slug, "y\n", &runbook.Version); err != nil {
 		t.Fatal(err)
 	}
-	citeCore := f.doc(core, "Citations", "[[/API/knowledge/runbook]]\n")
-	citeTeam := f.doc(team, "Notes", "[[/API/knowledge/runbook]]\n")
-	free, freeAddr, blocked := citeCore, "/CORE/knowledge/citations", citeTeam
+	citeCore := f.doc(core, "Citations", "[[/API/vault/runbook]]\n")
+	citeTeam := f.doc(team, "Notes", "[[/API/vault/runbook]]\n")
+	free, freeAddr, blocked := citeCore, "/CORE/vault/citations", citeTeam
 	if citeTeam.ID < citeCore.ID {
-		free, freeAddr, blocked = citeTeam, "/TEAM/knowledge/notes", citeCore
+		free, freeAddr, blocked = citeTeam, "/TEAM/vault/notes", citeCore
 	}
 	freeOriginal := readFile(t, free.Path)
 	before := f.snapshot()
@@ -326,7 +326,7 @@ func TestMergeMovesRevisionsAndKeepsOneForARewrite(t *testing.T) {
 	if _, err := f.c.EditKnowledge(ctx, f.api.ID, runbook.Slug, "second\n", &runbook.Version); err != nil {
 		t.Fatal(err)
 	}
-	cite := f.doc(core, "Citations", "[[/API/knowledge/runbook]]\n")
+	cite := f.doc(core, "Citations", "[[/API/vault/runbook]]\n")
 
 	f.merge(MergeOptions{Apply: true})
 
@@ -339,12 +339,12 @@ func TestMergeMovesRevisionsAndKeepsOneForARewrite(t *testing.T) {
 		}
 	}
 	has1(f.mono.ID, "runbook")
-	moved := filepath.Join(f.root, "projects", "MONO", "knowledge", "runbook.md")
+	moved := filepath.Join(f.root, "projects", "MONO", "vault", "runbook.md")
 	if old := readFile(t, revisionFilePath(moved, 1)); !strings.Contains(old, "first") {
 		t.Errorf("moved revision = %q, want the first text", old)
 	}
 	has1(core.ID, cite.Slug)
-	if old := readFile(t, revisionFilePath(cite.Path, 1)); !strings.Contains(old, "[[/API/knowledge/runbook]]") {
+	if old := readFile(t, revisionFilePath(cite.Path, 1)); !strings.Contains(old, "[[/API/vault/runbook]]") {
 		t.Errorf("kept revision = %q, want the text before the rewrite", old)
 	}
 }
@@ -356,17 +356,17 @@ func TestMergeRewritesLinksTheDatabaseHasNotSeen(t *testing.T) {
 	core, _ := f.project("CORE")
 	f.doc(f.api, "Runbook", "x\n")
 	notes := f.doc(core, "Notes", "Nothing yet.\n")
-	edited := readFile(t, notes.Path) + "\nSee [[/API/knowledge/runbook]].\n"
+	edited := readFile(t, notes.Path) + "\nSee [[/API/vault/runbook]].\n"
 	if err := os.WriteFile(notes.Path, []byte(edited), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	plan := f.merge(MergeOptions{Apply: true})
 
-	if !slices.Contains(plan.DocumentsRewritten, "/CORE/knowledge/notes") {
+	if !slices.Contains(plan.DocumentsRewritten, "/CORE/vault/notes") {
 		t.Errorf("rewritten = %v", plan.DocumentsRewritten)
 	}
-	if got := readFile(t, notes.Path); !strings.Contains(got, "[[/MONO/knowledge/runbook]]") {
+	if got := readFile(t, notes.Path); !strings.Contains(got, "[[/MONO/vault/runbook]]") {
 		t.Errorf("notes:\n%s", got)
 	}
 }
@@ -392,7 +392,7 @@ func TestMergeKeepsBothReasonsOfOneActorsNominations(t *testing.T) {
 	f.merge(MergeOptions{Apply: true})
 
 	var reasons []string
-	if err := f.c.db.Select(&reasons, `SELECT reason FROM nomination WHERE knowledge_id = ?`, m.ID); err != nil {
+	if err := f.c.db.Select(&reasons, `SELECT reason FROM nomination WHERE entry_id = ?`, m.ID); err != nil {
 		t.Fatal(err)
 	}
 	if len(reasons) != 1 || !strings.Contains(reasons[0], "mono reason") || !strings.Contains(reasons[0], "api reason") {
@@ -403,7 +403,7 @@ func TestMergeKeepsBothReasonsOfOneActorsNominations(t *testing.T) {
 func TestMergePlanSeesAnUntrackedFileInTheWay(t *testing.T) {
 	f := newMergeFixture(t)
 	f.doc(f.api, "Runbook", "x\n")
-	writeFile(t, filepath.Join(f.root, "projects", "MONO", "knowledge", "runbook.md"), "not tracked")
+	writeFile(t, filepath.Join(f.root, "projects", "MONO", "vault", "runbook.md"), "not tracked")
 
 	plan := f.merge(MergeOptions{})
 
@@ -453,7 +453,7 @@ func TestMergeRewritesSourcesAddresses(t *testing.T) {
 	}
 	decision, err := f.c.CreateKnowledge(ctx, core.ID, NewKnowledge{
 		Title: "Adopt X", Template: "decision",
-		Sources: []string{"/API/knowledge/runbook", "/API/artifacts/shot.png", "/API/cards/API-1"},
+		Sources: []string{"/API/vault/runbook", "/API/artifacts/shot.png", "/API/cards/API-1"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -464,7 +464,7 @@ func TestMergeRewritesSourcesAddresses(t *testing.T) {
 	if !plan.Ready {
 		t.Fatalf("plan not ready: %+v", plan)
 	}
-	if !slices.Contains(plan.DocumentsRewritten, "/CORE/knowledge/adopt-x") {
+	if !slices.Contains(plan.DocumentsRewritten, "/CORE/vault/adopt-x") {
 		t.Errorf("plan's rewritten = %v", plan.DocumentsRewritten)
 	}
 	if after := f.snapshot(); after != before {
@@ -472,7 +472,7 @@ func TestMergeRewritesSourcesAddresses(t *testing.T) {
 	}
 
 	applied := f.merge(MergeOptions{Apply: true, RenameConflicts: true})
-	if !slices.Contains(applied.DocumentsRewritten, "/CORE/knowledge/adopt-x") {
+	if !slices.Contains(applied.DocumentsRewritten, "/CORE/vault/adopt-x") {
 		t.Errorf("applied's rewritten = %v", applied.DocumentsRewritten)
 	}
 
@@ -480,7 +480,7 @@ func TestMergeRewritesSourcesAddresses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"/MONO/knowledge/runbook", "/MONO/artifacts/shot-api.png", "/MONO/cards/API-1"}
+	want := []string{"/MONO/vault/runbook", "/MONO/artifacts/shot-api.png", "/MONO/cards/API-1"}
 	if !slices.Equal(got.Sources, want) {
 		t.Errorf("sources = %v, want %v", got.Sources, want)
 	}

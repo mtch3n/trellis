@@ -16,7 +16,7 @@ const ReadWindowDays = 30
 // arguments — the slug is exactly what it drops — so the read is recorded here
 // instead, where it is exact rather than parsed back out of a command line.
 func (c *Core) recordRead(tx *sqlx.Tx, docID string) error {
-	return c.recordEvent(tx, "knowledge", docID, "read", "", "", "")
+	return c.recordEvent(tx, "entry", docID, "read", "", "", "")
 }
 
 // HealthLine is one row of the housekeeping report. Every line names the
@@ -42,15 +42,15 @@ func (c *Core) Health(ctx context.Context, projectID string) ([]HealthLine, erro
 
 	var cold, stale, total int
 	err = c.Tx(ctx, func(tx *sqlx.Tx) error {
-		if err := tx.Get(&total, `SELECT COUNT(*) FROM knowledge WHERE project_id = ?`, projectID); err != nil {
+		if err := tx.Get(&total, `SELECT COUNT(*) FROM entry WHERE project_id = ?`, projectID); err != nil {
 			return err
 		}
 		if err := tx.Get(&cold, `
-			SELECT COUNT(*) FROM knowledge k
+			SELECT COUNT(*) FROM entry k
 			WHERE k.project_id = ?
 			  AND NOT EXISTS (
 			    SELECT 1 FROM event e
-			    WHERE e.entity_type = 'knowledge' AND e.entity_id = k.id
+			    WHERE e.entity_type = 'entry' AND e.entity_id = k.id
 			      AND e.action = 'read' AND e.ts > ?)`,
 			projectID, c.clock.NowMS()-readWindowMS()); err != nil {
 			return err
@@ -131,11 +131,11 @@ func (c *Core) ColdKnowledge(ctx context.Context, projectID string) ([]Knowledge
 	docs := []Knowledge{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		if err := tx.Select(&docs, `
-			SELECT k.* FROM knowledge k
+			SELECT k.* FROM entry k
 			WHERE k.project_id = ?
 			  AND NOT EXISTS (
 			    SELECT 1 FROM event e
-			    WHERE e.entity_type = 'knowledge' AND e.entity_id = k.id
+			    WHERE e.entity_type = 'entry' AND e.entity_id = k.id
 			      AND e.action = 'read' AND e.ts > ?)
 			ORDER BY k.updated_at`, projectID, c.clock.NowMS()-readWindowMS()); err != nil {
 			return err

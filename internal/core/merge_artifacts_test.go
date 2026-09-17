@@ -135,7 +135,7 @@ func TestMergeCollapsedArtifactKeepsADocLinksName(t *testing.T) {
 
 	var toRaw string
 	if err := f.c.db.Get(&toRaw,
-		`SELECT to_raw FROM link WHERE from_type = 'doc' AND to_type = 'artifact' AND to_id = ?`, monoLogo.ID); err != nil {
+		`SELECT to_raw FROM link WHERE from_type = 'entry' AND to_type = 'artifact' AND to_id = ?`, monoLogo.ID); err != nil {
 		t.Fatal(err)
 	}
 	if toRaw != "logo.png" {

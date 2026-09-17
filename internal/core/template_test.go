@@ -188,7 +188,7 @@ func TestCreateKnowledgeRefusesPathTraversalTemplateName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateKnowledge secret: %v", err)
 	}
-	traversal := "../projects/" + p.Key + "/knowledge/" + secret.Slug
+	traversal := "../projects/" + p.Key + "/vault/" + secret.Slug
 	_, err = c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Copy", Template: traversal})
 	if !isCode(err, "bad_template_name") {
 		t.Fatalf("CreateKnowledge --template %s: err = %v, want bad_template_name", traversal, err)

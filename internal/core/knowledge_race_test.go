@@ -252,7 +252,7 @@ func TestAFailedEditPutsTheFileBack(t *testing.T) {
 	}
 
 	var version int64
-	if err := c.db.Get(&version, `SELECT version FROM knowledge WHERE id = ?`, doc.ID); err != nil {
+	if err := c.db.Get(&version, `SELECT version FROM entry WHERE id = ?`, doc.ID); err != nil {
 		t.Fatal(err)
 	}
 	if version != doc.Version {
@@ -332,7 +332,7 @@ func TestAFailedEscalateMovesTheFileBack(t *testing.T) {
 	if _, err := os.Stat(original); err != nil {
 		t.Errorf("file should be back at %s: %v", original, err)
 	}
-	globalDir := filepath.Join(c.root, "global", "knowledge")
+	globalDir := filepath.Join(c.root, "global", "vault")
 	if _, err := os.Stat(filepath.Join(globalDir, filepath.Base(original))); !os.IsNotExist(err) {
 		t.Errorf("file should not remain in the global directory")
 	}
@@ -458,7 +458,7 @@ func TestAFailedDeletePutsTheFileBack(t *testing.T) {
 	}
 
 	var count int
-	if err := c.db.Get(&count, `SELECT COUNT(*) FROM knowledge WHERE id = ?`, doc.ID); err != nil {
+	if err := c.db.Get(&count, `SELECT COUNT(*) FROM entry WHERE id = ?`, doc.ID); err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 {
@@ -552,7 +552,7 @@ func TestAPanicAfterTheEditWritePutsTheFileBack(t *testing.T) {
 		t.Errorf("file = %q, want the original bytes restored after the panic", raw)
 	}
 	var version int64
-	if err := c.db.Get(&version, `SELECT version FROM knowledge WHERE id = ?`, doc.ID); err != nil {
+	if err := c.db.Get(&version, `SELECT version FROM entry WHERE id = ?`, doc.ID); err != nil {
 		t.Fatal(err)
 	}
 	if version != doc.Version {
@@ -590,7 +590,7 @@ func TestAPanicAfterTheDeleteWritePutsTheFileBack(t *testing.T) {
 		t.Errorf("file = %q, want the original bytes restored after the panic", raw)
 	}
 	var count int
-	if err := c.db.Get(&count, `SELECT COUNT(*) FROM knowledge WHERE id = ?`, doc.ID); err != nil {
+	if err := c.db.Get(&count, `SELECT COUNT(*) FROM entry WHERE id = ?`, doc.ID); err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 {
@@ -619,7 +619,7 @@ func TestAPanicAfterTheEscalateMoveMovesTheFileBack(t *testing.T) {
 	if _, err := os.Stat(original); err != nil {
 		t.Errorf("file should be back at %s: %v", original, err)
 	}
-	globalDir := filepath.Join(c.root, "global", "knowledge")
+	globalDir := filepath.Join(c.root, "global", "vault")
 	if _, err := os.Stat(filepath.Join(globalDir, filepath.Base(original))); !os.IsNotExist(err) {
 		t.Errorf("file should not remain in the global directory")
 	}

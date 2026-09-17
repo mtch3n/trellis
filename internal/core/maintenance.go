@@ -71,7 +71,7 @@ func (c *Core) Compact(ctx context.Context) error {
 // loadDoc/refreshFromFile, which set Path as a side effect of reading one
 // entry's own file.
 func (c *Core) knowledgeWithPaths(tx *sqlx.Tx, projectID string) ([]Knowledge, error) {
-	q := `SELECT k.*, p.key AS pkey FROM knowledge k JOIN project p ON p.id = k.project_id`
+	q := `SELECT k.*, p.key AS pkey FROM entry k JOIN project p ON p.id = k.project_id`
 	var args []any
 	if projectID != "" {
 		q += ` WHERE k.project_id = ?`

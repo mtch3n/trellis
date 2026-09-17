@@ -41,7 +41,7 @@ func TestEscalationBackfillsVaultStubs(t *testing.T) {
 	ctx := t.Context()
 	other := seededProject2(t, c)
 	if _, err := c.CreateKnowledge(ctx, other.ID, NewKnowledge{
-		Title: "Notes", Body: "See [[/GLOBAL/knowledge/conventions]].\n"}); err != nil {
+		Title: "Notes", Body: "See [[/GLOBAL/vault/conventions]].\n"}); err != nil {
 		t.Fatal(err)
 	}
 	if kinds, _ := lintKinds(t, c, other.ID); kinds["stub"] != 1 {

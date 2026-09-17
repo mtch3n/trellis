@@ -22,7 +22,7 @@ func (c *Core) ArchiveCard(ctx context.Context, projectID string, ref CardRef) (
 		}
 		now := c.clock.NowMS()
 		if _, err := tx.Exec(
-			`UPDATE card SET archived_at = ?, owner = NULL, lease_until = NULL,
+			`UPDATE card SET archived_at = ?, claimed_by = NULL, claim_until = NULL,
 			                 version = version + 1, updated_at = ? WHERE id = ?`,
 			now, now, card.ID); err != nil {
 			return err
@@ -53,7 +53,7 @@ func (c *Core) UnarchiveCard(ctx context.Context, projectID string, ref CardRef)
 			c.clock.NowMS(), card.ID); err != nil {
 			return err
 		}
-		if err := c.recordEvent(tx, "card", card.ID, "unarchived", "", "", ""); err != nil {
+		if err := c.recordEvent(tx, "card", card.ID, "restored", "", "", ""); err != nil {
 			return err
 		}
 		return c.loadCard(tx, projectID, ref, &card)

@@ -18,7 +18,7 @@ import (
 // from the text must disappear from the graph.
 func (c *Core) syncDocRelations(tx *sqlx.Tx, doc *Knowledge, fm Frontmatter, body string) error {
 	if _, err := tx.Exec(
-		`DELETE FROM link WHERE from_type = 'doc' AND from_id = ? AND rel = 'wikilink'`, doc.ID); err != nil {
+		`DELETE FROM link WHERE from_type = 'entry' AND from_id = ? AND rel = 'wikilink'`, doc.ID); err != nil {
 		return err
 	}
 	for _, ref := range ParseWikilinks(body) {
@@ -28,7 +28,7 @@ func (c *Core) syncDocRelations(tx *sqlx.Tx, doc *Knowledge, fm Frontmatter, bod
 		}
 		if _, err := tx.Exec(
 			`INSERT OR IGNORE INTO link (from_type, from_id, to_type, to_id, to_raw, anchor, rel)
-			 VALUES ('doc', ?, 'doc', ?, ?, ?, 'wikilink')`,
+			 VALUES ('entry', ?, 'entry', ?, ?, ?, 'wikilink')`,
 			doc.ID, toID, ref.Raw, nullIfEmpty(ref.Anchor)); err != nil {
 			return err
 		}
@@ -39,7 +39,7 @@ func (c *Core) syncDocRelations(tx *sqlx.Tx, doc *Knowledge, fm Frontmatter, bod
 	// the record. The names are deduplicated here rather than by the UNIQUE
 	// constraint, which cannot collapse rows whose anchor is NULL.
 	if _, err := tx.Exec(
-		`DELETE FROM link WHERE from_type = 'doc' AND from_id = ? AND rel = 'artifact'`, doc.ID); err != nil {
+		`DELETE FROM link WHERE from_type = 'entry' AND from_id = ? AND rel = 'artifact'`, doc.ID); err != nil {
 		return err
 	}
 	for _, name := range dedupeNames(fm.Artifacts) {
@@ -49,7 +49,7 @@ func (c *Core) syncDocRelations(tx *sqlx.Tx, doc *Knowledge, fm Frontmatter, bod
 		}
 		if _, err := tx.Exec(
 			`INSERT INTO link (from_type, from_id, to_type, to_id, to_raw, rel)
-			 VALUES ('doc', ?, 'artifact', ?, ?, 'artifact')`,
+			 VALUES ('entry', ?, 'artifact', ?, ?, 'artifact')`,
 			doc.ID, toID, name); err != nil {
 			return err
 		}
@@ -58,7 +58,7 @@ func (c *Core) syncDocRelations(tx *sqlx.Tx, doc *Knowledge, fm Frontmatter, bod
 	// Tags come from both the frontmatter and the body; labels only from the
 	// frontmatter, because a label is a controlled vocabulary and inventing one
 	// mid-sentence is how vocabularies rot.
-	if _, err := tx.Exec(`DELETE FROM knowledge_tag WHERE doc_id = ?`, doc.ID); err != nil {
+	if _, err := tx.Exec(`DELETE FROM entry_tag WHERE entry_id = ?`, doc.ID); err != nil {
 		return err
 	}
 	tags := append(append([]string{}, fm.Tags...), ParseInlineTags(body)...)
@@ -68,12 +68,12 @@ func (c *Core) syncDocRelations(tx *sqlx.Tx, doc *Knowledge, fm Frontmatter, bod
 			return err
 		}
 		if _, err := tx.Exec(
-			`INSERT OR IGNORE INTO knowledge_tag (doc_id, tag_id) VALUES (?, ?)`, doc.ID, tag.ID); err != nil {
+			`INSERT OR IGNORE INTO entry_tag (entry_id, tag_id) VALUES (?, ?)`, doc.ID, tag.ID); err != nil {
 			return err
 		}
 	}
 
-	if _, err := tx.Exec(`DELETE FROM knowledge_label WHERE doc_id = ?`, doc.ID); err != nil {
+	if _, err := tx.Exec(`DELETE FROM entry_label WHERE entry_id = ?`, doc.ID); err != nil {
 		return err
 	}
 	for _, name := range dedupe(fm.Labels) {
@@ -83,7 +83,7 @@ func (c *Core) syncDocRelations(tx *sqlx.Tx, doc *Knowledge, fm Frontmatter, bod
 				`trellis label new `+name+` --description "..."`)
 		}
 		if _, err := tx.Exec(
-			`INSERT OR IGNORE INTO knowledge_label (doc_id, label_id) VALUES (?, ?)`, doc.ID, label.ID); err != nil {
+			`INSERT OR IGNORE INTO entry_label (entry_id, label_id) VALUES (?, ?)`, doc.ID, label.ID); err != nil {
 			return err
 		}
 	}
@@ -105,13 +105,13 @@ func (c *Core) resolveDocRef(tx *sqlx.Tx, projectID string, ref Reference) (any,
 	var args []any
 	switch ref.ProjectKey {
 	case "":
-		q = `SELECT id FROM knowledge WHERE slug = ? AND (project_id = ? OR global = 1)
+		q = `SELECT id FROM entry WHERE slug = ? AND (project_id = ? OR global = 1)
 		     ORDER BY global LIMIT 1`
 		args = []any{ref.Slug, projectID}
 	case GlobalKey:
-		q, args = `SELECT id FROM knowledge WHERE slug = ? AND global = 1`, []any{ref.Slug}
+		q, args = `SELECT id FROM entry WHERE slug = ? AND global = 1`, []any{ref.Slug}
 	default:
-		q = `SELECT k.id FROM knowledge k JOIN project p ON p.id = k.project_id
+		q = `SELECT k.id FROM entry k JOIN project p ON p.id = k.project_id
 		     WHERE k.slug = ? AND p.key = ? AND k.global = 0`
 		args = []any{ref.Slug, ref.ProjectKey}
 	}
@@ -146,7 +146,7 @@ func (c *Core) resolveDocRef(tx *sqlx.Tx, projectID string, ref Reference) (any,
 // path segment is leaf.
 func entriesWithLeaf(tx *sqlx.Tx, projectID, leaf string) ([]string, error) {
 	ids := []string{}
-	err := tx.Select(&ids, `SELECT id FROM knowledge
+	err := tx.Select(&ids, `SELECT id FROM entry
 		WHERE project_id = ? AND substr(slug, -(length(?) + 1)) = '/' || ?`, projectID, leaf, leaf)
 	return ids, err
 }
@@ -164,15 +164,15 @@ func (c *Core) Backlinks(ctx context.Context, docID string) ([]Backlink, error) 
 	out := []Backlink{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		return tx.Select(&out,
-			`SELECT 'doc' AS from_type, `+docAddressSQL+` AS ref, k.title,
+			`SELECT 'entry' AS from_type, `+docAddressSQL+` AS ref, k.title,
 			        COALESCE(l.anchor, '') AS anchor
-			 FROM link l JOIN knowledge k ON k.id = l.from_id
+			 FROM link l JOIN entry k ON k.id = l.from_id
 			 JOIN project p ON p.id = k.project_id
-			 WHERE l.to_type = 'doc' AND l.to_id = ? AND l.from_type = 'doc'
+			 WHERE l.to_type = 'entry' AND l.to_id = ? AND l.from_type = 'entry'
 			 UNION ALL
 			 SELECT 'card', c.ref, c.title, COALESCE(l.anchor, '')
 			 FROM link l JOIN card c ON c.id = l.from_id
-			 WHERE l.to_type = 'doc' AND l.to_id = ? AND l.from_type = 'card'
+			 WHERE l.to_type = 'entry' AND l.to_id = ? AND l.from_type = 'card'
 			 ORDER BY ref`, docID, docID)
 	})
 	return out, err
@@ -181,7 +181,7 @@ func (c *Core) Backlinks(ctx context.Context, docID string) ([]Backlink, error) 
 // LinkCardToDoc is the structured card-to-doc relationship (§10.2):
 //
 //	trellis link XPSCTL-12 design#concurrency
-//	trellis link XPSCTL-12 /OTHER/knowledge/runbook#rollback
+//	trellis link XPSCTL-12 /OTHER/vault/runbook#rollback
 //
 // The target may be in another project; link rows carry no foreign key, and
 // wikilinks cross projects too.
@@ -207,11 +207,11 @@ func (c *Core) LinkCardToDoc(ctx context.Context, projectID string, cardRef Card
 		}
 		if _, err := tx.Exec(
 			`INSERT OR IGNORE INTO link (from_type, from_id, to_type, to_id, to_raw, anchor, rel)
-			 VALUES ('card', ?, 'doc', ?, ?, ?, 'documents')`,
+			 VALUES ('card', ?, 'entry', ?, ?, ?, 'cites')`,
 			card.ID, toID, ref.Raw, nullIfEmpty(ref.Anchor)); err != nil {
 			return err
 		}
-		return c.recordEvent(tx, "card", card.ID, "linked", "documents", "", ref.Raw)
+		return c.recordEvent(tx, "card", card.ID, "linked", "cites", "", ref.Raw)
 	})
 }
 func dedupe(in []string) []string {
@@ -243,12 +243,12 @@ func (c *Core) resolveDocStubs(tx *sqlx.Tx, doc *Knowledge) error {
 	stubs := []stub{}
 	if err := tx.Select(&stubs,
 		`SELECT l.from_type, l.from_id, l.to_raw, k.project_id
-		 FROM link l JOIN knowledge k ON k.id = l.from_id
-		 WHERE l.to_type = 'doc' AND l.to_id IS NULL AND l.from_type = 'doc'
+		 FROM link l JOIN entry k ON k.id = l.from_id
+		 WHERE l.to_type = 'entry' AND l.to_id IS NULL AND l.from_type = 'entry'
 		 UNION ALL
 		 SELECT l.from_type, l.from_id, l.to_raw, cd.project_id
 		 FROM link l JOIN card cd ON cd.id = l.from_id
-		 WHERE l.to_type = 'doc' AND l.to_id IS NULL AND l.from_type = 'card'`); err != nil {
+		 WHERE l.to_type = 'entry' AND l.to_id IS NULL AND l.from_type = 'card'`); err != nil {
 		return err
 	}
 	for _, s := range stubs {
@@ -266,7 +266,7 @@ func (c *Core) resolveDocStubs(tx *sqlx.Tx, doc *Knowledge) error {
 		}
 		if _, err := tx.Exec(
 			`UPDATE link SET to_id = ?
-			 WHERE from_type = ? AND from_id = ? AND to_type = 'doc'
+			 WHERE from_type = ? AND from_id = ? AND to_type = 'entry'
 			   AND to_raw = ? AND to_id IS NULL`,
 			doc.ID, s.FromType, s.FromID, s.ToRaw); err != nil {
 			return err
@@ -331,17 +331,17 @@ func (c *Core) KnowledgeLinks(ctx context.Context, projectID string) ([]Knowledg
 		}
 		if err := tx.Select(&rows, `
 			SELECT l.from_id,
-			       '/' || CASE WHEN f.global = 1 THEN '`+GlobalKey+`' ELSE fp.key END || '/knowledge/' || f.slug AS from_addr,
+			       '/' || CASE WHEN f.global = 1 THEN '`+GlobalKey+`' ELSE fp.key END || '/vault/' || f.slug AS from_addr,
 			       CASE WHEN t.id IS NULL THEN NULL
-			            ELSE '/' || CASE WHEN t.global = 1 THEN '`+GlobalKey+`' ELSE tp.key END || '/knowledge/' || t.slug
+			            ELSE '/' || CASE WHEN t.global = 1 THEN '`+GlobalKey+`' ELSE tp.key END || '/vault/' || t.slug
 			       END AS to_addr,
 			       l.to_raw, COALESCE(l.anchor, '') AS anchor
 			FROM link l
-			JOIN knowledge f ON f.id = l.from_id
+			JOIN entry f ON f.id = l.from_id
 			JOIN project fp ON fp.id = f.project_id
-			LEFT JOIN knowledge t ON t.id = l.to_id
+			LEFT JOIN entry t ON t.id = l.to_id
 			LEFT JOIN project tp ON tp.id = t.project_id
-			WHERE l.from_type = 'doc' AND l.to_type = 'doc' AND f.project_id = ?`, projectID); err != nil {
+			WHERE l.from_type = 'entry' AND l.to_type = 'entry' AND f.project_id = ?`, projectID); err != nil {
 			return err
 		}
 		ids := make([]string, 0, len(rows))

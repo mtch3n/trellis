@@ -41,7 +41,7 @@ func TestConfigSetStillAcceptsFlagsAfterArgs(t *testing.T) {
 
 // The global config.yaml file is what actually drives Core's capture
 // behaviour (SetHistoryKeep is wired from it in openCore, mirroring
-// lease.ttl and labels.require_on_card), not a project override in the
+// claim.ttl and labels.require_on_card), not a project override in the
 // database. This proves that wiring end to end.
 func TestGlobalConfigHistoryKeepZeroDisablesCapture(t *testing.T) {
 	projectEnv(t)
@@ -54,7 +54,7 @@ func TestGlobalConfigHistoryKeepZeroDisablesCapture(t *testing.T) {
 	if !strings.Contains(out, `"slug":"off"`) {
 		t.Fatalf("entry was not created:\n%s", out)
 	}
-	revDir := filepath.Join(root, "projects", "TEST", "knowledge", ".off.md")
+	revDir := filepath.Join(root, "projects", "TEST", "vault", ".off.md")
 	if _, err := os.Stat(revDir); !os.IsNotExist(err) {
 		t.Errorf("a revision directory exists despite history.keep: 0 in config.yaml")
 	}

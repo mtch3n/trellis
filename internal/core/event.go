@@ -30,12 +30,12 @@ func (c *Core) recordEvent(tx *sqlx.Tx, entityType, entityID, action, field, old
 // eventProjectQuery finds the project an event's entity belongs to. An entity
 // type missing here records no project.
 var eventProjectQuery = map[string]string{
-	"card":      `SELECT project_id FROM card WHERE id = ?`,
-	"knowledge": `SELECT project_id FROM knowledge WHERE id = ?`,
-	"board":     `SELECT project_id FROM board WHERE id = ?`,
-	"label":     `SELECT project_id FROM label WHERE id = ?`,
-	"comment":   `SELECT c.project_id FROM comment cm JOIN card c ON c.id = cm.card_id WHERE cm.id = ?`,
-	"project":   `SELECT id FROM project WHERE id = ?`,
+	"card":    `SELECT project_id FROM card WHERE id = ?`,
+	"entry":   `SELECT project_id FROM entry WHERE id = ?`,
+	"board":   `SELECT project_id FROM board WHERE id = ?`,
+	"label":   `SELECT project_id FROM label WHERE id = ?`,
+	"comment": `SELECT c.project_id FROM comment cm JOIN card c ON c.id = cm.card_id WHERE cm.id = ?`,
+	"project": `SELECT id FROM project WHERE id = ?`,
 }
 
 func nullIfEmpty(s string) any {

@@ -17,7 +17,7 @@ import (
 type refArg struct {
 	Collection string // vpath.CollectionCards, CollectionKnowledge, CollectionBoards or CollectionArtifacts
 	Value      string // "" when an optional flag was not given
-	// NoProject lets a /GLOBAL/knowledge address run with no project at all:
+	// NoProject lets a /GLOBAL/vault address run with no project at all:
 	// reading, editing or walking from a vault entry needs none. fn then
 	// receives an appCtx whose Project and Board are zero.
 	NoProject bool
@@ -170,7 +170,7 @@ func targetContext(ctx context.Context, c *core.Core, db *sqlx.DB, a refArg, key
 	case rerr == nil && r.Project.Key == key:
 		// The pin would have chosen this same project, so the repository
 		// file beside it applies exactly as it would to a bare reference:
-		// KEY-N must not skip lease.ttl and the label/tag requirements that
+		// KEY-N must not skip claim.ttl and the label/tag requirements that
 		// a bare N reads.
 		b, err := selectBoard(ctx, c, r)
 		if err != nil {

@@ -115,7 +115,7 @@ func TestDaemonAppliesGlobalLeaseTTLAndCardRequirements(t *testing.T) {
 		t.Fatalf("claim: status %d, body %s", status, body)
 	}
 	var claimed struct {
-		LeaseUntil *int64 `json:"lease_until"`
+		LeaseUntil *int64 `json:"claim_until"`
 	}
 	if err := json.Unmarshal(body, &claimed); err != nil || claimed.LeaseUntil == nil {
 		t.Fatalf("claim body = %s: %v", body, err)

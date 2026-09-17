@@ -3,10 +3,10 @@ package core
 import "testing"
 
 func TestDocAddress(t *testing.T) {
-	if got := DocAddress("XPSCTL", false, "design"); got != "/XPSCTL/knowledge/design" {
+	if got := DocAddress("XPSCTL", false, "design"); got != "/XPSCTL/vault/design" {
 		t.Errorf("project entry = %q", got)
 	}
-	if got := DocAddress("XPSCTL", true, "design"); got != "/GLOBAL/knowledge/design" {
+	if got := DocAddress("XPSCTL", true, "design"); got != "/GLOBAL/vault/design" {
 		t.Errorf("vault entry = %q", got)
 	}
 }
@@ -32,7 +32,7 @@ func TestDocAddressSQLMatchesGo(t *testing.T) {
 		Ref    string `db:"ref"`
 	}
 	if err := c.db.Select(&rows, `SELECT k.slug, k.global, `+docAddressSQL+` AS ref
-		FROM knowledge k JOIN project p ON p.id = k.project_id ORDER BY k.slug`); err != nil {
+		FROM entry k JOIN project p ON p.id = k.project_id ORDER BY k.slug`); err != nil {
 		t.Fatal(err)
 	}
 	if len(rows) != 2 {
@@ -52,7 +52,7 @@ func TestSearchRecallAndVectorHitsCarryAddresses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "/XPSCTL/knowledge/lease-renewal"
+	const want = "/XPSCTL/vault/lease-renewal"
 	if doc.Ref != want {
 		t.Errorf("created ref = %q, want %q", doc.Ref, want)
 	}
@@ -111,7 +111,7 @@ func TestBacklinksNameAVaultSourceByItsVaultAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(back) != 1 || back[0].Ref != "/GLOBAL/knowledge/source" {
+	if len(back) != 1 || back[0].Ref != "/GLOBAL/vault/source" {
 		t.Errorf("backlinks = %+v, want the vault address", back)
 	}
 }
@@ -134,7 +134,7 @@ func TestGraphNamesEntriesByAddress(t *testing.T) {
 	for _, n := range g.Nodes {
 		seen[n.Ref] = true
 	}
-	if !seen["/XPSCTL/knowledge/source"] || !seen["/XPSCTL/knowledge/target"] {
+	if !seen["/XPSCTL/vault/source"] || !seen["/XPSCTL/vault/target"] {
 		t.Errorf("nodes = %+v", g.Nodes)
 	}
 }

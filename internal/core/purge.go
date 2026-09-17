@@ -18,7 +18,7 @@ import "github.com/jmoiron/sqlx"
 //	                               entry is private that name still identifies
 //	                               a file that must not linger in the log
 //
-// The pin itself is not one of these. A pin row is (id, knowledge_id,
+// The pin itself is not one of these. A pin row is (id, entry_id,
 // board_id, created_at) — it holds no text — and it is left alone on purpose.
 // Deleting it was never about content; it was about stopping injection, and
 // injection is already stopped once recap is NULL: Pins decides what to
@@ -54,16 +54,16 @@ import "github.com/jmoiron/sqlx"
 // and makes no wider claim.
 func (c *Core) purgeDisclosedCopies(tx *sqlx.Tx, doc *Knowledge) error {
 	if _, err := tx.Exec(
-		`UPDATE knowledge SET recap = NULL, recap_hash = NULL WHERE id = ?`, doc.ID); err != nil {
+		`UPDATE entry SET recap = NULL, recap_hash = NULL WHERE id = ?`, doc.ID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(
 		`UPDATE event SET new_value = NULL, old_value = NULL
-		 WHERE entity_type = 'knowledge' AND entity_id = ?
+		 WHERE entity_type = 'entry' AND entity_id = ?
 		   AND action IN ('pinned', 'unpinned', 'edited', 'artifact_linked', 'artifact_unlinked')`,
 		doc.ID); err != nil {
 		return err
 	}
 	doc.Recap, doc.RecapHash = nil, nil
-	return c.recordEvent(tx, "knowledge", doc.ID, "privatised", "", "", "")
+	return c.recordEvent(tx, "entry", doc.ID, "privatized", "", "", "")
 }

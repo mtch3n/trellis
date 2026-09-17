@@ -146,7 +146,7 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 
 	now := time.Now().UnixMilli()
 
-	// YOURS: cards where owner = :me AND lease_until > :now
+	// YOURS: cards where claimed_by = :me AND claim_until > :now
 	if actor != "" {
 		var owned []struct {
 			ID      string `db:"id"`
@@ -159,7 +159,7 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 			        COALESCE((SELECT body_md FROM comment WHERE card_id = c.id ORDER BY created_at DESC LIMIT 1), '') AS body_md
 			 FROM card c
 			 JOIN column_ col ON col.id = c.column_id
-			 WHERE c.project_id = ? AND c.owner = ? AND c.lease_until > ? AND c.archived_at IS NULL
+			 WHERE c.project_id = ? AND c.claimed_by = ? AND c.claim_until > ? AND c.archived_at IS NULL
 			 ORDER BY col.position DESC, c.priority, c.rank`,
 			app.Project.ID, actor, now)
 		if err != nil {
@@ -185,7 +185,7 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 		`SELECT c.ref, c.title, COALESCE((SELECT body_md FROM comment WHERE card_id = c.id ORDER BY created_at DESC LIMIT 1), '') AS body_md
 		 FROM card c
 		 JOIN column_ col ON col.id = c.column_id
-		 WHERE c.project_id = ? AND c.owner IS NULL AND c.archived_at IS NULL AND col.is_done = 0
+		 WHERE c.project_id = ? AND c.claimed_by IS NULL AND c.archived_at IS NULL AND col.is_done = 0
 		 ORDER BY c.updated_at DESC LIMIT 5`,
 		app.Project.ID)
 	if err != nil {

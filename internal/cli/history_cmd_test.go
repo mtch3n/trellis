@@ -84,15 +84,15 @@ func TestHistoryDiffAndMvNeedNoPin(t *testing.T) {
 	refOf(t, "knowledge", "new", "--title", "Notes", "--project", "BETA")
 	runCmd(t, "knowledge", "edit", "notes", "--body", "changed", "--if-version", "1", "--project", "BETA")
 	for _, args := range [][]string{
-		{"knowledge", "history", "/BETA/knowledge/notes"},
-		{"knowledge", "diff", "/BETA/knowledge/notes"},
+		{"knowledge", "history", "/BETA/vault/notes"},
+		{"knowledge", "diff", "/BETA/vault/notes"},
 	} {
 		if _, err := runCmdErr(t, args...); err != nil {
 			t.Errorf("%v: %v", args, err)
 		}
 	}
 
-	if got := refOf(t, "knowledge", "mv", "/BETA/knowledge/notes", "notes-2"); got != "/BETA/knowledge/notes-2" {
+	if got := refOf(t, "knowledge", "mv", "/BETA/vault/notes", "notes-2"); got != "/BETA/vault/notes-2" {
 		t.Errorf("knowledge mv with no pin = %s", got)
 	}
 }
@@ -105,7 +105,7 @@ func TestKnowledgeHistoryOnAVaultEntryNeedsNoPin(t *testing.T) {
 	refOf(t, "knowledge", "new", "--title", "Conventions", "--project", "ALPHA")
 	escalateByHand(t, "ALPHA", "conventions")
 
-	if _, err := runCmdErr(t, "knowledge", "history", "/GLOBAL/knowledge/conventions"); err != nil {
+	if _, err := runCmdErr(t, "knowledge", "history", "/GLOBAL/vault/conventions"); err != nil {
 		t.Errorf("knowledge history on a vault entry with no pin: %v", err)
 	}
 }

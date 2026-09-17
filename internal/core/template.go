@@ -36,7 +36,7 @@ type TemplateRules struct {
 	// references must resolve. Anything that is not a wikilink or an
 	// absolute Trellis address passes unchecked: a URL, a path:lines
 	// pointer and prose all cite without being verifiable.
-	Verify []string `yaml:"verify,omitempty"`
+	Verify []string `yaml:"resolve,omitempty"`
 }
 
 // Template is a parsed template file: its rules, its skeleton body (with

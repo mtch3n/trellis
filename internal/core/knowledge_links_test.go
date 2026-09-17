@@ -21,7 +21,7 @@ func TestKnowledgeLinksListsAddressesAndWithholdsPrivateSources(t *testing.T) {
 	if _, err := c.EscalateKnowledge(ctx, p.ID, vault.Slug, "shared"); err != nil {
 		t.Fatalf("EscalateKnowledge: %v", err)
 	}
-	create("Source Doc", "[[target-doc#usage]] [[missing-one]] [[/GLOBAL/knowledge/vault-doc]]\n", false)
+	create("Source Doc", "[[target-doc#usage]] [[missing-one]] [[/GLOBAL/vault/vault-doc]]\n", false)
 	create("Secret Doc", "[[target-doc]]\n", true)
 	// Private in the file only: the mirror still says public.
 	stale := create("Stale Doc", "[[target-doc]]\n", false)
@@ -34,10 +34,10 @@ func TestKnowledgeLinksListsAddressesAndWithholdsPrivateSources(t *testing.T) {
 	addr := func(s string) *string { return &s }
 	key := p.Key
 	want := []KnowledgeLink{
-		{From: "/GLOBAL/knowledge/vault-doc", To: addr("/" + key + "/knowledge/target-doc"), Raw: "target-doc"},
-		{From: "/" + key + "/knowledge/source-doc", To: addr("/GLOBAL/knowledge/vault-doc"), Raw: "/GLOBAL/knowledge/vault-doc"},
-		{From: "/" + key + "/knowledge/source-doc", To: nil, Raw: "missing-one"},
-		{From: "/" + key + "/knowledge/source-doc", To: addr("/" + key + "/knowledge/target-doc"), Raw: "target-doc#usage", Anchor: "usage"},
+		{From: "/GLOBAL/vault/vault-doc", To: addr("/" + key + "/vault/target-doc"), Raw: "target-doc"},
+		{From: "/" + key + "/vault/source-doc", To: addr("/GLOBAL/vault/vault-doc"), Raw: "/GLOBAL/vault/vault-doc"},
+		{From: "/" + key + "/vault/source-doc", To: nil, Raw: "missing-one"},
+		{From: "/" + key + "/vault/source-doc", To: addr("/" + key + "/vault/target-doc"), Raw: "target-doc#usage", Anchor: "usage"},
 	}
 	if len(links) != len(want) {
 		t.Fatalf("links = %s, want %d", show(links), len(want))

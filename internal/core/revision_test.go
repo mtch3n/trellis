@@ -173,7 +173,7 @@ func TestPrivateMirrorDriftWritesNoRevision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if _, err := c.db.Exec(`UPDATE knowledge SET private = 1 WHERE id = ?`, doc.ID); err != nil {
+	if _, err := c.db.Exec(`UPDATE entry SET private = 1 WHERE id = ?`, doc.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -307,10 +307,10 @@ func TestEditKnowledgeFieldsCommitFailureDiscardsTheSpeculativeRevision(t *testi
 	// foreign key violation SQLite defers to COMMIT: the closure completes
 	// normally (done = true), the speculative version-2 capture happens,
 	// and only the commit itself then fails.
-	if _, err := c.db.Exec(`CREATE TABLE canary (id INTEGER PRIMARY KEY, target TEXT REFERENCES knowledge(id))`); err != nil {
+	if _, err := c.db.Exec(`CREATE TABLE canary (id INTEGER PRIMARY KEY, target TEXT REFERENCES entry(id))`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.db.Exec(`CREATE TRIGGER canary_trg AFTER UPDATE OF content_hash ON knowledge
+	if _, err := c.db.Exec(`CREATE TRIGGER canary_trg AFTER UPDATE OF content_hash ON entry
 		BEGIN INSERT INTO canary (target) VALUES ('does-not-exist'); END`); err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +420,7 @@ func TestAFailedEscalateMovesTheRevisionDirectoryBack(t *testing.T) {
 	if _, err := os.Stat(revisionFilePath(doc.Path, 1)); err != nil {
 		t.Errorf("revision directory not restored at %s: %v", oldDir, err)
 	}
-	globalDir := filepath.Join(c.root, "global", "knowledge")
+	globalDir := filepath.Join(c.root, "global", "vault")
 	if _, err := os.Stat(filepath.Join(globalDir, "."+filepath.Base(doc.Path))); !os.IsNotExist(err) {
 		t.Errorf("revision directory should not remain in the global directory")
 	}

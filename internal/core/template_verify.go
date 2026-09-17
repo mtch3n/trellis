@@ -27,7 +27,7 @@ func wikilinkTarget(s string) (string, bool) {
 // deliberately loose about the key and name — vpath.Parse validates those
 // — so this only decides which values, or substrings of a document body,
 // are worth attempting to resolve as an address at all.
-const addressPattern = `/[A-Za-z][A-Za-z0-9-]*/(?:cards|knowledge|artifacts)/\S+`
+const addressPattern = `/[A-Za-z][A-Za-z0-9-]*/(?:cards|vault|artifacts)/\S+`
 
 // addressShapeRE matches a whole value shaped like an absolute address. A
 // source or other verified field value earns a vpath.Parse attempt only
@@ -91,7 +91,7 @@ func (c *Core) resolvesInternalReference(tx *sqlx.Tx, projectID, s string) (ok, 
 	}
 	if p.Collection == vpath.CollectionKnowledge && p.Project == "GLOBAL" {
 		var n int
-		if err := tx.Get(&n, `SELECT COUNT(*) FROM knowledge WHERE slug = ? AND global = 1`, p.Name); err != nil {
+		if err := tx.Get(&n, `SELECT COUNT(*) FROM entry WHERE slug = ? AND global = 1`, p.Name); err != nil {
 			return false, true, err
 		}
 		return n > 0, true, nil
@@ -123,7 +123,7 @@ func (c *Core) resolvesInternalReference(tx *sqlx.Tx, projectID, s string) (ok, 
 		// resolveDocRef's own address branch excludes it (k.global = 0) so
 		// the old project address becomes a stub, not a hit. Match that here.
 		var n int
-		if err := tx.Get(&n, `SELECT COUNT(*) FROM knowledge WHERE slug = ? AND project_id = ? AND global = 0`, p.Name, destProjectID); err != nil {
+		if err := tx.Get(&n, `SELECT COUNT(*) FROM entry WHERE slug = ? AND project_id = ? AND global = 0`, p.Name, destProjectID); err != nil {
 			return false, true, err
 		}
 		return n > 0, true, nil

@@ -59,15 +59,15 @@ func TestGetSettingsListsEveryKeyWithDefaultsAndSource(t *testing.T) {
 	for _, setting := range out.Settings {
 		byKey[setting.Key] = setting
 	}
-	leaseTTL, ok := byKey["lease.ttl"]
+	leaseTTL, ok := byKey["claim.ttl"]
 	if !ok {
-		t.Fatal("lease.ttl missing from settings")
+		t.Fatal("claim.ttl missing from settings")
 	}
 	if leaseTTL.Source != "default" || leaseTTL.Value != "30m" || leaseTTL.Default != "30m" {
-		t.Errorf("lease.ttl = %+v, want value/default 30m, source default", leaseTTL)
+		t.Errorf("claim.ttl = %+v, want value/default 30m, source default", leaseTTL)
 	}
 	if !leaseTTL.Editable || leaseTTL.Restart {
-		t.Errorf("lease.ttl editable=%v restart=%v, want true/false", leaseTTL.Editable, leaseTTL.Restart)
+		t.Errorf("claim.ttl editable=%v restart=%v, want true/false", leaseTTL.Editable, leaseTTL.Restart)
 	}
 	uiPort, ok := byKey["ui.port"]
 	if !ok {
@@ -88,7 +88,7 @@ func TestGetSettingsListsEveryKeyWithDefaultsAndSource(t *testing.T) {
 func TestPatchSettingsWritesAndReportsSource(t *testing.T) {
 	s := settingsTestServer(t)
 
-	rec := request(t, s, http.MethodPatch, "/api/settings", `{"set":{"lease.ttl":"45m","history.keep":50,"board.default_columns":["todo","done"]}}`)
+	rec := request(t, s, http.MethodPatch, "/api/settings", `{"set":{"claim.ttl":"45m","history.keep":50,"board.default_columns":["todo","done"]}}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
 	}
@@ -107,8 +107,8 @@ func TestPatchSettingsWritesAndReportsSource(t *testing.T) {
 	for _, setting := range out.Settings {
 		byKey[setting.Key] = setting
 	}
-	if leaseTTL := byKey["lease.ttl"]; leaseTTL.Value != "45m" || leaseTTL.Source != "config" {
-		t.Errorf("lease.ttl = %+v, want value 45m, source config", leaseTTL)
+	if leaseTTL := byKey["claim.ttl"]; leaseTTL.Value != "45m" || leaseTTL.Source != "config" {
+		t.Errorf("claim.ttl = %+v, want value 45m, source config", leaseTTL)
 	}
 	if keep := byKey["history.keep"]; keep.Value != float64(50) && keep.Value != 50 {
 		t.Errorf("history.keep = %+v, want 50", keep)
@@ -121,8 +121,8 @@ func TestPatchSettingsWritesAndReportsSource(t *testing.T) {
 		t.Fatalf("not JSON: %v", err)
 	}
 	for _, setting := range getOut.Settings {
-		if setting.Key == "lease.ttl" && setting.Value != "45m" {
-			t.Errorf("GET after PATCH: lease.ttl = %v, want 45m", setting.Value)
+		if setting.Key == "claim.ttl" && setting.Value != "45m" {
+			t.Errorf("GET after PATCH: claim.ttl = %v, want 45m", setting.Value)
 		}
 	}
 }
@@ -147,7 +147,7 @@ func TestPatchSettingsReportsRestartForKeysThatNeedIt(t *testing.T) {
 func TestPatchSettingsInvalidBatchWritesNothingAndReportsProblems(t *testing.T) {
 	s := settingsTestServer(t)
 	rec := request(t, s, http.MethodPatch, "/api/settings",
-		`{"set":{"lease.ttl":"45m","history.keep":-1,"ui.port":9999}}`)
+		`{"set":{"claim.ttl":"45m","history.keep":-1,"ui.port":9999}}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
 	}
@@ -166,7 +166,7 @@ func TestPatchSettingsInvalidBatchWritesNothingAndReportsProblems(t *testing.T) 
 		t.Errorf("problems = %v, want 2 (history.keep and ui.port)", out.Problems)
 	}
 
-	// Nothing must have been written: lease.ttl (valid on its own) must not
+	// Nothing must have been written: claim.ttl (valid on its own) must not
 	// have landed either.
 	getRec := request(t, s, http.MethodGet, "/api/settings", "")
 	var getOut settingsResponse
@@ -174,8 +174,8 @@ func TestPatchSettingsInvalidBatchWritesNothingAndReportsProblems(t *testing.T) 
 		t.Fatalf("not JSON: %v", err)
 	}
 	for _, setting := range getOut.Settings {
-		if setting.Key == "lease.ttl" && setting.Source != "default" {
-			t.Errorf("lease.ttl source = %q, want default: the whole batch should have been refused", setting.Source)
+		if setting.Key == "claim.ttl" && setting.Source != "default" {
+			t.Errorf("claim.ttl source = %q, want default: the whole batch should have been refused", setting.Source)
 		}
 	}
 }
@@ -200,7 +200,7 @@ func TestPatchSettingsCallsTheLiveHook(t *testing.T) {
 	}
 	_ = b
 
-	patchRec := request(t, s, http.MethodPatch, "/api/settings", `{"set":{"lease.ttl":"2h"}}`)
+	patchRec := request(t, s, http.MethodPatch, "/api/settings", `{"set":{"claim.ttl":"2h"}}`)
 	if patchRec.Code != http.StatusOK {
 		t.Fatalf("PATCH status = %d, body = %s", patchRec.Code, patchRec.Body)
 	}
@@ -214,20 +214,20 @@ func TestPatchSettingsCallsTheLiveHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	if claimed.LeaseUntil == nil {
-		t.Fatal("claimed card has no lease_until")
+		t.Fatal("claimed card has no claim_until")
 	}
 	want := int64(1_000_000) + int64(2*60*60*1000)
 	if *claimed.LeaseUntil != want {
-		t.Errorf("lease_until = %d, want %d (2h lease TTL applied live)", *claimed.LeaseUntil, want)
+		t.Errorf("claim_until = %d, want %d (2h lease TTL applied live)", *claimed.LeaseUntil, want)
 	}
 }
 
 func TestSetGlobalValuesUnsetRoute(t *testing.T) {
 	s := settingsTestServer(t)
-	if rec := request(t, s, http.MethodPatch, "/api/settings", `{"set":{"lease.ttl":"45m"}}`); rec.Code != http.StatusOK {
+	if rec := request(t, s, http.MethodPatch, "/api/settings", `{"set":{"claim.ttl":"45m"}}`); rec.Code != http.StatusOK {
 		t.Fatalf("set status = %d, body = %s", rec.Code, rec.Body)
 	}
-	rec := request(t, s, http.MethodPatch, "/api/settings", `{"unset":["lease.ttl"]}`)
+	rec := request(t, s, http.MethodPatch, "/api/settings", `{"unset":["claim.ttl"]}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("unset status = %d, body = %s", rec.Code, rec.Body)
 	}
@@ -236,8 +236,8 @@ func TestSetGlobalValuesUnsetRoute(t *testing.T) {
 		t.Fatalf("not JSON: %v", err)
 	}
 	for _, setting := range out.Settings {
-		if setting.Key == "lease.ttl" && (setting.Source != "default" || setting.Value != "30m") {
-			t.Errorf("lease.ttl = %+v, want back to the default after unset", setting)
+		if setting.Key == "claim.ttl" && (setting.Source != "default" || setting.Value != "30m") {
+			t.Errorf("claim.ttl = %+v, want back to the default after unset", setting)
 		}
 	}
 }

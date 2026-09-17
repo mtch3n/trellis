@@ -375,7 +375,7 @@ func (m *merger) load(srcKey, dstKey string) (refused bool, err error) {
 	}
 	m.plan.dstID = m.dst.ID
 
-	held, err := m.count(`SELECT COUNT(*) FROM card WHERE project_id = ? AND owner IS NOT NULL AND lease_until > ?`,
+	held, err := m.count(`SELECT COUNT(*) FROM card WHERE project_id = ? AND claimed_by IS NOT NULL AND claim_until > ?`,
 		m.src.ID, m.c.clock.NowMS())
 	if err != nil {
 		return false, err
@@ -460,12 +460,12 @@ func freeName(base string, taken map[string]bool) string {
 
 func (m *merger) labels() error {
 	return m.foldNames("label", "label_id", &m.plan.Labels,
-		[][2]string{{"card_label", "card_id"}, {"knowledge_label", "doc_id"}})
+		[][2]string{{"card_label", "card_id"}, {"entry_label", "entry_id"}})
 }
 
 func (m *merger) tags() error {
 	return m.foldNames("tag", "tag_id", &m.plan.Tags,
-		[][2]string{{"card_tag", "card_id"}, {"knowledge_tag", "doc_id"}})
+		[][2]string{{"card_tag", "card_id"}, {"entry_tag", "entry_id"}})
 }
 
 // foldNames moves SRC's rows of a per-project vocabulary into DST. A name DST

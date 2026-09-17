@@ -110,7 +110,7 @@ func (c *Core) HeldWithoutComment(ctx context.Context) ([]Card, error) {
 		if err := tx.Select(&cards,
 			`SELECT c.* FROM card c
 			 JOIN column_ col ON col.id = c.column_id
-			 WHERE c.owner = ? AND c.lease_until > ?
+			 WHERE c.claimed_by = ? AND c.claim_until > ?
 			   AND c.archived_at IS NULL
 			   AND col.is_done = 0 AND col.position > 0
 			   AND NOT EXISTS (SELECT 1 FROM comment cm WHERE cm.card_id = c.id AND cm.actor = ?)

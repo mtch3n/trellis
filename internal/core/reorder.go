@@ -74,7 +74,7 @@ func (c *Core) MoveCardBefore(ctx context.Context, projectID, boardID string, re
 			if id == card.ID {
 				leaseUpdate := ""
 				if to.IsDone {
-					leaseUpdate = ", owner = NULL, lease_until = NULL"
+					leaseUpdate = ", claimed_by = NULL, claim_until = NULL"
 				}
 				if _, err := tx.Exec(`UPDATE card SET board_id = ?, column_id = ?, rank = ?, version = version + 1, updated_at = ?`+leaseUpdate+` WHERE id = ?`, boardID, to.ID, rank, now, card.ID); err != nil {
 					return err

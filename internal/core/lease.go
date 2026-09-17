@@ -43,18 +43,18 @@ func (c *Core) ClaimNextCard(ctx context.Context, boardID string, ttl int64) (*C
 		// The WHERE clause skips:
 		// - Done columns (col.is_done = 0)
 		// - Archived cards (c.archived_at IS NULL)
-		// - Owned and unexpired cards ((c.owner IS NULL OR c.lease_until < now))
+		// - Owned and unexpired cards ((c.claimed_by IS NULL OR c.claim_until < now))
 		// - Cards blocked by unfinished cards (NOT EXISTS blocked_by subquery)
 		err := tx.Get(&card,
 			`UPDATE card
-			 SET owner = ?, lease_until = ?, version = version + 1, updated_at = ?
+			 SET claimed_by = ?, claim_until = ?, version = version + 1, updated_at = ?
 			 WHERE id = (
 			   SELECT c.id FROM card c
 			   JOIN column_ col ON col.id = c.column_id
 			   WHERE c.project_id = ?
 			     AND col.is_done = 0
 			     AND c.archived_at IS NULL
-			     AND (c.owner IS NULL OR c.lease_until < ?)
+			     AND (c.claimed_by IS NULL OR c.claim_until < ?)
 			     AND NOT EXISTS (
 			       SELECT 1 FROM link l
 			       JOIN card b ON b.id = l.to_id
@@ -66,7 +66,7 @@ func (c *Core) ClaimNextCard(ctx context.Context, boardID string, ttl int64) (*C
 			   LIMIT 1
 			 )
 			 RETURNING id, project_id, board_id, seq, column_id, rank, title, body_md,
-			           priority, owner, lease_until, version, created_at, updated_at, archived_at`,
+			           priority, claimed_by, claim_until, version, created_at, updated_at, archived_at`,
 			c.actor, leaseUntil, now,
 			projectID,
 			now)
@@ -116,7 +116,7 @@ func (c *Core) GetNextCard(ctx context.Context, boardID string) (*Card, error) {
 			   AND c.project_id = ?
 			   AND col.is_done = 0
 			   AND c.archived_at IS NULL
-			   AND (c.owner IS NULL OR c.lease_until < ?)
+			   AND (c.claimed_by IS NULL OR c.claim_until < ?)
 			   AND NOT EXISTS (
 			     SELECT 1 FROM link l
 			     JOIN card b ON b.id = l.to_id
@@ -186,7 +186,7 @@ func (c *Core) ClaimCard(ctx context.Context, cardID string, ttl int64, steal bo
 					"claimed from "+*card.Owner+": "+reason, now); err != nil {
 					return err
 				}
-				if err := c.recordEvent(tx, "card", cardID, "stolen", "owner", *card.Owner, c.actor); err != nil {
+				if err := c.recordEvent(tx, "card", cardID, "stolen", "claimed_by", *card.Owner, c.actor); err != nil {
 					return err
 				}
 			}
@@ -194,7 +194,7 @@ func (c *Core) ClaimCard(ctx context.Context, cardID string, ttl int64, steal bo
 
 		// Claim it.
 		if _, err := tx.Exec(
-			`UPDATE card SET owner = ?, lease_until = ?, version = version + 1, updated_at = ?
+			`UPDATE card SET claimed_by = ?, claim_until = ?, version = version + 1, updated_at = ?
 			 WHERE id = ?`,
 			c.actor, leaseUntil, now, cardID); err != nil {
 			return err
@@ -222,7 +222,7 @@ func (c *Core) ReleaseCard(ctx context.Context, cardID string) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
 		// Verify we own it.
 		var owner *string
-		if err := tx.Get(&owner, `SELECT owner FROM card WHERE id = ?`, cardID); err != nil {
+		if err := tx.Get(&owner, `SELECT claimed_by FROM card WHERE id = ?`, cardID); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrNotFound("card_not_found", "card not found", "")
 			}
@@ -237,7 +237,7 @@ func (c *Core) ReleaseCard(ctx context.Context, cardID string) error {
 
 		now := c.clock.NowMS()
 		if _, err := tx.Exec(
-			`UPDATE card SET owner = NULL, lease_until = NULL, version = version + 1, updated_at = ?
+			`UPDATE card SET claimed_by = NULL, claim_until = NULL, version = version + 1, updated_at = ?
 			 WHERE id = ?`,
 			now, cardID); err != nil {
 			return err
@@ -262,7 +262,7 @@ func (c *Core) RenewLease(ctx context.Context, cardID string, ttl int64) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
 		// Verify we own it.
 		var owner *string
-		if err := tx.Get(&owner, `SELECT owner FROM card WHERE id = ?`, cardID); err != nil {
+		if err := tx.Get(&owner, `SELECT claimed_by FROM card WHERE id = ?`, cardID); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrNotFound("card_not_found", "card not found", "")
 			}
@@ -276,7 +276,7 @@ func (c *Core) RenewLease(ctx context.Context, cardID string, ttl int64) error {
 		}
 
 		if _, err := tx.Exec(
-			`UPDATE card SET lease_until = ? WHERE id = ?`,
+			`UPDATE card SET claim_until = ? WHERE id = ?`,
 			leaseUntil, cardID); err != nil {
 			return err
 		}

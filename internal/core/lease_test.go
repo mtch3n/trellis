@@ -172,10 +172,10 @@ func TestConcurrentClaimNoLostCards(t *testing.T) {
 	defer db.Close()
 
 	var owned, unowned int
-	if err := db.Get(&owned, `SELECT count(*) FROM card WHERE owner IS NOT NULL`); err != nil {
+	if err := db.Get(&owned, `SELECT count(*) FROM card WHERE claimed_by IS NOT NULL`); err != nil {
 		t.Fatalf("count owned: %v", err)
 	}
-	if err := db.Get(&unowned, `SELECT count(*) FROM card WHERE owner IS NULL`); err != nil {
+	if err := db.Get(&unowned, `SELECT count(*) FROM card WHERE claimed_by IS NULL`); err != nil {
 		t.Fatalf("count unowned: %v", err)
 	}
 
@@ -188,7 +188,7 @@ func TestConcurrentClaimNoLostCards(t *testing.T) {
 
 	// Verify no duplicates: each card's owner should appear exactly once.
 	var ownerCounts map[string]int
-	rows, err := db.Query(`SELECT owner, count(*) FROM card WHERE owner IS NOT NULL GROUP BY owner`)
+	rows, err := db.Query(`SELECT claimed_by, count(*) FROM card WHERE claimed_by IS NOT NULL GROUP BY claimed_by`)
 	if err != nil {
 		t.Fatalf("query owner counts: %v", err)
 	}

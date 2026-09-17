@@ -45,7 +45,7 @@ func TestApplyConfigAppliesEveryLiveSetting(t *testing.T) {
 	}
 }
 
-// An unparseable lease.ttl must leave the previous value in place rather
+// An unparseable claim.ttl must leave the previous value in place rather
 // than zeroing it out, the same defensive rule SetLeaseTTL already applies.
 func TestApplyConfigIgnoresAnUnparseableLeaseTTL(t *testing.T) {
 	dir := t.TempDir()

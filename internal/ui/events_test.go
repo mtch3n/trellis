@@ -70,7 +70,7 @@ func TestProjectEventsComeFromTheFeed(t *testing.T) {
 				t.Errorf("card event = %+v, want title and ref", ev)
 			}
 		}
-		if ev.Kind == "knowledge" && ev.Action == "created" {
+		if ev.Kind == "entry" && ev.Action == "created" {
 			sawFinding = true
 			if ev.Template != "finding" || ev.Title != "Cache stampede" || ev.Ref != doc.Ref {
 				t.Errorf("knowledge event = %+v, want template, title and ref", ev)

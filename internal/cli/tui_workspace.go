@@ -354,7 +354,7 @@ func recentActivity(ctx context.Context, db *sqlx.DB, projectID string) ([]activ
 		       COALESCE(c.title, k.title, cc.title, b.name, '') AS title
 		FROM event e
 		LEFT JOIN card c ON e.entity_type = 'card' AND e.entity_id = c.id
-		LEFT JOIN knowledge k ON e.entity_type = 'knowledge' AND e.entity_id = k.id
+		LEFT JOIN entry k ON e.entity_type = 'entry' AND e.entity_id = k.id
 		LEFT JOIN comment cm ON e.entity_type = 'comment' AND e.entity_id = cm.id
 		LEFT JOIN card cc ON cc.id = cm.card_id
 		LEFT JOIN board b ON e.entity_type = 'board' AND e.entity_id = b.id

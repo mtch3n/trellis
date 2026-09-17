@@ -9,8 +9,8 @@ import (
 	"github.com/mtch3n/trellis/internal/vpath"
 )
 
-// DocAddress is a knowledge entry's canonical address: /KEY/knowledge/<slug>,
-// or /GLOBAL/knowledge/<slug> once it is in the vault. key is ignored for a
+// DocAddress is a knowledge entry's canonical address: /KEY/vault/<slug>,
+// or /GLOBAL/vault/<slug> once it is in the vault. key is ignored for a
 // vault entry.
 func DocAddress(key string, global bool, slug string) string {
 	if global {
@@ -22,7 +22,7 @@ func DocAddress(key string, global bool, slug string) string {
 // docAddressSQL is DocAddress in SQL, for queries that alias knowledge as k
 // and project as p. TestDocAddressSQLMatchesGo holds the two together.
 const docAddressSQL = `'/' || CASE WHEN k.global = 1 THEN '` + vpath.GlobalKey +
-	`' ELSE p.key END || '/knowledge/' || k.slug`
+	`' ELSE p.key END || '/vault/' || k.slug`
 
 func ParseAddress(arg, collection string) (vpath.Path, error) {
 	p, err := vpath.Parse(arg)

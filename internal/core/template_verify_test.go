@@ -22,7 +22,7 @@ func writeCustomTemplate(t *testing.T, c *Core, name, raw string) {
 func TestVerifyRejectsWhenSourcesIsMissing(t *testing.T) {
 	c, p, _ := kbCore(t)
 	writeCustomTemplate(t, c, "cited",
-		"---\nenforce: reject\nrequired: [sources]\nverify: [sources]\n---\n# {{title}}\n")
+		"---\nenforce: reject\nrequired: [sources]\nresolve: [sources]\n---\n# {{title}}\n")
 
 	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Claim", Template: "cited"})
 	e, ok := errors.AsType[*Error](err)
@@ -33,7 +33,7 @@ func TestVerifyRejectsWhenSourcesIsMissing(t *testing.T) {
 
 func TestVerifyRejectsAnUnresolvedCardAddress(t *testing.T) {
 	c, p, _ := kbCore(t)
-	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
+	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
 	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
 		Title: "Claim", Template: "cited", Sources: []string{"/XPSCTL/cards/XPSCTL-999"},
@@ -46,7 +46,7 @@ func TestVerifyRejectsAnUnresolvedCardAddress(t *testing.T) {
 
 func TestVerifyRejectsAnUnresolvedWikilink(t *testing.T) {
 	c, p, _ := kbCore(t)
-	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
+	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
 	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
 		Title: "Claim", Template: "cited", Sources: []string{"[[missing]]"},
@@ -59,7 +59,7 @@ func TestVerifyRejectsAnUnresolvedWikilink(t *testing.T) {
 
 func TestVerifyAcceptsAURLAndProse(t *testing.T) {
 	c, p, _ := kbCore(t)
-	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
+	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
 	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
 		Title: "Claim", Template: "cited",
@@ -72,7 +72,7 @@ func TestVerifyAcceptsAURLAndProse(t *testing.T) {
 
 func TestVerifyAcceptsAResolvedCardEntryAndArtifact(t *testing.T) {
 	c, p, b := kbCore(t)
-	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
+	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Evidence"})
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)
@@ -98,7 +98,7 @@ func TestVerifyAcceptsAResolvedCardEntryAndArtifact(t *testing.T) {
 
 func TestVerifyBodyRejectsADanglingLink(t *testing.T) {
 	c, p, _ := kbCore(t)
-	writeCustomTemplate(t, c, "linked", "---\nenforce: reject\nverify: [body]\n---\n# {{title}}\n")
+	writeCustomTemplate(t, c, "linked", "---\nenforce: reject\nresolve: [body]\n---\n# {{title}}\n")
 
 	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
 		Title: "Claim", Template: "linked", Body: "# Claim\n\nSee [[missing]].\n",
@@ -123,11 +123,11 @@ func TestNoteTemplateStillAcceptsADanglingBodyLink(t *testing.T) {
 }
 
 // Ruling: a "/"-prefixed source only counts as an internal reference when it
-// has the address shape /<key>/(cards|knowledge|artifacts)/<rest>. Anything
+// has the address shape /<key>/(cards|vault|artifacts)/<rest>. Anything
 // else that merely starts with "/" is external and passes unchecked.
 func TestVerifyAcceptsAFilesystemPathSource(t *testing.T) {
 	c, p, _ := kbCore(t)
-	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
+	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
 	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
 		Title: "Claim", Template: "cited", Sources: []string{"/usr/share/doc/x.txt:10"},
@@ -143,7 +143,7 @@ func TestVerifyAcceptsAFilesystemPathSource(t *testing.T) {
 // address is well-formed.
 func TestVerifyRejectsAnAddressShapedButMalformedSource(t *testing.T) {
 	c, p, _ := kbCore(t)
-	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
+	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
 	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
 		Title: "Claim", Template: "cited", Sources: []string{"/XPSCTL/cards/not-a-ref"},
@@ -161,7 +161,7 @@ func TestVerifyRejectsAnAddressShapedButMalformedSource(t *testing.T) {
 // already does for a qualified reference.
 func TestVerifyRejectsACardAddressWhoseRefPrefixDoesNotMatch(t *testing.T) {
 	c, p, b := kbCore(t)
-	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
+	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 	var fifth Card
 	for i := 1; i <= 5; i++ {
 		card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "filler"})
@@ -189,7 +189,7 @@ func TestVerifyRejectsACardAddressWhoseRefPrefixDoesNotMatch(t *testing.T) {
 // hit, once it lives in the global vault instead.
 func TestVerifyRejectsAnEscalatedEntrysOldProjectAddress(t *testing.T) {
 	c, p, _ := kbCore(t)
-	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
+	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 	target, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Shared"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
@@ -199,7 +199,7 @@ func TestVerifyRejectsAnEscalatedEntrysOldProjectAddress(t *testing.T) {
 	}
 
 	_, err = c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
-		Title: "Claim", Template: "cited", Sources: []string{"/" + p.Key + "/knowledge/" + target.Slug},
+		Title: "Claim", Template: "cited", Sources: []string{"/" + p.Key + "/vault/" + target.Slug},
 	})
 	e, ok := errors.AsType[*Error](err)
 	if !ok || e.Code != "template_violation" {
@@ -214,7 +214,7 @@ func TestVerifyRejectsAnEscalatedEntrysOldProjectAddress(t *testing.T) {
 // of the text.
 func TestVerifyBodyIgnoresURLAndRelativePathLookalikes(t *testing.T) {
 	c, p, _ := kbCore(t)
-	writeCustomTemplate(t, c, "linked", "---\nenforce: reject\nverify: [body]\n---\n# {{title}}\n")
+	writeCustomTemplate(t, c, "linked", "---\nenforce: reject\nresolve: [body]\n---\n# {{title}}\n")
 
 	body := "# Claim\n\n" +
 		"See https://example.com/foo/cards/bar for the upstream issue.\n" +

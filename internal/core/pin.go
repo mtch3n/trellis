@@ -76,25 +76,25 @@ func (c *Core) PinKnowledge(ctx context.Context, projectID, slug, recap, board s
 			stored, hash = &text, &doc.ContentHash
 		}
 		if _, err := tx.Exec(
-			`UPDATE knowledge SET recap = ?, recap_hash = ? WHERE id = ?`,
+			`UPDATE entry SET recap = ?, recap_hash = ? WHERE id = ?`,
 			stored, hash, doc.ID); err != nil {
 			return err
 		}
 
 		// The table's UNIQUE treats NULL boards as distinct, so a project-wide
 		// pin has its own partial index to conflict on.
-		conflict := `(knowledge_id, board_id)`
+		conflict := `(entry_id, board_id)`
 		if boardID == nil {
-			conflict = `(knowledge_id) WHERE board_id IS NULL`
+			conflict = `(entry_id) WHERE board_id IS NULL`
 		}
 		if _, err := tx.Exec(
-			`INSERT INTO pin (id, knowledge_id, board_id, created_at) VALUES (?, ?, ?, ?)
+			`INSERT INTO pin (id, entry_id, board_id, created_at) VALUES (?, ?, ?, ?)
 			 ON CONFLICT `+conflict+` DO UPDATE SET created_at = excluded.created_at`,
 			NewCardID(), doc.ID, boardID, now); err != nil {
 			return err
 		}
 		pin = Pin{Slug: doc.Slug, Title: doc.Title, Recap: text, BoardName: boardName, CreatedAt: now}
-		return c.recordEvent(tx, "knowledge", doc.ID, "pinned", "", "", text)
+		return c.recordEvent(tx, "entry", doc.ID, "pinned", "", "", text)
 	})
 	return pin, err
 }
@@ -110,13 +110,13 @@ func (c *Core) UnpinKnowledge(ctx context.Context, projectID, slug, board string
 		var res sql.Result
 		var err error
 		if board == "" {
-			res, err = tx.Exec(`DELETE FROM pin WHERE knowledge_id = ? AND board_id IS NULL`, doc.ID)
+			res, err = tx.Exec(`DELETE FROM pin WHERE entry_id = ? AND board_id IS NULL`, doc.ID)
 		} else {
 			b, berr := c.boardByName(tx, projectID, board)
 			if berr != nil {
 				return berr
 			}
-			res, err = tx.Exec(`DELETE FROM pin WHERE knowledge_id = ? AND board_id = ?`, doc.ID, b.ID)
+			res, err = tx.Exec(`DELETE FROM pin WHERE entry_id = ? AND board_id = ?`, doc.ID, b.ID)
 		}
 		if err != nil {
 			return err
@@ -125,7 +125,7 @@ func (c *Core) UnpinKnowledge(ctx context.Context, projectID, slug, board string
 			return ErrNotFound("not_pinned", doc.Slug+" is not pinned there",
 				"trellis knowledge pins")
 		}
-		return c.recordEvent(tx, "knowledge", doc.ID, "unpinned", "", "", "")
+		return c.recordEvent(tx, "entry", doc.ID, "unpinned", "", "", "")
 	})
 }
 
@@ -149,7 +149,7 @@ func (c *Core) pins(tx *sqlx.Tx, projectID, boardID string, limit int) ([]Pin, e
 	q := `SELECT k.id, k.slug, k.title, COALESCE(k.recap, '') AS recap,
 	             b.name AS board_name,
 	             (k.recap_hash IS NOT k.content_hash) AS stale, p.created_at
-	      FROM pin p JOIN knowledge k ON k.id = p.knowledge_id
+	      FROM pin p JOIN entry k ON k.id = p.entry_id
 	      LEFT JOIN board b ON b.id = p.board_id
 	      WHERE k.project_id = ?`
 	args := []any{projectID}
@@ -223,12 +223,12 @@ func (c *Core) NominateKnowledge(ctx context.Context, projectID, slug, reason st
 			return ErrUsage("already_global", doc.Slug+" is already global", "trellis knowledge show "+doc.Slug)
 		}
 		if _, err := tx.Exec(
-			`INSERT INTO nomination (id, knowledge_id, actor, reason, created_at) VALUES (?, ?, ?, ?, ?)
-			 ON CONFLICT (knowledge_id, actor) DO UPDATE SET reason = excluded.reason`,
+			`INSERT INTO nomination (id, entry_id, actor, reason, created_at) VALUES (?, ?, ?, ?, ?)
+			 ON CONFLICT (entry_id, actor) DO UPDATE SET reason = excluded.reason`,
 			NewCardID(), doc.ID, c.actor, reason, c.clock.NowMS()); err != nil {
 			return err
 		}
-		return c.recordEvent(tx, "knowledge", doc.ID, "nominated", "", "", reason)
+		return c.recordEvent(tx, "entry", doc.ID, "nominated", "", "", reason)
 	})
 }
 
@@ -240,14 +240,14 @@ func (c *Core) Nominations(ctx context.Context, projectID string) ([]Nomination,
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		return tx.Select(&out,
 			`SELECT k.slug, k.title, n.actor, n.reason, n.created_at,
-			        (SELECT COUNT(*) FROM link l WHERE l.to_type = 'doc' AND l.to_id = k.id) AS cited,
-			        (SELECT COUNT(*) FROM pin p WHERE p.knowledge_id = k.id) AS pinned,
-			        (SELECT COUNT(*) FROM event e WHERE e.entity_type = 'knowledge'
+			        (SELECT COUNT(*) FROM link l WHERE l.to_type = 'entry' AND l.to_id = k.id) AS cited,
+			        (SELECT COUNT(*) FROM pin p WHERE p.entry_id = k.id) AS pinned,
+			        (SELECT COUNT(*) FROM event e WHERE e.entity_type = 'entry'
 			           AND e.entity_id = k.id AND e.action = 'read' AND e.ts > ?) AS reads,
-			        (SELECT COUNT(DISTINCT e.actor) FROM event e WHERE e.entity_type = 'knowledge'
+			        (SELECT COUNT(DISTINCT e.actor) FROM event e WHERE e.entity_type = 'entry'
 			           AND e.entity_id = k.id AND e.action = 'read' AND e.ts > ?) AS actors,
-			        (SELECT COUNT(*) FROM nomination n2 WHERE n2.knowledge_id = k.id) AS noms
-			 FROM nomination n JOIN knowledge k ON k.id = n.knowledge_id
+			        (SELECT COUNT(*) FROM nomination n2 WHERE n2.entry_id = k.id) AS noms
+			 FROM nomination n JOIN entry k ON k.id = n.entry_id
 			 WHERE k.project_id = ? AND k.global = 0
 			 ORDER BY noms DESC, reads DESC, cited DESC, n.created_at`,
 			since, since, projectID)
@@ -301,7 +301,7 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 			return ErrUsage("already_global", doc.Slug+" is already global", "")
 		}
 		var taken int
-		if err := tx.Get(&taken, `SELECT COUNT(*) FROM knowledge WHERE global = 1 AND slug = ?`, doc.Slug); err != nil {
+		if err := tx.Get(&taken, `SELECT COUNT(*) FROM entry WHERE global = 1 AND slug = ?`, doc.Slug); err != nil {
 			return err
 		}
 		if taken > 0 {
@@ -325,8 +325,8 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 		now := c.clock.NowMS()
 		reviewBy := now + int64(GlobalReviewDays)*24*60*60*1000
 		if _, err := tx.Exec(
-			`UPDATE knowledge SET global = 1, board_id = NULL, review_by = ?,
-			                      reviewed_at = ?, updated_at = ? WHERE id = ?`,
+			`UPDATE entry SET global = 1, board_id = NULL, verify_by = ?,
+			                      verified_at = ?, updated_at = ? WHERE id = ?`,
 			reviewBy, now, now, doc.ID); err != nil {
 			return err
 		}
@@ -336,7 +336,7 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 		if err := c.resolveDocStubs(tx, &doc); err != nil {
 			return err
 		}
-		if err := c.recordEvent(tx, "knowledge", doc.ID, "escalated", "", "", reason); err != nil {
+		if err := c.recordEvent(tx, "entry", doc.ID, "promoted", "", "", reason); err != nil {
 			return err
 		}
 		if err := c.docView(tx, &doc); err != nil {
@@ -351,7 +351,7 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 		// move the file belongs on, and when it landed the escalate is a
 		// success no matter what Commit reported.
 		var landed bool
-		qerr := c.db.Get(&landed, `SELECT global FROM knowledge WHERE id = ?`, doc.ID)
+		qerr := c.db.Get(&landed, `SELECT global FROM entry WHERE id = ?`, doc.ID)
 		if writeLanded(landed, qerr) {
 			err = nil
 		} else {
@@ -406,7 +406,7 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 		if rerr != nil {
 			return rerr
 		}
-		gerr := tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, exactSlug)
+		gerr := tx.Get(&doc, `SELECT * FROM entry WHERE slug = ? AND global = 1`, exactSlug)
 		if errors.Is(gerr, sql.ErrNoRows) {
 			return ErrNotFound("not_global", "no global entry "+slug, "trellis knowledge ls --global")
 		}
@@ -432,7 +432,7 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 			return err
 		}
 		if _, err := tx.Exec(
-			`UPDATE knowledge SET global = 0, review_by = NULL, updated_at = ? WHERE id = ?`,
+			`UPDATE entry SET global = 0, verify_by = NULL, updated_at = ? WHERE id = ?`,
 			c.clock.NowMS(), doc.ID); err != nil {
 			return err
 		}
@@ -441,7 +441,7 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 		if err := c.resolveDocStubs(tx, &doc); err != nil {
 			return err
 		}
-		if err := c.recordEvent(tx, "knowledge", doc.ID, "demoted", "", "", reason); err != nil {
+		if err := c.recordEvent(tx, "entry", doc.ID, "demoted", "", "", reason); err != nil {
 			return err
 		}
 		if err := c.docView(tx, &doc); err != nil {
@@ -456,7 +456,7 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 		// move the file belongs on, and when it landed the demote is a
 		// success no matter what Commit reported.
 		var landed bool
-		qerr := c.db.Get(&landed, `SELECT global FROM knowledge WHERE id = ?`, doc.ID)
+		qerr := c.db.Get(&landed, `SELECT global FROM entry WHERE id = ?`, doc.ID)
 		if writeLanded(!landed, qerr) {
 			err = nil
 		} else {
@@ -485,7 +485,7 @@ func (c *Core) VerifyKnowledge(ctx context.Context, slug string) error {
 		if rerr != nil {
 			return rerr
 		}
-		err = tx.Get(&doc, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, exactSlug)
+		err = tx.Get(&doc, `SELECT * FROM entry WHERE slug = ? AND global = 1`, exactSlug)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound("not_global", "no global entry "+slug, "trellis knowledge ls --global")
 		}
@@ -495,10 +495,10 @@ func (c *Core) VerifyKnowledge(ctx context.Context, slug string) error {
 		now := c.clock.NowMS()
 		reviewBy := now + int64(GlobalReviewDays)*24*60*60*1000
 		if _, err := tx.Exec(
-			`UPDATE knowledge SET reviewed_at = ?, review_by = ? WHERE id = ?`, now, reviewBy, doc.ID); err != nil {
+			`UPDATE entry SET verified_at = ?, verify_by = ? WHERE id = ?`, now, reviewBy, doc.ID); err != nil {
 			return err
 		}
-		return c.recordEvent(tx, "knowledge", doc.ID, "verified", "", "", "")
+		return c.recordEvent(tx, "entry", doc.ID, "verified", "", "", "")
 	})
 }
 

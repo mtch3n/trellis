@@ -65,7 +65,7 @@ func TestABrokenRepositoryFileFailsOrdinaryCommands(t *testing.T) {
 }
 
 func TestConfigSetRepoWritesBesideThePin(t *testing.T) {
-	dir := repoEnv(t, "config:\n  lease.ttl: 45m\nextensions:\n  actions:\n    - on: knowledge.created\n      run: ./review.sh\n")
+	dir := repoEnv(t, "config:\n  claim.ttl: 45m\nextensions:\n  actions:\n    - on: entry.created\n      run: ./review.sh\n")
 	sub := filepath.Join(dir, "sub")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
@@ -81,7 +81,7 @@ func TestConfigSetRepoWritesBesideThePin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"card.ls_limit: 9", "lease.ttl: 45m", "run: ./review.sh"} {
+	for _, want := range []string{"card.ls_limit: 9", "claim.ttl: 45m", "run: ./review.sh"} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf(".trellis.yaml lost or lacks %q:\n%s", want, raw)
 		}
@@ -92,7 +92,7 @@ func TestConfigSetRepoWritesBesideThePin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), "card.ls_limit") || !strings.Contains(string(raw), "lease.ttl: 45m") {
+	if strings.Contains(string(raw), "card.ls_limit") || !strings.Contains(string(raw), "claim.ttl: 45m") {
 		t.Errorf("unset --repo removed the wrong thing:\n%s", raw)
 	}
 }
@@ -142,7 +142,7 @@ func TestConfigSetRepoNeedsAPin(t *testing.T) {
 }
 
 func TestExtensionConfigPrintsItsSubtree(t *testing.T) {
-	dir := repoEnv(t, "extensions:\n  actions:\n    - on: knowledge.created\n      type: finding\n      run: ./review.sh\n  other:\n    x: 1\n")
+	dir := repoEnv(t, "extensions:\n  actions:\n    - on: entry.created\n      type: finding\n      run: ./review.sh\n  other:\n    x: 1\n")
 	sub := filepath.Join(dir, "sub")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
@@ -150,7 +150,7 @@ func TestExtensionConfigPrintsItsSubtree(t *testing.T) {
 	t.Chdir(sub)
 
 	out := runCmd(t, "extension", "config", "actions", "--json")
-	if !strings.Contains(out, `"run":"./review.sh"`) || !strings.Contains(out, `"on":"knowledge.created"`) {
+	if !strings.Contains(out, `"run":"./review.sh"`) || !strings.Contains(out, `"on":"entry.created"`) {
 		t.Fatalf("extension config actions = %s", out)
 	}
 	if strings.Contains(out, `"x"`) {

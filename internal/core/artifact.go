@@ -193,8 +193,8 @@ func backfillArtifactStubs(tx *sqlx.Tx, projectID, name, id string) error {
 	_, err := tx.Exec(
 		`UPDATE link SET to_id = ?
 		 WHERE to_type = 'artifact' AND rel = 'artifact' AND to_id IS NULL AND to_raw = ?
-		   AND from_type = 'doc'
-		   AND from_id IN (SELECT id FROM knowledge WHERE project_id = ?)`,
+		   AND from_type = 'entry'
+		   AND from_id IN (SELECT id FROM entry WHERE project_id = ?)`,
 		id, name, projectID)
 	return err
 }
@@ -407,7 +407,7 @@ func (c *Core) ListArtifacts(ctx context.Context, projectID, cardID, docID strin
 		case docID != "":
 			err = tx.Select(&out,
 				`SELECT a.* FROM artifact a JOIN link l ON l.to_type = 'artifact' AND l.to_id = a.id
-				 WHERE a.project_id = ? AND l.from_type = 'doc' AND l.from_id = ? AND l.rel = 'artifact'
+				 WHERE a.project_id = ? AND l.from_type = 'entry' AND l.from_id = ? AND l.rel = 'artifact'
 				 ORDER BY l.rowid`, projectID, docID)
 		default:
 			err = tx.Select(&out,
@@ -447,7 +447,7 @@ func (c *Core) DeleteArtifact(ctx context.Context, projectID, artifactID string)
 		// matching it. A card's link lives only in the database and goes.
 		if _, err := tx.Exec(
 			`UPDATE link SET to_id = NULL
-			 WHERE to_type = 'artifact' AND to_id = ? AND from_type = 'doc'`, artifactID); err != nil {
+			 WHERE to_type = 'artifact' AND to_id = ? AND from_type = 'entry'`, artifactID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM link WHERE (to_type = 'artifact' AND to_id = ?) OR (from_type = 'artifact' AND from_id = ?)`, artifactID, artifactID); err != nil {

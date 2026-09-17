@@ -102,7 +102,7 @@ func TestMirrorDriftIsCorrectedFromTheFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if _, err := c.db.Exec(`UPDATE knowledge SET private = 0 WHERE id = ?`, doc.ID); err != nil {
+	if _, err := c.db.Exec(`UPDATE entry SET private = 0 WHERE id = ?`, doc.ID); err != nil {
 		t.Fatalf("drift the mirror: %v", err)
 	}
 
@@ -115,7 +115,7 @@ func TestMirrorDriftIsCorrectedFromTheFile(t *testing.T) {
 	}
 
 	var stored int
-	if err := c.db.Get(&stored, `SELECT private FROM knowledge WHERE id = ?`, doc.ID); err != nil {
+	if err := c.db.Get(&stored, `SELECT private FROM entry WHERE id = ?`, doc.ID); err != nil {
 		t.Fatalf("read back: %v", err)
 	}
 	if stored != 1 {
@@ -294,7 +294,7 @@ func TestPinOnPrivateStoresNoRecap(t *testing.T) {
 			Recap *string `db:"recap"`
 			Hash  *string `db:"recap_hash"`
 		}
-		if err := c.db.Get(&row, `SELECT recap, recap_hash FROM knowledge WHERE id = ?`, doc.ID); err != nil {
+		if err := c.db.Get(&row, `SELECT recap, recap_hash FROM entry WHERE id = ?`, doc.ID); err != nil {
 			t.Fatalf("%s: read recap: %v", step, err)
 		}
 		if row.Recap != nil || row.Hash != nil {
@@ -615,7 +615,7 @@ func TestMarkingPrivatePurgesEveryLocalCopy(t *testing.T) {
 	}
 
 	var recap string
-	if err := c.db.Get(&recap, `SELECT COALESCE(recap, '') FROM knowledge WHERE id = ?`, doc.ID); err != nil {
+	if err := c.db.Get(&recap, `SELECT COALESCE(recap, '') FROM entry WHERE id = ?`, doc.ID); err != nil {
 		t.Fatalf("read recap: %v", err)
 	}
 	if recap != "" {
@@ -627,7 +627,7 @@ func TestMarkingPrivatePurgesEveryLocalCopy(t *testing.T) {
 		}
 	}
 
-	// The pin itself is not content — it is (id, knowledge_id, board_id,
+	// The pin itself is not content — it is (id, entry_id, board_id,
 	// created_at) — so the purge leaves it alone. Deleting it here would also
 	// make UnpinKnowledge fail right after a privatise (see
 	// TestUnpinningAJustPrivatisedEntrySucceeds). The pin must survive and
@@ -834,7 +834,7 @@ func TestPinsDoNotDiscloseAfterARolledBackPurge(t *testing.T) {
 	read := func() stored {
 		t.Helper()
 		var row stored
-		if err := c.db.Get(&row, `SELECT private, recap FROM knowledge WHERE id = ?`, doc.ID); err != nil {
+		if err := c.db.Get(&row, `SELECT private, recap FROM entry WHERE id = ?`, doc.ID); err != nil {
 			t.Fatalf("read row: %v", err)
 		}
 		return row

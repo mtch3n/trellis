@@ -156,7 +156,7 @@ func KeyFromName(name string) string {
 // The collections an absolute address can name, beside CollectionBoards.
 const (
 	CollectionCards     = "cards"
-	CollectionKnowledge = "knowledge"
+	CollectionKnowledge = "vault"
 	CollectionArtifacts = "artifacts"
 )
 
@@ -178,8 +178,8 @@ func ArtifactPath(key, name string) Path {
 }
 func SplitAnchor(s string) (target, anchor string) { target, anchor, _ = strings.Cut(s, "#"); return }
 
-// Parse reads an absolute address: /KEY/cards/<ref>, /KEY/knowledge/<slug>,
-// /GLOBAL/knowledge/<slug> or /KEY/artifacts/<name>. Keys and card refs are
+// Parse reads an absolute address: /KEY/cards/<ref>, /KEY/vault/<slug>,
+// /GLOBAL/vault/<slug> or /KEY/artifacts/<name>. Keys and card refs are
 // case-insensitive and come back upper-case.
 //
 // It checks shape only: whether the object exists is for the caller to check
@@ -202,7 +202,7 @@ func Parse(s string) (Path, error) {
 	}
 	if len(segs) == 1 {
 		if key == GlobalKey {
-			return Path{}, errors.New("GLOBAL holds only knowledge")
+			return Path{}, errors.New("GLOBAL holds only vault entries")
 		}
 		return ProjectPath(key), nil
 	}
@@ -212,7 +212,7 @@ func Parse(s string) (Path, error) {
 	}
 	collection, name := segs[1], strings.Join(segs[2:], "/")
 	if key == GlobalKey && collection != CollectionKnowledge {
-		return Path{}, errors.New("GLOBAL holds only knowledge")
+		return Path{}, errors.New("GLOBAL holds only vault entries")
 	}
 	switch collection {
 	case CollectionBoards:

@@ -174,7 +174,7 @@ func TestEventFeedFiltersByTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
-	if len(events) != 1 || events[0].Kind != "knowledge" || events[0].Template != "finding" || events[0].Title != "Bug" {
+	if len(events) != 1 || events[0].Kind != "entry" || events[0].Template != "finding" || events[0].Title != "Bug" {
 		t.Fatalf("events = %+v, want exactly the one finding, and no card event", events)
 	}
 }
@@ -339,10 +339,10 @@ func TestEventFeedDeletedKnowledgeHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t 
 
 	// A project-scoped read now reaches a hard-deleted entity's history
 	// because the event table carries project_id.
-	// Kinds: []string{"knowledge"} excludes kbCore's own "board created"
+	// Kinds: []string{"entry"} excludes kbCore's own "board created"
 	// event, whose ref and title are still the (undeleted) board's — the
 	// loop below assumes every returned event is this entry's.
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"knowledge"}})
+	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"entry"}})
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
@@ -376,9 +376,9 @@ func TestEventFeedPrivateEntryCarriesRefAndTitleOnly(t *testing.T) {
 		t.Fatalf("EditKnowledgeFields: %v", err)
 	}
 
-	// Kinds: []string{"knowledge"} excludes kbCore's own "board created"
+	// Kinds: []string{"entry"} excludes kbCore's own "board created"
 	// event, whose title is the board's name, not this entry's.
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"knowledge"}})
+	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"entry"}})
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
@@ -427,9 +427,9 @@ func TestEventFeedKnowledgeRefUsesGlobalForAnEscalatedDoc(t *testing.T) {
 		t.Fatalf("EscalateKnowledge: %v", err)
 	}
 
-	// Kinds: []string{"knowledge"} excludes kbCore's own "board created"
+	// Kinds: []string{"entry"} excludes kbCore's own "board created"
 	// event, which also has action "created".
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"knowledge"}, Actions: []string{"created"}})
+	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"entry"}, Actions: []string{"created"}})
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}

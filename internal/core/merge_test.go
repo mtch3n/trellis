@@ -97,7 +97,7 @@ func (f *mergeFixture) snapshot() string {
 	f.t.Helper()
 	var b strings.Builder
 	for _, table := range []string{"project", "board", "column_", "card", "label", "tag", "card_label",
-		"card_tag", "knowledge", "knowledge_label", "artifact", "link", "event", "merged_project", "project_config"} {
+		"card_tag", "entry", "entry_label", "artifact", "link", "event", "merged_project", "project_config"} {
 		fmt.Fprintf(&b, "%s=%d ", table, f.count("SELECT count(*) FROM "+table))
 	}
 	filepath.WalkDir(f.root, func(path string, d os.DirEntry, err error) error {
@@ -219,7 +219,7 @@ func TestMergeRefusals(t *testing.T) {
 	}
 
 	held := f.card(f.api, f.apiBoard, "held", nil, nil)
-	f.exec(`UPDATE card SET owner = 'agent:x', lease_until = ? WHERE id = ?`, f.c.clock.NowMS()+60_000, held.ID)
+	f.exec(`UPDATE card SET claimed_by = 'agent:x', claim_until = ? WHERE id = ?`, f.c.clock.NowMS()+60_000, held.ID)
 	if plan := f.merge(MergeOptions{}); plan.Ready || !strings.Contains(plan.Refused, "held") {
 		t.Errorf("held lease: %+v", plan)
 	}
@@ -230,7 +230,7 @@ func TestMergeRefusals(t *testing.T) {
 	if f.count(`SELECT count(*) FROM project WHERE key = 'API'`) != 1 {
 		t.Error("a refused merge removed API")
 	}
-	f.exec(`UPDATE card SET owner = NULL, lease_until = NULL WHERE id = ?`, held.ID)
+	f.exec(`UPDATE card SET claimed_by = NULL, claim_until = NULL WHERE id = ?`, held.ID)
 
 	// A key from before the key grammar, with a card whose ref carries it.
 	f.exec(`INSERT INTO project (id, key, name, created_at) VALUES ('odd', 'MY_APP', 'MY_APP', 1)`)
@@ -256,8 +256,8 @@ func TestMergeRefusals(t *testing.T) {
 func TestMergeListsDroppedConfigAndBacksUp(t *testing.T) {
 	f := newMergeFixture(t)
 	f.exec(`INSERT INTO project_config (project_id, key, value, updated_at) VALUES
-	          (?, 'lease.ttl', '10m', 1), (?, 'card.ls_limit', '20', 1), (?, 'search.method', 'fts', 1),
-	          (?, 'lease.ttl', '10m', 1), (?, 'card.ls_limit', '50', 1)`,
+	          (?, 'claim.ttl', '10m', 1), (?, 'card.ls_limit', '20', 1), (?, 'search.method', 'fts', 1),
+	          (?, 'claim.ttl', '10m', 1), (?, 'card.ls_limit', '50', 1)`,
 		f.api.ID, f.api.ID, f.api.ID, f.mono.ID, f.mono.ID)
 
 	plan := f.merge(MergeOptions{Apply: true})

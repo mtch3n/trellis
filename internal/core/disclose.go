@@ -32,7 +32,7 @@ func (c *Core) privateAfterRefresh(tx *sqlx.Tx, ids []string) (private, missing 
 	if len(ids) == 0 {
 		return private, missing, nil
 	}
-	q, args, err := sqlx.In(`SELECT * FROM knowledge WHERE id IN (?)`, ids)
+	q, args, err := sqlx.In(`SELECT * FROM entry WHERE id IN (?)`, ids)
 	if err != nil {
 		return nil, nil, err
 	}

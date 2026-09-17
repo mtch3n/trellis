@@ -55,14 +55,14 @@ func (c *Core) KnowledgeHit(ctx context.Context, docID, projectID string, allPro
 	q := `SELECT 'knowledge' AS kind, ` + docAddressSQL + ` AS ref, k.title,
              CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
              k.template AS detail, 0 AS unreviewed
-      FROM knowledge k JOIN project p ON p.id = k.project_id WHERE k.id = ?`
+      FROM entry k JOIN project p ON p.id = k.project_id WHERE k.id = ?`
 	args := []any{docID}
 	if !allProjects {
 		q += ` AND (k.project_id = ? OR k.global = 1)`
 		args = append(args, projectID)
 	}
 	if label != "" {
-		q += ` AND EXISTS (SELECT 1 FROM knowledge_label kl JOIN label l ON l.id = kl.label_id WHERE kl.doc_id = k.id AND l.name = ?)`
+		q += ` AND EXISTS (SELECT 1 FROM entry_label kl JOIN label l ON l.id = kl.label_id WHERE kl.entry_id = k.id AND l.name = ?)`
 		args = append(args, label)
 	}
 	var hit SearchHit
@@ -159,7 +159,7 @@ func (c *Core) Search(ctx context.Context, projectID, query string, o SearchOpts
 	if o.Label != "" {
 		labelJoin = ` JOIN card_label cl ON cl.card_id = c.id
 		              JOIN label lb ON lb.id = cl.label_id AND lb.name = ?`
-		docLabelJoin = ` JOIN knowledge_label kl ON kl.doc_id = k.id
+		docLabelJoin = ` JOIN entry_label kl ON kl.entry_id = k.id
 		                 JOIN label lb2 ON lb2.id = kl.label_id AND lb2.name = ?`
 	}
 
@@ -197,12 +197,12 @@ func (c *Core) Search(ctx context.Context, projectID, query string, o SearchOpts
 			       k.title,
 			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
 			       k.template AS detail,
-			       (k.global = 1 AND k.review_by IS NOT NULL AND k.review_by < ?) AS unreviewed
-			FROM knowledge k
-			JOIN knowledge_fts ON knowledge_fts.rowid = k.rowid
+			       (k.global = 1 AND k.verify_by IS NOT NULL AND k.verify_by < ?) AS unreviewed
+			FROM entry k
+			JOIN entry_fts ON entry_fts.rowid = k.rowid
 			JOIN project p ON p.id = k.project_id`+docLabelJoin+`
-			WHERE `+docScope+` AND knowledge_fts MATCH ?
-			ORDER BY knowledge_fts.rank LIMIT ?`, docQueryArgs...); err != nil {
+			WHERE `+docScope+` AND entry_fts MATCH ?
+			ORDER BY entry_fts.rank LIMIT ?`, docQueryArgs...); err != nil {
 			return err
 		}
 		hits = append(hits, docs...)
@@ -239,12 +239,12 @@ func (c *Core) matchKnowledge(ctx context.Context, projectID, match string, limi
 			       k.title,
 			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
 			       k.template AS detail,
-			       (k.global = 1 AND k.review_by IS NOT NULL AND k.review_by < ?) AS unreviewed
-			FROM knowledge k
-			JOIN knowledge_fts ON knowledge_fts.rowid = k.rowid
+			       (k.global = 1 AND k.verify_by IS NOT NULL AND k.verify_by < ?) AS unreviewed
+			FROM entry k
+			JOIN entry_fts ON entry_fts.rowid = k.rowid
 			JOIN project p ON p.id = k.project_id
-			WHERE (k.project_id = ? OR k.global = 1) AND knowledge_fts MATCH ?
-			ORDER BY knowledge_fts.rank LIMIT ?`,
+			WHERE (k.project_id = ? OR k.global = 1) AND entry_fts MATCH ?
+			ORDER BY entry_fts.rank LIMIT ?`,
 			c.clock.NowMS(), projectID, match, limit)
 	})
 	return hits, err
@@ -266,7 +266,7 @@ func (c *Core) ListSearchKnowledge(ctx context.Context, projectID string) ([]Kno
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var all []Knowledge
 		if err := tx.Select(&all,
-			`SELECT * FROM knowledge WHERE project_id = ? OR global = 1 ORDER BY updated_at DESC`,
+			`SELECT * FROM entry WHERE project_id = ? OR global = 1 ORDER BY updated_at DESC`,
 			projectID); err != nil {
 			return err
 		}

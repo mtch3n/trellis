@@ -21,8 +21,8 @@ type Card struct {
 	Title      string   `db:"title" json:"title"`
 	BodyMD     string   `db:"body_md" json:"body"`
 	Priority   Priority `db:"priority" json:"-"`
-	Owner      *string  `db:"owner" json:"owner,omitempty"`
-	LeaseUntil *int64   `db:"lease_until" json:"lease_until,omitempty"`
+	Owner      *string  `db:"claimed_by" json:"owner,omitempty"`
+	LeaseUntil *int64   `db:"claim_until" json:"claim_until,omitempty"`
 	Version    int64    `db:"version" json:"version"`
 	CreatedAt  int64    `db:"created_at" json:"created_at"`
 	UpdatedAt  int64    `db:"updated_at" json:"updated_at"`
@@ -437,7 +437,7 @@ func (c *Core) MoveCard(ctx context.Context, projectID, boardID string, ref Card
 		// If moving to a done column, release the lease automatically.
 		var leaseUpdate string
 		if to.IsDone {
-			leaseUpdate = ", owner = NULL, lease_until = NULL"
+			leaseUpdate = ", claimed_by = NULL, claim_until = NULL"
 		}
 		if _, err := tx.Exec(
 			`UPDATE card SET board_id = ?, column_id = ?, version = version + 1, updated_at = ?`+leaseUpdate+` WHERE id = ?`,
@@ -524,7 +524,7 @@ func (c *Core) EditCard(ctx context.Context, projectID string, ref CardRef, e Ca
 		// If we own this card, extend the lease (working on it is the heartbeat).
 		if card.Owner != nil && *card.Owner == c.actor {
 			ttl := c.leaseTTL
-			sets = append(sets, "lease_until = ?")
+			sets = append(sets, "claim_until = ?")
 			args = append(args, c.clock.NowMS()+ttl)
 		}
 

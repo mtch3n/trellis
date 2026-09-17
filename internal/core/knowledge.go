@@ -22,7 +22,7 @@ import (
 var templateFS embed.FS
 
 // GlobalKey names the global vault. vpath owns the reservation: no project can
-// take the key, so /GLOBAL/knowledge/<slug> never collides with a project.
+// take the key, so /GLOBAL/vault/<slug> never collides with a project.
 const GlobalKey = vpath.GlobalKey
 
 // Knowledge is the cached row for one markdown file. The file always wins: every
@@ -49,14 +49,14 @@ type Knowledge struct {
 	Size        int64  `db:"size" json:"-"`
 	Global      bool   `db:"global" json:"global,omitzero"`
 	Private     bool   `db:"private" json:"private,omitzero"`
-	ReviewBy    *int64 `db:"review_by" json:"review_by,omitempty"`
-	ReviewedAt  *int64 `db:"reviewed_at" json:"reviewed_at,omitempty"`
+	ReviewBy    *int64 `db:"verify_by" json:"verify_by,omitempty"`
+	ReviewedAt  *int64 `db:"verified_at" json:"verified_at,omitempty"`
 	Version     int64  `db:"version" json:"version"`
 	CreatedAt   int64  `db:"created_at" json:"created_at"`
 	UpdatedAt   int64  `db:"updated_at" json:"updated_at"`
 
 	// Computed for display.
-	Ref       string         `db:"-" json:"ref"`             // /KEY/knowledge/<slug> or /GLOBAL/knowledge/<slug>
+	Ref       string         `db:"-" json:"ref"`             // /KEY/vault/<slug> or /GLOBAL/vault/<slug>
 	BoardName string         `db:"-" json:"board,omitempty"` // association only
 	Tags      []string       `db:"-" json:"tags,omitempty"`
 	Labels    []string       `db:"-" json:"labels,omitempty"`
@@ -147,9 +147,9 @@ func Templates() []string {
 // needs it existing goes through kbDir.
 func (c *Core) docDir(projectKey string, global bool) string {
 	if global {
-		return filepath.Join(c.root, "global", "knowledge")
+		return filepath.Join(c.root, "global", "vault")
 	}
-	return filepath.Join(c.root, "projects", projectKey, "knowledge")
+	return filepath.Join(c.root, "projects", projectKey, "vault")
 }
 
 // kbDir is docDir, creating the directory: only a write needs that.
@@ -248,7 +248,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		}
 	}
 	if err := c.checkWrite(ctx, ProposedWrite{
-		Op: "doc.write", EntityType: "knowledge", ProjectID: projectID,
+		Op: "doc.write", EntityType: "entry", ProjectID: projectID,
 		Fields: map[string]string{"title": in.Title, "body": body},
 	}); err != nil {
 		return Knowledge{}, err
@@ -363,7 +363,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		if err := c.rebuildKnowledgeFTS(tx); err != nil {
 			return err
 		}
-		if err := c.recordEvent(tx, "knowledge", doc.ID, "created", "", "", doc.Title); err != nil {
+		if err := c.recordEvent(tx, "entry", doc.ID, "created", "", "", doc.Title); err != nil {
 			return err
 		}
 		return c.docView(tx, &doc)
@@ -390,7 +390,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 
 func insertKnowledge(tx *sqlx.Tx, d Knowledge) error {
 	_, err := tx.Exec(
-		`INSERT INTO knowledge (id, project_id, board_id, slug, title, template, summary,
+		`INSERT INTO entry (id, project_id, board_id, slug, title, template, summary,
 		                        provenance, private, content_hash, mtime, size, global, version,
 		                        created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -418,7 +418,7 @@ func uniqueSlug(tx *sqlx.Tx, projectID, base string) (string, error) {
 		}
 		var exists int
 		if err := tx.Get(&exists,
-			`SELECT COUNT(*) FROM knowledge WHERE project_id = ? AND slug = ?`, projectID, slug); err != nil {
+			`SELECT COUNT(*) FROM entry WHERE project_id = ? AND slug = ?`, projectID, slug); err != nil {
 			return "", err
 		}
 		if exists == 0 {
@@ -477,11 +477,11 @@ func (c *Core) loadDoc(tx *sqlx.Tx, projectID, slug string, out *Knowledge) erro
 	}
 
 	if projectID == "" || d.scope == docVault {
-		err = tx.Get(out, `SELECT * FROM knowledge WHERE slug = ? AND global = 1`, exactSlug)
+		err = tx.Get(out, `SELECT * FROM entry WHERE slug = ? AND global = 1`, exactSlug)
 	} else if d.scope == docOwn {
-		err = tx.Get(out, `SELECT * FROM knowledge WHERE slug = ? AND project_id = ? AND global = 0`, exactSlug, projectID)
+		err = tx.Get(out, `SELECT * FROM entry WHERE slug = ? AND project_id = ? AND global = 0`, exactSlug, projectID)
 	} else {
-		err = tx.Get(out, `SELECT * FROM knowledge WHERE slug = ? AND (project_id = ? OR global = 1) ORDER BY global LIMIT 1`, exactSlug, projectID)
+		err = tx.Get(out, `SELECT * FROM entry WHERE slug = ? AND (project_id = ? OR global = 1) ORDER BY global LIMIT 1`, exactSlug, projectID)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return notFoundSlug(slug)
@@ -592,7 +592,7 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) (err error) {
 		// That is not a new version: bumping it would hand every holder of the
 		// current version a false conflict. Record the stat and stop.
 		if statMoved {
-			if _, err := tx.Exec(`UPDATE knowledge SET mtime = ?, size = ? WHERE id = ?`,
+			if _, err := tx.Exec(`UPDATE entry SET mtime = ?, size = ? WHERE id = ?`,
 				doc.MTime, doc.Size, doc.ID); err != nil {
 				return err
 			}
@@ -602,7 +602,7 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) (err error) {
 	doc.Version++
 
 	if _, err := tx.Exec(
-		`UPDATE knowledge SET title = ?, template = ?, summary = ?, provenance = ?, private = ?,
+		`UPDATE entry SET title = ?, template = ?, summary = ?, provenance = ?, private = ?,
 		                      content_hash = ?, mtime = ?, size = ?, version = ?,
 		                      updated_at = ? WHERE id = ?`,
 		doc.Title, doc.Template, doc.Summary, doc.Provenance, doc.Private, doc.ContentHash,
@@ -626,7 +626,7 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) (err error) {
 	if err := c.rebuildKnowledgeFTS(tx); err != nil {
 		return err
 	}
-	return c.recordEvent(tx, "knowledge", doc.ID, "reloaded", "", "", "external edit")
+	return c.recordEvent(tx, "entry", doc.ID, "reloaded", "", "", "external edit")
 }
 
 // docView fills the computed fields.
@@ -645,13 +645,13 @@ func (c *Core) docView(tx *sqlx.Tx, doc *Knowledge) error {
 	}
 	doc.Tags = []string{}
 	if err := tx.Select(&doc.Tags,
-		`SELECT t.name FROM tag t JOIN knowledge_tag kt ON kt.tag_id = t.id WHERE kt.doc_id = ? ORDER BY t.name`,
+		`SELECT t.name FROM tag t JOIN entry_tag kt ON kt.tag_id = t.id WHERE kt.entry_id = ? ORDER BY t.name`,
 		doc.ID); err != nil {
 		return err
 	}
 	doc.Labels = []string{}
 	if err := tx.Select(&doc.Labels,
-		`SELECT l.name FROM label l JOIN knowledge_label kl ON kl.label_id = l.id WHERE kl.doc_id = ? ORDER BY l.name`,
+		`SELECT l.name FROM label l JOIN entry_label kl ON kl.label_id = l.id WHERE kl.entry_id = ? ORDER BY l.name`,
 		doc.ID); err != nil {
 		return err
 	}
@@ -665,7 +665,7 @@ func (c *Core) docView(tx *sqlx.Tx, doc *Knowledge) error {
 		        COALESCE(a.size, 0)  AS size,
 		        (l.to_id IS NULL)    AS missing
 		 FROM link l LEFT JOIN artifact a ON a.id = l.to_id
-		 WHERE l.from_type = 'doc' AND l.from_id = ? AND l.rel = 'artifact'
+		 WHERE l.from_type = 'entry' AND l.from_id = ? AND l.rel = 'artifact'
 		 ORDER BY l.rowid`, doc.ID)
 }
 
@@ -708,9 +708,9 @@ func (f KnowledgeFilter) where() (string, []any) {
 	}
 	if len(f.Tags) > 0 {
 		clauses = append(clauses,
-			`id IN (SELECT kt.doc_id FROM knowledge_tag kt JOIN tag t ON t.id = kt.tag_id
+			`id IN (SELECT kt.entry_id FROM entry_tag kt JOIN tag t ON t.id = kt.tag_id
 			        WHERE t.name IN (?`+strings.Repeat(", ?", len(f.Tags)-1)+`)
-			        GROUP BY kt.doc_id HAVING COUNT(DISTINCT t.name) = ?)`)
+			        GROUP BY kt.entry_id HAVING COUNT(DISTINCT t.name) = ?)`)
 		for _, v := range f.Tags {
 			args = append(args, v)
 		}
@@ -727,7 +727,7 @@ func (c *Core) ListKnowledge(ctx context.Context, projectID string, f KnowledgeF
 	docs := []Knowledge{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		where, args := f.where()
-		if err := tx.Select(&docs, `SELECT * FROM knowledge WHERE `+where+
+		if err := tx.Select(&docs, `SELECT * FROM entry WHERE `+where+
 			` ORDER BY updated_at DESC`, append([]any{projectID}, args...)...); err != nil {
 			return err
 		}
@@ -750,7 +750,7 @@ func (c *Core) ListKnowledge(ctx context.Context, projectID string, f KnowledgeF
 func (c *Core) ListGlobalKnowledge(ctx context.Context) ([]Knowledge, error) {
 	docs := []Knowledge{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		if err := tx.Select(&docs, `SELECT * FROM knowledge WHERE global = 1 ORDER BY updated_at DESC`); err != nil {
+		if err := tx.Select(&docs, `SELECT * FROM entry WHERE global = 1 ORDER BY updated_at DESC`); err != nil {
 			return err
 		}
 		for i := range docs {
@@ -865,7 +865,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 			fields["sources"] = strings.Join(*in.Sources, "\n")
 		}
 		if err := c.checkWrite(ctx, ProposedWrite{
-			Op: "doc.write", EntityType: "knowledge", EntityID: doc.ID, ProjectID: projectID,
+			Op: "doc.write", EntityType: "entry", EntityID: doc.ID, ProjectID: projectID,
 			Fields: fields,
 		}); err != nil {
 			return err
@@ -989,7 +989,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		doc.Version++
 		doc.UpdatedAt = now
 		if _, err := tx.Exec(
-			`UPDATE knowledge SET title = ?, summary = ?, content_hash = ?, mtime = ?, size = ?,
+			`UPDATE entry SET title = ?, summary = ?, content_hash = ?, mtime = ?, size = ?,
 			                      version = ?, updated_at = ?, template = ?, private = ? WHERE id = ?`,
 			doc.Title, doc.Summary, doc.ContentHash, doc.MTime, doc.Size, doc.Version, doc.UpdatedAt, doc.Template, doc.Private, doc.ID); err != nil {
 			return err
@@ -1018,7 +1018,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 			if doc.Private && field != "title" {
 				value = ""
 			}
-			if err := c.recordEvent(tx, "knowledge", doc.ID, "edited", field, "", value); err != nil {
+			if err := c.recordEvent(tx, "entry", doc.ID, "edited", field, "", value); err != nil {
 				return err
 			}
 		}
@@ -1031,7 +1031,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 				if doc.Private {
 					value = ""
 				}
-				if err := c.recordEvent(tx, "knowledge", doc.ID, "artifact_linked", "", "", value); err != nil {
+				if err := c.recordEvent(tx, "entry", doc.ID, "artifact_linked", "", "", value); err != nil {
 					return err
 				}
 			}
@@ -1040,7 +1040,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 				if doc.Private {
 					value = ""
 				}
-				if err := c.recordEvent(tx, "knowledge", doc.ID, "artifact_unlinked", "", "", value); err != nil {
+				if err := c.recordEvent(tx, "entry", doc.ID, "artifact_unlinked", "", "", value); err != nil {
 					return err
 				}
 			}
@@ -1065,7 +1065,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		// write landed, the edit is a success no matter what Commit
 		// reported.
 		var landed string
-		qerr := c.db.Get(&landed, `SELECT content_hash FROM knowledge WHERE id = ?`, doc.ID)
+		qerr := c.db.Get(&landed, `SELECT content_hash FROM entry WHERE id = ?`, doc.ID)
 		if writeLanded(landed == written, qerr) {
 			err = nil
 		} else {
@@ -1101,7 +1101,7 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 		if rerr != nil {
 			return rerr
 		}
-		q := `SELECT * FROM knowledge WHERE project_id = ? AND slug = ?`
+		q := `SELECT * FROM entry WHERE project_id = ? AND slug = ?`
 		switch d.scope {
 		case docOwn:
 			q += ` AND global = 0`
@@ -1143,10 +1143,10 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 				}
 			}
 		}()
-		if err := c.recordEvent(tx, "knowledge", doc.ID, "deleted", "", doc.Title, ""); err != nil {
+		if err := c.recordEvent(tx, "entry", doc.ID, "deleted", "", doc.Title, ""); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`DELETE FROM knowledge WHERE id = ?`, doc.ID); err != nil {
+		if _, err := tx.Exec(`DELETE FROM entry WHERE id = ?`, doc.ID); err != nil {
 			return err
 		}
 		if err := c.rebuildKnowledgeFTS(tx); err != nil {
@@ -1155,7 +1155,7 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 		// Inbound links survive as stubs rather than vanishing: a reference to
 		// something deleted is a finding, not a silent no-op (§10.4).
 		if _, err := tx.Exec(
-			`UPDATE link SET to_id = NULL WHERE to_type = 'doc' AND to_id = ?`, doc.ID); err != nil {
+			`UPDATE link SET to_id = NULL WHERE to_type = 'entry' AND to_id = ?`, doc.ID); err != nil {
 			return err
 		}
 		done = true
@@ -1169,7 +1169,7 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 		// own defer already restored -- there is nothing here to resolve,
 		// including the "not found" case where doc.ID is not a real row.
 		var gone int
-		qerr := c.db.Get(&gone, `SELECT COUNT(*) FROM knowledge WHERE id = ?`, doc.ID)
+		qerr := c.db.Get(&gone, `SELECT COUNT(*) FROM entry WHERE id = ?`, doc.ID)
 		if writeLanded(gone == 0, qerr) {
 			err = nil
 		} else {
@@ -1199,7 +1199,7 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 // terms, while the file remains the source of truth.
 func (c *Core) RebuildKnowledgeSearch(ctx context.Context) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
-		if _, err := tx.Exec("DELETE FROM knowledge_search_state"); err != nil {
+		if _, err := tx.Exec("DELETE FROM entry_search_state"); err != nil {
 			return err
 		}
 		return c.rebuildKnowledgeFTS(tx)
@@ -1226,18 +1226,18 @@ func (c *Core) rebuildKnowledgeFTS(tx *sqlx.Tx) error {
 	}
 	if err := tx.Select(&docs, `SELECT k.rowid, k.slug, k.global, p.key AS pkey, k.title, k.summary,
  COALESCE(s.mtime, -1) AS stamp, COALESCE(s.size, -1) AS size
- FROM knowledge k JOIN project p ON p.id = k.project_id
- LEFT JOIN knowledge_search_state s ON s.rowid = k.rowid`); err != nil {
+ FROM entry k JOIN project p ON p.id = k.project_id
+ LEFT JOIN entry_search_state s ON s.rowid = k.rowid`); err != nil {
 		return err
 	}
 	for _, d := range docs {
 		path := c.docPath(d.Key, d.Global, d.Slug)
 		st, err := os.Stat(path)
 		if errors.Is(err, os.ErrNotExist) {
-			if _, err := tx.Exec("DELETE FROM knowledge_fts WHERE rowid = ?", d.RowID); err != nil {
+			if _, err := tx.Exec("DELETE FROM entry_fts WHERE rowid = ?", d.RowID); err != nil {
 				return err
 			}
-			if _, err := tx.Exec("DELETE FROM knowledge_search_state WHERE rowid = ?", d.RowID); err != nil {
+			if _, err := tx.Exec("DELETE FROM entry_search_state WHERE rowid = ?", d.RowID); err != nil {
 				return err
 			}
 			continue
@@ -1256,10 +1256,10 @@ func (c *Core) rebuildKnowledgeFTS(tx *sqlx.Tx) error {
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec("INSERT OR REPLACE INTO knowledge_fts(rowid, title, summary, body_md) VALUES (?, ?, ?, ?)", d.RowID, cmpOr(fm.Title, d.Title), fm.Summary, body); err != nil {
+		if _, err := tx.Exec("INSERT OR REPLACE INTO entry_fts(rowid, title, summary, body_md) VALUES (?, ?, ?, ?)", d.RowID, cmpOr(fm.Title, d.Title), fm.Summary, body); err != nil {
 			return err
 		}
-		if _, err := tx.Exec("INSERT OR REPLACE INTO knowledge_search_state(rowid, mtime, size) VALUES (?, ?, ?)", d.RowID, st.ModTime().UnixNano(), st.Size()); err != nil {
+		if _, err := tx.Exec("INSERT OR REPLACE INTO entry_search_state(rowid, mtime, size) VALUES (?, ?, ?)", d.RowID, st.ModTime().UnixNano(), st.Size()); err != nil {
 			return err
 		}
 	}

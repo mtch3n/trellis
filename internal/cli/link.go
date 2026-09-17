@@ -12,7 +12,7 @@ import (
 )
 
 // newLinkCmd is the structured card-to-doc relationship (§10.2). Wikilinks
-// cover doc-to-doc; this is how a card says which entry documents it.
+// cover doc-to-doc; this is how a card says which entry it cites.
 //
 // The spec allows link to cross projects on purpose ("trellis link <card>
 // <doc> may link a card to another project's document"), so doc is not a
@@ -48,7 +48,7 @@ func newLinkCmd() *cobra.Command {
 // resolve in another project than the one standing in the working directory:
 // a relative reference means the current project everywhere else in the CLI,
 // so "design" must not quietly become the card's project's design when they
-// differ. An address such as /OTHER/knowledge/design names its own project on
+// differ. An address such as /OTHER/vault/design names its own project on
 // purpose -- link's documented exception -- so only a relative argument is
 // checked, and only once a current project actually resolves; with none, the
 // card's project is the only candidate, exactly as withTargets falls back
@@ -142,7 +142,7 @@ func newGraphCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVar(&depth, "depth", 2, "how many hops to walk")
-	cmd.Flags().StringSliceVar(&rels, "rel", nil, "blocked_by, documents, wikilink")
+	cmd.Flags().StringSliceVar(&rels, "rel", nil, "blocked_by, cites, wikilink")
 	cmd.Flags().BoolVar(&reverse, "reverse", false, "walk inbound: what breaks if this changes")
 	return cmd
 }

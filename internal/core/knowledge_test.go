@@ -27,7 +27,7 @@ func TestCreateKnowledgeWritesFileAndRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if doc.Slug != "concurrency-model" || doc.Ref != "/XPSCTL/knowledge/concurrency-model" {
+	if doc.Slug != "concurrency-model" || doc.Ref != "/XPSCTL/vault/concurrency-model" {
 		t.Errorf("slug/ref = %q/%q", doc.Slug, doc.Ref)
 	}
 	raw, err := os.ReadFile(doc.Path)
@@ -664,7 +664,7 @@ func TestCreateKnowledgeRefusesAStaleRevisionDirectory(t *testing.T) {
 	if err := os.Remove(doc.Path); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.db.Exec(`DELETE FROM knowledge WHERE id = ?`, doc.ID); err != nil {
+	if _, err := c.db.Exec(`DELETE FROM entry WHERE id = ?`, doc.ID); err != nil {
 		t.Fatal(err)
 	}
 

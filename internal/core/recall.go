@@ -167,12 +167,12 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
 			       k.template AS detail,
 			       COALESCE(NULLIF(k.recap, ''), k.summary) AS recap
-			FROM knowledge k
-			JOIN knowledge_fts ON knowledge_fts.rowid = k.rowid
+			FROM entry k
+			JOIN entry_fts ON entry_fts.rowid = k.rowid
 			JOIN project p ON p.id = k.project_id
 			WHERE (k.project_id = ? OR k.global = 1)`+typeClause+provClause+`
-			  AND knowledge_fts MATCH ?
-			ORDER BY knowledge_fts.rank LIMIT ?`, docArgs...); err != nil {
+			  AND entry_fts MATCH ?
+			ORDER BY entry_fts.rank LIMIT ?`, docArgs...); err != nil {
 			return err
 		}
 		var cards []RecallHit
@@ -242,7 +242,13 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 
 		if o.Record {
 			for _, h := range hits {
-				if err := c.recordEvent(tx, h.Kind, h.ID, "injected", "", "", ""); err != nil {
+				// A hit's kind still prints "knowledge"; the event log
+				// names that entity "entry".
+				entity := h.Kind
+				if entity == "knowledge" {
+					entity = "entry"
+				}
+				if err := c.recordEvent(tx, entity, h.ID, "injected", "", "", ""); err != nil {
 					return err
 				}
 			}
@@ -297,7 +303,7 @@ func recallLinkBoosts(tx *sqlx.Tx, groups ...[]RecallHit) (map[string]float64, e
 	}
 	query, args, err := sqlx.In(`
 		SELECT from_id, to_id FROM link
-		WHERE rel IN ('wikilink', 'documents') AND to_id IS NOT NULL
+		WHERE rel IN ('wikilink', 'cites') AND to_id IS NOT NULL
 		  AND from_id IN (?) AND to_id IN (?)`, ids, ids)
 	if err != nil {
 		return nil, err
@@ -320,7 +326,7 @@ func recallLinkBoosts(tx *sqlx.Tx, groups ...[]RecallHit) (map[string]float64, e
 	}
 	query, args, err = sqlx.In(`
 		SELECT to_id, COUNT(*) AS n FROM link
-		WHERE rel IN ('wikilink', 'documents') AND to_id IN (?)
+		WHERE rel IN ('wikilink', 'cites') AND to_id IN (?)
 		GROUP BY to_id`, targets)
 	if err != nil {
 		return nil, err

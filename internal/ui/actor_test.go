@@ -71,7 +71,7 @@ func TestServerWritesAsAHumanNotTheDaemon(t *testing.T) {
 	// The lease is the reason this matters: its owner must be the same
 	// principal the next request arrives as.
 	var owner string
-	if err := db.Get(&owner, `SELECT owner FROM card WHERE seq = 1`); err != nil {
+	if err := db.Get(&owner, `SELECT claimed_by FROM card WHERE seq = 1`); err != nil {
 		t.Fatal(err)
 	}
 	if owner != want {

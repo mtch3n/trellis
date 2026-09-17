@@ -164,7 +164,7 @@ func TestServerKnowledgeGraphLabelsAndStealRoutes(t *testing.T) {
 		t.Fatalf("search status = %d, body = %s", search.Code, search.Body)
 	}
 	activity := request(http.MethodGet, "/api/activity?limit=10", "")
-	if activity.Code != http.StatusOK || !bytes.Contains(activity.Body.Bytes(), []byte(`"entity_type":"knowledge"`)) {
+	if activity.Code != http.StatusOK || !bytes.Contains(activity.Body.Bytes(), []byte(`"entity_type":"entry"`)) {
 		t.Fatalf("activity status = %d, body = %s", activity.Code, activity.Body)
 	}
 
@@ -471,8 +471,8 @@ func TestServerProjectEventsPageThroughCardAndKnowledgeHistory(t *testing.T) {
 			moved = event.Ref == "EVT-1" && event.Old == "backlog" && event.New == "in-progress"
 		case event.Kind == "card" && event.Action == "claimed":
 			claimed = event.Ref == "EVT-1" && event.Actor == "ui-events-test"
-		case event.Kind == "knowledge" && event.Action == "edited":
-			edited = event.Ref == "/EVT/knowledge/"+doc.Slug
+		case event.Kind == "entry" && event.Action == "edited":
+			edited = event.Ref == "/EVT/vault/"+doc.Slug
 		}
 	}
 	if !moved || !claimed || !edited {

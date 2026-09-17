@@ -337,7 +337,7 @@ func TestMoveKnowledgeRefusesAGlobalEntry(t *testing.T) {
 
 // review-knowledge #8: MoveKnowledge gave ref to resolveSlug directly instead
 // of parsing it through readDocArg first, so the canonical address show,
-// search and recall all print (/KEY/knowledge/x) was rejected as
+// search and recall all print (/KEY/vault/x) was rejected as
 // knowledge_not_found.
 func TestMoveKnowledgeAcceptsTheCanonicalAddress(t *testing.T) {
 	c, p, _ := kbCore(t)
@@ -345,7 +345,7 @@ func TestMoveKnowledgeAcceptsTheCanonicalAddress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	address := "/" + p.Key + "/knowledge/" + doc.Slug
+	address := "/" + p.Key + "/vault/" + doc.Slug
 	moved, err := c.MoveKnowledge(t.Context(), p.ID, address, "deploy/rollback", false)
 	if err != nil {
 		t.Fatalf("MoveKnowledge(%s): %v", address, err)
@@ -364,7 +364,7 @@ func TestMoveKnowledgeRefusesAnotherProjectsAddress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	address := "/" + p2.Key + "/knowledge/" + doc.Slug
+	address := "/" + p2.Key + "/vault/" + doc.Slug
 	if _, err := c.MoveKnowledge(t.Context(), p.ID, address, "new-name", false); pathErrCode(err) != "wrong_project" {
 		t.Fatalf("err = %v, want wrong_project", err)
 	}
@@ -839,7 +839,7 @@ func TestMoveKnowledgeRewritesOnlyLinksToTheEntry(t *testing.T) {
 	if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Other"}); err != nil {
 		t.Fatal(err)
 	}
-	body := "See [[ops/rollback#steps|the steps]], [[/" + p.Key + "/knowledge/ops/rollback]] and [[rollback]].\n" +
+	body := "See [[ops/rollback#steps|the steps]], [[/" + p.Key + "/vault/ops/rollback]] and [[rollback]].\n" +
 		"Not [[other]], and not `[[ops/rollback]]` in code.\n"
 	referrer, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Index", Body: body})
 	if err != nil {
@@ -854,7 +854,7 @@ func TestMoveKnowledgeRewritesOnlyLinksToTheEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "See [[deploy/rollback-plan#steps|the steps]], [[/" + p.Key + "/knowledge/deploy/rollback-plan]] and [[deploy/rollback-plan]].\n" +
+	want := "See [[deploy/rollback-plan#steps|the steps]], [[/" + p.Key + "/vault/deploy/rollback-plan]] and [[deploy/rollback-plan]].\n" +
 		"Not [[other]], and not `[[ops/rollback]]` in code.\n"
 	if !strings.Contains(got.BodyMD, want) {
 		t.Fatalf("body = %q, want it to contain %q", got.BodyMD, want)
@@ -1004,10 +1004,10 @@ func TestMoveKnowledgeCommitFailureUndoesRewrittenReferrersToo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := c.db.Exec(`CREATE TABLE canary (id INTEGER PRIMARY KEY, target TEXT REFERENCES knowledge(id))`); err != nil {
+	if _, err := c.db.Exec(`CREATE TABLE canary (id INTEGER PRIMARY KEY, target TEXT REFERENCES entry(id))`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.db.Exec(`CREATE TRIGGER canary_trg AFTER UPDATE OF slug ON knowledge
+	if _, err := c.db.Exec(`CREATE TRIGGER canary_trg AFTER UPDATE OF slug ON entry
 		BEGIN INSERT INTO canary (target) VALUES ('does-not-exist'); END`); err != nil {
 		t.Fatal(err)
 	}

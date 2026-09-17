@@ -56,7 +56,7 @@ func refsIn(t *testing.T, out, field string) []string {
 
 func TestEveryPrintedEntryRefOpens(t *testing.T) {
 	targetEnv(t)
-	const want = "/ALPHA/knowledge/lease-renewal"
+	const want = "/ALPHA/vault/lease-renewal"
 	if got := refOf(t, "knowledge", "new", "--title", "Lease renewal", "--body", "A claim starts the lease.\n"); got != want {
 		t.Fatalf("created = %s", got)
 	}
@@ -74,7 +74,7 @@ func TestEveryPrintedEntryRefOpens(t *testing.T) {
 
 func TestAnEntryAddressNamesItsProject(t *testing.T) {
 	targetEnv(t)
-	const want = "/BETA/knowledge/runbook"
+	const want = "/BETA/vault/runbook"
 	if got := refOf(t, "knowledge", "new", "--title", "Runbook", "--project", "BETA"); got != want {
 		t.Fatalf("created = %s", got)
 	}
@@ -94,7 +94,7 @@ func TestAVaultAddressIgnoresAmbientState(t *testing.T) {
 	seedProject(t, "ALPHA")
 	refOf(t, "knowledge", "new", "--title", "Conventions", "--project", "ALPHA")
 	escalateByHand(t, "ALPHA", "conventions")
-	const want = "/GLOBAL/knowledge/conventions"
+	const want = "/GLOBAL/vault/conventions"
 
 	_, err := execCmd("knowledge", "show", "conventions")
 	if ce := coreErr(t, err); ce.Code != "unresolved" {
@@ -149,7 +149,7 @@ func TestReferenceFlagsNameTheProject(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc.Ref != "/BETA/knowledge/side-notes" || doc.Board != "Side" {
+	if doc.Ref != "/BETA/vault/side-notes" || doc.Board != "Side" {
 		t.Errorf("knowledge new = %+v", doc)
 	}
 
@@ -195,7 +195,7 @@ func TestReferenceFlagsThatDisagreeConflict(t *testing.T) {
 		{"knowledge", "pin", "runbook", "--board", "/BETA/boards/side", "--recap", "x"},
 		{"artifact", "link", "shot.png", "--card", "/BETA/cards/BETA-1"},
 		// two references, two projects
-		{"knowledge", "pin", "/ALPHA/knowledge/runbook", "--board", "/BETA/boards/side", "--recap", "x"},
+		{"knowledge", "pin", "/ALPHA/vault/runbook", "--board", "/BETA/boards/side", "--recap", "x"},
 		{"artifact", "link", "/ALPHA/artifacts/shot.png", "--card", "/BETA/cards/BETA-1"},
 	} {
 		_, err := execCmd(args...)
@@ -208,11 +208,11 @@ func TestReferenceFlagsThatDisagreeConflict(t *testing.T) {
 func TestLinkAndGraphCrossProjects(t *testing.T) {
 	targetEnv(t)
 	refOf(t, "knowledge", "new", "--title", "Runbook", "--project", "BETA")
-	runCmd(t, "link", "1", "/BETA/knowledge/runbook")
+	runCmd(t, "link", "1", "/BETA/vault/runbook")
 	nodes := refsIn(t, runCmd(t, "graph", "1", "--json"), "nodes")
 	found := false
 	for _, ref := range nodes {
-		found = found || ref == "/BETA/knowledge/runbook"
+		found = found || ref == "/BETA/vault/runbook"
 	}
 	if !found {
 		t.Errorf("graph nodes = %v", nodes)
@@ -220,7 +220,7 @@ func TestLinkAndGraphCrossProjects(t *testing.T) {
 	if got := refsIn(t, runCmd(t, "graph", "BETA-1", "--json"), "nodes"); len(got) == 0 || got[0] != "BETA-1" {
 		t.Errorf("graph BETA-1 = %v", got)
 	}
-	if got := refsIn(t, runCmd(t, "graph", "/BETA/knowledge/runbook", "--json"), "nodes"); len(got) == 0 {
+	if got := refsIn(t, runCmd(t, "graph", "/BETA/vault/runbook", "--json"), "nodes"); len(got) == 0 {
 		t.Errorf("graph from an address = %v", got)
 	}
 	_, err := execCmd("graph", "/BETA/boards/side")

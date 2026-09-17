@@ -112,7 +112,7 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 			return err
 		}
 		// ref may be the canonical address show/search/recall print
-		// (/KEY/knowledge/x), not just a bare slug: parse it the way loadDoc
+		// (/KEY/vault/x), not just a bare slug: parse it the way loadDoc
 		// does, so a /GLOBAL address is refused up front and one naming
 		// another project reports wrong_project instead of not-found.
 		d, derr := readDocArg(ref, key)
@@ -127,7 +127,7 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		if rerr != nil {
 			return rerr
 		}
-		if err := tx.Get(&doc, `SELECT * FROM knowledge WHERE project_id = ? AND slug = ?`, projectID, resolved); err != nil {
+		if err := tx.Get(&doc, `SELECT * FROM entry WHERE project_id = ? AND slug = ?`, projectID, resolved); err != nil {
 			return err
 		}
 		doc.Path = c.docPath(key, doc.Global, doc.Slug)
@@ -139,7 +139,7 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 			return ErrUsage("same_path", doc.Slug+" is already there", "")
 		}
 		var taken int
-		if err := tx.Get(&taken, `SELECT COUNT(*) FROM knowledge WHERE project_id = ? AND slug = ?`,
+		if err := tx.Get(&taken, `SELECT COUNT(*) FROM entry WHERE project_id = ? AND slug = ?`,
 			projectID, newSlug); err != nil {
 			return err
 		}
@@ -165,12 +165,12 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		}
 		now := c.clock.NowMS()
 		oldSlug := doc.Slug
-		if _, err := tx.Exec(`UPDATE knowledge SET slug = ?, updated_at = ? WHERE id = ?`,
+		if _, err := tx.Exec(`UPDATE entry SET slug = ?, updated_at = ? WHERE id = ?`,
 			newSlug, now, doc.ID); err != nil {
 			return err
 		}
 		doc.Slug, doc.Path, doc.UpdatedAt = newSlug, dest, now
-		if err := c.recordEvent(tx, "knowledge", doc.ID, "moved", "", oldSlug, newSlug); err != nil {
+		if err := c.recordEvent(tx, "entry", doc.ID, "moved", "", oldSlug, newSlug); err != nil {
 			return err
 		}
 		// A move changes the entry's address the same way escalate and
@@ -193,7 +193,7 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		// durable state, not a guess, decides which side of the move the
 		// file belongs on, exactly as EscalateKnowledge already resolves this.
 		var landed string
-		qerr := c.db.Get(&landed, `SELECT slug FROM knowledge WHERE id = ?`, doc.ID)
+		qerr := c.db.Get(&landed, `SELECT slug FROM entry WHERE id = ?`, doc.ID)
 		if writeLanded(landed == newSlug, qerr) {
 			err = nil
 		} else {
@@ -250,7 +250,7 @@ func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, 
 		Raw    string `db:"to_raw"`
 	}
 	if err := tx.Select(&rows, `SELECT from_id, to_raw FROM link
-		WHERE from_type = 'doc' AND to_type = 'doc' AND rel = 'wikilink' AND to_id = ?
+		WHERE from_type = 'entry' AND to_type = 'entry' AND rel = 'wikilink' AND to_id = ?
 		ORDER BY from_id`, doc.ID); err != nil {
 		return err
 	}
@@ -271,7 +271,7 @@ func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, 
 	}
 	for _, fromID := range order {
 		var from Knowledge
-		if err := tx.Get(&from, `SELECT * FROM knowledge WHERE id = ?`, fromID); err != nil {
+		if err := tx.Get(&from, `SELECT * FROM entry WHERE id = ?`, fromID); err != nil {
 			return err
 		}
 		if err := c.refreshFromFile(tx, &from); err != nil {
@@ -333,7 +333,7 @@ func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, 
 			return err
 		}
 		(*undo)[len(*undo)-1].revisionDest = revisionDest
-		if _, err := tx.Exec(`UPDATE knowledge SET content_hash = ?, mtime = ?, size = ?, version = ?, updated_at = ?
+		if _, err := tx.Exec(`UPDATE entry SET content_hash = ?, mtime = ?, size = ?, version = ?, updated_at = ?
 			WHERE id = ?`, from.ContentHash, from.MTime, from.Size, from.Version, from.UpdatedAt, from.ID); err != nil {
 			return err
 		}
@@ -344,7 +344,7 @@ func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, 
 		if from.Private {
 			value = ""
 		}
-		if err := c.recordEvent(tx, "knowledge", from.ID, "edited", "body", "", value); err != nil {
+		if err := c.recordEvent(tx, "entry", from.ID, "edited", "body", "", value); err != nil {
 			return err
 		}
 		if from.ID == doc.ID {

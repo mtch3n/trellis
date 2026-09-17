@@ -71,7 +71,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 			}
 			if err := tx.Select(&rows,
 				`SELECT to_raw, to_id, anchor FROM link
-				 WHERE from_type = 'doc' AND from_id = ? AND rel = 'wikilink' ORDER BY to_raw`, d.ID); err != nil {
+				 WHERE from_type = 'entry' AND from_id = ? AND rel = 'wikilink' ORDER BY to_raw`, d.ID); err != nil {
 				return err
 			}
 			for _, r := range rows {
@@ -87,7 +87,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 			var artifactStubs []string
 			if err := tx.Select(&artifactStubs,
 				`SELECT to_raw FROM link
-				 WHERE from_type = 'doc' AND from_id = ? AND rel = 'artifact' AND to_id IS NULL
+				 WHERE from_type = 'entry' AND from_id = ? AND rel = 'artifact' AND to_id IS NULL
 				 ORDER BY to_raw`, d.ID); err != nil {
 				return err
 			}
@@ -144,7 +144,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 
 			var inbound int
 			if err := tx.Get(&inbound,
-				`SELECT COUNT(*) FROM link WHERE to_type = 'doc' AND to_id = ?`, d.ID); err != nil {
+				`SELECT COUNT(*) FROM link WHERE to_type = 'entry' AND to_id = ?`, d.ID); err != nil {
 				return err
 			}
 			// Stubs count as outbound: an entry whose only link is broken is
@@ -153,7 +153,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 			// to another entry or card, so it does not count.
 			var outbound int
 			if err := tx.Get(&outbound,
-				`SELECT COUNT(*) FROM link WHERE from_type = 'doc' AND from_id = ? AND rel != 'artifact'`,
+				`SELECT COUNT(*) FROM link WHERE from_type = 'entry' AND from_id = ? AND rel != 'artifact'`,
 				d.ID); err != nil {
 				return err
 			}
@@ -290,7 +290,7 @@ func (t linkTargets) get(c *Core, tx *sqlx.Tx, id string) (linkTarget, bool, err
 		Ref    string `db:"ref"`
 	}
 	err := tx.Get(&row, `SELECT k.slug, k.global, p.key, `+docAddressSQL+` AS ref
-		FROM knowledge k JOIN project p ON p.id = k.project_id WHERE k.id = ?`, id)
+		FROM entry k JOIN project p ON p.id = k.project_id WHERE k.id = ?`, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return linkTarget{}, false, nil
 	}
@@ -326,7 +326,7 @@ func anchorSet(body string) map[string]bool {
 // entry: a malformed address, or one in another collection.
 func addressFinding(d Knowledge, raw, target string) LintFinding {
 	f := LintFinding{Kind: "wrong_collection", Doc: d.Ref, Ref: raw,
-		Fix: "trellis knowledge edit " + d.Ref + " --body @file   # a wikilink names /KEY/knowledge/<slug>"}
+		Fix: "trellis knowledge edit " + d.Ref + " --body @file   # a wikilink names /KEY/vault/<slug>"}
 	if _, err := vpath.Parse(target); err != nil {
 		f.Kind = "bad_path"
 	}

@@ -14,11 +14,11 @@ func TestGraphSlugEndingInDigitsIsAnEntryNotACard(t *testing.T) {
 	}
 	// The slug core.SlugifyPath derives from "Release 2026" is "release-2026",
 	// which vpath.ValidCardRef also accepts as a card ref of project RELEASE.
-	if got := refOf(t, "knowledge", "show", "release-2026"); got != "/ALPHA/knowledge/release-2026" {
+	if got := refOf(t, "knowledge", "show", "release-2026"); got != "/ALPHA/vault/release-2026" {
 		t.Fatalf("knowledge show release-2026 = %s", got)
 	}
 	nodes := refsIn(t, runCmd(t, "graph", "release-2026", "--json"), "nodes")
-	if len(nodes) == 0 || nodes[0] != "/ALPHA/knowledge/release-2026" {
+	if len(nodes) == 0 || nodes[0] != "/ALPHA/vault/release-2026" {
 		t.Errorf("graph release-2026 = %v, want the entry itself", nodes)
 	}
 }
@@ -48,7 +48,7 @@ func TestLinkRelativeDocMeansTheCurrentProject(t *testing.T) {
 
 	// ALPHA's design must be untouched: no backlink was quietly created
 	// against BETA's entry of the same name.
-	nodes := refsIn(t, runCmd(t, "graph", "/ALPHA/knowledge/design", "--json"), "nodes")
+	nodes := refsIn(t, runCmd(t, "graph", "/ALPHA/vault/design", "--json"), "nodes")
 	if len(nodes) != 1 {
 		t.Errorf("ALPHA's design backlinks = %v, want none", nodes)
 	}
@@ -60,13 +60,13 @@ func TestLinkRelativeDocMeansTheCurrentProject(t *testing.T) {
 func TestLinkStillCrossesProjectsWithAnAddressedDoc(t *testing.T) {
 	targetEnv(t)
 	refOf(t, "knowledge", "new", "--title", "Runbook", "--project", "BETA")
-	runCmd(t, "link", "1", "/BETA/knowledge/runbook")
+	runCmd(t, "link", "1", "/BETA/vault/runbook")
 	nodes := refsIn(t, runCmd(t, "graph", "1", "--json"), "nodes")
 	found := false
 	for _, ref := range nodes {
-		found = found || ref == "/BETA/knowledge/runbook"
+		found = found || ref == "/BETA/vault/runbook"
 	}
 	if !found {
-		t.Errorf("graph nodes = %v, want /BETA/knowledge/runbook", nodes)
+		t.Errorf("graph nodes = %v, want /BETA/vault/runbook", nodes)
 	}
 }

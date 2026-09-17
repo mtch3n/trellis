@@ -231,7 +231,7 @@ func (c *Core) SetDefaultBoard(ctx context.Context, projectID, name string) (Boa
 		}
 
 		// Record event
-		return c.recordEvent(tx, "board", board.ID, "default", "", "", "")
+		return c.recordEvent(tx, "board", board.ID, "set_default", "", "", "")
 	})
 	return board, err
 }
@@ -301,7 +301,7 @@ func (c *Core) DeleteBoard(ctx context.Context, projectID, name string, force bo
 			if _, err := tx.Exec(`UPDATE board SET is_default = 1 WHERE id = ?`, next.ID); err != nil {
 				return err
 			}
-			if err := c.recordEvent(tx, "board", next.ID, "default", "", "", ""); err != nil {
+			if err := c.recordEvent(tx, "board", next.ID, "set_default", "", "", ""); err != nil {
 				return err
 			}
 		}

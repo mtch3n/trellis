@@ -270,7 +270,7 @@ func TestPrivateKnowledgeListExcludesSummaryRecap(t *testing.T) {
 	// Recap == nil below would hold no matter what the list handler does.
 	// Seed one directly so the assertion actually depends on the handler's
 	// own redaction (withoutContent), not on a recap never existing.
-	if _, err := db.Exec(`UPDATE knowledge SET recap = ? WHERE id = ?`, "leaked recap text", privateDoc.ID); err != nil {
+	if _, err := db.Exec(`UPDATE entry SET recap = ? WHERE id = ?`, "leaked recap text", privateDoc.ID); err != nil {
 		t.Fatalf("seed recap: %v", err)
 	}
 

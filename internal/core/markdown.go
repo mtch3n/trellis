@@ -130,14 +130,14 @@ func Slugify(s string) string {
 // Reference is one [[wikilink]] target, or a link target typed on the command
 // line.
 type Reference struct {
-	Raw        string // the target as written, anchor included: "design", "/XPSCTL/knowledge/design#why"
+	Raw        string // the target as written, anchor included: "design", "/XPSCTL/vault/design#why"
 	ProjectKey string // "" for a relative target, "GLOBAL" for the vault, else the key an address names
 	Slug       string
 	Anchor     string // heading slug, without the #
 }
 
 // ParseWikilinks finds every [[link]], [[link#anchor]] and
-// [[/KEY/knowledge/link]] in a body. Code spans and fenced blocks are skipped:
+// [[/KEY/vault/link]] in a body. Code spans and fenced blocks are skipped:
 // an agent pasting a snippet that happens to contain brackets is not making a
 // reference.
 func ParseWikilinks(body string) []Reference {
@@ -197,7 +197,7 @@ func FirstParagraph(body string) string {
 }
 
 // ParseReference reads one link target -- "slug", "slug#anchor",
-// "/KEY/knowledge/slug#anchor" or "/GLOBAL/knowledge/slug" -- into a
+// "/KEY/vault/slug#anchor" or "/GLOBAL/vault/slug" -- into a
 // Reference. It is the inverse of Raw, so a link recovered from the database
 // resolves exactly as it did when the body was parsed.
 //

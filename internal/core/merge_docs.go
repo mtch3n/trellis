@@ -35,11 +35,11 @@ type docMove struct {
 func (m *merger) planDocs() error {
 	var src, dst []docRow
 	if err := m.tx.Select(&src,
-		`SELECT id, slug, global FROM knowledge WHERE project_id = ? ORDER BY slug`, m.src.ID); err != nil {
+		`SELECT id, slug, global FROM entry WHERE project_id = ? ORDER BY slug`, m.src.ID); err != nil {
 		return err
 	}
 	if err := m.tx.Select(&dst,
-		`SELECT id, slug, global FROM knowledge WHERE project_id = ?`, m.dst.ID); err != nil {
+		`SELECT id, slug, global FROM entry WHERE project_id = ?`, m.dst.ID); err != nil {
 		return err
 	}
 	for i := range src {
@@ -127,7 +127,7 @@ func (m *merger) moveDocs() error {
 		if !d.Global {
 			path = m.c.docPath(m.dst.Key, false, mv.slug)
 		}
-		if _, err := m.tx.Exec(`UPDATE knowledge SET project_id = ?, slug = ? WHERE id = ?`,
+		if _, err := m.tx.Exec(`UPDATE entry SET project_id = ?, slug = ? WHERE id = ?`,
 			m.dst.ID, mv.slug, d.ID); err != nil {
 			return err
 		}
@@ -176,14 +176,14 @@ func (m *merger) collapseDoc(d docRow, into string) error {
 		`UPDATE nomination AS dn
 		 SET reason = dn.reason || char(10) || sn.reason, created_at = min(dn.created_at, sn.created_at)
 		 FROM nomination AS sn
-		 WHERE sn.knowledge_id = ? AND dn.knowledge_id = ? AND dn.actor = sn.actor AND dn.reason <> sn.reason`,
+		 WHERE sn.entry_id = ? AND dn.entry_id = ? AND dn.actor = sn.actor AND dn.reason <> sn.reason`,
 		d.ID, into); err != nil {
 		return err
 	}
 	for _, q := range []string{
-		`UPDATE link SET to_id = ? WHERE to_type = 'doc' AND to_id = ?`,
-		`UPDATE OR IGNORE pin SET knowledge_id = ? WHERE knowledge_id = ?`,
-		`UPDATE OR IGNORE nomination SET knowledge_id = ? WHERE knowledge_id = ?`,
+		`UPDATE link SET to_id = ? WHERE to_type = 'entry' AND to_id = ?`,
+		`UPDATE OR IGNORE pin SET entry_id = ? WHERE entry_id = ?`,
+		`UPDATE OR IGNORE nomination SET entry_id = ? WHERE entry_id = ?`,
 	} {
 		if _, err := m.tx.Exec(q, into, d.ID); err != nil {
 			return err
@@ -193,13 +193,13 @@ func (m *merger) collapseDoc(d docRow, into string) error {
 	// must run before that row is gone -- otherwise the event lands with a
 	// NULL project_id, which retire()'s later re-homing (WHERE project_id =
 	// src) does not match either, and it never reaches SRC's or DST's feed.
-	if err := m.c.recordEvent(m.tx, "knowledge", d.ID, "collapsed", "into", "", into); err != nil {
+	if err := m.c.recordEvent(m.tx, "entry", d.ID, "collapsed", "into", "", into); err != nil {
 		return err
 	}
-	if _, err := m.tx.Exec(`DELETE FROM link WHERE from_type = 'doc' AND from_id = ?`, d.ID); err != nil {
+	if _, err := m.tx.Exec(`DELETE FROM link WHERE from_type = 'entry' AND from_id = ?`, d.ID); err != nil {
 		return err
 	}
-	if _, err := m.tx.Exec(`DELETE FROM knowledge WHERE id = ?`, d.ID); err != nil {
+	if _, err := m.tx.Exec(`DELETE FROM entry WHERE id = ?`, d.ID); err != nil {
 		return err
 	}
 	delete(m.fromSrc, d.ID)
@@ -246,7 +246,7 @@ func (m *merger) docsCiting(key string) ([]string, error) {
 		Key    string `db:"pkey"`
 	}
 	if err := m.tx.Select(&docs,
-		`SELECT k.id, k.slug, k.global, p.key AS pkey FROM knowledge k
+		`SELECT k.id, k.slug, k.global, p.key AS pkey FROM entry k
 		 JOIN project p ON p.id = k.project_id ORDER BY k.id`); err != nil {
 		return nil, err
 	}
@@ -281,7 +281,7 @@ func (m *merger) docsCiting(key string) ([]string, error) {
 
 // rewriteSourceAddress rewrites one sources: item that names something under
 // SRC by absolute address -- the same objects a wikilink, a card's
-// `documents` link, or an artifacts: entry already follow through the merge:
+// `cites` link, or an artifacts: entry already follow through the merge:
 // a knowledge entry (moved, renamed, or collapsed into DST's identical
 // entry), an artifact (moved, or renamed on conflict), or a card, whose
 // stored ref never changes. Anything else -- a URL, prose, a path:lines
@@ -346,7 +346,7 @@ func (m *merger) rewriteDoc(id string) error {
 		Global bool   `db:"global"`
 	}
 	if err := m.tx.Get(&d,
-		`SELECT p.key, k.slug, k.global FROM knowledge k JOIN project p ON p.id = k.project_id
+		`SELECT p.key, k.slug, k.global FROM entry k JOIN project p ON p.id = k.project_id
 		 WHERE k.id = ?`, id); err != nil {
 		return err
 	}
@@ -399,7 +399,7 @@ func (m *merger) rewriteDoc(id string) error {
 	// A rewrite is a Trellis write: the text it replaces is kept as a
 	// revision, like any edit's.
 	var doc Knowledge
-	if err := m.tx.Get(&doc, `SELECT * FROM knowledge WHERE id = ?`, id); err != nil {
+	if err := m.tx.Get(&doc, `SELECT * FROM entry WHERE id = ?`, id); err != nil {
 		return err
 	}
 	if err := m.c.refreshFromFile(m.tx, &doc); err != nil {
@@ -444,7 +444,7 @@ func (m *merger) rewriteCardTargets(prefix string) error {
 	}
 	if err := m.tx.Select(&links,
 		`SELECT from_id, to_raw FROM link
-		 WHERE from_type = 'card' AND rel = 'documents' AND upper(substr(to_raw, 1, ?)) = ?`,
+		 WHERE from_type = 'card' AND rel = 'cites' AND upper(substr(to_raw, 1, ?)) = ?`,
 		utf8.RuneCountInString(prefix), prefix); err != nil {
 		return err
 	}
@@ -459,7 +459,7 @@ func (m *merger) rewriteCardTargets(prefix string) error {
 		}
 		if _, err := m.tx.Exec(
 			`UPDATE OR IGNORE link SET to_raw = ?
-			 WHERE from_type = 'card' AND from_id = ? AND rel = 'documents' AND to_raw = ?`,
+			 WHERE from_type = 'card' AND from_id = ? AND rel = 'cites' AND to_raw = ?`,
 			to, l.FromID, l.ToRaw); err != nil {
 			return err
 		}
@@ -481,13 +481,13 @@ func (m *merger) resolveStubs() error {
 	}
 	if err := m.tx.Select(&stubs,
 		`SELECT l.from_type, l.from_id, l.to_raw, k.project_id
-		 FROM link l JOIN knowledge k ON k.id = l.from_id
-		 WHERE l.from_type = 'doc' AND l.to_type = 'doc' AND l.to_id IS NULL
+		 FROM link l JOIN entry k ON k.id = l.from_id
+		 WHERE l.from_type = 'entry' AND l.to_type = 'entry' AND l.to_id IS NULL
 		   AND (k.project_id = ? OR upper(substr(l.to_raw, 1, ?)) = ?)
 		 UNION ALL
 		 SELECT l.from_type, l.from_id, l.to_raw, cd.project_id
 		 FROM link l JOIN card cd ON cd.id = l.from_id
-		 WHERE l.from_type = 'card' AND l.to_type = 'doc' AND l.to_id IS NULL
+		 WHERE l.from_type = 'card' AND l.to_type = 'entry' AND l.to_id IS NULL
 		   AND (cd.project_id = ? OR upper(substr(l.to_raw, 1, ?)) = ?)`,
 		m.dst.ID, n, prefix, m.dst.ID, n, prefix); err != nil {
 		return err
@@ -503,7 +503,7 @@ func (m *merger) resolveStubs() error {
 		}
 		if _, err := m.tx.Exec(
 			`UPDATE link SET to_id = ?
-			 WHERE from_type = ? AND from_id = ? AND to_type = 'doc' AND to_raw = ? AND to_id IS NULL`,
+			 WHERE from_type = ? AND from_id = ? AND to_type = 'entry' AND to_raw = ? AND to_id IS NULL`,
 			id, s.FromType, s.FromID, s.ToRaw); err != nil {
 			return err
 		}

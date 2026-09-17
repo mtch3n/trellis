@@ -83,7 +83,7 @@ func TestACopiedRootActsOnlyOnItsOwnFiles(t *testing.T) {
 	if !underRoot(loadedProject.Path, rootB) {
 		t.Errorf("project doc path = %q, want it under B's root %q", loadedProject.Path, rootB)
 	}
-	loadedGlobal, err := b.ReadKnowledge(ctx, "", "/GLOBAL/knowledge/"+globalDoc.Slug)
+	loadedGlobal, err := b.ReadKnowledge(ctx, "", "/GLOBAL/vault/"+globalDoc.Slug)
 	if err != nil {
 		t.Fatalf("ReadKnowledge (global) on B: %v", err)
 	}

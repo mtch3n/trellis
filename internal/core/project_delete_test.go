@@ -53,7 +53,7 @@ func TestDeleteProjectRemovesEverythingItOwns(t *testing.T) {
 		{`SELECT COUNT(*) FROM board WHERE project_id = ?`, []any{p.ID}},
 		{`SELECT COUNT(*) FROM card WHERE project_id = ?`, []any{p.ID}},
 		{`SELECT COUNT(*) FROM comment WHERE card_id = ?`, []any{card.ID}},
-		{`SELECT COUNT(*) FROM knowledge WHERE project_id = ?`, []any{p.ID}},
+		{`SELECT COUNT(*) FROM entry WHERE project_id = ?`, []any{p.ID}},
 		{`SELECT COUNT(*) FROM link WHERE from_id IN (?, ?) OR to_id IN (?, ?)`, []any{card.ID, doc.ID, card.ID, doc.ID}},
 	} {
 		if n := count(t, c, check.query, check.args...); n != 0 {
@@ -134,7 +134,7 @@ func TestDeleteProjectRefusesWhileItOwnsVaultEntries(t *testing.T) {
 	if _, err := os.Stat(escalated.Path); err != nil {
 		t.Errorf("the vault entry's file must be untouched: %v", err)
 	}
-	if n := count(t, c, `SELECT COUNT(*) FROM knowledge WHERE id = ?`, doc.ID); n != 1 {
+	if n := count(t, c, `SELECT COUNT(*) FROM entry WHERE id = ?`, doc.ID); n != 1 {
 		t.Error("the vault entry's row must be untouched")
 	}
 }

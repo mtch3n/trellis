@@ -13,7 +13,7 @@ import (
 // --kind naming anything else -- a stale name from before a rename, such as
 // "note" before migration 0021 renamed it to "comment" -- must fail loudly
 // rather than quietly match nothing.
-var eventKinds = []string{"card", "knowledge", "board", "label", "comment"}
+var eventKinds = []string{"card", "entry", "board", "label", "comment"}
 
 // EventQuery filters a read of the event feed. The zero value reads every
 // project's events from the beginning, all kinds, every action but "read".
@@ -21,7 +21,7 @@ type EventQuery struct {
 	ProjectID string   // "" = every project
 	After     int64    // exclusive
 	Limit     int      // default 1000, max 5000
-	Kinds     []string // card | knowledge | board | label | comment; empty = all
+	Kinds     []string // card | entry | board | label | comment; empty = all
 	Actions   []string // created, edited, moved, ...; empty = all but read
 	Templates []string // knowledge only: finding, decision, ...
 	NotActor  string   // skip events written by this actor
@@ -88,7 +88,7 @@ func (r feedRow) toFeedEvent() FeedEvent {
 			ev.Ref = r.CardRef
 			ev.Title = r.CardTitle
 		}
-	case "knowledge":
+	case "entry":
 		if r.KBKey != "" {
 			ev.Ref = DocAddress(r.KBKey, r.KBKey == GlobalKey, r.KBSlug)
 			ev.Title = r.KBTitle
@@ -150,7 +150,7 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64
 	templateClause, templateArgs := inClause("k.template", q.Templates)
 	if templateClause != "" {
 		templateClause = " AND (" + strings.TrimPrefix(templateClause, " AND ") +
-			" OR (e.entity_type = 'knowledge' AND e.action = 'deleted'))"
+			" OR (e.entity_type = 'entry' AND e.action = 'deleted'))"
 	}
 	var actorClause string
 	var actorArgs []any
@@ -191,14 +191,14 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64
 		    COALESCE(nc.title, '') AS comment_title
 		FROM event e
 		LEFT JOIN card c ON c.id = e.entity_id AND e.entity_type = 'card'
-		LEFT JOIN knowledge k ON k.id = e.entity_id AND e.entity_type = 'knowledge'
+		LEFT JOIN entry k ON k.id = e.entity_id AND e.entity_type = 'entry'
 		LEFT JOIN project pk ON pk.id = k.project_id
 		LEFT JOIN board b ON b.id = e.entity_id AND e.entity_type = 'board'
 		LEFT JOIN label l ON l.id = e.entity_id AND e.entity_type = 'label'
 		LEFT JOIN comment cm ON cm.id = e.entity_id AND e.entity_type = 'comment'
 		LEFT JOIN card nc ON nc.id = cm.card_id
 		WHERE e.seq > ?
-		  AND e.entity_type IN ('card', 'knowledge', 'board', 'label', 'comment')` +
+		  AND e.entity_type IN ('card', 'entry', 'board', 'label', 'comment')` +
 		kindClause + actionClause + templateClause + actorClause + projectClause + `
 		ORDER BY e.seq ASC
 		LIMIT ?`

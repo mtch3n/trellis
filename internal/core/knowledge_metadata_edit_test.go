@@ -150,7 +150,7 @@ func TestATouchedFileKeepsItsVersion(t *testing.T) {
 		t.Fatalf("version = %d after a touch, want %d", got.Version, doc.Version)
 	}
 	var mtime int64
-	if err := c.db.Get(&mtime, `SELECT mtime FROM knowledge WHERE id = ?`, doc.ID); err != nil || mtime != later.UnixMilli() {
+	if err := c.db.Get(&mtime, `SELECT mtime FROM entry WHERE id = ?`, doc.ID); err != nil || mtime != later.UnixMilli() {
 		t.Fatalf("stored mtime = %d (%v), want the new stat %d", mtime, err, later.UnixMilli())
 	}
 }

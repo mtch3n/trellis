@@ -103,7 +103,7 @@ func TestUptakeDoesNotCreditAnotherSessionsRead(t *testing.T) {
 	// about whether this injection was useful.
 	if _, err := c.db.Exec(
 		`INSERT INTO event (ts, actor, entity_type, entity_id, action)
-		 VALUES (?, 'agent:someone-else', 'knowledge', ?, 'read')`,
+		 VALUES (?, 'agent:someone-else', 'entry', ?, 'read')`,
 		c.clock.NowMS(), doc.ID); err != nil {
 		t.Fatal(err)
 	}

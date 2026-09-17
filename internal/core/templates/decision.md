@@ -1,7 +1,7 @@
 ---
 enforce: reject
 required: [sources]
-verify: [sources, body]
+resolve: [sources, body]
 ---
 # {{title}}
 

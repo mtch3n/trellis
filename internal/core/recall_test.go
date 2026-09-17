@@ -36,8 +36,8 @@ func TestRecallFindsWhatAPhraseSearchCannot(t *testing.T) {
 	if len(hits) == 0 {
 		t.Fatal("Recall found nothing in a sentence naming the entry's subject")
 	}
-	if hits[0].Ref != "/XPSCTL/knowledge/lease-renewal-on-claim" {
-		t.Errorf("first hit = %q, want /XPSCTL/knowledge/lease-renewal-on-claim", hits[0].Ref)
+	if hits[0].Ref != "/XPSCTL/vault/lease-renewal-on-claim" {
+		t.Errorf("first hit = %q, want /XPSCTL/vault/lease-renewal-on-claim", hits[0].Ref)
 	}
 }
 
@@ -62,7 +62,7 @@ func TestRecallCarriesTheLineThatDecidesWhetherToOpen(t *testing.T) {
 	}
 
 	// A pinned recap is written for exactly this job, so it outranks summary.
-	if _, err := c.db.Exec(`UPDATE knowledge SET recap = ? WHERE id = ?`,
+	if _, err := c.db.Exec(`UPDATE entry SET recap = ? WHERE id = ?`,
 		"Rebuild is O(n) and blocks writes", doc.ID); err != nil {
 		t.Fatalf("setting recap: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestRecallLiftsHitsConnectedToOtherHits(t *testing.T) {
 	if len(hits) != 3 {
 		t.Fatalf("Recall returned %d hits, want 3", len(hits))
 	}
-	if hits[2].Ref != "/XPSCTL/knowledge/retry-gamma" {
+	if hits[2].Ref != "/XPSCTL/vault/retry-gamma" {
 		t.Errorf("order = %s %s %s; want the unconnected entry last",
 			hits[0].Ref, hits[1].Ref, hits[2].Ref)
 	}
@@ -249,8 +249,8 @@ func TestRecallCountsALinkToAHubForLessThanALinkToARarity(t *testing.T) {
 	for i, h := range hits {
 		rank[h.Ref] = i
 	}
-	alpha, okA := rank["/XPSCTL/knowledge/retry-alpha"]
-	beta, okB := rank["/XPSCTL/knowledge/retry-beta"]
+	alpha, okA := rank["/XPSCTL/vault/retry-alpha"]
+	beta, okB := rank["/XPSCTL/vault/retry-beta"]
 	if !okA || !okB {
 		t.Fatalf("both linkers should be recalled; got %v", rank)
 	}
@@ -337,7 +337,7 @@ func TestRecallHoldsOutAnIngestionPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Recall: %v", err)
 	}
-	if len(hits) != 1 || hits[0].Ref != "/XPSCTL/knowledge/retry-budget-authored" {
+	if len(hits) != 1 || hits[0].Ref != "/XPSCTL/vault/retry-budget-authored" {
 		t.Errorf("hits = %+v, want only the authored entry", hits)
 	}
 }

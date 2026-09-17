@@ -196,7 +196,7 @@ func min3(a, b, c int) int {
 // correctly forgotten.
 func (c *Core) projectDirectories(tx *sqlx.Tx, projectID string) ([]string, error) {
 	var slugs []string
-	if err := tx.Select(&slugs, `SELECT slug FROM knowledge WHERE project_id = ?`, projectID); err != nil {
+	if err := tx.Select(&slugs, `SELECT slug FROM entry WHERE project_id = ?`, projectID); err != nil {
 		return nil, err
 	}
 	seen := map[string]bool{}
@@ -256,7 +256,7 @@ func (c *Core) resolveSlug(tx *sqlx.Tx, projectID, input string, includeGlobal b
 	norm := normalizeSlugPath(input)
 	// For exact matches, prefer project-local entries over global ones.
 	var exact string
-	err := tx.Get(&exact, `SELECT slug FROM knowledge WHERE slug = ? AND project_id = ?`, norm, projectID)
+	err := tx.Get(&exact, `SELECT slug FROM entry WHERE slug = ? AND project_id = ?`, norm, projectID)
 	if err == nil {
 		return exact, nil
 	}
@@ -266,7 +266,7 @@ func (c *Core) resolveSlug(tx *sqlx.Tx, projectID, input string, includeGlobal b
 	// No project-local exact match; check global if allowed.
 	if includeGlobal {
 		var gids []string
-		if err := tx.Select(&gids, `SELECT id FROM knowledge WHERE slug = ? AND global = 1`, norm); err != nil {
+		if err := tx.Select(&gids, `SELECT id FROM entry WHERE slug = ? AND global = 1`, norm); err != nil {
 			return "", err
 		}
 		switch len(gids) {
@@ -292,7 +292,7 @@ func (c *Core) resolveSlug(tx *sqlx.Tx, projectID, input string, includeGlobal b
 	}
 	var matches []string
 	if err := tx.Select(&matches,
-		`SELECT slug FROM knowledge WHERE (slug = ? OR slug LIKE '%/' || ?) AND `+scope+` ORDER BY slug`,
+		`SELECT slug FROM entry WHERE (slug = ? OR slug LIKE '%/' || ?) AND `+scope+` ORDER BY slug`,
 		norm, norm, projectID); err != nil {
 		return "", err
 	}
