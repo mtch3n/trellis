@@ -14,8 +14,11 @@
 
 - **Starts last.** Do not begin until every other branch has merged into `feat/memory-groundwork`, including `wip/template` and `wip/comments`; the integrating session (trellis-2f) confirms this. Since 3564b86, this release's schema changes live in one Go migration, `internal/store/migrate_0014.go`.
 - **Template and comment are already done.** `wip/template` made `template` the only classification (frontmatter `template:`, column `template`, `--template`, JSON `template`, no `note` template). `wip/comments` turned card notes into comments. This plan treats both as correct and touches neither.
-- **The glossary skills plan has merged** (`2026-09-16-glossary-skills.md`). Task 2 needs its `glossary` template, and the vocabulary test will flag the old command names in its skills, which Task 13 fixes.
-- **Trellis's glossary is a vault entry**, not a file in the repository. Task 2 writes it into the live TRELLIS vault with the installed `trellis`, under your own `TRELLIS_AGENT` identity.
+- **The glossary skills plan has merged** (`2026-09-16-glossary-skills.md`). The vocabulary test will flag the old command names in its skills; Task 13 fixes them.
+- **Trellis's glossary is a vault entry**, not a file in the repository. Task 14 creates it after the switch-over.
+- **Branch binaries never touch the real home.** Any binary built from this repository — `go run`, `go build -o`, even for `--help` — runs only with `TRELLIS_HOME` set to a scratch directory. A branch binary once migrated the user's live `~/.trellis`.
+- **Root-inject has merged** (TRELLIS-48, TRELLIS-36). `core.New` takes the storage root, `WithKBRoot` is gone, and `knowledge` and `artifact` store no `path`: a file's place is derived from root, project key and slug. Task 5 is written for that schema. If `internal/store/migrate_0014.go` still creates `knowledge.path`, stop and ask the integrator.
+- **`CLAUDE.md` is local.** It is excluded in `.git/info/exclude`: never commit it. Its edits are made once, in Task 14, in the main checkout.
 - **Web work belongs to the UI session.** Task 12's web half is handed to trellis-8d through the integrator; this plan's executor does the TUI half only.
 - **One concept, one word, at every layer** (spec §1). No abbreviations of a glossary word.
 - **No backward compatibility.** No aliases for old commands, flags, JSON keys, routes or config keys. Old spellings fail with the ordinary unknown-command or unknown-flag error.
@@ -98,76 +101,14 @@ git commit -m "docs: bring the vocabulary audit up to the merged tree"
 
 ---
 
-### Task 2: Trellis's glossary entry
+### Task 2: (moved to Task 14)
 
-The rename needs one place to look words up while it runs. That place is a `glossary` entry in the TRELLIS vault, written from spec §2 before any code changes.
+Trellis's own glossary entry is created after the switch-over, in Task 14 Step 3. Two reasons:
 
-**Files:**
-- Modify: `CLAUDE.md`
-- Live data: the TRELLIS vault gains an entry `glossary`. It is not in the repository.
+- Branch binaries never touch the real home.
+- The installed binary has no `glossary` template until the switch-over reinstalls it.
 
-**Interfaces:**
-- Produces: the entry `glossary` in project TRELLIS (`trellis knowledge show glossary`, `trellis vault show glossary` after Task 10), which Task 14 brings up to date.
-
-- [ ] **Step 1: Check the template is installed**
-
-```bash
-cd /home/mtchen/Personal/trellis
-trellis knowledge template ls
-```
-
-Expected: `glossary` is listed. If it is not, run `trellis knowledge template reinstall glossary`. If that fails, the glossary skills plan has not landed; stop and tell the integrator.
-
-- [ ] **Step 2: Write the body**
-
-Write `/tmp/trellis-glossary.md` with this shape:
-
-```markdown
-# Glossary
-
-## Terms
-
-### Vault
-
-| Term | Means | Not |
-|---|---|---|
-```
-
-Fill it from the six tables in spec §2 — Vault, Promotion, Claims, Diagnostics, Board, Addressing — one `###` area each, rows copied verbatim. The Promotion and Addressing tables in the spec have no Not column. Give their rows a third cell holding the retired word the prose under the table names, or leave it empty — for example `| **promote** | A human moves an entry into the global vault. Moves, never copies. | escalate |`. Keep the prose paragraphs that follow the tables (template rules, diagnostic kinds, conflict, placeholders) under their area, below the table.
-
-- [ ] **Step 3: Create the entry, unpinned**
-
-```bash
-cd /home/mtchen/Personal/trellis
-trellis knowledge ls --template glossary
-trellis knowledge new --template glossary --title "Glossary" \
-  --summary "One word per concept for Trellis; look a word up here before naming anything" \
-  --body @/tmp/trellis-glossary.md
-trellis knowledge show glossary | head -20
-```
-
-Expected: the first command prints nothing (there is no glossary yet; if there is one, edit it instead with `knowledge edit glossary --body @/tmp/trellis-glossary.md --if-version <version>`). The last shows the table. Do not pin it: the author decides that in Task 14.
-
-- [ ] **Step 4: Add the rule to CLAUDE.md**
-
-Insert after the `## Invariants` list, before `## Cross-platform`:
-
-```markdown
-## Vocabulary
-
-- **One concept, one word.** The TRELLIS vault's glossary entry names every
-  concept: `trellis knowledge show glossary`. Look a word up before introducing
-  it, and add a row when a concept is new.
-- `go test ./internal/vocabulary` fails on a retired word. Fix the word, or, when
-  the hit is a genuinely different meaning, add an allowlist line that says why.
-```
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add CLAUDE.md
-git commit -m "docs: look words up in the glossary entry"
-```
+Spec §2 is the reference while the rename runs.
 
 ---
 
@@ -583,7 +524,6 @@ The migration in Task 5 writes vault files from `internal/store`, which cannot i
 - Delete: `internal/core/fsync_unix.go`, `internal/core/fsync_windows.go`
 - Modify: `internal/core/file_store.go` (drop `writeTemp`, `writeAtomic`)
 - Modify: every caller of `writeAtomic`, `writeTemp`, `syncDirectory` in `internal/core`
-- Modify: `CLAUDE.md` (the invariant and the cross-platform note name the new place)
 
 **Interfaces:**
 - Produces: `atomicfile.WriteTemp(dir, name string, data []byte) (string, error)`, `atomicfile.Write(path string, data []byte, replace bool) error`, `atomicfile.SyncDir(path string) error`.
@@ -668,19 +608,7 @@ go run golang.org/x/tools/cmd/goimports@latest -w internal/core
 
 If `goimports` is not wanted, add `"github.com/mtch3n/trellis/internal/atomicfile"` to each edited file's imports by hand.
 
-In `CLAUDE.md`, the invariant becomes:
-
-```markdown
-- **Writes go through `atomicfile.Write` / `stageRemoval`** (`internal/atomicfile`,
-  `internal/core/file_store.go`) so a failed transaction never leaves a file
-  without its row, or the reverse.
-```
-
-and the cross-platform bullet becomes:
-
-```markdown
-- No directory fsync on Windows — see `internal/atomicfile/syncdir_*.go`.
-```
+`CLAUDE.md` names `writeAtomic` and `fsync_*.go`; Task 14 updates it.
 
 - [ ] **Step 4: Run everything**
 
@@ -694,7 +622,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add -A internal/atomicfile internal/core CLAUDE.md internal/vocabulary/allowlist.txt
+git add -A internal/atomicfile internal/core internal/vocabulary/allowlist.txt
 git commit -m "refactor: one atomic writer, shared by core and store"
 ```
 
@@ -710,7 +638,7 @@ Everything the migration rewrites and everything code writes into those same pla
 - Modify: `internal/store/migrate_0014.go` (`foreignKeyCheck` takes the migration's name)
 - Modify: `internal/store/migrate_0014_test.go` (`migrateUp` stops at 14)
 - Modify: SQL strings and `db:` tags across `internal/core`, `internal/ui`, `internal/retrieval`, `internal/cli`
-- Modify: `internal/core/knowledge.go` (the vault directory name)
+- Modify: the function that derives an entry's directory from the root (`kbDir` today): the vault directory name
 - Modify: `internal/vpath/vpath.go` (the `CollectionKnowledge` value)
 - Modify: `internal/core/template.go` (`yaml:"verify"` → `yaml:"resolve"`)
 - Modify: `internal/core/templates/*.md` (any `verify:` rule)
@@ -785,7 +713,6 @@ func rootBefore(t *testing.T) (string, *sqlx.DB) {
 	writeFile(t, filepath.Join(root, "global", "knowledge", "g.md"), "---\ntitle: G\ntemplate: decision\n---\nSee /TR/knowledge/a\n")
 	writeFile(t, filepath.Join(root, "templates", "cited.md"), "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
 	writeFile(t, filepath.Join(root, "config.yaml"), "lease:\n  ttl: 30m\n")
-	global := filepath.Join(root, "global", "knowledge", "g.md")
 	for _, q := range []struct {
 		sql  string
 		args []any
@@ -796,10 +723,10 @@ func rootBefore(t *testing.T) (string, *sqlx.DB) {
 		{`INSERT INTO card (id, project_id, board_id, seq, column_id, rank, title, body_md, owner, lease_until, created_at, updated_at)
 		  VALUES ('k1', 'p1', 'b1', 1, 'c1', 'a', 'First', 'see /TR/knowledge/a', 'agent:x', 99, 1, 1)`, nil},
 		{`INSERT INTO comment (id, card_id, actor, body_md, created_at) VALUES ('m1', 'k1', 'agent:x', 'read /TR/knowledge/a', 1)`, nil},
-		{`INSERT INTO knowledge (id, project_id, slug, title, path, template, recap, recap_hash, content_hash, mtime, size, created_at, updated_at)
-		  VALUES ('e1', 'p1', 'a', 'A', ?, 'runbook', 'do A', ?, ?, 1, 1, 1, 1)`, []any{entry, sha(entryBefore), sha(entryBefore)}},
-		{`INSERT INTO knowledge (id, project_id, slug, title, path, template, content_hash, mtime, size, global, review_by, reviewed_at, created_at, updated_at)
-		  VALUES ('e2', 'p1', 'g', 'G', ?, 'decision', 'x', 1, 1, 1, 5, 4, 1, 1)`, []any{global}},
+		{`INSERT INTO knowledge (id, project_id, slug, title, template, recap, recap_hash, content_hash, mtime, size, created_at, updated_at)
+		  VALUES ('e1', 'p1', 'a', 'A', 'runbook', 'do A', ?, ?, 1, 1, 1, 1)`, []any{sha(entryBefore), sha(entryBefore)}},
+		{`INSERT INTO knowledge (id, project_id, slug, title, template, content_hash, mtime, size, global, review_by, reviewed_at, created_at, updated_at)
+		  VALUES ('e2', 'p1', 'g', 'G', 'decision', 'x', 1, 1, 1, 5, 4, 1, 1)`, nil},
 		{`INSERT INTO pin (id, knowledge_id, created_at) VALUES ('pn1', 'e1', 1)`, nil},
 		{`INSERT INTO nomination (id, knowledge_id, actor, reason, created_at) VALUES ('nm1', 'e1', 'agent:x', 'r', 1)`, nil},
 		{`INSERT INTO link (from_type, from_id, to_type, to_id, to_raw, rel) VALUES ('card', 'k1', 'doc', 'e1', '/TR/knowledge/a', 'documents')`, nil},
@@ -863,16 +790,15 @@ func TestVocabularyMigration(t *testing.T) {
 	}
 
 	var row struct {
-		Path        string `db:"path"`
 		Template    string `db:"template"`
 		ContentHash string `db:"content_hash"`
 		RecapHash   string `db:"recap_hash"`
 	}
-	if err := db.Get(&row, `SELECT path, template, content_hash, recap_hash FROM entry WHERE id = 'e1'`); err != nil {
+	if err := db.Get(&row, `SELECT template, content_hash, recap_hash FROM entry WHERE id = 'e1'`); err != nil {
 		t.Fatal(err)
 	}
-	if row.Path != moved || row.Template != "runbook" || row.ContentHash != sha(want) || row.RecapHash != sha(want) {
-		t.Errorf("entry row = %+v; want path %s, template runbook, both hashes %s", row, moved, sha(want))
+	if row.Template != "runbook" || row.ContentHash != sha(want) || row.RecapHash != sha(want) {
+		t.Errorf("entry row = %+v; want template runbook and both hashes %s", row, sha(want))
 	}
 	var verifyBy int
 	if err := db.Get(&verifyBy, `SELECT verify_by FROM entry WHERE id = 'e2'`); err != nil || verifyBy != 5 {
@@ -1008,7 +934,7 @@ func renameVocabulary(ctx context.Context, db *sql.DB) error {
 			return errors.Join(err, fw.undo())
 		}
 	}
-	if err := renameSchema(ctx, db, fw.rewritten); err != nil {
+	if err := renameSchema(ctx, db, root, fw.rewritten); err != nil {
 		return errors.Join(err, fw.undo())
 	}
 	return nil
@@ -1213,20 +1139,7 @@ func rewriteAddresses(s string) string {
 	return oldAddress.ReplaceAllString(s, "${1}${2}/vault/")
 }
 
-// oldVaultDir is the vault directory inside a stored absolute path, on either
-// separator.
-var oldVaultDir = regexp.MustCompile(`([/\\](?:projects[/\\][^/\\]+|global)[/\\])knowledge([/\\])`)
-
-func vaultPath(p string) string {
-	locs := oldVaultDir.FindAllStringSubmatchIndex(p, -1)
-	if len(locs) == 0 {
-		return p
-	}
-	m := locs[len(locs)-1]
-	return p[:m[3]] + "vault" + p[m[4]:]
-}
-
-func renameSchema(ctx context.Context, db *sql.DB, rewritten []fileChange) error {
+func renameSchema(ctx context.Context, db *sql.DB, root string, rewritten []fileChange) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -1282,7 +1195,7 @@ func renameSchema(ctx context.Context, db *sql.DB, rewritten []fileChange) error
 		}
 	}
 
-	if err := moveEntryRows(ctx, tx, rewritten); err != nil {
+	if err := carryHashes(ctx, tx, root, rewritten); err != nil {
 		return err
 	}
 	for _, c := range [][2]string{{"card", "body_md"}, {"comment", "body_md"}, {"link", "to_raw"}} {
@@ -1297,13 +1210,17 @@ func renameSchema(ctx context.Context, db *sql.DB, rewritten []fileChange) error
 	return tx.Commit()
 }
 
-// moveEntryRows points every entry row at its moved file. A file this
-// migration rewrote is not an external edit, so the row's hash, size and
-// mtime follow the new bytes, and so does a recap that was current; nothing
-// reads as stale afterwards. Paths are compared resolved: SQLite may report
-// the database under /private/var where the rows say /var, and Windows may
-// hand back a short name.
-func moveEntryRows(ctx context.Context, tx *sql.Tx, rewritten []fileChange) error {
+// carryHashes keeps a rewritten file from reading as an external edit. Rows
+// store no path: an entry's file is <root>/projects/<KEY>/vault/<slug>.md, or
+// <root>/global/vault/<slug>.md. When that file is one this migration
+// rewrote, and the row was in step with it, the row's hash, size and mtime
+// follow the new bytes, and so does a recap that was current. Paths are
+// compared resolved: SQLite may report the database under /private/var, and
+// Windows may hand back a short name.
+func carryHashes(ctx context.Context, tx *sql.Tx, root string, rewritten []fileChange) error {
+	if len(rewritten) == 0 {
+		return nil
+	}
 	byFile := map[string]fileChange{}
 	for _, f := range rewritten {
 		if real, err := filepath.EvalSymlinks(f.path); err == nil {
@@ -1311,16 +1228,18 @@ func moveEntryRows(ctx context.Context, tx *sql.Tx, rewritten []fileChange) erro
 		}
 	}
 	type row struct {
-		id, path, hash string
+		id, slug, key, hash string
+		global              bool
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT id, path, content_hash FROM entry`)
+	rows, err := tx.QueryContext(ctx,
+		`SELECT e.id, e.slug, p.key, e.content_hash, e.global FROM entry e JOIN project p ON p.id = e.project_id`)
 	if err != nil {
 		return err
 	}
 	var all []row
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.id, &r.path, &r.hash); err != nil {
+		if err := rows.Scan(&r.id, &r.slug, &r.key, &r.hash, &r.global); err != nil {
 			rows.Close()
 			return err
 		}
@@ -1330,11 +1249,11 @@ func moveEntryRows(ctx context.Context, tx *sql.Tx, rewritten []fileChange) erro
 		return err
 	}
 	for _, r := range all {
-		moved := vaultPath(r.path)
-		if _, err := tx.ExecContext(ctx, `UPDATE entry SET path = ? WHERE id = ?`, moved, r.id); err != nil {
-			return err
+		dir := filepath.Join(root, "projects", r.key, "vault")
+		if r.global {
+			dir = filepath.Join(root, "global", "vault")
 		}
-		real, err := filepath.EvalSymlinks(moved)
+		real, err := filepath.EvalSymlinks(filepath.Join(dir, filepath.FromSlash(r.slug)+".md"))
 		if err != nil {
 			continue // the file is gone; core reports it as it always has
 		}
@@ -1391,7 +1310,7 @@ func rewriteColumn(ctx context.Context, tx *sql.Tx, table, col string, change fu
 
 Notes for the implementer:
 
-- **Row matching.** The hash carry-over matches on the resolved path and the old hash, never on the hash alone. A row that does not match is simply re-read by core on first use, as any external edit is.
+- **Row matching.** The hash carry-over matches on the file derived from root, key and slug, plus the old hash, never on the hash alone. A row that does not match is simply re-read by core on first use, as any external edit is. If root-inject derives an entry's file differently from `<root>/projects/<KEY>/knowledge/<slug>.md`, match what it does.
 - **Shared helpers.** `foreignKeyCheck` and `firstLine` already live in `migrate_0014.go`. `foreignKeyCheck` names migration 0014 in its error, so give it a `migration string` parameter. Its message then reads `"foreign key check failed during migration "+migration+", rolled back: …"`, and 0014's own call passes `"0014"`:
 
   ```go
@@ -1457,10 +1376,18 @@ Expected: PASS, and `gofmt -l .` prints nothing. For a failure, read the asserti
 
 - [ ] **Step 7: Try it on a copy of real data**
 
+This is safe only because the branch's migrations drop the stored paths, so a copied home is then a real copy; the probe below proves it before the copy is touched. Take the database with the installed binary's `backup`. That binary is at the live database's version, so it does not migrate; it only logs its own invocation. Copy the files beside the backup. Everything the branch binary will open must be under `/tmp/vocab-home` before its first command. Never run the branch binary without `TRELLIS_HOME`.
+
 ```bash
-rm -rf /tmp/vocab-home && cp -a ~/.trellis /tmp/vocab-home
-rm -f /tmp/vocab-home/daemon.sock /tmp/vocab-home/daemon.lock
+rm -rf /tmp/vocab-home && mkdir -p /tmp/vocab-home
+trellis backup /tmp/vocab-home/trellis.db
+cp -a ~/.trellis/projects ~/.trellis/global ~/.trellis/templates /tmp/vocab-home/ 2>/dev/null || true
+[ -f ~/.trellis/config.yaml ] && cp ~/.trellis/config.yaml /tmp/vocab-home/
+ls -la /tmp/vocab-home    # trellis.db, projects/, global/, templates/ (and config.yaml) are all here
 go build -o /tmp/trellis-vocab ./cmd/trellis
+probe=$(mktemp -d); TRELLIS_HOME=$probe /tmp/trellis-vocab project ls >/dev/null
+python3 -c 'import sqlite3,sys; c=[r[1] for r in sqlite3.connect(sys.argv[1]).execute("pragma table_info(entry)")]; assert c and "path" not in c, "entry has a path column: STOP"' "$probe/trellis.db"
+rm -rf "$probe"
 TRELLIS_HOME=/tmp/vocab-home /tmp/trellis-vocab knowledge ls --json | head -c 600
 TRELLIS_HOME=/tmp/vocab-home /tmp/trellis-vocab knowledge pins --json
 ls /tmp/vocab-home/projects/*/
@@ -1584,7 +1511,7 @@ Rename each with `/tmp/gorename.sh <declaring file> <Old> <New>`, using these ru
 | `feedRow`'s `KB*` fields and its `kb_*` SQL aliases (`KBKey`, `KBSlug`, `KBTitle`, and the template one if `wip/template` kept the prefix) | `Entry*` and `entry_*` (`EntryKey`, `EntrySlug`, `EntryTitle`, …) |
 | `loadDoc`, `docView`, `resolveDocRef`, `resolveDocStubs`, `RenderDoc`, `LinkCardToDoc`, `DocAddress` | `loadEntry`, `entryView`, `resolveEntryRef`, `resolveEntryStubs`, `RenderEntry`, `LinkCardToEntry`, `EntryAddress` |
 | any other `…Doc…` | `…Entry…` |
-| `kbDir`, `kbRoot`, `kbCore`, `WithKBRoot` | `vaultDir`, `vaultRoot`, `vaultCore`, `WithVaultRoot` |
+| `kbDir`, `kbCore`, and `kbRoot` / `WithKBRoot` if root-inject left any | `vaultDir`, `vaultCore`, `vaultRoot` |
 | local variables `doc`, `docs`, `d` holding entries | `entry`, `entries`, `e` — `gopls rename` at each declaration |
 
 A name that clashes after renaming — for example a method `Entry` on a type that already has an `Entry` field — gets the plural or a verb; the build says where.
@@ -1893,7 +1820,10 @@ Fix what the grep prints by hand. For example, `requireHuman`'s texts become `ag
 ```bash
 go build ./... && go vet ./... && go test ./... && GOOS=windows go build ./...
 gofmt -l .
-go build -o /tmp/trellis-vocab ./cmd/trellis && /tmp/trellis-vocab vault --help && /tmp/trellis-vocab knowledge 2>&1 | head -2
+go build -o /tmp/trellis-vocab ./cmd/trellis
+export TRELLIS_HOME=$(mktemp -d)
+/tmp/trellis-vocab vault --help && /tmp/trellis-vocab knowledge 2>&1 | head -2
+rm -rf "$TRELLIS_HOME"; unset TRELLIS_HOME
 go test ./internal/vocabulary -update && go test ./internal/vocabulary
 git add -A
 git commit -m "feat(cli)!: trellis vault, promote, and help text in the glossary's words"
@@ -1943,6 +1873,12 @@ Change the `json:` tags and the literal keys:
 - `{"knowledge": …}` → `{"entries": …}`
 - search and recall `kind` `"knowledge"` → `"entry"`
 - `trellis events` lines: `kind` → `entity`
+- the web API's event rows: `entity_type` → `entity`
+- `orphan_history` in `GET /api/maintenance` and `POST /api/maintenance/prune` → `leftover_revisions`
+- the setting key `lease.ttl` in `GET`/`PATCH /api/settings` → `claim.ttl` (it follows the config key)
+- a template's `verify` rule, wherever template JSON exposes it → `resolve`
+
+Task 12 Step 3 holds the complete list of HTTP routes and JSON names, which is what trellis-8d receives.
 
 The card detail's comment and history JSON belongs to `wip/comments`; leave it.
 
@@ -1992,11 +1928,19 @@ git commit -m "feat!: JSON keys and error codes in the glossary's words"
 
 - [ ] **Step 1: Server routes**
 
-In `internal/ui/server.go`:
+In `internal/ui/server.go`, rename every route the table in Step 3 lists. That is:
 
-- `/api/global/knowledge` → `/api/global/vault`
 - `/api/activity` → `/api/events`
-- any `/api/.../knowledge…` path → `/vault…`
+- `/api/global/knowledge` → `/api/global/vault`
+- `/api/p/{key}/knowledge…` → `/api/p/{key}/vault…`
+- `/api/p/{key}/b/{board}/knowledge…` → `…/vault…`
+- `/api/p/{key}/links/knowledge` → `/api/p/{key}/links/vault`
+
+The `…/steal` and `…/release` routes keep their names. Find anything left with:
+
+```bash
+git grep -nE '"(GET|POST|PUT|PATCH|DELETE) [^"]*(knowledge|activity|orphan)' -- internal/ui
+```
 
 The SSE endpoint `/events` keeps its path if it does not collide; if the mux reports a conflict, move SSE to `/api/events/stream`. Update `server_test.go`. Run `go test ./internal/ui/...`.
 
@@ -2013,7 +1957,38 @@ Run `go test ./internal/cli/...`.
 
 - [ ] **Step 3: Hand the web half over**
 
-Send the integrator this checklist for trellis-8d:
+`web/` belongs to trellis-8d. This task edits nothing under `web/`; it sends the renames below to trellis-8d through the integrator, and that session changes the web code.
+
+**Wire names that change.** Everything else on the wire keeps its name.
+
+| Kind | Now | Becomes |
+|---|---|---|
+| route | `/api/activity` | `/api/events` (SSE `/events` moves to `/api/events/stream` only if the mux conflicts) |
+| route | `/api/global/knowledge` | `/api/global/vault` |
+| route | `/api/p/{key}/knowledge`, `…/{slug}`, `…/{slug}/diff`, `…/{slug}/history` | `/api/p/{key}/vault…` |
+| route | `/api/p/{key}/b/{board}/knowledge`, `…/{slug}` | `/api/p/{key}/b/{board}/vault…` |
+| route | `/api/p/{key}/links/knowledge` | `/api/p/{key}/links/vault` |
+| web route | `/p/:key/knowledge` | `/p/:key/vault` |
+| JSON | `owner`, `lease_until` | `claimed_by`, `claim_until` |
+| JSON | `stale_leases` | `expired_claims` |
+| JSON | card detail `activity` | `events` (the timeline itself belongs to `wip/comments`) |
+| JSON | event rows `entity_type` | `entity` |
+| JSON | `{"knowledge": […]}` | `{"entries": […]}` |
+| JSON | `unreviewed` | `unverified` |
+| JSON | lint `findings` | `diagnostics` |
+| JSON | nomination `noms` | `nominations` |
+| JSON | `orphan_history` (`GET /api/maintenance`, `POST /api/maintenance/prune`) | `leftover_revisions` |
+| JSON | template `verify` (if exposed) | `resolve` |
+| JSON value | setting key `lease.ttl` (`/api/settings`) | `claim.ttl` |
+| JSON value | event entity `knowledge` | `entry` |
+| JSON value | search hit `kind: knowledge`, graph node `type: doc` | `entry` |
+| JSON value | event actions `escalated`, `unarchived`, `privatised`, `default` | `promoted`, `restored`, `privatized`, `set_default` |
+| JSON value | link relation `documents` | `cites` |
+| error code | `knowledge_not_found`, `unknown_board`, `unknown_column`, `project_has_vault_entries`, `project_leased`, `bad_pin`, `not_owned` | per Task 11 |
+
+`/api/templates/*`, `/api/settings`, `/api/logs`, `/api/maintenance/compact` and `nothing_to_prune` keep their names.
+
+Also send the integrator this checklist for trellis-8d:
 
 - Types follow Task 11's JSON: `KnowledgeEntry` → `Entry`, `owner` → `claimed_by`, `lease_until` → `claim_until`, `stale_leases` → `expired_claims`, `unreviewed` → `unverified`.
 - Routes: `/p/:key/knowledge` → `/p/:key/vault`, and the API routes from Step 1.
@@ -2044,7 +2019,7 @@ git commit -m "feat(ui,tui)!: vault routes and terminal labels in the glossary's
 - Modify: `plugin/hooks/trellis_hook.py`, `scripts/tests/test_plugin_hooks.py`
 - Modify: `plugin/skills/trellis/SKILL.md` and `plugin/skills/trellis/references/*`, `plugin/skills/writing-knowledge/SKILL.md`, `plugin/skills/when-to-use-trellis/SKILL.md`, `plugin/skills/coordinating/SKILL.md`
 - Modify: `plugin/**/plugin.json`, marketplace and build manifests
-- Modify: `README.md`, `PRODUCT.md`, `CLAUDE.md`, `docs/ui-operation-parity.md`, `scripts/*`
+- Modify: `README.md`, `PRODUCT.md`, `docs/ui-operation-parity.md`, `scripts/*`
 - Modify: any spec or plan under `docs/superpowers/` that has not been executed (ask the integrator which)
 
 - [ ] **Step 1: The hook first**
@@ -2077,16 +2052,59 @@ Rewrite the four skills in the glossary's words.
 - [ ] **Step 3: Top-level docs and manifests**
 
 - **README, PRODUCT, `docs/ui-operation-parity.md`, the plugin manifests:** "knowledge base" → "vault"; command names follow; "lease-steal" → "claim steal"; "Knowledge documents" → "Vault entries".
-- **CLAUDE.md:**
-  - The Architecture list: `internal/vpath` → `internal/address — the address grammar a marker holds`, and `internal/resolve` "the nearest `.trellis` pin" → "the nearest `.trellis` marker".
-  - The invariants: "The pin walk" → "The marker walk"; `knowledge lint` → `vault lint`; `resolveDocStubs` → `resolveEntryStubs`; `matchKnowledge` → `matchEntries`.
 - **scripts:** `scripts/*` follow the new commands.
 
-- [ ] **Step 4: Unexecuted specs and plans**
+- [ ] **Step 4: Skills match the final CLI**
+
+The rename is the release's last code change. So this is where every skill is checked against the tool as it now is, for every change the release made, not only for words. It covers:
+
+- **Comments** replaced notes: `trellis card comment`, many per card, shown with events as the timeline.
+- **Card relations:** `trellis card relate <card> <relation> <other-card>`.
+- **Templates:**
+  - enforced on every Trellis write, with lint reporting `template_violation` and `unknown_template`;
+  - `trellis vault edit --set name=value`, where an empty value removes a field;
+  - the `resolve:` rule, formerly `verify:`.
+- **Artifacts:** `trellis artifact add` rolls back when the link fails, so a failed add leaves nothing behind.
+- **Maintenance:** `trellis maintenance prune --leftover-revisions`, formerly `--orphan-history`.
+- **Events:** the entity names for `trellis events --entity`: card, entry, board, label, comment.
+- **Addresses:** including entries in directories.
+- **Claims**, and the two glossary skills.
+- **The web settings page:** any skill sentence that tells a human to edit `config.yaml` also mentions the settings page, briefly.
+
+List every command the skills name, and check each against the final binary's help in a scratch home:
+
+```bash
+cd /home/mtchen/Personal/trellis-worktrees/vocabulary
+go build -o /tmp/trellis-vocab ./cmd/trellis
+export TRELLIS_HOME=$(mktemp -d)
+grep -rhoE 'trellis [a-z]+( [a-z-]+)?' plugin/skills | sort -u | while read -r _ noun verb; do
+  /tmp/trellis-vocab $noun $verb --help >/dev/null 2>&1 || echo "no such command: $noun $verb"
+done
+grep -rhoE -- '--[a-z][a-z-]+' plugin/skills | sort -u > /tmp/skill-flags.txt
+/tmp/trellis-vocab --help >/dev/null
+rm -rf "$TRELLIS_HOME"; unset TRELLIS_HOME
+```
+
+Also check every config key the skills name against the keys the final binary knows. Removed keys (`db.busy_timeout_ms`, `git.timeout`, `labels.preset`, `card.duplicate_check`, `card.duplicate_threshold`, `search.limit`) must not appear:
+
+```bash
+export TRELLIS_HOME=$(mktemp -d)
+/tmp/trellis-vocab config ls --json > /tmp/config-keys.json
+grep -rhoE '\b[a-z_]+\.[a-z_]+(\.[a-z_]+)?\b' plugin/skills | sort -u | while read -r k; do
+  grep -q "\"$k\"" /tmp/config-keys.json || echo "not a config key (check whether it is one): $k"
+done
+rm -rf "$TRELLIS_HOME"; unset TRELLIS_HOME
+```
+
+The loop also prints file names and other dotted words. Only the ones that are meant as config keys matter.
+
+Fix every "no such command". For each flag in `/tmp/skill-flags.txt`, find the command it is used with and confirm that command's `--help` lists it. Then reread each skill against spec §2 and correct any sentence that no longer describes what the tool does.
+
+- [ ] **Step 5: Unexecuted specs and plans**
 
 For each spec or plan the integrator names as not yet executed, reword it into the glossary's words.
 
-- [ ] **Step 5: Run everything and commit**
+- [ ] **Step 6: Run everything and commit**
 
 ```bash
 go test ./... && python3 -B -m unittest discover -s scripts/tests
@@ -2122,25 +2140,53 @@ Upgrade notes:
 - Rebuild each project's vector index: `trellis vector rebuild` in each project. The vector database is derived and still says `doc_type`.
 - A repository `.trellis.yaml` that sets `lease.ttl` must now say `claim.ttl`.
 
-- [ ] **Step 3: After the merge, bring Trellis's glossary up to date**
+- [ ] **Step 3: After the switch-over, Trellis's glossary and CLAUDE.md**
 
-After the integrator has merged and the new binary is installed:
+This step runs after the integrator has merged, tagged and switched the user's machine over, with the new binary installed. It uses the installed `trellis` on the real home, which is now correct.
 
 ```bash
 cd /home/mtchen/Personal/trellis
-trellis vault show glossary --json
+trellis vault template ls | grep -q glossary || trellis vault template reinstall glossary
+trellis vault ls --template glossary
 ```
 
-Compare the entry with spec §2 as it stands now. For every row the rename changed, edit that row, and only that row, following the `keeping-glossary` skill:
+If no glossary exists, write its body from spec §2. Use one `###` area per table (Vault, Promotion, Claims, Diagnostics, Board, Addressing), rows copied verbatim under `## Terms`, and a third cell for the two-column tables: the retired word the prose names, or empty. Then create it:
 
 ```bash
-trellis vault edit glossary --body @/tmp/trellis-glossary.md --if-version <version>
+trellis vault new --template glossary --title "Glossary" \
+  --summary "One word per concept for Trellis; look a word up here before naming anything" \
+  --body - < /tmp/trellis-glossary.md
 ```
 
-Then ask the author whether to pin it. Pin only on a yes, with a one-line recap:
+Ask the author whether to pin it. Pin only on a yes:
 
 ```bash
 trellis vault pin glossary --recap "One word per concept: look words up in the glossary entry before naming anything"
 ```
 
-Expected on a yes: `trellis vault pins` lists `glossary`, and `trellis board show --brief` includes its recap.
+`CLAUDE.md` is the user's file. Do not edit it directly. Write the proposed version to `/tmp/CLAUDE.md.proposed`, send the integrator the output of `diff -u /home/mtchen/Personal/trellis/CLAUDE.md /tmp/CLAUDE.md.proposed`, and apply it only after the user's OK. It stays untracked; never commit it. The proposed changes:
+
+- **Architecture:** `internal/vpath` becomes `internal/address — the address grammar a marker holds`, and `internal/resolve`'s "nearest `.trellis` pin" becomes "nearest `.trellis` marker".
+- **Invariants — atomic writes:** "Writes go through `writeAtomic` / `stageRemoval` in `internal/core/file_store.go`" becomes "Writes go through `atomicfile.Write` / `stageRemoval` (`internal/atomicfile`, `internal/core/file_store.go`)".
+- **Invariants — renamed words:**
+  - "The pin walk" → "The marker walk"
+  - `knowledge lint` → `vault lint`
+  - `resolveDocStubs` → `resolveEntryStubs`
+  - `matchKnowledge` → `matchEntries`
+- **Cross-platform:** `fsync_unix.go` / `fsync_windows.go` becomes `internal/atomicfile/syncdir_*.go`.
+- **New section:** add, before `## Cross-platform`:
+
+  ```markdown
+  ## Vocabulary
+
+  - **One concept, one word.** The TRELLIS vault's glossary entry names every
+    concept: `trellis vault show glossary`. Look a word up before introducing
+    it, and add a row when a concept is new.
+  - `go test ./internal/vocabulary` fails on a retired word. Fix the word, or, when
+    the hit is a genuinely different meaning, add an allowlist line that says why.
+  ```
+
+Expected:
+- `trellis vault show glossary` prints the table.
+- On a yes to pinning, `trellis board show --brief` includes the recap.
+- `CLAUDE.md` changes only after the user has approved the diff.
