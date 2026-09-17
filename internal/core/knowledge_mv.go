@@ -156,6 +156,9 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		if err := c.docView(tx, &doc); err != nil {
 			return err
 		}
+		if err := c.rewriteInboundWikilinks(tx, &doc, oldSlug); err != nil {
+			return err
+		}
 		done = true
 		return nil
 	})
@@ -182,4 +185,89 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		c.notifyKnowledgeChanged(ctx, projectID)
 	}
 	return doc, err
+}
+
+// rewriteInboundWikilinks updates every doc whose body contains a wikilink to
+// oldSlug so it names doc.Slug instead, and resyncs that doc's derived rows
+// from the rewritten file. It runs inside knowledge mv's own transaction:
+// leaving this for later would mean the move quietly erodes the link graph
+// the moment the referring document is next edited and its wikilinks are
+// re-resolved against a slug that no longer exists. Only from_type = 'doc'
+// links are rewritten: a card's structured link (trellis link) stores its
+// own to_raw text in the link table and is never parsed from the card's
+// body, so there is no card file to rewrite.
+//
+// If the revision-history feature has landed by the time this is
+// implemented, this write must capture a revision for each referring
+// document exactly as EditKnowledgeFields does before it replaces a file --
+// check that function's current shape before writing this one.
+func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, oldSlug string) error {
+	var fromIDs []string
+	if err := tx.Select(&fromIDs,
+		`SELECT DISTINCT from_id FROM link
+		 WHERE to_type = 'doc' AND to_id = ? AND from_type = 'doc' AND rel = 'wikilink'`, doc.ID); err != nil {
+		return err
+	}
+	for _, fromID := range fromIDs {
+		var from Knowledge
+		if err := tx.Get(&from, `SELECT * FROM knowledge WHERE id = ?`, fromID); err != nil {
+			return err
+		}
+		raw, err := os.ReadFile(from.Path)
+		if err != nil {
+			return err
+		}
+		fm, body, err := splitDocFile(from.Path, raw)
+		if err != nil {
+			return err
+		}
+		newBody := rewriteWikilinkTargets(body, oldSlug, doc.Slug)
+		if newBody == body {
+			continue
+		}
+		out := RenderDoc(fm, newBody)
+		if err := replaceIfUnchanged(from.Path, []byte(out), ContentHash(string(raw))); err != nil {
+			return err
+		}
+		from.BodyMD = newBody
+		if err := c.syncDocRelations(tx, &from, fm, newBody); err != nil {
+			return err
+		}
+	}
+	if len(fromIDs) > 0 {
+		return c.rebuildKnowledgeFTS(tx)
+	}
+	return nil
+}
+
+// rewriteWikilinkTargets replaces the target of every [[target#anchor|alias]]
+// wikilink whose slug is oldSlug with newSlug, leaving the anchor, the alias
+// and everything outside a fenced code block exactly as written.
+func rewriteWikilinkTargets(body, oldSlug, newSlug string) string {
+	fences := fenceRE.FindAllStringIndex(body, -1)
+	inFence := func(pos int) bool {
+		for _, f := range fences {
+			if pos >= f[0] && pos < f[1] {
+				return true
+			}
+		}
+		return false
+	}
+	matches := wikiLinkRE.FindAllStringSubmatchIndex(body, -1)
+	var b strings.Builder
+	last := 0
+	for _, m := range matches {
+		if inFence(m[0]) {
+			continue
+		}
+		target := body[m[2]:m[3]]
+		if normalizeSlugPath(strings.TrimSpace(target)) != oldSlug {
+			continue
+		}
+		b.WriteString(body[last:m[2]])
+		b.WriteString(newSlug)
+		last = m[3]
+	}
+	b.WriteString(body[last:])
+	return b.String()
 }

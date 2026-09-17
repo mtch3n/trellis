@@ -600,3 +600,100 @@ func TestLintReportsSimilarDirectories(t *testing.T) {
 		t.Fatalf("findings = %+v, want at least one similar_directory", findings)
 	}
 }
+
+func TestWikilinkToADirectoryPathResolves(t *testing.T) {
+	c, p, _ := kbCore(t)
+	target, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge target: %v", err)
+	}
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Runbook index",
+		Body: "See [[deployment/rollback]] for the steps.\n"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge doc: %v", err)
+	}
+	back, err := c.Backlinks(t.Context(), target.ID)
+	if err != nil {
+		t.Fatalf("Backlinks: %v", err)
+	}
+	if len(back) != 1 || back[0].Title != doc.Title {
+		t.Fatalf("Backlinks = %+v, want one from %q", back, doc.Title)
+	}
+}
+
+func TestWikilinkBareLeafResolvesTheUniqueMatch(t *testing.T) {
+	c, p, _ := kbCore(t)
+	target, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge target: %v", err)
+	}
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Index", Body: "See [[rollback]].\n"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge doc: %v", err)
+	}
+	back, err := c.Backlinks(t.Context(), target.ID)
+	if err != nil {
+		t.Fatalf("Backlinks: %v", err)
+	}
+	if len(back) != 1 || back[0].Title != doc.Title {
+		t.Fatalf("Backlinks = %+v, want one from %q", back, doc.Title)
+	}
+}
+
+func TestWikilinkToAnAmbiguousLeafStaysAStubAndLintReportsIt(t *testing.T) {
+	c, p, _ := kbCore(t)
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "deployment"}); err != nil {
+		t.Fatalf("CreateKnowledge a: %v", err)
+	}
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback", Dir: "docs"}); err != nil {
+		t.Fatalf("CreateKnowledge b: %v", err)
+	}
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Index", Body: "See [[rollback]].\n"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge doc: %v", err)
+	}
+	findings, err := c.Lint(t.Context(), p.ID)
+	if err != nil {
+		t.Fatalf("Lint: %v", err)
+	}
+	var found bool
+	for _, f := range findings {
+		if f.Kind == "ambiguous_link" && f.Doc == doc.Ref {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("findings = %+v, want an ambiguous_link for %s", findings, doc.Ref)
+	}
+}
+
+func TestMoveKnowledgeRewritesInboundWikilinks(t *testing.T) {
+	c, p, _ := kbCore(t)
+	target, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Rollback"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge target: %v", err)
+	}
+	referrer, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Index",
+		Body: "See [[rollback]] for the steps.\n"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge referrer: %v", err)
+	}
+	moved, err := c.MoveKnowledge(t.Context(), p.ID, target.Slug, "deployment/rollback", false)
+	if err != nil {
+		t.Fatalf("MoveKnowledge: %v", err)
+	}
+	raw, err := os.ReadFile(referrer.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "[[deployment/rollback]]") {
+		t.Fatalf("referrer body = %q, want the wikilink rewritten to the new path", raw)
+	}
+	back, err := c.Backlinks(t.Context(), moved.ID)
+	if err != nil {
+		t.Fatalf("Backlinks: %v", err)
+	}
+	if len(back) != 1 {
+		t.Fatalf("Backlinks = %+v, want the link to survive the move", back)
+	}
+}
