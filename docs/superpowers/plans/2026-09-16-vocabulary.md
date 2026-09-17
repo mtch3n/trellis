@@ -12,13 +12,15 @@
 
 ## Global Constraints
 
-- **Starts last.** Do not begin until every other branch has merged into `feat/memory-groundwork`; the integrating session (trellis-2f) confirms this.
+- **Starts last.** Do not begin until every other branch has merged into `feat/memory-groundwork`, including `wip/template` (migration 0020) and `wip/comments` (migration 0021); the integrating session (trellis-2f) confirms this.
+- **Template and comment are already done.** `wip/template` made `template` the only classification (frontmatter `template:`, column `template`, `--template`, JSON `template`, no `note` template). `wip/comments` turned card notes into comments. This plan treats both as correct and touches neither.
+- **The glossary skills are a separate plan** (`2026-09-16-glossary-skills.md`) and may land before this one. If they have, the vocabulary test will flag their old command names, and Task 13 fixes them.
 - **Web work belongs to the UI session.** Task 12's web half is handed to trellis-8d through the integrator; this plan's executor does the TUI half only.
 - **One concept, one word, at every layer** (spec §1). No abbreviations of a glossary word.
 - **No backward compatibility.** No aliases for old commands, flags, JSON keys, routes or config keys. Old spellings fail with the ordinary unknown-command or unknown-flag error.
 - **Behaviour does not change.** Bugs listed in spec §10 stay out of this work.
 - **Files are the source of truth.** Every file write goes through the atomic writer; anything derived must be rebuildable from the files.
-- **CI runs Linux, macOS and Windows.** Before every commit: `go build ./... && go vet ./... && gofmt -l . && GOOS=windows go build ./...`. `gofmt -l .` must print nothing. Before Task 15 is done, `staticcheck ./...` must be clean too.
+- **CI runs Linux, macOS and Windows.** Before every commit: `go build ./... && go vet ./... && gofmt -l . && GOOS=windows go build ./...`. `gofmt -l .` must print nothing. Before Task 14 is done, `staticcheck ./...` must be clean too.
 - **Modern Go.** Use the `modern-go-guidelines:use-modern-go` skill before writing Go. The toolchain is go1.27.
 - **Commit messages** end with `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`.
 - Read-oriented shell commands use absolute paths; `cd` is only for `go`, `git` and `pnpm`.
@@ -42,8 +44,6 @@
 | `internal/core/duplicates.go` | Was `dupes.go` |
 | `internal/core/template_resolve.go` | Was `template_verify.go` |
 | `internal/cli/vault.go`, `vault_template.go` | Were `knowledge.go`, `knowledge_template.go` |
-| `internal/core/templates/glossary.md` | New shipped template |
-| `plugin/skills/managing-glossary/SKILL.md` | New skill |
 
 ---
 
@@ -57,7 +57,7 @@
 
 - [ ] **Step 1: Confirm the preconditions**
 
-Ask the integrating session (trellis-2f) to confirm that every other branch has merged. Ask the author to confirm the five decisions marked "assumed — confirm" in the spec's Decisions table. If one changes, edit spec §2 and §5 before going further.
+Ask the integrating session (trellis-2f) to confirm that every other branch has merged. Ask the author to confirm every decision still marked "assumed — confirm" in the spec's Decisions table. If one changes, edit spec §2 and §5 before going further.
 
 - [ ] **Step 2: Create the worktree**
 
@@ -87,7 +87,7 @@ Read `/tmp/vocab-cli-now.txt`. For every command or flag string that is not in s
 ls /home/mtchen/Personal/trellis-worktrees/vocabulary/internal/store/migrations /home/mtchen/Personal/trellis-worktrees/vocabulary/internal/store/
 ```
 
-`vocabularyVersion` in Task 5 is the next number after the highest migration listed. It was 17 when this plan was written (`0016_event_project_id.sql` exists). Nothing else carries the number: the files are named `migrate_vocabulary*.go`, and the test starts at `vocabularyVersion-1`.
+`vocabularyVersion` in Task 5 is the next number after the highest migration listed. It is at least 22: `wip/template` adds 0020 and `wip/comments` adds 0021. Nothing else carries the number: the files are named `migrate_vocabulary*.go`, and the test starts at `vocabularyVersion-1`.
 
 - [ ] **Step 5: Commit any spec change**
 
@@ -105,7 +105,7 @@ git commit -m "docs: bring the vocabulary audit up to the merged tree"
 - Modify: `CLAUDE.md`
 
 **Interfaces:**
-- Produces: `docs/glossary.md`, which Task 3 excludes from the scan and Task 14's skill points at.
+- Produces: `docs/glossary.md`, which Task 3 excludes from the scan and Task 14's pinned entry points at.
 
 - [ ] **Step 1: Write `docs/glossary.md`**
 
@@ -207,6 +207,7 @@ func TestRules(t *testing.T) {
 		{"attach", []string{"attach", "Attachments", "attached", "Detach"}, []string{"artifact"}},
 		{"new-card-id", []string{"NewCardID()"}, []string{"NewID()"}},
 		{"corpus", []string{"the corpus"}, nil},
+		{"card-note", []string{"card note X-1", "CreateNote", `"note"`, "'note'"}, []string{"a note on style", "notes/", "Note:"}},
 		{"verify-rule", []string{"verify: [sources]", `yaml:"verify`}, []string{"vault verify"}},
 		{"old-address", []string{"/KEY/knowledge/slug", "/GLOBAL/knowledge/x"}, []string{"/KEY/vault/slug"}},
 	}
@@ -280,6 +281,7 @@ var Retired = []Rule{
 	{"attach", regexp.MustCompile(`(?i)\battach(ment|ments|ed|es|ing)?\b|\bdetach`), "link, artifact"},
 	{"new-card-id", regexp.MustCompile(`\bNewCardID\b`), "NewID"},
 	{"corpus", regexp.MustCompile(`(?i)\bcorpus\b`), "vector index"},
+	{"card-note", regexp.MustCompile(`card note\b|\b(Create|List|Delete)Notes?\b|"note"|'note'`), "comment"},
 	{"verify-rule", regexp.MustCompile(`(?m)^verify:|yaml:"verify`), "resolve"},
 	{"old-address", regexp.MustCompile(`/[A-Z][A-Z0-9]*/knowledge/`), "/KEY/vault/"},
 }
@@ -677,7 +679,7 @@ git commit -m "refactor: one atomic writer, shared by core and store"
 
 ### Task 5: The migration, and the data contract
 
-Everything the migration rewrites and everything code writes into those same places change in this one commit, or the tree is red in between: table and column names in SQL strings, `db:` tags, the vault directory name, the address collection, the frontmatter key, the template rule key, and the stored words (event actions, entity names, link types and relations, the config key). **Go identifiers, command names, flags and JSON keys do not change here.**
+Everything the migration rewrites and everything code writes into those same places change in this one commit, or the tree is red in between: table and column names in SQL strings, `db:` tags, the vault directory name, the address collection, the template rule key, and the stored words (event actions, entity names, link types and relations, the config key). **Go identifiers, command names, flags and JSON keys do not change here.**
 
 **Files:**
 - Create: `internal/store/migrate_vocabulary.go`
@@ -685,7 +687,6 @@ Everything the migration rewrites and everything code writes into those same pla
 - Modify: SQL strings and `db:` tags across `internal/core`, `internal/ui`, `internal/retrieval`, `internal/cli`
 - Modify: `internal/core/knowledge.go` (the vault directory name)
 - Modify: `internal/vpath/vpath.go` (the `CollectionKnowledge` value)
-- Modify: `internal/core/markdown.go` (`yaml:"type"` → `yaml:"template"`)
 - Modify: `internal/core/template.go` (`yaml:"verify"` → `yaml:"resolve"`)
 - Modify: `internal/core/templates/*.md` (any `verify:` rule)
 - Modify: `internal/config/*.go` (`lease.ttl` → `claim.ttl`)
@@ -693,7 +694,7 @@ Everything the migration rewrites and everything code writes into those same pla
 
 **Interfaces:**
 - Consumes: `atomicfile.Write`, `atomicfile.SyncDir` (Task 4).
-- Produces: schema `entry(template, verify_by, verified_at, …)`, `entry_label(entry_id)`, `entry_tag(entry_id)`, `entry_fts`, `entry_search_state`, `pin(entry_id)`, `nomination(entry_id)`, `card(claimed_by, claim_until)`; link types `'entry'`; relation `'cites'`; event entity `'entry'`; event actions `promoted`, `restored`, `privatized`, `set_default`; directories `projects/<KEY>/vault`, `global/vault`; addresses `/KEY/vault/<slug>`; frontmatter `template:`; template rule `resolve:`; config key `claim.ttl`.
+- Produces: schema `entry(verify_by, verified_at, …)` (its `template` column is unchanged), `entry_label(entry_id)`, `entry_tag(entry_id)`, `entry_fts`, `entry_search_state`, `pin(entry_id)`, `nomination(entry_id)`, `card(claimed_by, claim_until)`; link types `'entry'`; relation `'cites'`; event entity `'entry'`; event actions `promoted`, `restored`, `privatized`, `set_default`; directories `projects/<KEY>/vault`, `global/vault`; addresses `/KEY/vault/<slug>`; template rule `resolve:`; config key `claim.ttl`.
 
 - [ ] **Step 1: Write the migration test**
 
@@ -715,7 +716,7 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-const entryV15 = "---\ntitle: A\ntype: runbook\nsources:\n  - /TR/knowledge/b\n---\nSee [[/TR/knowledge/b]] and /home/me/knowledge/notes.\n"
+const entryBefore = "---\ntitle: A\ntemplate: runbook\nsources:\n  - /TR/knowledge/b\n---\nSee [[/TR/knowledge/b]] and /home/me/knowledge/notes.\n"
 
 func sha(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
 
@@ -738,9 +739,11 @@ func readFile(t *testing.T, path string) string {
 	return string(raw)
 }
 
-// rootAtV15 is a storage root holding trellis.db just before this migration, one project TR
-// with one entry, one card, one global entry, one template and one revision.
-func rootAtV15(t *testing.T) (string, *sqlx.DB) {
+// rootBefore is a storage root holding trellis.db just before this migration:
+// one project TR with one entry, one card and comment, one global entry, one
+// template and one revision. The template and comment tables are as
+// wip/template (0020) and wip/comments (0021) left them.
+func rootBefore(t *testing.T) (string, *sqlx.DB) {
 	t.Helper()
 	root := t.TempDir()
 	db, err := connect(filepath.Join(root, "trellis.db"))
@@ -752,9 +755,9 @@ func rootAtV15(t *testing.T) (string, *sqlx.DB) {
 		t.Fatal(err)
 	}
 	entry := filepath.Join(root, "projects", "TR", "knowledge", "a.md")
-	writeFile(t, entry, entryV15)
-	writeFile(t, filepath.Join(root, "projects", "TR", "knowledge", ".a.md", "1.md"), "---\ntitle: A\ntype: note\n---\nold\n")
-	writeFile(t, filepath.Join(root, "global", "knowledge", "g.md"), "---\ntitle: G\ntype: decision\n---\nG\n")
+	writeFile(t, entry, entryBefore)
+	writeFile(t, filepath.Join(root, "projects", "TR", "knowledge", ".a.md", "1.md"), "---\ntitle: A\ntemplate: runbook\n---\nsee /TR/knowledge/b\n")
+	writeFile(t, filepath.Join(root, "global", "knowledge", "g.md"), "---\ntitle: G\ntemplate: decision\n---\nSee /TR/knowledge/a\n")
 	writeFile(t, filepath.Join(root, "templates", "cited.md"), "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
 	writeFile(t, filepath.Join(root, "config.yaml"), "lease:\n  ttl: 30m\n")
 	global := filepath.Join(root, "global", "knowledge", "g.md")
@@ -767,10 +770,10 @@ func rootAtV15(t *testing.T) (string, *sqlx.DB) {
 		{`INSERT INTO column_ (id, board_id, name, position) VALUES ('c1', 'b1', 'backlog', 0)`, nil},
 		{`INSERT INTO card (id, project_id, board_id, seq, column_id, rank, title, body_md, owner, lease_until, created_at, updated_at)
 		  VALUES ('k1', 'p1', 'b1', 1, 'c1', 'a', 'First', 'see /TR/knowledge/a', 'agent:x', 99, 1, 1)`, nil},
-		{`INSERT INTO note (id, card_id, actor, body_md, created_at) VALUES ('n1', 'k1', 'agent:x', 'read /TR/knowledge/a', 1)`, nil},
-		{`INSERT INTO knowledge (id, project_id, slug, title, path, doc_type, recap, recap_hash, content_hash, mtime, size, created_at, updated_at)
-		  VALUES ('e1', 'p1', 'a', 'A', ?, 'runbook', 'do A', ?, ?, 1, 1, 1, 1)`, []any{entry, sha(entryV15), sha(entryV15)}},
-		{`INSERT INTO knowledge (id, project_id, slug, title, path, doc_type, content_hash, mtime, size, global, review_by, reviewed_at, created_at, updated_at)
+		{`INSERT INTO comment (id, card_id, actor, body_md, created_at) VALUES ('m1', 'k1', 'agent:x', 'read /TR/knowledge/a', 1)`, nil},
+		{`INSERT INTO knowledge (id, project_id, slug, title, path, template, recap, recap_hash, content_hash, mtime, size, created_at, updated_at)
+		  VALUES ('e1', 'p1', 'a', 'A', ?, 'runbook', 'do A', ?, ?, 1, 1, 1, 1)`, []any{entry, sha(entryBefore), sha(entryBefore)}},
+		{`INSERT INTO knowledge (id, project_id, slug, title, path, template, content_hash, mtime, size, global, review_by, reviewed_at, created_at, updated_at)
 		  VALUES ('e2', 'p1', 'g', 'G', ?, 'decision', 'x', 1, 1, 1, 5, 4, 1, 1)`, []any{global}},
 		{`INSERT INTO pin (id, knowledge_id, created_at) VALUES ('pn1', 'e1', 1)`, nil},
 		{`INSERT INTO nomination (id, knowledge_id, actor, reason, created_at) VALUES ('nm1', 'e1', 'agent:x', 'r', 1)`, nil},
@@ -791,28 +794,27 @@ func rootAtV15(t *testing.T) (string, *sqlx.DB) {
 var retiredSchema = regexp.MustCompile(`(?i)knowledge|\bdoc_(type|id)\b|\bowner\b|lease_until|review_by|reviewed_at`)
 
 func TestVocabularyMigration(t *testing.T) {
-	root, db := rootAtV15(t)
+	root, db := rootBefore(t)
 	if err := goose.Up(db.DB, "migrations"); err != nil {
 		t.Fatal(err)
 	}
 
 	moved := filepath.Join(root, "projects", "TR", "vault", "a.md")
 	got := readFile(t, moved)
-	want := strings.NewReplacer("type: runbook", "template: runbook",
-		"/TR/knowledge/b", "/TR/vault/b").Replace(entryV15)
+	want := strings.ReplaceAll(entryBefore, "/TR/knowledge/b", "/TR/vault/b")
 	if got != want {
 		t.Errorf("entry file:\n%s\nwant:\n%s", got, want)
 	}
 	if !strings.Contains(got, "/home/me/knowledge/notes") {
 		t.Error("a filesystem path inside a body was rewritten")
 	}
-	if r := readFile(t, filepath.Join(root, "projects", "TR", "vault", ".a.md", "1.md")); !strings.Contains(r, "type: note") {
+	if r := readFile(t, filepath.Join(root, "projects", "TR", "vault", ".a.md", "1.md")); !strings.Contains(r, "/TR/knowledge/b") {
 		t.Errorf("a revision was rewritten: %q", r)
 	}
 	if _, err := os.Stat(filepath.Join(root, "projects", "TR", "knowledge")); !os.IsNotExist(err) {
 		t.Errorf("old project vault still there: %v", err)
 	}
-	if g := readFile(t, filepath.Join(root, "global", "vault", "g.md")); !strings.Contains(g, "template: decision") {
+	if g := readFile(t, filepath.Join(root, "global", "vault", "g.md")); !strings.Contains(g, "See /TR/vault/a") {
 		t.Errorf("global entry: %q", g)
 	}
 	if tpl := readFile(t, filepath.Join(root, "templates", "cited.md")); !strings.Contains(tpl, "\nresolve: [sources]\n") {
@@ -855,7 +857,7 @@ func TestVocabularyMigration(t *testing.T) {
 	checks := []struct{ q, want string }{
 		{`SELECT claimed_by || '/' || claim_until FROM card WHERE id = 'k1'`, "agent:x/99"},
 		{`SELECT body_md FROM card WHERE id = 'k1'`, "see /TR/vault/a"},
-		{`SELECT body_md FROM note WHERE id = 'n1'`, "read /TR/vault/a"},
+		{`SELECT body_md FROM comment WHERE id = 'm1'`, "read /TR/vault/a"},
 		{`SELECT group_concat(x, ' ') FROM (SELECT from_type || '>' || to_type || ':' || rel || ':' || to_raw AS x
 		   FROM link ORDER BY from_type)`,
 			"card>entry:cites:/TR/vault/a entry>entry:wikilink:/TR/vault/b"},
@@ -878,25 +880,25 @@ func TestVocabularyMigration(t *testing.T) {
 }
 
 func TestVocabularyMigrationRefusesTwoVaults(t *testing.T) {
-	root, db := rootAtV15(t)
+	root, db := rootBefore(t)
 	writeFile(t, filepath.Join(root, "projects", "TR", "vault", "stray.md"), "x")
 	err := goose.Up(db.DB, "migrations")
 	if err == nil || !strings.Contains(err.Error(), "both") {
 		t.Fatalf("want a 'both … exist' error, got %v", err)
 	}
-	if !strings.Contains(readFile(t, filepath.Join(root, "projects", "TR", "knowledge", "a.md")), "type: runbook") {
+	if readFile(t, filepath.Join(root, "projects", "TR", "knowledge", "a.md")) != entryBefore {
 		t.Error("the entry changed although the migration refused")
 	}
 }
 
 func TestVocabularyMigrationPutsFilesBackWhenTheSchemaFails(t *testing.T) {
-	root, db := rootAtV15(t)
+	root, db := rootBefore(t)
 	mustExec(t, db, `CREATE TABLE entry (x INTEGER)`) // makes the table rename fail
 	if err := goose.Up(db.DB, "migrations"); err == nil {
 		t.Fatal("want the schema step to fail")
 	}
 	got := readFile(t, filepath.Join(root, "projects", "TR", "knowledge", "a.md"))
-	if got != entryV15 {
+	if got != entryBefore {
 		t.Errorf("entry not restored:\n%s", got)
 	}
 	if tpl := readFile(t, filepath.Join(root, "templates", "cited.md")); !strings.Contains(tpl, "\nverify: [sources]\n") {
@@ -915,6 +917,8 @@ go test ./internal/store -run TestVocabularyMigration
 ```
 
 Expected: FAIL. Files are still under `knowledge/`, and `no such table: entry`.
+
+If 0021 gave `comment` different columns from `(id, card_id, actor, body_md, created_at)`, change the seed's comment insert and the `rewriteColumn` call in Step 3 to match. Read them with `sqlite3`-free Go: `SELECT name FROM pragma_table_info('comment')`.
 
 - [ ] **Step 3: Write the migration**
 
@@ -942,7 +946,7 @@ import (
 
 // vocabularyVersion is this migration's goose version: the next free number
 // when the work starts (Task 1 Step 4). It is the only place the number lives.
-const vocabularyVersion = 17
+const vocabularyVersion = 22
 
 func init() {
 	goose.AddNamedMigrationNoTxContext(fmt.Sprintf("%04d_vocabulary.go", vocabularyVersion),
@@ -1072,9 +1076,7 @@ func (fw *fileWork) rewrite(root string) error {
 			if d.IsDir() || filepath.Ext(path) != ".md" {
 				return nil
 			}
-			return fw.edit(path, func(s string) string {
-				return rewriteAddresses(renameTopLevelKey(s, "type", "template", true))
-			})
+			return fw.edit(path, rewriteAddresses)
 		})
 		if err != nil {
 			return err
@@ -1209,7 +1211,6 @@ func renameSchema(ctx context.Context, db *sql.DB, rewritten []fileChange) error
 	for _, q := range []string{
 		`DROP TRIGGER knowledge_search_ad`,
 		`ALTER TABLE knowledge RENAME TO entry`,
-		`ALTER TABLE entry RENAME COLUMN doc_type TO template`,
 		`ALTER TABLE entry RENAME COLUMN review_by TO verify_by`,
 		`ALTER TABLE entry RENAME COLUMN reviewed_at TO verified_at`,
 		`ALTER TABLE knowledge_label RENAME TO entry_label`,
@@ -1246,7 +1247,6 @@ func renameSchema(ctx context.Context, db *sql.DB, rewritten []fileChange) error
 		`UPDATE event SET action = 'restored' WHERE action = 'unarchived'`,
 		`UPDATE event SET action = 'privatized' WHERE action = 'privatised'`,
 		`UPDATE event SET action = 'set_default' WHERE action = 'default'`,
-		`UPDATE event SET field = 'template' WHERE field IN ('type', 'doc_type')`,
 		`UPDATE event SET field = 'claimed_by' WHERE field = 'owner'`,
 		`UPDATE event SET field = 'claim_until' WHERE field = 'lease_until'`,
 		`UPDATE event SET field = 'verify_by' WHERE field = 'review_by'`,
@@ -1260,7 +1260,7 @@ func renameSchema(ctx context.Context, db *sql.DB, rewritten []fileChange) error
 	if err := moveEntryRows(ctx, tx, rewritten); err != nil {
 		return err
 	}
-	for _, c := range [][2]string{{"card", "body_md"}, {"note", "body_md"}, {"link", "to_raw"}} {
+	for _, c := range [][2]string{{"card", "body_md"}, {"comment", "body_md"}, {"link", "to_raw"}} {
 		if err := rewriteColumn(ctx, tx, c[0], c[1], rewriteAddresses); err != nil {
 			return err
 		}
@@ -1388,7 +1388,7 @@ Apply these substitutions to Go code outside `internal/store` and `internal/voca
 
 ```bash
 cd /home/mtchen/Personal/trellis-worktrees/vocabulary
-files=$(git grep -lE 'knowledge|doc_type|doc_id|knowledge_id|owner|lease_until|review_by|reviewed_at|escalated|unarchived|privatised|documents|lease\.ttl|CollectionKnowledge|yaml:"type|yaml:"verify' -- '*.go' ':!internal/store/**' ':!internal/vocabulary/**')
+files=$(git grep -lE 'knowledge|doc_id|knowledge_id|owner|lease_until|review_by|reviewed_at|escalated|unarchived|privatised|documents|lease\.ttl|CollectionKnowledge|yaml:"verify' -- '*.go' ':!internal/store/**' ':!internal/vocabulary/**')
 sed -i -E \
   -e 's/\bknowledge_search_state\b/entry_search_state/g' \
   -e 's/\bknowledge_fts\b/entry_fts/g' \
@@ -1396,12 +1396,10 @@ sed -i -E \
   -e 's/\bknowledge_tag\b/entry_tag/g' \
   -e 's/\bknowledge_id\b/entry_id/g' \
   -e 's/\bdoc_id\b/entry_id/g' \
-  -e 's/\bdoc_type\b/template/g' \
   -e 's/\breview_by\b/verify_by/g' \
   -e 's/\breviewed_at\b/verified_at/g' \
   -e 's/\blease_until\b/claim_until/g' \
   -e 's/"lease\.ttl"/"claim.ttl"/g' \
-  -e 's/yaml:"type,/yaml:"template,/g' \
   -e 's/yaml:"verify,/yaml:"resolve,/g' \
   $files
 ```
@@ -1417,8 +1415,8 @@ Then fix, by hand, each of the following. They are too context-dependent for `se
 - **`vpath.CollectionKnowledge`'s value:** `"knowledge"` → `"vault"`, and the error `GLOBAL holds only knowledge` → `GLOBAL holds only vault entries`.
 - **Shipped templates:** any `verify:` line in `internal/core/templates/*.md` → `resolve:`.
 - **The config key:** its YAML struct tag and default table in `internal/config`, `lease:` → `claim:`.
-- **Test fixtures:** tests that write `type:` frontmatter or old addresses (`/KEY/knowledge/`), or assert any of the above, change to the new words.
-- **Earlier migrations' tests:** tests for earlier migrations must stop at their own version, because after this migration the names they query no longer exist. In `internal/store/migrate_0013_test.go`, replace every `goose.Up(db.DB, "migrations")` with `goose.UpTo(db.DB, "migrations", 13)`; in `internal/store/migrate_event_project_test.go`, with `goose.UpTo(db.DB, "migrations", 16)`. Do the same for any other migration test that reads a renamed name. Verified: with these two changes, `go test ./internal/store` passes.
+- **Test fixtures:** tests that write old addresses (`/KEY/knowledge/`), or assert any of the above, change to the new words.
+- **Earlier migrations' tests:** tests for earlier migrations must stop at their own version, because after this migration the names they query no longer exist. In `internal/store/migrate_0013_test.go`, replace every `goose.Up(db.DB, "migrations")` with `goose.UpTo(db.DB, "migrations", 13)`; in `internal/store/migrate_event_project_test.go`, with `goose.UpTo(db.DB, "migrations", 16)`. Do the same for any other migration test that reads a renamed name, such as the tests for 0020 and 0021 (`UpTo` 20 and 21). Verified: with these two changes, `go test ./internal/store` passes.
 
 A `json:` tag spelled like a renamed column (for example `json:"review_by"`) is changed by the `sed` above along with its `db:` tag. That is the one place JSON moves early; Task 11 handles every other key.
 
@@ -1481,7 +1479,7 @@ git commit -m "feat(store): move vaults, files and schema onto the glossary's wo
 - Modify: every Go file that uses the renamed identifiers
 
 **Interfaces:**
-- Produces: `core.Entry` (was `Knowledge`), `core.EntryFilter`, `core.NewEntry`, `(*Core).CreateEntry`, `ReadEntry`, `EditEntry`, `DeleteEntry`, `ListEntries`, `ColdEntries`, `MoveEntry`, `PinEntry`, `UnpinEntry`, `NominateEntry`, `DemoteEntry`, `VerifyEntry`, `LinkCardToEntry`, `EntryAddress`; `Entry.Template` (was `DocType`); `EntryFilter.Templates` (was `DocTypes`); `(*Core).WithVaultRoot`; package `address` with `Address`, `Parse`, `CollectionVault`, `Entry`, `GlobalEntry`, `Card`, `Artifact`, `Project`, `ValidKey`, `GlobalKey`.
+- Produces: `core.Entry` (was `Knowledge`), `core.EntryFilter`, `core.NewEntry`, `(*Core).CreateEntry`, `ReadEntry`, `EditEntry`, `DeleteEntry`, `ListEntries`, `ColdEntries`, `MoveEntry`, `PinEntry`, `UnpinEntry`, `NominateEntry`, `DemoteEntry`, `VerifyEntry`, `LinkCardToEntry`, `EntryAddress`; `(*Core).WithVaultRoot`; package `address` with `Address`, `Parse`, `CollectionVault`, `Entry`, `GlobalEntry`, `Card`, `Artifact`, `Project`, `ValidKey`, `GlobalKey`.
 
 - [ ] **Step 1: Save the rename helper**
 
@@ -1558,8 +1556,7 @@ Rename each with `/tmp/gorename.sh <declaring file> <Old> <New>`, using these ru
 | `KnowledgeFilter`, `NewKnowledge`, `KnowledgeHit` | `EntryFilter`, `NewEntry`, `EntryHit` |
 | `matchKnowledge` | `matchEntries` |
 | `EscalateKnowledge` | leave for Task 8 |
-| `DocType` (on the entry), `DocTypes` (on `KnowledgeFilter` **and** on `EventQuery` in `event_feed.go`) | `Template`, `Templates` |
-| `feedRow`'s `KBKey`, `KBSlug`, `KBTitle`, `KBDocType`, and the SQL aliases `kb_key`, `kb_slug`, `kb_title`, `kb_doctype` | `EntryKey`, `EntrySlug`, `EntryTitle`, `EntryTemplate`; `entry_key`, `entry_slug`, `entry_title`, `entry_template` |
+| `feedRow`'s `KB*` fields and its `kb_*` SQL aliases (`KBKey`, `KBSlug`, `KBTitle`, and the template one if `wip/template` kept the prefix) | `Entry*` and `entry_*` (`EntryKey`, `EntrySlug`, `EntryTitle`, …) |
 | `loadDoc`, `docView`, `resolveDocRef`, `resolveDocStubs`, `RenderDoc`, `LinkCardToDoc`, `DocAddress` | `loadEntry`, `entryView`, `resolveEntryRef`, `resolveEntryStubs`, `RenderEntry`, `LinkCardToEntry`, `EntryAddress` |
 | any other `…Doc…` | `…Entry…` |
 | `kbDir`, `kbRoot`, `kbCore`, `WithKBRoot` | `vaultDir`, `vaultRoot`, `vaultCore`, `WithVaultRoot` |
@@ -1567,7 +1564,6 @@ Rename each with `/tmp/gorename.sh <declaring file> <Old> <New>`, using these ru
 
 A name that clashes after renaming — for example a method `Entry` on a type that already has an `Entry` field — gets the plural or a verb; the build says where.
 
-`core.Templates()` already exists (it lists template names). If renaming `DocTypes` to `Templates` collides with it, rename the filter field to `Templates` and the function to `TemplateNames`.
 
 - [ ] **Step 4: Rename the files**
 
@@ -1757,7 +1753,7 @@ git mv internal/core/event_feed.go internal/core/event_log.go
 git grep -nE '\bVerify\b|\bverify\w*\(' -- internal/core/template*.go
 ```
 
-`template.go` declares `Verify` in two structs (lines near 36 and 47 today). Rename the second with `gopls rename -w internal/core/template.go:<line>:<col> Resolve`. The functions the rule calls follow, for example `verifySources` → `resolveSources`. `logRow.Kind` (SQL alias `kind`) and `LogEvent.Kind` become `Entity` (alias `entity`), and `LogEvent.Type` becomes `Template`. Their JSON tags wait for Task 11.
+`template.go` declares `Verify` in two structs (lines near 36 and 47 today). Rename the second with `gopls rename -w internal/core/template.go:<line>:<col> Resolve`. The functions the rule calls follow, for example `verifySources` → `resolveSources`. `logRow.Kind` (SQL alias `kind`) and `LogEvent.Kind` become `Entity` (alias `entity`). The JSON tag waits for Task 11.
 
 - [ ] **Step 4: Ids, restore, liveness**
 
@@ -1791,7 +1787,7 @@ git commit -m "refactor: marker, diagnostic, duplicate, event log, and the small
 
 **Interfaces:**
 - Consumes: `vocabulary.Find` (Task 3).
-- Produces: `trellis vault {new,show,ls,edit,rm,mv,history,diff,pin,pins,lint,health,nominate,nominations,promote,demote,verify,uptake,template}`; flags `--template` (on `vault ls`, `recall`, `events`), `--entity` (on `events`), `--entry` (on `artifact link/unlink`), `--duplicates` (on `vault health`), `--leftover-revisions` (on `maintenance prune`).
+- Produces: `trellis vault {new,show,ls,edit,rm,mv,history,diff,pin,pins,lint,health,nominate,nominations,promote,demote,verify,uptake,template}`; flags `--entity` (on `events`), `--entry` (on `artifact link/unlink`), `--duplicates` (on `vault health`), `--leftover-revisions` (on `maintenance prune`).
 
 - [ ] **Step 1: Extend the help test first**
 
@@ -1852,7 +1848,7 @@ Long: "An <entry> argument is a slug in this project's vault, or an address:\n" 
 
 - [ ] **Step 4: Apply spec §6**
 
-Change every string in spec §6's "Now" column to its "Becomes" value, verbatim. For the flag renames, change the flag name and its variable together; for example, `docTypes` bound to `"type"` becomes `templates` bound to `"template"`. `vault lint`'s Short lists every diagnostic kind the code emits:
+Change every string in spec §6's "Now" column to its "Becomes" value, verbatim. For the flag renames, change the flag name and its variable together; for example, `doc` bound to `"doc"` becomes `entry` bound to `"entry"`. `vault lint`'s Short lists every diagnostic kind the code emits:
 
 ```bash
 git grep -hoE 'Kind: *"[a-z_]+"' -- internal/core | sort -u
@@ -1862,7 +1858,7 @@ git grep -hoE 'Kind: *"[a-z_]+"' -- internal/core | sort -u
 
 ```bash
 git grep -lE 'trellis knowledge\b' -- 'internal/**/*.go' | xargs sed -i -E 's/trellis knowledge escalate\b/trellis vault promote/g; s/trellis knowledge\b/trellis vault/g'
-git grep -nE 'escalate|--doc\b|--dupes|--orphan-history|--type\b|--kind\b' -- 'internal/**/*.go'
+git grep -nE 'escalate|--doc\b|--dupes|--orphan-history|--kind\b' -- 'internal/**/*.go'
 ```
 
 Fix what the grep prints by hand. For example, `requireHuman`'s texts become `agents nominate; humans promote`. The `no_tty` hint currently reads `trellis ui   # then escalate from the browser`. It becomes `trellis ui` with the comment removed; the UI has no promote action, per spec §10.
@@ -1896,10 +1892,10 @@ Expected from the smoke run: `vault --help` lists every subcommand; `trellis kno
 - [ ] **Step 1: Change the expected values in the tests first**
 
 ```bash
-git grep -nE '"(knowledge|owner|lease_until|holder|findings|unreviewed|pin_path|pin_written|stale_leases|stale_documents|clusters|noms|type|activity)"|not_owned|project_leased|project_has_vault_entries|unknown_board|unknown_column|bad_pin|knowledge_not_found' -- 'internal/**/*_test.go' 'scripts/tests/*.py'
+git grep -nE '"(knowledge|owner|lease_until|holder|findings|unreviewed|pin_path|pin_written|stale_leases|stale_documents|clusters|noms|kind)"|not_owned|project_leased|project_has_vault_entries|unknown_board|unknown_column|bad_pin|knowledge_not_found' -- 'internal/**/*_test.go' 'scripts/tests/*.py'
 ```
 
-Change each expected key and code to spec §5's value. The `"type"` hits must be checked one by one: only an entry's `type` becomes `template`; a graph node's `type` stays, with value `entry`. Then run the suite to see it fail:
+Change each expected key and code to spec §5's value. Check the `"kind"` hits one by one: only the event log's `kind` becomes `entity`; a search hit's and a diagnostic's `kind` stay. Then run the suite to see it fail:
 
 ```bash
 go test ./internal/... 2>&1 | grep -E '^(---|FAIL)' | head
@@ -1909,7 +1905,6 @@ go test ./internal/... 2>&1 | grep -E '^(---|FAIL)' | head
 
 Change the `json:` tags and the literal keys:
 
-- `json:"type"` on `Entry.Template` → `json:"template"`
 - `json:"owner"` → `json:"claimed_by"`
 - `json:"lease_until"` → `json:"claim_until"`
 - the contention payload's `holder` → `claimed_by`
@@ -1922,8 +1917,9 @@ Change the `json:` tags and the literal keys:
 - `noms` → `nominations`
 - `{"knowledge": …}` → `{"entries": …}`
 - search and recall `kind` `"knowledge"` → `"entry"`
-- card detail `activity` → `events`
-- `trellis events` lines: `kind` → `entity`, and the entry's `type` → `template`
+- `trellis events` lines: `kind` → `entity`
+
+The card detail's comment and history JSON belongs to `wip/comments`; leave it.
 
 Then change the error codes:
 
@@ -1994,12 +1990,12 @@ Run `go test ./internal/cli/...`.
 
 Send the integrator this checklist for trellis-8d:
 
-- Types follow Task 11's JSON: `KnowledgeEntry` → `Entry`, `type` → `template`, `owner` → `claimed_by`, `lease_until` → `claim_until`, `stale_leases` → `expired_claims`, `unreviewed` → `unverified`.
+- Types follow Task 11's JSON: `KnowledgeEntry` → `Entry`, `owner` → `claimed_by`, `lease_until` → `claim_until`, `stale_leases` → `expired_claims`, `unreviewed` → `unverified`.
 - Routes: `/p/:key/knowledge` → `/p/:key/vault`, and the API routes from Step 1.
 - Labels, from spec §5 "Web and TUI":
   - "Status" → "Column", "Kind" → "Template", "Visibility" → "Private"
   - "Attachments" → "Artifacts", "Take the lease"/"Take it" → "Steal the claim"/"Steal it", "Held by" → "Claimed by"
-  - "Stale leases" → "Expired claims", "Unlinked" → "Orphans", "Activity" → "Events", and the card's "History" event list → "Events"
+  - "Stale leases" → "Expired claims", "Unlinked" → "Orphans", "Activity" → "Events" (the card timeline belongs to `wip/comments`)
   - "Could not take the lease" → "Could not steal the claim"
 - Every raw `event.action` goes through a label map instead of `sentence(event.action)`: created, edited, moved, deleted, claimed, stolen, released, renewed, archived, restored, blocked, unblocked, linked, labeled, unlabeled, tagged, untagged, pinned, unpinned, nominated, promoted, demoted, verified, privatized, injected, read, reloaded, renamed, set_default, merged, rebound.
 - Components and files named `Knowledge*`, `Vault*` for one vault only, or `*Doc*` follow the glossary.
@@ -2024,7 +2020,6 @@ git commit -m "feat(ui,tui)!: vault routes and terminal labels in the glossary's
 - Modify: `plugin/skills/trellis/SKILL.md` and `plugin/skills/trellis/references/*`, `plugin/skills/writing-knowledge/SKILL.md`, `plugin/skills/when-to-use-trellis/SKILL.md`, `plugin/skills/coordinating/SKILL.md`
 - Modify: `plugin/**/plugin.json`, marketplace and build manifests
 - Modify: `README.md`, `PRODUCT.md`, `CLAUDE.md`, `docs/ui-operation-parity.md`, `scripts/*`
-- Modify: `docs/superpowers/specs/2026-09-16-knowledge-templates-design.md` (a note at the top)
 - Modify: any spec or plan under `docs/superpowers/` that has not been executed (ask the integrator which)
 
 - [ ] **Step 1: The hook first**
@@ -2050,8 +2045,9 @@ Rewrite the four skills in the glossary's words.
 - **Who may nominate:**
   - `plugin/skills/trellis/SKILL.md` stops calling `nominate` a human gate: agents nominate; humans promote, demote and verify.
   - `when-to-use-trellis` says the same.
+- **Glossary skills:** if `using-glossary` and `keeping-glossary` landed before this plan, their `trellis knowledge` commands become `trellis vault`.
 - **Lint:** `plugin/skills/trellis/SKILL.md` describes lint as reporting diagnostics (stubs, broken anchors, orphans, missing artifacts), not only unresolved wikilinks.
-- **Templates:** `writing-knowledge` lists the shipped templates (decision, finding, note, reference, research, runbook, glossary) instead of Failed approach, Measurement, Trap and Convention. The skill's directory name, `writing-knowledge`, uses "knowledge" as a mass noun and stays.
+- **Templates:** `writing-knowledge` lists the shipped templates — the names `trellis vault template ls` prints — instead of Failed approach, Measurement, Trap and Convention. The skill's directory name, `writing-knowledge`, uses "knowledge" as a mass noun and stays.
 
 - [ ] **Step 3: Top-level docs and manifests**
 
@@ -2061,15 +2057,7 @@ Rewrite the four skills in the glossary's words.
   - The invariants: "The pin walk" → "The marker walk"; `knowledge lint` → `vault lint`; `resolveDocStubs` → `resolveEntryStubs`; `matchKnowledge` → `matchEntries`.
 - **scripts:** `scripts/*` follow the new commands.
 
-- [ ] **Step 4: Superseded and unexecuted specs**
-
-At the top of `docs/superpowers/specs/2026-09-16-knowledge-templates-design.md`, under the title:
-
-```markdown
-> Superseded in part by `2026-09-16-vocabulary-design.md`: an entry records the
-> name of its template in `template:`, the `type` field is gone, and the
-> `verify:` rule is `resolve:`.
-```
+- [ ] **Step 4: Unexecuted specs and plans**
 
 For each spec or plan the integrator names as not yet executed, reword it into the glossary's words.
 
@@ -2087,164 +2075,7 @@ Every line left in `allowlist.txt` must now be a genuine second meaning, such as
 
 ---
 
-### Task 14: Glossaries as a kind of entry
-
-**Files:**
-- Create: `internal/core/templates/glossary.md`
-- Modify: `internal/core/template_test.go` (the shipped enforce levels), `internal/cli/vault_template_test.go` (the shipped names)
-- Create: `internal/core/template_glossary_test.go`
-- Create: `plugin/skills/managing-glossary/SKILL.md`
-- Modify: `plugin/skills/trellis/SKILL.md`, if it lists the sibling skills
-
-**Interfaces:**
-- Produces: `trellis vault new --template glossary`; the `managing-glossary` skill.
-
-**REQUIRED SUB-SKILL:** Use superpowers:writing-skills for Step 3. Test the skill with a pressure scenario before calling it done.
-
-- [ ] **Step 1: Test the new template first**
-
-In `internal/cli/vault_template_test.go`, add `"glossary"` to the list of shipped names:
-
-```go
-for _, name := range []string{"decision", "finding", "glossary", "note", "reference", "research", "runbook"} {
-```
-
-In `internal/core/template_test.go`, add `"glossary": "reject",` to the map of shipped enforce levels.
-
-Create `internal/core/template_glossary_test.go`. `vaultCore`, `CreateEntry` and `NewEntry` are the Task 6 names:
-
-```go
-package core
-
-import (
-	"errors"
-	"strings"
-	"testing"
-)
-
-func TestGlossaryTemplateRequiresASummary(t *testing.T) {
-	c, p, _ := vaultCore(t)
-	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Glossary", Template: "glossary"})
-	e, ok := errors.AsType[*Error](err)
-	if !ok || e.Code != "template_violation" || !strings.Contains(e.Msg, "summary") {
-		t.Fatalf("err = %v, want template_violation naming summary", err)
-	}
-}
-
-func TestGlossaryTemplateRendersItsTable(t *testing.T) {
-	c, p, _ := vaultCore(t)
-	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Glossary", Template: "glossary", Summary: "One word per concept",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if entry.Template != "glossary" || !strings.Contains(entry.BodyMD, "| Term | Means | Not |") {
-		t.Fatalf("template %q, body:\n%s", entry.Template, entry.BodyMD)
-	}
-}
-```
-
-Run it to see it fail:
-
-```bash
-go test ./internal/core ./internal/cli -run 'Template|Glossary'
-```
-
-Expected: FAIL, `template "glossary" not found`, or the shipped-list assertions.
-
-- [ ] **Step 2: Write the template**
-
-`internal/core/templates/glossary.md`:
-
-```markdown
----
-enforce: reject
-required: [summary]
----
-# {{title}}
-
-<!-- One concept, one word. Look a word up here before naming anything; add a
-row in the same change that introduces a new concept; when a word is retired,
-move it to "Not". The summary is what the brief injects when this is pinned. -->
-
-| Term | Means | Not |
-|---|---|---|
-```
-
-Run `go test ./internal/core ./internal/cli -run 'Template|Glossary'`. Expected: PASS. If `summary` is not a field the `required` rule can name, the first test says so. In that case, check `template.go`'s list of built-in fields and use the name it accepts for the frontmatter summary.
-
-- [ ] **Step 3: Write the skill**
-
-`plugin/skills/managing-glossary/SKILL.md`:
-
-```markdown
----
-name: managing-glossary
-description: Use before naming anything in a project that keeps a glossary in Trellis — a command, flag, field, table, UI label or help string — and when a user says a word means something, coins a term, or asks to rename one. Keeps one word per concept by looking the word up, recording new terms, and retiring old ones.
----
-
-# Managing a glossary
-
-A project's glossary is a Trellis vault entry built from the `glossary`
-template and kept pinned. This skill carries no terms; the entry does.
-
-## Find the glossary
-
-1. The session brief: a pinned entry whose template is `glossary`.
-2. `trellis vault ls --template glossary`, then `trellis vault show <entry>`.
-3. If the entry points at a committed file (for example `docs/glossary.md`),
-   that file is canonical; read it.
-4. None of these: ask the user whether to start one.
-
-## Before naming anything
-
-Look the concept up. If a row exists, use its **Term** and never a word from
-its **Not** column. If the word you meant is in some row's **Not** column,
-you have found an existing concept under another name.
-
-## When a concept is new
-
-Add a row — Term, Means, Not — in the same change that introduces the word.
-**Not** lists the synonyms someone would reach for, so the next agent
-recognises them.
-
-## When a word is renamed
-
-Change the Term, and move the old word into **Not**. If the project has a
-vocabulary test (Trellis has `internal/vocabulary`), add the old word to it.
-
-## Pruning
-
-A row whose concept left the product is deleted. A glossary that lists dead
-words teaches them.
-
-## Keeping it injected
-
-The entry stays pinned: `trellis vault pin <entry> --recap "..."`. The recap
-states the rule and where the table lives, in one line; it is not the table.
-
-## Starting one
-
-    trellis vault new --template glossary --title "Glossary" \
-      --summary "One word per concept; look terms up here before naming anything"
-    trellis vault pin <entry>
-```
-
-Skills are found by directory: no manifest lists `coordinating` or `writing-knowledge`, so none lists this one. Confirm with `git grep -n coordinating -- plugin '*.json'`. If `plugin/skills/trellis/SKILL.md` points at its sibling skills, add `managing-glossary` beside them.
-
-- [ ] **Step 4: Run everything and commit**
-
-```bash
-go test ./... && python3 -B -m unittest discover -s scripts/tests
-go test ./internal/vocabulary
-git add -A
-git commit -m "feat: a glossary template, and a skill for keeping one"
-```
-
----
-
-### Task 15: Ship it
+### Task 14: Ship it
 
 - [ ] **Step 1: Full verification**
 
@@ -2268,14 +2099,14 @@ Upgrade notes:
 
 - [ ] **Step 3: After the merge, pin Trellis's own glossary**
 
-After the integrator has merged and the new binary is installed:
+After the integrator has merged and the new binary is installed. This needs the `glossary` template from `2026-09-16-glossary-skills.md`; if that plan has not landed, wait for it. Its `required: [summary]` rule is met by `--summary`, and the body keeps the template's `## Terms` heading:
 
 ```bash
 cd /home/mtchen/Personal/trellis
 TRELLIS_AGENT=agent:77eed64102eb1d7cf4d6599af43ae27e trellis vault new --template glossary \
   --title "Glossary" \
   --summary "One word per concept; docs/glossary.md is canonical; go test ./internal/vocabulary enforces it" \
-  --body "The table lives in docs/glossary.md in the repository and is reviewed with the code that uses it. Read it before naming anything."
+  --body $'## Terms\n\nThe table lives in docs/glossary.md in the repository and is reviewed with the code that uses it. Read it before naming anything.\n'
 TRELLIS_AGENT=agent:77eed64102eb1d7cf4d6599af43ae27e trellis vault pin glossary \
   --recap "One word per concept: check docs/glossary.md before naming anything; the vocabulary test fails on retired words"
 ```
