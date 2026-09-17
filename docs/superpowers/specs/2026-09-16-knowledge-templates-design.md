@@ -21,15 +21,22 @@ missing.
    keys it does not know. A template that asks for `owner:` would see that key
    erased the first time Trellis rewrote the file.
 
-## The model: render once
+## The model: template membership
 
-A template is a scaffold used at the moment a document is created. It fills in
-the skeleton, substitutes values, and checks what it was given. After that the
-document is an ordinary document. It does not remember which template produced
-it, and later edits are never checked against one.
+A document may have a template. If it does, the document is checked against that
+template's rules on every Trellis write — creation, edit, or field update.
+The document keeps a `template:` key in its frontmatter identifying which
+template it is bound to. A document without a template has no rules.
 
-Rendering once keeps the feature small: no versioning, no link from a document
-back to its template, no enforcement on edit.
+- `enforce: reject` — a write that violates rules fails with a message listing
+  every problem. The document is not written.
+- `enforce: warn` — a write that violates rules succeeds, and the returned
+  `Knowledge.Warnings` list lists the problems. A CLI tool prints them to stderr.
+- No template → no checks, regardless of the document's content.
+
+Lint catches hand edits: it reports `template_violation` for documents whose
+content breaks their template, and `unknown_template` for documents naming a
+template that does not exist.
 
 ## A template file
 
@@ -155,21 +162,24 @@ Supplied fields are written into the new document's frontmatter.
 
 ## When a template is checked
 
-A template is checked when it is selected, and only then.
+A template is checked on every Trellis write if the document has one. A document
+without a `template:` key is never checked.
 
 | Situation | Checked |
 |---|---|
 | `new --template X`, no `--body` | Fields. Sections are present by construction, because the skeleton produced them. |
 | `new --template X --body "..."` | Fields **and** sections. The caller wrote the body, so its headings are what count. |
+| `edit --template X` | Fields (from `--set`) **and** sections (from the resulting file). Switching to a new template `X` checks against `X`. |
+| `knowledge edit` (body or fields) | Only if the document already has a `template:` key. |
 | `template check X <slug>` | Fields and sections of an existing document, against a template the caller names. |
-| `knowledge edit`, a hand edit, `lint` | Nothing. After creation the document has no template. |
+| Hand edit, `lint` | If the document names a template, `lint` reports violations; hand edits are never prevented. |
 
-Under `enforce: reject`, `new` refuses the document and writes nothing. The
-error lists every missing field, every value outside its `choices`, and every
-missing section, and its fix is `trellis knowledge template show X`.
+Under `enforce: reject`, a write that violates rules fails with a message listing
+every missing field, every value outside its `choices`, and every missing section.
+The document is not written. A fix is suggested: `trellis knowledge template show X`.
 
-Under `enforce: warn`, `new` writes the document and returns the same list as
-warnings.
+Under `enforce: warn`, a write that violates rules succeeds, and the returned
+`Knowledge.Warnings` list names the problems. A CLI tool prints them to stderr.
 
 `template check` never blocks. It reports, whatever the template's `enforce`
 setting, because the document already exists.
@@ -177,7 +187,7 @@ setting, because the document already exists.
 A section counts as present when its heading exists. An empty section is not a
 violation — a document created from a skeleton is empty by design.
 
-`new` without `--template` keeps its current behaviour of using `note`.
+`new` without `--template` writes a document with no template.
 
 ## Prerequisite: frontmatter keeps every key
 
@@ -186,7 +196,7 @@ Fields a template supplies live in the document's frontmatter:
 ```yaml
 ---
 title: Rollback the API
-type: runbook
+template: runbook
 owner: alice
 severity: high
 ---
@@ -218,8 +228,8 @@ a frontmatter key that neither the struct nor any template names, so a typo like
 - Versioning, and any Doctor check that compares an installed template against
   the shipped one.
 - Per-project templates.
-- Checking documents on edit, on hand edit, or during `lint`.
-- A document recording which template created it.
+- A document recording which template _created_ it (as opposed to which template
+  currently governs it).
 - Rules beyond `required`, `choices` and sections — no patterns, no defaults, no
   types. Each is easy to add later as one more frontmatter key.
 - Scripting inside templates. A template substitutes values and nothing else.
@@ -241,9 +251,15 @@ a frontmatter key that neither the struct nor any template names, so a typo like
 - A key supplied with `--set` survives a `knowledge edit`.
 - `lint` reports a frontmatter key that neither the struct nor any template
   names.
-- `edit` never checks against a template.
+- `edit` of a document with a `template:` key checks the resulting document
+  against that template under the template's `enforce` setting; `--template X`
+  switches templates and checks against `X`.
+- `edit` of a document without a template makes no checks.
 - `template new` and `template edit` refuse a template whose frontmatter does not
   parse, whose `enforce` is neither `reject` nor `warn`, or whose `choices` entry
   is empty — and write nothing.
-- A template broken by hand makes `new --template` fail with the template's file
-  path in the error, rather than proceeding as if it had no rules.
+- A template broken by hand makes `new --template` and `edit` fail with the
+  template's file path in the error, rather than proceeding as if it had no rules.
+- `lint` reports `template_violation` for a document whose content breaks its
+  template, and `unknown_template` for a document naming a template that does not
+  exist.
