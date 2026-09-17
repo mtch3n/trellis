@@ -161,6 +161,45 @@ func (c *Core) kbDir(projectKey string, global bool) (string, error) {
 	return dir, os.MkdirAll(dir, 0o700)
 }
 
+// validateTemplateContent checks a document's content against its template.
+// It returns violations and whether to enforce (reject on violations if enforce=reject).
+// Returns (violations, errors). Violations are empty if no template or if template=empty.
+func (c *Core) validateTemplateContent(ctx context.Context, projectID string, templateName string, title string, body string, sources []string, extra map[string]any) ([]string, error) {
+	if templateName == "" {
+		// No template: no validation
+		return nil, nil
+	}
+
+	templatesDirPath, err := c.templatesDir()
+	if err != nil {
+		return nil, err
+	}
+	tmpl, err := loadTemplate(templatesDirPath, templateName)
+	if err != nil {
+		return nil, err
+	}
+
+	fields := map[string][]string{"sources": cleanSources(sources)}
+	for k, v := range extra {
+		// Convert any value to string
+		if str, ok := v.(string); ok {
+			fields[k] = []string{str}
+		} else {
+			fields[k] = []string{fmt.Sprint(v)}
+		}
+	}
+
+	checkSections := body != ""
+	violations := templateViolations(tmpl, fields, body, checkSections)
+	verifyProblems, err := c.templateVerifyViolations(ctx, projectID, tmpl, fields, body)
+	if err != nil {
+		return nil, err
+	}
+	violations = append(violations, verifyProblems...)
+
+	return violations, nil
+}
+
 // CreateKnowledge writes the file first and the row second: the file is the
 // record, and a row pointing at a file that was never written would be a lie.
 func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnowledge) (Knowledge, error) {
@@ -705,6 +744,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 	var oldRaw []byte
 	var written string
 	var done bool
+	var templateWarnings []string
 	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
 		// A failure, or a panic, from here on undoes the write before this
 		// closure returns, while Core.Tx still holds SQLite's write lock --
@@ -834,6 +874,32 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		if in.Sources != nil {
 			fm.Sources = cleanSources(*in.Sources)
 		}
+		// Validate template if document has one
+		if fm.Template != "" {
+			violations, err := c.validateTemplateContent(ctx, projectID, fm.Template, fm.Title, body, fm.Sources, fm.Extra)
+			if err != nil {
+				return err
+			}
+			if len(violations) > 0 {
+				// Load template to check enforce mode
+				templatesDirPath, err := c.templatesDir()
+				if err != nil {
+					return err
+				}
+				tmpl, err := loadTemplate(templatesDirPath, fm.Template)
+				if err != nil {
+					return err
+				}
+				if tmpl.Enforce == "reject" {
+					return ErrUsage("template_violation",
+						tmpl.Name+" does not meet its template:\n  - "+strings.Join(violations, "\n  - "),
+						templateViolationFix(tmpl.Name, violations))
+				}
+				// warn mode: store warnings to return to caller
+				templateWarnings = violations
+			}
+		}
+
 		now := c.clock.NowMS()
 		fm.Updated = msToRFC3339(now)
 		out := RenderDoc(fm, body)
@@ -924,6 +990,9 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		}
 		if err := c.docView(tx, &doc); err != nil {
 			return err
+		}
+		if len(templateWarnings) > 0 {
+			doc.Warnings = templateWarnings
 		}
 		done = true
 		return nil
