@@ -135,7 +135,7 @@ func Defaults() Config {
 }
 
 // configPath returns config.yaml inside root. The caller resolves root
-// (TRELLIS_HOME or the platform default) and passes it in, so a pinned root
+// (TRELLIS_HOME or the platform default) and passes it in, so a fixed root
 // whose config still came from a different home never serves the wrong port
 // for the daemon installed against it.
 func configPath(root string) string {

@@ -21,7 +21,7 @@ type Spec struct {
 	Exec   string
 	Bind   string
 	Port   int
-	Home   string // TRELLIS_HOME to pin into the unit; empty means inherit.
+	Home   string // the fixed root, set as TRELLIS_HOME in the unit; empty means inherit.
 	Linger bool   // Linux only: keep running when no session is open.
 }
 

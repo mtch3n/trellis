@@ -134,10 +134,10 @@ func daemonDefaults(bind string, port int) (string, int) {
 	return bind, port
 }
 
-// daemonSpec builds the unit contents for `daemon install`. TRELLIS_HOME is
-// pinned only when it was set explicitly: a service started at login inherits
-// almost nothing from the shell, so an unpinned custom root would silently
-// become the default one.
+// daemonSpec builds the unit contents for `daemon install`. The unit gets a
+// fixed root only when TRELLIS_HOME was set explicitly: a service started at
+// login inherits almost nothing from the shell, so a custom root that is not
+// fixed in the unit would silently become the default one.
 func daemonSpec(bind string, port int, linger bool) (service.Spec, error) {
 	exe, err := os.Executable()
 	if err != nil {
