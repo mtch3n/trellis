@@ -364,7 +364,10 @@ function checkIconsInButtons() {
       // An icon-only button has no label to pad away from.
       const iconOnly = /size="icon(?:-\w+)?"/.test(body);
 
-      for (const icon of body.matchAll(/<([A-Z]\w*)\b([^>]*)\/?>/g)) {
+      // Only self-closing elements: an icon is always one. A component with
+      // children (a DropdownMenuContent whose className sizes the panel) is
+      // markup the button happens to hold, not an icon in it.
+      for (const icon of body.matchAll(/<([A-Z]\w*)\b([^>]*?)\/>/g)) {
         const [, name, attrs] = icon;
         if (name === 'Button' || name === 'Link') continue;
         if (/className="[^"]*\b(?:size|w|h)-\d+/.test(attrs)) {

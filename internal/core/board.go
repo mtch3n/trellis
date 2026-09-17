@@ -229,6 +229,9 @@ func (c *Core) SetDefaultBoard(ctx context.Context, projectID, name string) (Boa
 			board.ID); err != nil {
 			return err
 		}
+		// The board was read before the write, so say what it is now: a
+		// caller that renders the answer would otherwise show the old flag.
+		board.IsDefault = true
 
 		// Record event
 		return c.recordEvent(tx, "board", board.ID, "set_default", "", "", "")

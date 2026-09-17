@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   DndContext,
   DragOverlay,
@@ -39,7 +39,11 @@ import { Lamp } from '@/components/wrappers/Lamp'
 import { PageHeader } from '@/components/wrappers/PageHeader'
 import { useLiveStatus } from '@/lib/live-status'
 import { CardDialog } from '@/components/wrappers/CardDialog'
+import { BoardMenu } from '@/components/wrappers/BoardMenu'
+import { ColumnMenu, AddColumnButton, type ColumnActions } from '@/components/wrappers/ColumnControls'
 import { HistoryDialog } from '@/components/wrappers/HistoryDialog'
+import { LabelsDialog, type Label } from '@/components/wrappers/LabelsDialog'
+import { boardActions } from '@/lib/board-actions'
 import { ImportCardsDialog } from '@/components/wrappers/ImportCardsDialog'
 import { type CardInfo } from '@/components/wrappers/CardView'
 import { PRIORITIES, PRIORITY_NUMBERS, shortActor, withDetail, type CardDetail } from '@/lib/cards'
@@ -115,6 +119,7 @@ const DROP: DropAnimation = {
 
 export function BoardPage() {
   const { projectKey, boardSlug } = useParams<{ projectKey: string; boardSlug: string }>()
+  const navigate = useNavigate()
   const [columns, setColumns] = useState<ColumnCardsInfo[]>([])
   const cardOptions = useMemo(
     () => columns.flatMap((column) => column.cards.map((card) => ({ ref: card.ref, title: card.title }))),
@@ -137,6 +142,14 @@ export function BoardPage() {
   const [label, setLabel] = useState(ALL)
   const [priority, setPriority] = useState(ALL)
   const [importing, setImporting] = useState(false)
+  const [labelling, setLabelling] = useState(false)
+  // Bumped whenever the board's own shape changes, so the offers it reads
+  // (labels, columns) are fetched again.
+  const [refreshed, setRefreshed] = useState(0)
+  // The project's labels in full (name and what each means), and whether this
+  // board is the one the project opens on.
+  const [labels, setLabels] = useState<Label[]>([])
+  const [isDefault, setIsDefault] = useState(false)
   const [history, setHistory] = useState<string | null>(null)
   // While a card is in the hand, the board renders this layout instead of the
   // server's, so the landing slot moves with the pointer across columns.
@@ -303,23 +316,44 @@ export function BoardPage() {
       }
     }
     void (async () => {
-      const [labels, project, vault, artifacts] = await Promise.all([
-        read<{ name: string }[]>(`/api/p/${projectKey}/labels`, []),
+      const [projectLabels, project, vault, artifacts, boards] = await Promise.all([
+        read<Label[]>(`/api/p/${projectKey}/labels`, []),
         read<Entry[]>(`/api/p/${projectKey}/vault`, []),
         read<Entry[]>('/api/global/vault', []),
         read<Artifact[]>(`/api/p/${projectKey}/artifacts`, []),
+        read<{ slug: string; is_default?: boolean }[]>(`/api/p/${projectKey}/boards`, []),
       ])
       if (signal.aborted) return
-      setLabelOptions(labels.map((label) => label.name))
+      setLabels(projectLabels)
+      setLabelOptions(projectLabels.map((label) => label.name))
       setEntryOptions([...project, ...vault])
       setStoredArtifacts(artifacts)
+      setIsDefault(boards.find((item) => item.slug === boardSlug)?.is_default ?? false)
     })()
     return () => controller.abort()
-  }, [projectKey])
+  }, [projectKey, boardSlug, refreshed])
 
   // Every write a card supports, shared with the card page. The board says
   // what to bring up to date: its columns always, and the open card's detail
   // when one is open.
+  // The board's own shape: itself, its columns, and the project's labels.
+  // A write here changes what the board is, so both the cards and the offers
+  // (labels, columns) are read again.
+  const shape = useMemo(
+    () => boardActions({
+      projectKey: projectKey ?? '',
+      boardSlug: boardSlug ?? '',
+      refresh: async () => { await loadBoard(); setRefreshed((count) => count + 1) },
+    }),
+    [projectKey, boardSlug, loadBoard],
+  )
+  const columnActions: ColumnActions = useMemo(() => ({
+    add: shape.addColumn,
+    rename: shape.renameColumn,
+    move: shape.moveColumn,
+    remove: shape.deleteColumn,
+  }), [shape])
+
   const actions = useMemo(
     () => cardActions({
       base,
@@ -505,6 +539,25 @@ export function BoardPage() {
                 <Plus data-icon="inline-start" />
                 New card
               </Button>
+              <BoardMenu
+                board={boardSlug ?? ''}
+                cards={columns.reduce((total, column) => total + column.cards.length, 0)}
+                isDefault={isDefault}
+                onCreate={async (name, seedColumns) => {
+                  const refusal = await shape.createBoard(name, seedColumns)
+                  if (!refusal) toast.add({ title: `Created ${name}`, type: 'success' })
+                  return refusal
+                }}
+                onRename={shape.renameBoard}
+                onSetDefault={shape.setDefaultBoard}
+                onDelete={async (force) => {
+                  const refusal = await shape.deleteBoard(force)
+                  // The board is gone, so the page it was showing is too.
+                  if (!refusal) navigate(`/p/${projectKey}`)
+                  return refusal
+                }}
+                onLabels={() => setLabelling(true)}
+              />
             </>
           }
         />
@@ -537,12 +590,17 @@ export function BoardPage() {
                 <BoardColumn
                   key={column.name}
                   column={column}
+                  columnNames={columnNames}
+                  columnActions={columnActions}
                   dragging={activeRef !== null}
                   over={overColumn === column.name}
                   openRef={open?.ref}
                   onOpen={openCard}
                 />
               ))}
+              {/* A board started without the usual columns has nowhere to put
+                  a card until it has one. */}
+              <AddColumnButton columns={columnNames} actions={columnActions} className="mt-1.5 shrink-0" />
             </div>
             <DragOverlay dropAnimation={reducedMotion() ? null : DROP}>
               {activeCard ? <CardTile card={activeCard} lifted /> : null}
@@ -585,6 +643,15 @@ export function BoardPage() {
         onHistory={() => { if (open) setHistory(open.ref) }}
       />
 
+      <LabelsDialog
+        open={labelling}
+        labels={labels}
+        onOpenChange={setLabelling}
+        onCreate={shape.createLabel}
+        onDelete={shape.deleteLabel}
+        onMerge={shape.mergeLabels}
+      />
+
       <ImportCardsDialog
         open={importing}
         onOpenChange={setImporting}
@@ -611,12 +678,17 @@ export function BoardPage() {
  */
 function BoardColumn({
   column,
+  columnNames,
+  columnActions,
   dragging,
   over,
   openRef,
   onOpen,
 }: {
   column: ColumnCardsInfo
+  /** Every column on the board, in order, for moving this one along it. */
+  columnNames: string[]
+  columnActions: ColumnActions
   dragging: boolean
   over: boolean
   openRef?: string
@@ -634,10 +706,15 @@ function BoardColumn({
       data-over={over || undefined}
       className="flex h-full w-72 shrink-0 flex-col bg-muted/50 transition-colors duration-150 data-over:bg-accent xl:w-auto xl:min-w-64 xl:flex-1"
     >
-      <header className="flex h-11 shrink-0 items-center gap-2 px-3.5">
+      <header className="group/column flex h-11 shrink-0 items-center gap-2 px-3.5">
         <h2 className="text-label">{sentence(column.name)}</h2>
         {claimed > 0 && <span className="text-xs text-claimed">{claimed} claimed</span>}
         <span className="ml-auto text-xs text-muted-foreground">{column.cards.length}</span>
+        {/* The column's own settings, shown when the column is pointed at:
+            the cards are what a reader is here for. */}
+        <span className="-mr-1.5 opacity-0 transition-opacity group-hover/column:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100">
+          <ColumnMenu column={column.name} columns={columnNames} cards={column.cards.length} actions={columnActions} />
+        </span>
       </header>
 
       <SortableContext items={refs} strategy={verticalListSortingStrategy}>
