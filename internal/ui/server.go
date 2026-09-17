@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -897,7 +899,18 @@ func (s *Server) handleClaimCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in claimRequest
-	decodeJSON(w, r, &in)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.error(w, http.StatusInternalServerError, "failed to read request body")
+		return
+	}
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) > 0 {
+		if err := json.Unmarshal(trimmed, &in); err != nil {
+			s.error(w, http.StatusBadRequest, "invalid JSON; nothing changed")
+			return
+		}
+	}
 	// TTL is optional; defaults to configured lease TTL
 	var ttlMS int64 = 0
 	if in.TTLMinutes != nil && *in.TTLMinutes > 0 {
