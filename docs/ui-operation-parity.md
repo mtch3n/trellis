@@ -74,7 +74,7 @@ so the UI can filter on the client for now.
 | ID | Bug | Backend | Detail |
 |---|---|---|---|
 | B1 | Saving a vault entry silently drops the title and summary. **Fixed and merged (7b0dbc4).** PATCH now takes optional `title`, `summary` and `body` plus a required `version`, and calls `EditEntryFields`. A missing version is 400, a stale one 409, an empty title 400 (`missing_title`). The web editor already sends all four fields and will not submit an empty title | Route | KnowledgePage sends `{title, summary, body, version}`, but `handleEntryEdit` called `EditEntry` with the body only. Fix: call `core.EditEntryFields` with Title, Summary and Body (`internal/core/entry.go`). **This affects the in-place vault editor built this session: the title and summary fields look editable, but their changes are lost.** trellis-2f is also changing `EditEntryFields` to require `if_version` and to return 409 `conflict`; the page already sends `version` and now shows a 409 as "Changed elsewhere" |
-| B2 | No label or tag UI anywhere. **Fixed for the card, not the tile.** The card's facts column now has Labels and Tags: labels are picked from the project's list, tags are free words, both apply as they change, and a new card carries them into its creation. Board tiles: `handleBoardCards` now returns them (C2); whether the tiles render them is unverified from this branch | FE | Card create sends only title, body, priority and column (`BoardPage.tsx:246-252`). The API already accepts `labels` and `tags` on POST (`server.go:931-934`), and `add_labels`, `remove_labels`, `add_tags` and `remove_tags` on PATCH (`server.go:704-713`) |
+| B2 | No label or tag UI anywhere. **Fixed for the card, not the tile.** The card's facts column now has Labels and Tags: labels are picked from the project's list, tags are free words, both apply as they change, and a new card carries them into its creation. Board tiles: `handleBoardCards` now returns them (C2), but the tiles do not render them yet (checked against 9c32fa6); that is C2's remaining work | FE | Card create sends only title, body, priority and column (`BoardPage.tsx:246-252`). The API already accepts `labels` and `tags` on POST (`server.go:931-934`), and `add_labels`, `remove_labels`, `add_tags` and `remove_tags` on PATCH (`server.go:704-713`) |
 | B3 | Board navigation always goes to `boards[0]`. **Fixed.** The shell picks the board in the URL, else the project's default, else the first, and a board switcher sits beside the project switcher whenever a project has more than one. `boardInfo` now carries `is_default` | FE | `AppShell.tsx:91` and `:139`. There is no board switcher, so other boards can be reached only by typing the URL |
 | B4 | The Artifacts section can never appear. **Fixed by trellis-2f and merged:** entries list their artifacts and `GET /api/p/{key}/artifacts/{name}` serves the bytes | Route, Core | KnowledgePage reads `entry.artifacts` (`:340`), but `core.Entry` has no artifacts field and no route serves artifact bytes. Depends on the artifacts spec, which is approved for implementation and in progress in trellis-2f's worktree. The frontend side (`ArtifactList`, `ArtifactPreview`) is already built against that contract |
 | B5 | Web writes are attributed to `daemon:<pid>` unless `TRELLIS_AGENT` is set. **Fixed.** The UI server holds a second Core that writes as `webActor()`: `TRELLIS_AGENT` if set, else `human:<os-username>`, else `human:web`. Every mutating handler uses it; reads and the daemon's own background work keep the daemon's identity. `Core.WithActor` copies rather than mutating, so concurrent requests cannot trample each other. `GET /api/me` says who that is, so the browser can tell a claim of its own ("Claimed by you", and the card stays editable) from an agent's. **This changes the actor recorded in the event log for web writes** | Core | `internal/cli/daemon.go`. So comments, claims and steals made in the UI carry an identity that changes on every restart. `ReleaseCard` requires the claimant to be the actor (`internal/core/claim.go`), so a claim taken in the UI cannot be released after a restart. Recommend a stable human actor for web writes. This also affects this session's UI writes: moves, priority changes, card and project delete, and stealing a claim |
@@ -84,10 +84,10 @@ so the UI can filter on the client for now.
 | ID | Item | Backend | Detail |
 |---|---|---|---|
 | C1 | Add a comment. **Done:** see [Card comments: done](#card-comments-done); verified on this branch (`POST …/cards/{card}/comments`, called from `BoardPage` and `CardPage`) | Route | `CreateComment` (`internal/core/comment.go`) is always permitted, even on a card another actor has claimed |
-| C2 | Labels and tags: show them on tiles and in the card detail, and add or remove them while editing | FE | **Backend landed:** PATCH supports changes, and `handleBoardCards` now returns `labels` and `tags` on every tile (see [Contracts landed since](#contracts-landed-since-f36fa23-from-trellis-2f)). The card detail has them (B2). Tiles: unverified from this branch |
+| C2 | Labels and tags: show them on tiles and in the card detail, and add or remove them while editing | FE | **Backend landed:** PATCH supports changes, and `handleBoardCards` now returns `labels` and `tags` on every tile (see [Contracts landed since](#contracts-landed-since-f36fa23-from-trellis-2f)). The card detail has them (B2). **Tiles: still open** — `CardTile` shows the title, lamp, ref, priority and claimant, not labels or tags (9c32fa6) |
 | C3 | Archive, restore, and a "show archived" view | Route | `ArchiveCard` and `RestoreCard` (`archive.go`). The board query filters on `archived_at IS NULL` |
 | C4 | Blocked-by: show blockers, and add or remove them. **Done** as one kind of card relation: see [Card relations: done](#card-relations-done); verified on this branch (`POST` and `DELETE …/cards/{card}/relations`) | Route | `Blockers`, `BlockCard`, `UnblockCard` (`blocker.go`) |
-| C5 | Claim a free card and release your own claim | FE | **Backend landed:** `POST …/cards/{card}/claim` (with `ttl_minutes`) and `POST …/cards/{card}/release` exist beside `/steal` (see [Contracts landed since](#contracts-landed-since-f36fa23-from-trellis-2f)). The committed UI on this branch calls only `/steal`; whether trellis-8d has wired the other two is unverified from this branch. B5 is fixed, so release works across restarts |
+| C5 | Claim a free card and release your own claim | FE | **Backend landed:** `POST …/cards/{card}/claim` (with `ttl_minutes`) and `POST …/cards/{card}/release` exist beside `/steal` (see [Contracts landed since](#contracts-landed-since-f36fa23-from-trellis-2f)). **Still open in the UI:** the web (9c32fa6) calls only `/steal`, from the card's Claim group ("Steal the claim"); nothing calls `/claim` or `/release` yet. B5 is fixed, so release works across restarts |
 | C6 | Link a card to an entry, and show the link on both sides | Route | `LinkCardToEntry` and `Backlinks` (`entry_relations.go`) |
 | C7 | Board filters: label, priority, archived | FE, Route | Mirror the `card ls` flags. Archived depends on C3 |
 | C8 | Artifacts on cards: list, add, link, remove | Route | `CreateArtifact`, `ListArtifacts`, `LinkArtifactToCard`, `DeleteArtifact` (`artifact.go`). An upload route needs an exception, because non-GET `/api` requests must be `application/json` (`security.go:59-64`). Do after the artifacts backend lands |
@@ -98,15 +98,15 @@ so the UI can filter on the client for now.
 | ID | Item | Backend | Detail |
 |---|---|---|---|
 | K1 | Create an entry. **Done**, with directory and template: see [Creating entries and switching templates](#creating-entries-and-switching-templates-done-k1-d3) | Route | `POST …/b/{board}/vault` is called by `NewEntryDialog`. Its request (`entryRequest`) now carries `template`, `private`, `sources`, `set` and `directory`, and still lacks `tags`, `labels` and `provenance` |
-| K2 | Delete an entry | FE | **Backend landed:** `DELETE …/b/{board}/vault/{slug}` calls `DeleteEntry` (`internal/core/entry.go`) and returns 204. No committed UI on this branch calls it; unverified from this branch whether trellis-8d has |
-| K3 | Change template, private, tags, labels, sources or board after creation | FE; Core for board only | **Core, the CLI and the route now have everything but board.** `EntryEdit` (`internal/core/entry.go`) carries Title, Summary, Body, Artifacts, Sources, Template, Private, Tags, Labels and Set; `vault edit` exposes `--template --private --tag --label --source --set`; and `handleEntryEdit` passes Template, Private, Tags, Labels, Sources and Set straight through PATCH. What is left is the UI for those, plus core work for **board alone** — `EntryEdit` has no Board field and `vault edit` no `--board`, so an entry's board association is still frontmatter-only. How much of the UI already exists is trellis-8d's to say; unverified from this branch |
+| K2 | Delete an entry | FE | **Backend landed:** `DELETE …/b/{board}/vault/{slug}` calls `DeleteEntry` (`internal/core/entry.go`) and returns 204. **Still open in the UI:** nothing in the web (9c32fa6) calls it |
+| K3 | Change template, private, tags, labels, sources or board after creation | FE; Core for board only | **Core, the CLI and the route now have everything but board.** `EntryEdit` (`internal/core/entry.go`) carries Title, Summary, Body, Artifacts, Sources, Template, Private, Tags, Labels and Set; `vault edit` exposes `--template --private --tag --label --source --set`; and `handleEntryEdit` passes Template, Private, Tags, Labels, Sources and Set straight through PATCH. What is left is the UI for those, plus core work for **board alone** — `EntryEdit` has no Board field and `vault edit` no `--board`, so an entry's board association is still frontmatter-only. **UI, as of 9c32fa6:** the entry's facts column changes the template (a strict one the entry does not meet yet asks for what it lacks and adds missing sections in the same save), the sources, and the template's own fields (`set`), each applied at once. Private, tags and labels have no UI yet, and board needs its core work first |
 | K4 | Filters: template and provenance, and cold entries | FE, Route | `EntryFilter` already has Templates and Provenances (`internal/core/entry.go`). Cold entries need `ColdEntries` (`health.go`) exposed |
 | K5 | Pin and unpin, with recap and optional board scope; a pins list with a stale marker | Route | `pin.go` |
 | K6 | Show backlinks from cards on the entry page | Route | `Backlinks` |
 | K7 | A vault health view | Route | `Lint` diagnostics, `Health` counts, `Duplicates` clusters. The graph explorer already lists orphans and stubs, computed on the client |
 | K8 | Global vault lifecycle: the nominations queue, promote, demote, verify | Route | `promote.go` and `nomination.go`. The CLI deliberately requires a human for these three, and refuses them whenever `TRELLIS_AGENT` is set, pointing a human at an interactive terminal or `trellis ui` (`requireHuman`, `internal/cli/vault.go`), so the UI is the intended surface. Mirror the CLI: retype the slug to confirm, and require a reason. `nominate` is the agent's argument; leave it out |
 | K9 | (low) Uptake analytics, read-only | Route | `RecallUptake` |
-| K10 | Version history for entries and cards: the list of versions, and a diff between two | FE | **Backend merged.** No committed UI on this branch calls these routes; unverified from this branch whether trellis-8d has. `GET /api/p/{key}/vault/{slug}/history` and `.../diff?from=N&to=M`, and the same pair for cards, whose items also carry `actor`. Omitting both ends means previous against latest; a version no longer kept is 404. Entries keep up to 100 versions in a hidden `.<filename>/` directory beside the file, cards in a `card_revision` table, and `trellis config set history.keep <n>` changes the limit. The diff is plain text and must be rendered as text. Card version numbers have gaps, because a move also bumps the version. `DiffView` already exists; the view is to be called History |
+| K10 | Version history for entries and cards: the list of versions, and a diff between two | FE | **Backend merged.** **Still open in the UI:** nothing in the web (9c32fa6) calls these routes. `GET /api/p/{key}/vault/{slug}/history` and `.../diff?from=N&to=M`, and the same pair for cards, whose items also carry `actor`. Omitting both ends means previous against latest; a version no longer kept is 404. Entries keep up to 100 versions in a hidden `.<filename>/` directory beside the file, cards in a `card_revision` table, and `trellis config set history.keep <n>` changes the limit. The diff is plain text and must be rendered as text. Card version numbers have gaps, because a move also bumps the version. `DiffView` already exists; the view is to be called History |
 
 ## P. Boards, columns, labels
 
@@ -114,7 +114,7 @@ so the UI can filter on the client for now.
 |---|---|---|---|
 | P1 | Boards: switcher (B3), create, rename, delete (with a force option), set default | Route | Create already has a POST that is never called (`server.go:65`). The rest is in `board.go` |
 | P2 | Columns: add (with after and done options), rename, reorder, delete (with move-cards-to) | Route | `column.go:108-189` |
-| P3 | Labels: list, create (a description is required), delete, merge | FE | **All four routes exist:** `GET`, `POST` and `POST …/labels/merge` on `/api/p/{key}/labels`, and `DELETE …/labels/{name}` (see [Contracts landed since](#contracts-landed-since-f36fa23-from-trellis-2f)). The committed UI on this branch lists labels for the card's picker and calls none of the other three; unverified from this branch whether trellis-8d has |
+| P3 | Labels: list, create (a description is required), delete, merge | FE | **All four routes exist:** `GET`, `POST` and `POST …/labels/merge` on `/api/p/{key}/labels`, and `DELETE …/labels/{name}` (see [Contracts landed since](#contracts-landed-since-f36fa23-from-trellis-2f)). **Still open in the UI:** the web (9c32fa6) lists labels for the card's picker and calls none of the other three |
 
 ## S. Search and graph
 
@@ -133,10 +133,20 @@ so the UI can filter on the client for now.
 | M4 | Vector index: status, rebuild, prune, reindex, compact | Route | |
 | M5 | Maintenance: prune and compact; backup, and backup prune | Route | |
 
-The Settings area trellis-8d reports built covers M2 (General) and M5
-(Maintenance), and adds Templates and Logs, which this table never listed.
-Unverified from this branch: treat the rows as open until trellis-8d confirms
-which it closes.
+The Settings area (`/settings`, committed in 9c32fa6) closes **M2** and part
+of **M5**, and adds two sections this table never listed:
+
+- **M2, done.** Settings › General lists every key with its value, default and
+  source, sets and unsets them in one save, names each problem beside its key,
+  and says which keys wait for a daemon restart. `ui.*` and `search.vector.*`
+  are shown but read-only, by design.
+- **M5, prune and compact done; backup open.** Settings › Maintenance shows the
+  database and WAL sizes, prunes events and invocations by age, trims
+  revisions to `history.keep`, removes leftover revisions, and compacts.
+  Backup and backup prune have no route and no UI.
+- **Added:** Settings › Templates (list, create, edit the whole file, reinstall
+  a shipped one, delete) and Settings › Logs (the end of `daemon.log`, or where
+  a supervised daemon logs instead).
 
 ## Out of scope
 
@@ -150,7 +160,7 @@ These are agent or process mechanics and stay out of the UI: `card next`,
 1. **P0:** B1 (fixed, merged), B2 (fixed for the card; tiles remain under C2), B3 (fixed), B5 (fixed).
 2. **P1:** D1-D3 (D3 done), C1-C6 (C1 and C4 done), K1-K3 (K1 done), K5, K8, P1-P3.
 3. **P2:** K4, K6, K7, K10 (backend merged), S1, S2, C7, M1, and C8 (its core has landed; it still needs routes).
-4. **P3:** M2-M5, K9, C9. The Settings area is reported to cover M2 and M5; unverified from this branch.
+4. **P3:** M2-M5, K9, C9. M2 is done and M5 is done but for backup (Settings, 9c32fa6).
 
 ## Overlap with work in progress
 
@@ -283,7 +293,7 @@ come first.
   filter chips. Both are frontend only.
 - **B2 remainder, labels on board tiles.** The backend has landed:
   `handleBoardCards` returns `labels` and `tags`. What is left is rendering
-  them on the tiles, unverified from this branch. The label picker is also
+  them on the tiles, which the web does not do yet (9c32fa6). The label picker is also
   empty until a project defines labels, which is P3 (label create, delete,
   merge; all four routes exist).
 - **C2, C3, C5 to C9, K2 to K9, P1 to P3, S1, S2, M1 to M5.** See the tables;
