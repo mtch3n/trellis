@@ -387,7 +387,13 @@ func newKnowledgeEditCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return Emit(cmd, doc, func() string { return "wrote " + doc.Path })
+				return Emit(cmd, doc, func() string {
+					out := "wrote " + doc.Path
+					for _, w := range doc.Warnings {
+						out += "\nwarning: " + w
+					}
+					return out
+				})
 			})
 		},
 	}

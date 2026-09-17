@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jmoiron/sqlx"
 	"gopkg.in/yaml.v3"
 )
 
@@ -240,7 +241,7 @@ func seedTemplates(dir string) error {
 // an error, so it is refused up front instead — and pointed at the flag
 // that actually sets it, not just told no.
 var reservedFrontmatterFields = map[string]string{
-	"title": "--title", "type": "--template", "status": "(not yet settable)",
+	"title": "--title", "template": "--template", "status": "(not yet settable)",
 	"summary": "--summary", "provenance": "--provenance", "private": "--private",
 	"board": "--board", "tags": "--tag", "labels": "--label",
 	"artifacts": "`trellis artifact link`", "created": "(set automatically)",
@@ -292,6 +293,58 @@ func templateViolations(t Template, fields map[string][]string, body string, che
 		}
 	}
 	return out
+}
+
+// templateNamed loads one template from the templates directory.
+func (c *Core) templateNamed(name string) (Template, error) {
+	dir, err := c.templatesDir()
+	if err != nil {
+		return Template{}, err
+	}
+	return loadTemplate(dir, name)
+}
+
+// templateProblems is every way a document falls short of its template: the
+// field and section rules, then the verify rule, read in the caller's
+// transaction.
+func (c *Core) templateProblems(tx *sqlx.Tx, projectID string, t Template, fields map[string][]string,
+	body string, checkSections bool) ([]string, error) {
+	problems := templateViolations(t, fields, body, checkSections)
+	unresolved, err := c.templateVerifyViolations(tx, projectID, t, fields, body)
+	return append(problems, unresolved...), err
+}
+
+// enforceTemplate refuses a document under a reject template that has
+// problems. Under warn the problems are the caller's warnings.
+func enforceTemplate(t Template, problems []string) error {
+	if len(problems) == 0 || t.Enforce != "reject" {
+		return nil
+	}
+	return ErrUsage("template_violation",
+		t.Name+" does not meet its template:\n  - "+strings.Join(problems, "\n  - "),
+		templateViolationFix(t.Name, problems))
+}
+
+// frontmatterFields is a document's frontmatter as template fields: every
+// value a required or choices rule can name. A list contributes each item.
+func frontmatterFields(fm Frontmatter) map[string][]string {
+	fields := map[string][]string{
+		"title": {fm.Title}, "summary": {fm.Summary}, "status": {fm.Status},
+		"provenance": {fm.Provenance}, "board": {fm.Board},
+		"tags": fm.Tags, "labels": fm.Labels, "artifacts": fm.Artifacts, "sources": fm.Sources,
+	}
+	for k, v := range fm.Extra {
+		switch v := v.(type) {
+		case nil:
+		case []any:
+			for _, item := range v {
+				fields[k] = append(fields[k], fmt.Sprint(item))
+			}
+		default:
+			fields[k] = []string{fmt.Sprint(v)}
+		}
+	}
+	return fields
 }
 
 // TemplateInfo is one template's summary for `template ls`.

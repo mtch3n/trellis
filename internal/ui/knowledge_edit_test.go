@@ -121,7 +121,7 @@ func TestKnowledgeEditMetadata(t *testing.T) {
 	}
 
 	// Set template, private, tags, and labels
-	rec := patch(`{"template":"decision","private":true,"tags":["new"],"labels":["reviewed"],"version":1}`)
+	rec := patch(`{"template":"research","private":true,"tags":["new"],"labels":["reviewed"],"version":1}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
 	}
@@ -129,7 +129,7 @@ func TestKnowledgeEditMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Template != "decision" || !got.Private || len(got.Tags) != 1 || got.Tags[0] != "new" || len(got.Labels) != 1 || got.Labels[0] != "reviewed" {
+	if got.Template != "research" || !got.Private || len(got.Tags) != 1 || got.Tags[0] != "new" || len(got.Labels) != 1 || got.Labels[0] != "reviewed" {
 		t.Fatalf("after edit: template=%q private=%v tags=%v labels=%v", got.Template, got.Private, got.Tags, got.Labels)
 	}
 
@@ -142,7 +142,7 @@ func TestKnowledgeEditMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Private || len(got.Tags) != 0 || len(got.Labels) != 0 || got.Template != "decision" {
+	if got.Private || len(got.Tags) != 0 || len(got.Labels) != 0 || got.Template != "research" {
 		t.Fatalf("after clear: template=%q private=%v tags=%v labels=%v", got.Template, got.Private, got.Tags, got.Labels)
 	}
 }

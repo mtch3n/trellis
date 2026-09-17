@@ -161,45 +161,6 @@ func (c *Core) kbDir(projectKey string, global bool) (string, error) {
 	return dir, os.MkdirAll(dir, 0o700)
 }
 
-// validateTemplateContent checks a document's content against its template.
-// It returns violations and whether to enforce (reject on violations if enforce=reject).
-// Returns (violations, errors). Violations are empty if no template or if template=empty.
-func (c *Core) validateTemplateContent(ctx context.Context, projectID string, templateName string, title string, body string, sources []string, extra map[string]any) ([]string, error) {
-	if templateName == "" {
-		// No template: no validation
-		return nil, nil
-	}
-
-	templatesDirPath, err := c.templatesDir()
-	if err != nil {
-		return nil, err
-	}
-	tmpl, err := loadTemplate(templatesDirPath, templateName)
-	if err != nil {
-		return nil, err
-	}
-
-	fields := map[string][]string{"sources": cleanSources(sources)}
-	for k, v := range extra {
-		// Convert any value to string
-		if str, ok := v.(string); ok {
-			fields[k] = []string{str}
-		} else {
-			fields[k] = []string{fmt.Sprint(v)}
-		}
-	}
-
-	checkSections := body != ""
-	violations := templateViolations(tmpl, fields, body, checkSections)
-	verifyProblems, err := c.templateVerifyViolations(ctx, projectID, tmpl, fields, body)
-	if err != nil {
-		return nil, err
-	}
-	violations = append(violations, verifyProblems...)
-
-	return violations, nil
-}
-
 // CreateKnowledge writes the file first and the row second: the file is the
 // record, and a row pointing at a file that was never written would be a lie.
 func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnowledge) (Knowledge, error) {
@@ -236,7 +197,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		if err != nil {
 			return Knowledge{}, err
 		}
-		fields := map[string][]string{"sources": cleanSources(in.Sources)}
+		fields := map[string][]string{"sources": cleanSources(in.Sources), "summary": {in.Summary}}
 		for k, v := range in.Set {
 			fields[k] = []string{v}
 		}
@@ -244,16 +205,16 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		if body == "" {
 			body = stripOptionalMarkers(renderTemplateBody(tmpl.Body, in.Title, in.Set))
 		}
-		violations = templateViolations(tmpl, fields, body, checkSections)
-		verifyProblems, err := c.templateVerifyViolations(ctx, projectID, tmpl, fields, body)
-		if err != nil {
+		// A read transaction of its own, so a reject template writes nothing.
+		if err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+			var err error
+			violations, err = c.templateProblems(tx, projectID, tmpl, fields, body, checkSections)
+			return err
+		}); err != nil {
 			return Knowledge{}, err
 		}
-		violations = append(violations, verifyProblems...)
-		if len(violations) > 0 && tmpl.Enforce == "reject" {
-			return Knowledge{}, ErrUsage("template_violation",
-				tmpl.Name+" does not meet its template:\n  - "+strings.Join(violations, "\n  - "),
-				templateViolationFix(tmpl.Name, violations))
+		if err := enforceTemplate(tmpl, violations); err != nil {
+			return Knowledge{}, err
 		}
 	}
 	if err := c.checkWrite(ctx, ProposedWrite{
@@ -785,22 +746,6 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 				Fix: "trellis knowledge show " + doc.Slug,
 			}
 		}
-		// Validate Template if provided
-		if in.Template != nil {
-			validTypes := Templates()
-			isValid := false
-			for _, t := range validTypes {
-				if t == *in.Template {
-					isValid = true
-					break
-				}
-			}
-			if !isValid {
-				return ErrUsage("unknown_template", "unknown template type "+*in.Template,
-					"trellis knowledge new --template "+*in.Template)
-			}
-		}
-
 		fields := map[string]string{}
 		if in.Body != nil {
 			fields["body"] = *in.Body
@@ -874,29 +819,26 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		if in.Sources != nil {
 			fm.Sources = cleanSources(*in.Sources)
 		}
-		// Validate template if document has one
+		// The result must satisfy its template, the one it keeps or the one
+		// this edit switches to. A template that no longer exists is only
+		// an error when this edit names it; otherwise the entry stays
+		// editable and lint reports it.
 		if fm.Template != "" {
-			violations, err := c.validateTemplateContent(ctx, projectID, fm.Template, fm.Title, body, fm.Sources, fm.Extra)
-			if err != nil {
+			tmpl, err := c.templateNamed(fm.Template)
+			switch {
+			case err == nil:
+				problems, err := c.templateProblems(tx, projectID, tmpl, frontmatterFields(fm), body, true)
+				if err != nil {
+					return err
+				}
+				if err := enforceTemplate(tmpl, problems); err != nil {
+					return err
+				}
+				templateWarnings = problems
+			case in.Template == nil && isCode(err, "unknown_template"):
+				templateWarnings = []string{"no template " + fm.Template + "; its rules were not checked"}
+			default:
 				return err
-			}
-			if len(violations) > 0 {
-				// Load template to check enforce mode
-				templatesDirPath, err := c.templatesDir()
-				if err != nil {
-					return err
-				}
-				tmpl, err := loadTemplate(templatesDirPath, fm.Template)
-				if err != nil {
-					return err
-				}
-				if tmpl.Enforce == "reject" {
-					return ErrUsage("template_violation",
-						tmpl.Name+" does not meet its template:\n  - "+strings.Join(violations, "\n  - "),
-						templateViolationFix(tmpl.Name, violations))
-				}
-				// warn mode: store warnings to return to caller
-				templateWarnings = violations
 			}
 		}
 
