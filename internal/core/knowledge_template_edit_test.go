@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"os"
 	"slices"
 	"strings"
@@ -177,5 +178,52 @@ func TestLintReportsTemplateProblemsFromHandEdits(t *testing.T) {
 	}
 	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "gone") {
 		t.Errorf("warnings = %v", got.Warnings)
+	}
+}
+
+// Set writes and removes the fields a template asks for; built-in fields
+// have their own options.
+func TestEditSetsTemplateFields(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Owned", Body: "x\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.EditKnowledgeFields(t.Context(), p.ID, doc.Slug, KnowledgeEdit{
+		Set: map[string]string{"owner": "alice"}, IfVersion: &doc.Version,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(got.Path); !strings.Contains(string(raw), "owner: alice") {
+		t.Fatalf("file after set:\n%s", raw)
+	}
+	got, err = c.EditKnowledgeFields(t.Context(), p.ID, doc.Slug, KnowledgeEdit{
+		Set: map[string]string{"owner": ""}, IfVersion: &got.Version,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(got.Path); strings.Contains(string(raw), "owner:") {
+		t.Fatalf("file after removal:\n%s", raw)
+	}
+	_, err = c.EditKnowledgeFields(t.Context(), p.ID, doc.Slug, KnowledgeEdit{
+		Set: map[string]string{"template": "decision"}, IfVersion: &got.Version,
+	})
+	if code := errCode(t, err); code != "reserved_field" {
+		t.Errorf("set template: %v", err)
+	}
+}
+
+// A refusal lists each problem apart from its one-sentence message.
+func TestTemplateViolationListsProblems(t *testing.T) {
+	c, p, _ := kbCore(t)
+	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Bare", Template: "decision", Body: "x\n"})
+	e, ok := errors.AsType[*Error](err)
+	if !ok || e.Code != "template_violation" || strings.Contains(e.Msg, "\n") || len(e.Problems) < 2 {
+		t.Fatalf("err = %#v", err)
+	}
+	if !strings.Contains(err.Error(), "\n  - missing required field sources") {
+		t.Errorf("Error() = %q, want the problems listed for the terminal", err.Error())
 	}
 }

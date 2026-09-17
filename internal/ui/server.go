@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net"
@@ -838,6 +839,8 @@ type knowledgeRequest struct {
 	// the only way to create from such a template would be the CLI.
 	Sources []string          `json:"sources"`
 	Set     map[string]string `json:"set"`
+	// Dir places the entry in a vault directory; empty is the root.
+	Dir string `json:"dir"`
 }
 type labelMergeRequest struct {
 	From string `json:"from"`
@@ -1157,7 +1160,7 @@ func (s *Server) handleKnowledgeCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	doc, err := s.write.CreateKnowledge(ctx, p.ID, core.NewKnowledge{
 		Title: in.Title, Body: in.Body, Summary: in.Summary, Template: in.Template,
-		Board: b.Name, Sources: in.Sources, Set: in.Set,
+		Board: b.Name, Sources: in.Sources, Set: in.Set, Dir: in.Dir,
 	})
 	if err != nil {
 		s.coreError(w, err)
@@ -1176,7 +1179,11 @@ type knowledgePatch struct {
 	Private  *bool     `json:"private"`
 	Tags     *[]string `json:"tags"`
 	Labels   *[]string `json:"labels"`
-	Version  *int64    `json:"version"`
+	// Sources and Set let a browser meet the template it switches to in the
+	// same save.
+	Sources *[]string         `json:"sources"`
+	Set     map[string]string `json:"set"`
+	Version *int64            `json:"version"`
 }
 
 func (s *Server) handleKnowledgeEdit(w http.ResponseWriter, r *http.Request) {
@@ -1195,6 +1202,7 @@ func (s *Server) handleKnowledgeEdit(w http.ResponseWriter, r *http.Request) {
 	doc, err := s.write.EditKnowledgeFields(ctx, p.ID, r.PathValue("slug"), core.KnowledgeEdit{
 		Title: in.Title, Summary: in.Summary, Body: in.Body, IfVersion: in.Version,
 		Template: in.Template, Private: in.Private, Tags: in.Tags, Labels: in.Labels,
+		Sources: in.Sources, Set: in.Set,
 	})
 	if err != nil {
 		s.coreError(w, err)
@@ -1472,21 +1480,31 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.MarshalWrite(w, value)
 }
 
+// coreError answers with a core error's message, code and problems. The
+// error's fix is a CLI command, which means nothing to a browser user, so it
+// is left out.
 func (s *Server) coreError(w http.ResponseWriter, err error) {
-	status := http.StatusInternalServerError
-	if e, ok := err.(*core.Error); ok {
-		switch e.Exit {
-		case 2:
-			status = http.StatusBadRequest
-		case 3:
-			status = http.StatusNotFound
-		case 4:
-			status = http.StatusConflict
-		case 5:
-			status = http.StatusForbidden
-		}
+	e, ok := errors.AsType[*core.Error](err)
+	if !ok {
+		s.error(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	s.error(w, status, err.Error())
+	status := http.StatusInternalServerError
+	switch e.Exit {
+	case 2:
+		status = http.StatusBadRequest
+	case 3:
+		status = http.StatusNotFound
+	case 4:
+		status = http.StatusConflict
+	case 5:
+		status = http.StatusForbidden
+	}
+	body := map[string]any{"error": e.Msg, "code": e.Code}
+	if len(e.Problems) > 0 {
+		body["problems"] = e.Problems
+	}
+	writeJSON(w, status, body)
 }
 
 // ListenAndServe starts the HTTP server.

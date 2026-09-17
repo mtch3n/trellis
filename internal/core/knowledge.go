@@ -6,6 +6,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -114,11 +115,15 @@ type KnowledgeEdit struct {
 	// Artifacts, when non-nil, replaces the entry's artifact list.
 	Artifacts *[]string
 	// Sources, when non-nil, replaces the entry's source list.
-	Sources   *[]string
-	Template  *string
-	Private   *bool
-	Tags      *[]string
-	Labels    *[]string
+	Sources  *[]string
+	Template *string
+	Private  *bool
+	Tags     *[]string
+	Labels   *[]string
+	// Set writes these frontmatter fields, the ones a template may ask for;
+	// an empty value removes the field. Built-in fields have their own
+	// options and are refused here.
+	Set       map[string]string
 	IfVersion *int64
 }
 
@@ -818,6 +823,21 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		}
 		if in.Sources != nil {
 			fm.Sources = cleanSources(*in.Sources)
+		}
+		for _, name := range slices.Sorted(maps.Keys(in.Set)) {
+			if flag, reserved := reservedFrontmatterFields[name]; reserved {
+				return ErrUsage("reserved_field",
+					`"`+name+`" is a built-in frontmatter field and cannot be set with --set`,
+					"use "+flag+" instead")
+			}
+			if in.Set[name] == "" {
+				delete(fm.Extra, name)
+				continue
+			}
+			if fm.Extra == nil {
+				fm.Extra = map[string]any{}
+			}
+			fm.Extra[name] = in.Set[name]
 		}
 		// The result must satisfy its template, the one it keeps or the one
 		// this edit switches to. A template that no longer exists is only

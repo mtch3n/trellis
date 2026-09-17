@@ -2,8 +2,10 @@ package cli
 
 import (
 	"encoding/json/v2"
+	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/mtch3n/trellis/internal/core"
@@ -53,5 +55,17 @@ func TestKnowledgeEditReplacesAndClearsTagsAndLabels(t *testing.T) {
 	got = edit("--tag=", "--label=")
 	if len(got.Tags) != 0 || len(got.Labels) != 0 {
 		t.Fatalf("clear: tags %v, labels %v", got.Tags, got.Labels)
+	}
+}
+
+// knowledge edit --set writes a template field.
+func TestKnowledgeEditSetsAField(t *testing.T) {
+	projectEnv(t)
+	runCmd(t, "knowledge", "new", "--title", "Owned")
+	runCmd(t, "knowledge", "edit", "owned", "--set", "owner=alice", "--if-version", "1")
+	got := showEntry(t, "owned")
+	raw, err := os.ReadFile(got.Path)
+	if err != nil || !strings.Contains(string(raw), "owner: alice") {
+		t.Fatalf("file = %s, %v", raw, err)
 	}
 }

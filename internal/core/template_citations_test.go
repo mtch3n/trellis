@@ -10,7 +10,7 @@ func TestDecisionTemplateRejectsWithNoSources(t *testing.T) {
 	c, p, _ := kbCore(t)
 	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Pick a queue", Template: "decision"})
 	e, ok := errors.AsType[*Error](err)
-	if !ok || e.Code != "template_violation" || !strings.Contains(e.Msg, "sources") {
+	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "sources") {
 		t.Fatalf("err = %v, want template_violation naming sources", err)
 	}
 	if !strings.Contains(e.Fix, "template show decision") {
@@ -80,7 +80,7 @@ func TestFindingTemplateRejectsWithNoSources(t *testing.T) {
 	c, p, _ := kbCore(t)
 	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Flaky test", Template: "finding"})
 	e, ok := errors.AsType[*Error](err)
-	if !ok || e.Code != "template_violation" || !strings.Contains(e.Msg, "sources") {
+	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "sources") {
 		t.Fatalf("err = %v, want template_violation naming sources", err)
 	}
 }

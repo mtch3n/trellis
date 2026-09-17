@@ -327,12 +327,12 @@ func newKnowledgeHealthCmd() *cobra.Command {
 
 func newKnowledgeEditCmd() *cobra.Command {
 	var body TextValue
-	var sources, tags, labels []string
+	var sources, tags, labels, setFlags []string
 	var template, private string
 	var ifVersion int64
 	cmd := &cobra.Command{
 		Use:   "edit <slug>",
-		Short: "Replace an entry's body, or its sources, or both",
+		Short: "Replace an entry's body, sources, template, flags or fields",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			setSources := cmd.Flags().Changed("source")
@@ -340,13 +340,17 @@ func newKnowledgeEditCmd() *cobra.Command {
 			setLabels := cmd.Flags().Changed("label")
 			setTemplate := cmd.Flags().Changed("template")
 			setPrivate := cmd.Flags().Changed("private")
-			if !body.Changed() && !setSources && !setTags && !setLabels && !setTemplate && !setPrivate {
+			fields, err := parseSetFlags(setFlags)
+			if err != nil {
+				return err
+			}
+			if !body.Changed() && !setSources && !setTags && !setLabels && !setTemplate && !setPrivate && len(fields) == 0 {
 				return core.ErrUsage("missing_body",
-					"--body replaces the whole body; --source replaces the source list",
+					"name what to change: --body, --source, --template, --tag, --label, --private or --set",
 					"trellis knowledge edit "+args[0]+" --body @notes.md")
 			}
 			return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
-				edit := core.KnowledgeEdit{}
+				edit := core.KnowledgeEdit{Set: fields}
 				if body.Changed() {
 					b := body.String()
 					edit.Body = &b
@@ -402,7 +406,8 @@ func newKnowledgeEditCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&sources, "source", nil, "replace the source list; repeatable")
 	cmd.Flags().StringArrayVar(&tags, "tag", nil, "replace the tag list; repeatable")
 	cmd.Flags().StringArrayVar(&labels, "label", nil, "replace the label list; repeatable")
-	cmd.Flags().StringVar(&template, "template", "", "change the template")
+	cmd.Flags().StringVar(&template, "template", "", "change the template; \"\" for none")
+	cmd.Flags().StringArrayVar(&setFlags, "set", nil, "name=value, repeatable; writes a field the template asks for (empty value removes it)")
 	cmd.Flags().StringVar(&private, "private", "", "mark private (true|false)")
 	cmd.Flags().Int64Var(&ifVersion, "if-version", 0, "the version you read; required (knowledge show --json)")
 	return cmd

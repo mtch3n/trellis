@@ -26,7 +26,7 @@ func TestVerifyRejectsWhenSourcesIsMissing(t *testing.T) {
 
 	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Claim", Template: "cited"})
 	e, ok := errors.AsType[*Error](err)
-	if !ok || e.Code != "template_violation" || !strings.Contains(e.Msg, "sources") {
+	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "sources") {
 		t.Fatalf("err = %v, want template_violation naming sources", err)
 	}
 }
@@ -39,7 +39,7 @@ func TestVerifyRejectsAnUnresolvedCardAddress(t *testing.T) {
 		Title: "Claim", Template: "cited", Sources: []string{"/XPSCTL/cards/XPSCTL-999"},
 	})
 	e, ok := errors.AsType[*Error](err)
-	if !ok || e.Code != "template_violation" || !strings.Contains(e.Msg, "XPSCTL-999") {
+	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "XPSCTL-999") {
 		t.Fatalf("err = %v, want template_violation naming the unresolved card", err)
 	}
 }
@@ -52,7 +52,7 @@ func TestVerifyRejectsAnUnresolvedWikilink(t *testing.T) {
 		Title: "Claim", Template: "cited", Sources: []string{"[[missing]]"},
 	})
 	e, ok := errors.AsType[*Error](err)
-	if !ok || e.Code != "template_violation" || !strings.Contains(e.Msg, "[[missing]]") {
+	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "[[missing]]") {
 		t.Fatalf("err = %v, want template_violation naming the dangling wikilink", err)
 	}
 }
@@ -104,7 +104,7 @@ func TestVerifyBodyRejectsADanglingLink(t *testing.T) {
 		Title: "Claim", Template: "linked", Body: "# Claim\n\nSee [[missing]].\n",
 	})
 	e, ok := errors.AsType[*Error](err)
-	if !ok || e.Code != "template_violation" || !strings.Contains(e.Msg, "[[missing]]") {
+	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "[[missing]]") {
 		t.Fatalf("err = %v, want template_violation naming the dangling body link", err)
 	}
 }
@@ -149,7 +149,7 @@ func TestVerifyRejectsAnAddressShapedButMalformedSource(t *testing.T) {
 		Title: "Claim", Template: "cited", Sources: []string{"/XPSCTL/cards/not-a-ref"},
 	})
 	e, ok := errors.AsType[*Error](err)
-	if !ok || e.Code != "template_violation" || !strings.Contains(e.Msg, "not-a-ref") {
+	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "not-a-ref") {
 		t.Fatalf("err = %v, want template_violation naming the malformed address", err)
 	}
 }

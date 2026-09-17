@@ -320,9 +320,9 @@ func enforceTemplate(t Template, problems []string) error {
 	if len(problems) == 0 || t.Enforce != "reject" {
 		return nil
 	}
-	return ErrUsage("template_violation",
-		t.Name+" does not meet its template:\n  - "+strings.Join(problems, "\n  - "),
-		templateViolationFix(t.Name, problems))
+	return &Error{Code: "template_violation", Exit: 2,
+		Msg: t.Name + " does not meet its template", Problems: problems,
+		Fix: templateViolationFix(t.Name, problems)}
 }
 
 // frontmatterFields is a document's frontmatter as template fields: every

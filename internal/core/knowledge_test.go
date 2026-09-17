@@ -535,7 +535,7 @@ func TestCreateKnowledgeRejectsAMissingRequiredField(t *testing.T) {
 
 	_, err = c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "X", Template: "strict"})
 	e, ok := errors.AsType[*Error](err)
-	if !ok || e.Code != "template_violation" || !strings.Contains(e.Msg, "owner") {
+	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "owner") {
 		t.Fatalf("err = %v, want template_violation naming owner", err)
 	}
 	docs, err := c.ListKnowledge(t.Context(), p.ID, KnowledgeFilter{})
@@ -588,7 +588,7 @@ func TestCreateKnowledgeChecksSectionsOnlyWhenBodyIsSupplied(t *testing.T) {
 		Title: "Missing a section", Template: "sectioned", Body: "# Missing a section\n\nNo headings here.\n",
 	})
 	e, ok := errors.AsType[*Error](err)
-	if !ok || e.Code != "template_violation" || !strings.Contains(e.Msg, "Steps") {
+	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "Steps") {
 		t.Fatalf("err = %v, want template_violation naming Steps", err)
 	}
 }

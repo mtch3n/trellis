@@ -186,8 +186,11 @@ func run() int {
 
 	if te, ok := errors.AsType[*core.Error](err); ok {
 		if forceJSON || !isTTY() {
-			b, _ := json.Marshal(map[string]any{"error": map[string]string{
-				"code": te.Code, "message": te.Msg, "fix": te.Fix}})
+			body := map[string]any{"code": te.Code, "message": te.Msg, "fix": te.Fix}
+			if len(te.Problems) > 0 {
+				body["problems"] = te.Problems
+			}
+			b, _ := json.Marshal(map[string]any{"error": body})
 			fmt.Fprintln(os.Stderr, string(b))
 		} else {
 			fmt.Fprintln(os.Stderr, "error: "+te.Error())
