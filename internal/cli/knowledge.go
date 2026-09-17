@@ -142,6 +142,7 @@ func withholdContent(docs []core.Knowledge) {
 		docs[i].BodyMD = ""
 		if docs[i].Private {
 			docs[i].Summary, docs[i].Recap = "", nil
+			docs[i].Fields = make(map[string]any)
 		}
 	}
 }

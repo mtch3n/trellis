@@ -1481,6 +1481,7 @@ func withoutContent(docs []core.Knowledge) {
 		if docs[i].Private {
 			docs[i].Summary = ""
 			docs[i].Recap = nil
+			docs[i].Fields = make(map[string]any)
 		}
 	}
 }

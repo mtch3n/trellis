@@ -268,3 +268,58 @@ func TestABadPrivateValueNamesTheFileInEveryCommand(t *testing.T) {
 		t.Errorf("message %q does not name %s", coreErr.Msg, path)
 	}
 }
+
+func TestKnowledgeFieldsInJSON(t *testing.T) {
+	projectEnv(t)
+
+	// Create a public entry with fields
+	out := runCmd(t, "knowledge", "new", "--title", "Public entry",
+		"--set", "owner=alice", "--set", "severity=high", "--json")
+
+	var doc core.Knowledge
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("json.Unmarshal: %v\n%s", err, out)
+	}
+	if doc.Fields == nil {
+		t.Error("Fields should be non-nil")
+	}
+	if doc.Fields["owner"] != "alice" {
+		t.Errorf("Fields[owner] = %v, want alice", doc.Fields["owner"])
+	}
+}
+
+func TestKnowledgeFieldsPrivateListJSON(t *testing.T) {
+	projectEnv(t)
+
+	// Create a private entry with fields
+	runCmd(t, "knowledge", "new", "--title", "Secret entry",
+		"--private", "--set", "owner=alice", "--set", "severity=high")
+
+	// List entries with JSON output
+	out := runCmd(t, "knowledge", "ls", "--json")
+
+	var result map[string][]core.Knowledge
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("json.Unmarshal: %v\n%s", err, out)
+	}
+
+	docs, ok := result["knowledge"]
+	if !ok {
+		t.Fatalf("response missing 'knowledge' key: %s", out)
+	}
+
+	var secret core.Knowledge
+	for _, doc := range docs {
+		if doc.Title == "Secret entry" {
+			secret = doc
+			break
+		}
+	}
+
+	if secret.Fields == nil {
+		t.Error("Fields should be non-nil even for private entries in list")
+	}
+	if len(secret.Fields) != 0 {
+		t.Errorf("private entry Fields = %v, want empty map", secret.Fields)
+	}
+}
