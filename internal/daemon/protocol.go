@@ -24,9 +24,9 @@ type Request struct {
 	Token        string `json:"token,omitempty"`
 	Query        string `json:"query,omitempty"`
 	ProjectID    string `json:"project_id,omitempty"`
-	AllProjects  bool   `json:"all_projects,omitempty"`
+	AllProjects  bool   `json:"all_projects,omitzero"`
 	Label        string `json:"label,omitempty"`
-	Limit        int    `json:"limit,omitempty"`
+	Limit        int    `json:"limit,omitzero"`
 }
 
 type Response struct {

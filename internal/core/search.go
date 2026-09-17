@@ -121,7 +121,7 @@ type SearchHit struct {
 	Title      string `db:"title" json:"title"`
 	Project    string `db:"project" json:"project"`
 	Detail     string `db:"detail" json:"detail,omitempty"` // column for cards, type for entries
-	Unreviewed bool   `db:"unreviewed" json:"unreviewed,omitempty"`
+	Unreviewed bool   `db:"unreviewed" json:"unreviewed,omitzero"`
 }
 
 // SearchOpts narrows or widens a search.

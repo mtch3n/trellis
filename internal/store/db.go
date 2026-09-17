@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"net/url"
+	"os"
 	"sync"
 
 	"github.com/gofrs/flock"
@@ -65,6 +66,40 @@ func Open(path string) (*sqlx.DB, error) {
 	if err := goose.Up(db.DB, "migrations"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	return db, nil
+}
+
+// OpenCurrent connects to an existing database that is already at this
+// binary's schema version. It never creates a file or migrates one: side
+// paths that run on every command, like the invocation log, use it, so that
+// `trellis --help` from a newer build is never what upgrades a database.
+func OpenCurrent(path string) (*sqlx.DB, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
+	db, err := connect(path)
+	if err != nil {
+		return nil, err
+	}
+	current, err := goose.GetDBVersion(db.DB)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	known, err := goose.CollectMigrations("migrations", 0, goose.MaxVersion)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	last, err := known.Last()
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	if current != last.Version {
+		db.Close()
+		return nil, fmt.Errorf("%s is at schema version %d; this binary uses %d", path, current, last.Version)
 	}
 	return db, nil
 }

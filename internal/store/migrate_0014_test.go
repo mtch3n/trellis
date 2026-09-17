@@ -285,7 +285,24 @@ func TestMigration0014GoesDownAndUpAgain(t *testing.T) {
 	if err := db.Get(&notes, `SELECT count(*) FROM note`); err != nil || notes != 2 {
 		t.Errorf("notes after down = %d, %v", notes, err)
 	}
+	// A binary from before 0014 finds its projects by these columns, and
+	// creates a new project when none matches: they must come back as they were.
+	var bindings []string
+	if err := db.Select(&bindings,
+		`SELECT id || ' ' || identity_kind || ' ' || identity_value || ' ' || root_path FROM project ORDER BY id`); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"p1 path /src/alpha /src/alpha", "p2 remote github.com/x/app /src/app"}; !slices.Equal(bindings, want) {
+		t.Errorf("bindings after down = %v, want %v", bindings, want)
+	}
+	var unbound int
+	if err := db.Get(&unbound, `SELECT count(*) FROM event WHERE action = 'unbound'`); err != nil || unbound != 0 {
+		t.Errorf("unbound events after down = %d, %v", unbound, err)
+	}
 	migrateUp(t, db)
+	if err := db.Get(&unbound, `SELECT count(*) FROM event WHERE action = 'unbound'`); err != nil || unbound != 4 {
+		t.Errorf("unbound events after up again = %d, %v", unbound, err)
+	}
 	var comments int
 	if err := db.Get(&comments, `SELECT count(*) FROM comment`); err != nil || comments != 2 {
 		t.Errorf("comments after up again = %d, %v", comments, err)

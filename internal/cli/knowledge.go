@@ -108,7 +108,7 @@ func newKnowledgeShowCmd() *cobra.Command {
 				view := struct {
 					core.Knowledge
 					Backlinks  []core.Backlink `json:"backlinks,omitempty"`
-					Unreviewed bool            `json:"unreviewed,omitempty"`
+					Unreviewed bool            `json:"unreviewed,omitzero"`
 				}{Knowledge: doc, Backlinks: back, Unreviewed: doc.Unreviewed(time.Now().UnixMilli())}
 				return Emit(cmd, view, func() string {
 					var b strings.Builder

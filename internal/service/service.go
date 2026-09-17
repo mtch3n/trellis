@@ -32,7 +32,7 @@ type State struct {
 	Installed bool   `json:"installed"`
 	Enabled   bool   `json:"enabled"`
 	Running   bool   `json:"running"`
-	PID       int    `json:"pid,omitempty"`
+	PID       int    `json:"pid,omitzero"`
 	ManagedBy string `json:"managed_by"`
 	UnitPath  string `json:"unit_path,omitempty"`
 	// Exec is the program path recorded in the installed unit. It drifts from
