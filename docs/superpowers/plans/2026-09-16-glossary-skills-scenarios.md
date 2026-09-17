@@ -89,7 +89,7 @@ What the baseline says the skills must add, and nothing more:
 
 | Scenario | Baseline | With skills |
 |---|---|---|
-| U1 | **Fail.** Found the glossary through `trellis search kb` and saw "kb" listed as Not, yet shipped `--kb-dir`: "I kept the name you gave and used 'vault' in the help text… If you'd rather match the glossary, I can rename it." | |
-| U2 | **Pass.** Searched for "strip", found the glossary, and titled the card "Re-till bed 4 in the north plot before planting", quoting the user's wording in the body. | |
+| U1 | **Fail.** Found the glossary through `trellis search kb` and saw "kb" listed as Not, yet shipped `--kb-dir`: "I kept the name you gave and used 'vault' in the help text… If you'd rather match the glossary, I can rename it." | **Pass.** Ran `knowledge ls --template glossary`, read the vault row, and stopped before editing: "Should I name the flag `--vault-dir` instead? … If you still want `--kb-dir`, I'll use that name and note that the glossary disagrees." |
+| U2 | **Pass.** Searched for "strip", found the glossary, and titled the card "Re-till bed 4 in the north plot before planting", quoting the user's wording in the body. | **Pass.** Went straight to `knowledge ls --template glossary` (5 commands; the baseline needed 14), titled the card "Re-till bed 4 in the north plot before planting", and did not ask: "You were describing the work rather than giving an exact name." |
 | K1 | **Pass.** Read the entry, changed only the remark row to comment with `--if-version`, moved "remark" into Not, kept the other rows, did not pin. | |
 | K2 | **Mostly pass.** Found the `glossary` template by exploring and used only terms the README defines. Did not pin, and offered to. **Miss:** wrote the entry first and raised its judgment call ("plan" vs "rotation") only afterwards. | |
