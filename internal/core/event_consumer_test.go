@@ -96,7 +96,7 @@ func TestAckRefusesASeqPastTheNewest(t *testing.T) {
 // A single FixedClock timestamps every write identically, so PruneHistory's
 // timestamp cutoff cannot express "prune some but not all" within one Core.
 // This test opens a second Core on the same database, one tick later, the
-// same technique internal/core/lease_test.go:474-478 already uses to test
+// same technique internal/core/claim_test.go already uses to test
 // time-dependent behavior against a shared connection.
 func TestEventGapAfterPartialPruning(t *testing.T) {
 	c, p, b := vaultCore(t)

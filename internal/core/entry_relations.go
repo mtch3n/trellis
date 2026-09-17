@@ -228,7 +228,7 @@ func dedupe(in []string) []string {
 	return out
 }
 
-// resolveEntryStubs backfills inbound links that were left dangling because the
+// resolveEntryStubs backfills inbound links that were left as stubs because the
 // target did not exist when they were written. Creating an entry is what turns
 // a stub into an edge: without this, a reference written ahead of its target —
 // or one orphaned by a delete and then re-created — would stay a diagnostic
@@ -259,8 +259,8 @@ func (c *Core) resolveEntryStubs(tx *sqlx.Tx, entry *Entry) error {
 		if err != nil {
 			return err
 		}
-		// Only the entry just created may claim a stub. Any other resolution
-		// belongs to a link that was never dangling in the first place.
+		// Only the entry just created may resolve a stub. Any other resolution
+		// belongs to a link that was never a stub in the first place.
 		if id, ok := toID.(string); !ok || id != entry.ID {
 			continue
 		}

@@ -150,7 +150,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]Diagnostic, error)
 			}
 			// Stubs count as outbound: an entry whose only link is broken is
 			// reported as a stub, and reporting it as an orphan too would be
-			// two diagnostics for one fix. An attached artifact is not a
+			// two diagnostics for one fix. A linked artifact is not a
 			// connection to another entry or card, so it does not count.
 			var outbound int
 			if err := tx.Get(&outbound,

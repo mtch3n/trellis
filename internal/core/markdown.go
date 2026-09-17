@@ -19,7 +19,7 @@ type Frontmatter struct {
 	Template string `yaml:"template,omitempty"`
 	Status   string `yaml:"status,omitempty"`
 	Summary  string `yaml:"summary,omitempty"`
-	// Provenance names the ingestion path, not the author:
+	// Provenance names how the entry was ingested, not the author:
 	// authored, prompted or extracted. Empty means unrecorded.
 	Provenance string `yaml:"provenance,omitempty"`
 	// Private is the author's declaration that this body must not be
@@ -28,15 +28,15 @@ type Frontmatter struct {
 	// Typed bool on purpose — a non-boolean value is a parse failure rather
 	// than a silent false, because failing open here cannot be undone.
 	Private bool     `yaml:"private,omitempty"`
-	Board   string   `yaml:"board,omitempty"` // association, never ownership (§10.1)
+	Board   string   `yaml:"board,omitempty"` // association, never a claim (§10.1)
 	Tags    []string `yaml:"tags,omitempty"`
 	Labels  []string `yaml:"labels,omitempty"`
-	// Artifacts names the files attached to this entry, by stored artifact
+	// Artifacts names the files linked to this entry, by stored artifact
 	// name. The list is the record; link rows are derived from it.
 	Artifacts []string `yaml:"artifacts,omitempty"`
-	// Sources cites what a claim in this entry is based on: a URL, a
+	// Sources is the evidence for what this entry says: a URL, a
 	// path:lines pointer, a card ref, a wikilink, an absolute address, or
-	// free prose. Free-form by design — recording that a claim was checked
+	// free prose. Free-form by design — recording that the entry was checked
 	// against something, not that the something is true. A template's
 	// resolve rule (TRELLIS-35) checks only the internal-reference forms
 	// (wikilinks and absolute addresses); everything else passes unchecked.

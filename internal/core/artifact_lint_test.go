@@ -65,7 +65,7 @@ func TestLintIsQuietAboutAResolvedArtifact(t *testing.T) {
 	}
 }
 
-// Orphan means disconnected from other entries and cards. A file attached to
+// Orphan means disconnected from other entries and cards. A file linked to
 // an entry does not connect it to anything, and the orphan fix says so.
 func TestAnEntryLinkedOnlyToAnArtifactIsStillAnOrphan(t *testing.T) {
 	c, p, _ := vaultCore(t)

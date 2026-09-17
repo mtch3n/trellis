@@ -53,7 +53,7 @@ func TestResolveRejectsAnUnresolvedWikilink(t *testing.T) {
 	})
 	e, ok := errors.AsType[*Error](err)
 	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "[[missing]]") {
-		t.Fatalf("err = %v, want template_violation naming the dangling wikilink", err)
+		t.Fatalf("err = %v, want template_violation naming the stub wikilink", err)
 	}
 }
 
@@ -105,7 +105,7 @@ func TestResolveBodyRejectsADanglingLink(t *testing.T) {
 	})
 	e, ok := errors.AsType[*Error](err)
 	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "[[missing]]") {
-		t.Fatalf("err = %v, want template_violation naming the dangling body link", err)
+		t.Fatalf("err = %v, want template_violation naming the stub body link", err)
 	}
 }
 
@@ -115,7 +115,7 @@ func TestNoteTemplateStillAcceptsADanglingBodyLink(t *testing.T) {
 		Title: "Notes", Body: "# Notes\n\nSee [[not-written-yet]].\n",
 	})
 	if err != nil {
-		t.Fatalf("a template with no resolve rule must not block a dangling link: %v", err)
+		t.Fatalf("a template with no resolve rule must not block a stub link: %v", err)
 	}
 	if entry.Slug != "notes" {
 		t.Errorf("slug = %q", entry.Slug)

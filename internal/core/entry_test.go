@@ -180,7 +180,7 @@ func TestDeleteEntryRemovesFileAndStubsInboundLinks(t *testing.T) {
 	}
 	diagnostics, _ := c.Lint(t.Context(), p.ID)
 	if len(diagnostics) != 1 || diagnostics[0].Kind != "stub" {
-		t.Errorf("diagnostics = %+v, want the dangling reference reported as a stub", diagnostics)
+		t.Errorf("diagnostics = %+v, want the unresolved reference reported as a stub", diagnostics)
 	}
 	if _, err := os.Stat(filepath.Dir(target.Path)); err != nil {
 		t.Errorf("the vault directory should survive: %v", err)

@@ -70,7 +70,7 @@ type SearchConfig struct {
 	Vector VectorSearchConfig `yaml:"vector"`
 }
 
-// HistoryConfig controls revision retention for knowledge entries and cards.
+// HistoryConfig controls revision retention for entries and cards.
 type HistoryConfig struct {
 	// Keep is a pointer because zero is a real, meaningful value -- it turns
 	// capture off -- and a plain int cannot tell that apart from "absent from
@@ -1285,7 +1285,7 @@ func writeRepoRoot(path string, root *yaml.Node) error {
 // writeFileAtomic writes data to path via a temp file and rename, so a
 // process killed mid-write never leaves a torn .trellis.yaml. This is
 // separate from internal/atomicfile.Write: a repository config file is not
-// knowledge content, has no database row to keep in sync with, and is
+// an entry's body, has no database row to keep in sync with, and is
 // deliberately overwritten on every set/unset rather than written
 // no-clobber-once.
 func writeFileAtomic(path string, data []byte) error {

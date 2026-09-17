@@ -467,7 +467,7 @@ func (m *merger) rewriteCardTargets(prefix string) error {
 	return nil
 }
 
-// resolveStubs points dangling links at whatever they name now. SRC's entries
+// resolveStubs points stub links at whatever they name now. SRC's entries
 // arrived under DST, so a link from DST that waited for one of them resolves,
 // and so does an address to DST written anywhere before its entry arrived.
 func (m *merger) resolveStubs() error {

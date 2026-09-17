@@ -252,7 +252,7 @@ func (s *fileStage) rollback() error {
 // transaction that depended on them has committed. Only after commit is it
 // safe to remove a move's source: if the process dies before this runs, the
 // row and the file agree (both still say "moved to to"), and the only cost is
-// a source file that outlives its row -- an extra link, not a dangling one.
+// a source file that outlives its row -- an extra file, not a missing one.
 func (s *fileStage) finalize() error {
 	var errs []error
 	for _, f := range s.finish {

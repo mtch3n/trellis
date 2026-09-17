@@ -671,7 +671,7 @@ func (c *Core) entryView(tx *sqlx.Tx, entry *Entry) error {
 type EntryFilter struct {
 	BoardID     string   // association only; entries with no board always match
 	Templates   []string // template values to keep; empty keeps all
-	Provenances []string // ingestion paths to keep; empty keeps all
+	Provenances []string // provenances to keep; empty keeps all
 	Tags        []string // every listed tag must be present; empty keeps all
 	Dir         string   // scope to this directory and its subtree; empty keeps everything
 }
@@ -1284,7 +1284,7 @@ func cleanSources(in []string) []string {
 	return out
 }
 
-// Provenances are the ingestion paths an entry can arrive by. The set is closed
+// Provenances are the ways an entry can arrive. The set is closed
 // for the same reason the label vocabulary is: a value invented mid-sentence is
 // a value nothing can be compared against, and comparing them is the whole
 // point of recording it.
