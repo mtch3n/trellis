@@ -119,7 +119,7 @@ func TestStopSelfManagedWaitsForProcessExit(t *testing.T) {
 		t.Skip("spawns a real subprocess")
 	}
 
-	root := t.TempDir()
+	root := shortRoot(t)
 	const shutdownDelay = 3 * time.Second
 
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperSlowDaemon$")

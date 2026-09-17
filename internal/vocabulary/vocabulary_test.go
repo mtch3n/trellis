@@ -172,6 +172,7 @@ func readAllowlist(t *testing.T) map[key]allowed {
 	lineNo := 0
 	for line := range strings.SplitSeq(string(raw), "\n") {
 		lineNo++
+		line = strings.TrimSuffix(line, "\r") // a Windows checkout may convert line endings
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}

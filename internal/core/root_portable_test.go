@@ -23,7 +23,14 @@ import (
 func TestACopiedRootActsOnlyOnItsOwnFiles(t *testing.T) {
 	ctx := context.Background()
 
-	rootA := filepath.Join(t.TempDir(), "a")
+	// macOS hands back /var as /private/var, and Windows a short 8.3 name, once
+	// a path is resolved; ArtifactFile resolves its result, so the roots must
+	// be resolved too before anything is compared against them.
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootA := filepath.Join(base, "a")
 	if err := os.MkdirAll(rootA, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +70,7 @@ func TestACopiedRootActsOnlyOnItsOwnFiles(t *testing.T) {
 	}
 	beforeA := snapshotTree(t, rootA)
 
-	rootB := filepath.Join(t.TempDir(), "b")
+	rootB := filepath.Join(base, "b")
 	if err := copyTree(rootB, rootA); err != nil {
 		t.Fatalf("copying root A to B: %v", err)
 	}

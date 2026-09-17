@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -420,6 +421,9 @@ func TestArtifactRouteRejectsCrossSite(t *testing.T) {
 // A name is only a lookup key, but it is echoed into Content-Disposition, so a
 // hostile one must not break the header.
 func TestAFilenameCannotBreakTheDispositionHeader(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip(`Windows file names cannot hold " or a newline, so no stored artifact can carry this name`)
+	}
 	s, c, p := artifactTestServer(t)
 	base := storeArtifact(t, c, p.ID, "base.png", pngBytes)
 	evil := "evil\".png\r\nX-Injected: yes"

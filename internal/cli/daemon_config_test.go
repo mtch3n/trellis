@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -28,7 +29,7 @@ func TestDaemonAppliesGlobalClaimTTLAndCardRequirements(t *testing.T) {
 	if testing.Short() {
 		t.Skip("spins up a real HTTP server")
 	}
-	root := t.TempDir()
+	root := shortRoot(t)
 	t.Setenv("TRELLIS_HOME", root)
 	t.Setenv("TRELLIS_PROJECT", "")
 
@@ -130,4 +131,17 @@ func TestDaemonAppliesGlobalClaimTTLAndCardRequirements(t *testing.T) {
 	if status != http.StatusBadRequest || !strings.Contains(string(body), `"code":"tag_required"`) {
 		t.Errorf("card create without a tag: status %d, body %s, want 400 tag_required", status, body)
 	}
+}
+
+// shortRoot is a temporary storage root short enough to hold the daemon's
+// Unix socket: macOS caps a socket path at 104 bytes, and t.TempDir's path
+// carries the test's whole name.
+func shortRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "trd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
 }
