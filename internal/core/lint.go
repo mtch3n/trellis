@@ -7,7 +7,6 @@ import (
 	"errors"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
@@ -93,19 +92,8 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 				return err
 			}
 			for _, name := range artifactStubs {
-				var matches int
-				if err := tx.Get(&matches,
-					`SELECT COUNT(*) FROM artifact WHERE project_id = ? AND name = ?`,
-					d.ProjectID, name); err != nil {
-					return err
-				}
-				f := LintFinding{Kind: "missing_artifact", Doc: d.Ref, Ref: name,
-					Fix: "trellis artifact add <file>   # no artifact is named " + name}
-				if matches > 1 {
-					f.Fix = "trellis artifact ls   # " + strconv.Itoa(matches) +
-						" artifacts are named " + name + "; remove the extra ones"
-				}
-				out = append(out, f)
+				out = append(out, LintFinding{Kind: "missing_artifact", Doc: d.Ref, Ref: name,
+					Fix: "trellis artifact add <file>   # no artifact is named " + name})
 			}
 
 			raw, err := os.ReadFile(d.Path)

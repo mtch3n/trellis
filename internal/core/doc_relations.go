@@ -275,19 +275,18 @@ func (c *Core) resolveDocStubs(tx *sqlx.Tx, doc *Knowledge) error {
 	return nil
 }
 
-// resolveArtifactName returns the id of the one artifact in the project with
-// this name, or nil — a stub — when there is none or more than one. Picking one
-// of several would attach the wrong file without anyone noticing.
+// resolveArtifactName returns the id of the project's artifact with this name,
+// or nil — a stub — when there is none.
 func (c *Core) resolveArtifactName(tx *sqlx.Tx, projectID, name string) (any, error) {
-	var ids []string
-	if err := tx.Select(&ids,
-		`SELECT id FROM artifact WHERE project_id = ? AND name = ?`, projectID, name); err != nil {
-		return nil, err
-	}
-	if len(ids) != 1 {
+	var id string
+	err := tx.Get(&id, `SELECT id FROM artifact WHERE project_id = ? AND name = ?`, projectID, name)
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
-	return ids[0], nil
+	if err != nil {
+		return nil, err
+	}
+	return id, nil
 }
 
 // dedupeNames trims and deduplicates while keeping case and order. It must not

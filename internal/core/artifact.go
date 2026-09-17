@@ -181,19 +181,14 @@ func (c *Core) CreateArtifact(ctx context.Context, projectID, source string) (Ar
 		}
 		out.Ref = ArtifactAddress(key, out.Name)
 		// An entry may already name this artifact, written before it existed.
-		// The name is new to the project (artifactNameTaken made sure), so no
-		// stub it fills was ambiguous.
 		return backfillArtifactStubs(tx, projectID, out.Name, out.ID)
 	})
 	return out, err
 }
 
-// backfillArtifactStubs binds every doc stub named name to id. A stub is a
-// link row with to_id NULL because, at the time the entry's file was synced,
-// name resolved to zero or several artifacts. Both callers make it resolve to
-// exactly one: CreateArtifact when the name is new to the project, and
-// DeleteArtifact when removing one of two same-named artifacts leaves a
-// single survivor.
+// backfillArtifactStubs binds every doc stub named name to id, the artifact
+// CreateArtifact just made. A stub is a link row with to_id NULL because no
+// artifact had that name when the entry's file was synced.
 func backfillArtifactStubs(tx *sqlx.Tx, projectID, name, id string) error {
 	_, err := tx.Exec(
 		`UPDATE link SET to_id = ?
@@ -283,29 +278,17 @@ func (c *Core) ResolveArtifact(ctx context.Context, projectID, arg string) (Arti
 			name = p.Name
 		}
 
-		var matches []Artifact
-		if err := tx.Select(&matches,
-			`SELECT * FROM artifact WHERE project_id = ? AND name = ? ORDER BY created_at`,
-			projectID, name); err != nil {
+		// A name is unique within its project.
+		err = tx.Get(&out, `SELECT * FROM artifact WHERE project_id = ? AND name = ?`, projectID, name)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound("artifact_not_found", "no artifact "+arg, "trellis artifact ls")
+		}
+		if err != nil {
 			return err
 		}
-		switch len(matches) {
-		case 0:
-			return ErrNotFound("artifact_not_found", "no artifact "+arg, "trellis artifact ls")
-		case 1:
-			out = matches[0]
-			out.Ref = ArtifactAddress(key, out.Name)
-			out.Path = c.artifactPath(key, out.Name)
-			return nil
-		default:
-			ids := make([]string, len(matches))
-			for i, m := range matches {
-				ids[i] = m.ID
-			}
-			return ErrUsage("artifact_ambiguous",
-				"more than one artifact is named "+name+": "+strings.Join(ids, ", "),
-				"trellis artifact rm <id>   # remove the extra ones, then refer to it by name")
-		}
+		out.Ref = ArtifactAddress(key, out.Name)
+		out.Path = c.artifactPath(key, out.Name)
+		return nil
 	})
 	return out, err
 }
@@ -327,8 +310,8 @@ func (c *Core) LinkArtifactToDoc(ctx context.Context, projectID, slug, artifactR
 }
 
 // UnlinkArtifactFromDoc removes an artifact from an entry's list. The reference
-// is resolved when it can be; when it cannot — the artifact is gone, or its name
-// is shared — it is taken as written, so a stub can still be cleared. Removing a
+// is resolved when it can be; when the artifact is gone it is taken as written,
+// so a stub can still be cleared. Removing a
 // name that is not listed changes nothing.
 func (c *Core) UnlinkArtifactFromDoc(ctx context.Context, projectID, slug, artifactRef string) (Knowledge, error) {
 	name := artifactRef
@@ -336,7 +319,7 @@ func (c *Core) UnlinkArtifactFromDoc(ctx context.Context, projectID, slug, artif
 	switch e, ok := errors.AsType[*Error](err); {
 	case err == nil:
 		name = a.Name
-	case ok && (e.Code == "artifact_not_found" || e.Code == "artifact_ambiguous"):
+	case ok && e.Code == "artifact_not_found":
 		// Keep the reference as written -- except an address, whose file-list
 		// entry is only ever the name, never the whole "/KEY/artifacts/x.png".
 		// Left unparsed, this would never match anything editDocArtifacts
@@ -472,18 +455,6 @@ func (c *Core) DeleteArtifact(ctx context.Context, projectID, artifactID string)
 		}
 		if _, err := tx.Exec(`DELETE FROM artifact WHERE id = ? AND project_id = ?`, artifactID, projectID); err != nil {
 			return err
-		}
-		// Deleting this artifact may leave exactly one other artifact with its
-		// name — the other half of a name collision. That survivor is no
-		// longer ambiguous, so any doc stub still naming it backfills the same
-		// way a brand-new artifact would fill one.
-		var survivors []string
-		if err := tx.Select(&survivors,
-			`SELECT id FROM artifact WHERE project_id = ? AND name = ?`, projectID, deleted.Name); err != nil {
-			return err
-		}
-		if len(survivors) == 1 {
-			return backfillArtifactStubs(tx, projectID, deleted.Name, survivors[0])
 		}
 		return nil
 	})
