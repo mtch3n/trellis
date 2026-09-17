@@ -12,7 +12,7 @@ type EventQuery struct {
 	ProjectID string   // "" = every project
 	After     int64    // exclusive
 	Limit     int      // default 1000, max 5000
-	Kinds     []string // card | knowledge | board | label | note; empty = all
+	Kinds     []string // card | knowledge | board | label | comment; empty = all
 	Actions   []string // created, edited, moved, ...; empty = all but read
 	DocTypes  []string // knowledge only: finding, decision, ...
 	NotActor  string   // skip events written by this actor
@@ -42,25 +42,25 @@ type FeedEvent struct {
 // corresponding entity is not the one this event is about, or no longer
 // exists.
 type feedRow struct {
-	Seq       int64  `db:"seq"`
-	TS        int64  `db:"ts"`
-	Actor     string `db:"actor"`
-	Kind      string `db:"kind"`
-	Action    string `db:"action"`
-	Field     string `db:"field"`
-	OldValue  string `db:"old_value"`
-	NewValue  string `db:"new_value"`
-	CardRef   string `db:"card_ref"`
-	CardTitle string `db:"card_title"`
-	KBKey     string `db:"kb_key"`
-	KBSlug    string `db:"kb_slug"`
-	KBTitle   string `db:"kb_title"`
-	KBDocType string `db:"kb_doctype"`
-	BoardName string `db:"board_name"`
-	LabelName string `db:"label_name"`
-	NoteKey   string `db:"note_key"`
-	NoteSeq   int64  `db:"note_seq"`
-	NoteTitle string `db:"note_title"`
+	Seq          int64  `db:"seq"`
+	TS           int64  `db:"ts"`
+	Actor        string `db:"actor"`
+	Kind         string `db:"kind"`
+	Action       string `db:"action"`
+	Field        string `db:"field"`
+	OldValue     string `db:"old_value"`
+	NewValue     string `db:"new_value"`
+	CardRef      string `db:"card_ref"`
+	CardTitle    string `db:"card_title"`
+	KBKey        string `db:"kb_key"`
+	KBSlug       string `db:"kb_slug"`
+	KBTitle      string `db:"kb_title"`
+	KBDocType    string `db:"kb_doctype"`
+	BoardName    string `db:"board_name"`
+	LabelName    string `db:"label_name"`
+	CommentKey   string `db:"comment_key"`
+	CommentSeq   int64  `db:"comment_seq"`
+	CommentTitle string `db:"comment_title"`
 }
 
 // toFeedEvent applies the feed's disclosure policy. It is the only place that
@@ -96,10 +96,10 @@ func (r feedRow) toFeedEvent() FeedEvent {
 			ev.Ref = r.LabelName
 			ev.Title = r.LabelName
 		}
-	case "note":
-		if r.NoteKey != "" {
-			ev.Ref = r.NoteKey + "-" + itoa(r.NoteSeq)
-			ev.Title = r.NoteTitle
+	case "comment":
+		if r.CommentKey != "" {
+			ev.Ref = r.CommentKey + "-" + itoa(r.CommentSeq)
+			ev.Title = r.CommentTitle
 		}
 	}
 	if r.Action == "deleted" {
@@ -166,20 +166,20 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64
 		    COALESCE(k.doc_type, '') AS kb_doctype,
 		    COALESCE(b.name, '') AS board_name,
 		    COALESCE(l.name, '') AS label_name,
-		    COALESCE(pn.key, '') AS note_key,
-		    COALESCE(nc.seq, 0) AS note_seq,
-		    COALESCE(nc.title, '') AS note_title
+		    COALESCE(pn.key, '') AS comment_key,
+		    COALESCE(nc.seq, 0) AS comment_seq,
+		    COALESCE(nc.title, '') AS comment_title
 		FROM event e
 		LEFT JOIN card c ON c.id = e.entity_id AND e.entity_type = 'card'
 		LEFT JOIN knowledge k ON k.id = e.entity_id AND e.entity_type = 'knowledge'
 		LEFT JOIN project pk ON pk.id = k.project_id
 		LEFT JOIN board b ON b.id = e.entity_id AND e.entity_type = 'board'
 		LEFT JOIN label l ON l.id = e.entity_id AND e.entity_type = 'label'
-		LEFT JOIN note n ON n.id = e.entity_id AND e.entity_type = 'note'
-		LEFT JOIN card nc ON nc.id = n.card_id
+		LEFT JOIN comment cm ON cm.id = e.entity_id AND e.entity_type = 'comment'
+		LEFT JOIN card nc ON nc.id = cm.card_id
 		LEFT JOIN project pn ON pn.id = nc.project_id
 		WHERE e.seq > ?
-		  AND e.entity_type IN ('card', 'knowledge', 'board', 'label', 'note')` +
+		  AND e.entity_type IN ('card', 'knowledge', 'board', 'label', 'comment')` +
 		kindClause + actionClause + docTypeClause + actorClause + projectClause + `
 		ORDER BY e.seq ASC
 		LIMIT ?`

@@ -98,13 +98,13 @@ func (c *Core) LogInvocation(ctx context.Context, argv string, exit int, duratio
 	return err
 }
 
-// HeldWithoutNote lists cards this actor holds that carry no note from it. The
+// HeldWithoutComment lists cards this actor holds that carry no comment from it. The
 // Stop hook reminds once on these: a lease released at session end with nothing
 // written down is how the next agent loses what this one learned.
 //
 // The column test is is_done = 0 AND position > 0, never a column name, because
 // columns are configurable.
-func (c *Core) HeldWithoutNote(ctx context.Context) ([]Card, error) {
+func (c *Core) HeldWithoutComment(ctx context.Context) ([]Card, error) {
 	cards := []Card{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		if err := tx.Select(&cards,
@@ -113,7 +113,7 @@ func (c *Core) HeldWithoutNote(ctx context.Context) ([]Card, error) {
 			 WHERE c.owner = ? AND c.lease_until > ?
 			   AND c.archived_at IS NULL
 			   AND col.is_done = 0 AND col.position > 0
-			   AND NOT EXISTS (SELECT 1 FROM note n WHERE n.card_id = c.id AND n.actor = ?)
+			   AND NOT EXISTS (SELECT 1 FROM comment cm WHERE cm.card_id = c.id AND cm.actor = ?)
 			 ORDER BY c.updated_at`,
 			c.actor, c.clock.NowMS(), c.actor); err != nil {
 			return err

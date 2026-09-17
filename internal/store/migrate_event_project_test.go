@@ -90,8 +90,8 @@ func TestMigrationEventProjectIDBackfillsAllEventTypes(t *testing.T) {
 		{"board", "b2", "p2"},
 		{"label", "l1", "p1"},
 		{"label", "l2", "p2"},
-		{"note", "note1", "p1"},
-		{"note", "note2", "p2"},
+		{"comment", "note1", "p1"},
+		{"comment", "note2", "p2"},
 	}
 
 	if !slices.Equal(events, want) {

@@ -105,5 +105,5 @@ func crossProjectBlock(err error, blocker CardRef) error {
 	}
 	return ErrUsage("cross_project_block",
 		blocker.String()+" is not in this project; a card can only be blocked by a card in its own project",
-		`trellis card note <card> --body "waiting on `+blocker.String()+`"`)
+		`trellis card comment <card> --body "waiting on `+blocker.String()+`"`)
 }

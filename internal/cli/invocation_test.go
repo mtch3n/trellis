@@ -8,7 +8,7 @@ func TestRedactArgvKeepsShapeNotContent(t *testing.T) {
 		want string
 	}{
 		{[]string{"card", "new", "--title", "sk-live-abc123"}, "card new --title"},
-		{[]string{"card", "note", "12", "-"}, "card note"},
+		{[]string{"card", "comment", "12", "-"}, "card comment"},
 		{[]string{"card", "ls", "--json", "--limit=5"}, "card ls --json --limit"},
 		{[]string{"agent", "ls"}, "agent ls"},
 	} {

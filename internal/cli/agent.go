@@ -173,27 +173,27 @@ func newBackupPruneCmd() *cobra.Command {
 func newAgentRemindCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "remind",
-		Short: "Report cards you hold with no note",
+		Short: "Report cards you hold with no comment",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, db, err := openCore()
 			if err != nil {
 				return err
 			}
 			defer db.Close()
-			cards, err := c.HeldWithoutNote(cmd.Context())
+			cards, err := c.HeldWithoutComment(cmd.Context())
 			if err != nil {
 				return err
 			}
 			if len(cards) == 0 && !forceJSON {
 				return nil
 			}
-			return Emit(cmd, map[string]any{"held_without_note": cards}, func() string {
+			return Emit(cmd, map[string]any{"held_without_comment": cards}, func() string {
 				var b strings.Builder
 				b.WriteString("You still hold work with nothing written down:\n")
 				for _, c := range cards {
 					fmt.Fprintf(&b, "  %s  %s\n", c.Ref, c.Title)
 				}
-				b.WriteString("  trellis card note <ref> - <<'EOF'   # what you learned, then release")
+				b.WriteString("  trellis card comment <ref> --body \"...\"   # what you learned, then release")
 				return b.String()
 			})
 		},

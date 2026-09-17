@@ -67,8 +67,8 @@ to the terminal size, dropping the sidebar and preview on narrow windows.
 
 A command bar sits at the bottom. Use `/board` to refresh cards, `/boards` to
 list boards, `/board <name>` to switch, `/new <title>` to create, `/show <card>`
-to read, `/move <card> <column>` to move, and `/note <card> <text>` to add a
-note. `/title` and `/body` edit cards after `/show`, with version-conflict
+to read, `/move <card> <column>` to move, and `/comment <card> <text>` to add a
+comment. `/title` and `/body` edit cards after `/show`, with version-conflict
 protection. Use literal `\n` in `/body` for line breaks. Plain text or
 `/search <query>` searches project cards and knowledge. Tab completes commands
 and Up/Down walks history. `/help` lists everything; `/quit` or Ctrl-C exits.

@@ -49,7 +49,7 @@ suffixes, used on every ownership-sensitive command:
 trellis card claim XPSCTL-12 --as reviewer
 ```
 
-`--as` is supported by `claim`, `next`, `release`, `renew`, `note`, `edit`, and
+`--as` is supported by `claim`, `next`, `release`, `renew`, `comment`, `edit`, and
 `move`, and overrides `TRELLIS_ACTOR`.
 
 ## Output and errors
@@ -92,7 +92,7 @@ trellis --project XPSCTL card ls       # target another project explicitly
 trellis card new --title "..." --body @file
 trellis card claim XPSCTL-12           # --steal --reason "..."
 trellis card next --claim              # {"card":null} when nothing is available
-trellis card note XPSCTL-12 --body -
+trellis card comment XPSCTL-12 --body -
 trellis card move XPSCTL-12 in-progress
 trellis card block XPSCTL-12 --by XPSCTL-9   # --remove to clear
 trellis card edit XPSCTL-12 --body @file --if-version 3
@@ -123,7 +123,7 @@ Consult `trellis <command> --help` for less common flags instead of guessing.
 
 ## Leases
 
-Leases default to 30 minutes. Owner edits and notes renew them; coding, running
+Leases default to 30 minutes. Owner edits and comments renew them; coding, running
 tests, and reading files do not. Renew before a long stretch without card
 writes, and check ownership after a long pause — a lapsed claim does not hold.
 
@@ -141,7 +141,7 @@ discard.
 Use stdin or `@file` so markdown, backticks, and `$variables` survive the shell:
 
 ```bash
-trellis card note XPSCTL-12 --body - <<'NOTE'
+trellis card comment XPSCTL-12 --body - <<'COMMENT'
 Multi-line markdown with `backticks` and $variables, safely.
-NOTE
+COMMENT
 ```

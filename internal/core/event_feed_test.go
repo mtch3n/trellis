@@ -353,22 +353,22 @@ func TestEventFeedPrivateEntryCarriesRefAndTitleOnly(t *testing.T) {
 	}
 }
 
-func TestEventFeedNoteRefIsItsCardsRef(t *testing.T) {
+func TestEventFeedCommentRefIsItsCardsRef(t *testing.T) {
 	c, p, b := kbCore(t)
-	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Has a note"})
+	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Has a comment"})
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
-	if _, err := c.CreateNote(t.Context(), card.ID, "handed off"); err != nil {
-		t.Fatalf("CreateNote: %v", err)
+	if _, err := c.CreateComment(t.Context(), card.ID, "handed off"); err != nil {
+		t.Fatalf("CreateComment: %v", err)
 	}
 
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"note"}})
+	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"comment"}})
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
-	if len(events) != 1 || events[0].Ref != card.Ref || events[0].Title != "Has a note" {
-		t.Fatalf("note event = %+v, want ref=%s title=%s", events[0], card.Ref, "Has a note")
+	if len(events) != 1 || events[0].Ref != card.Ref || events[0].Title != "Has a comment" {
+		t.Fatalf("comment event = %+v, want ref=%s title=%s", events[0], card.Ref, "Has a comment")
 	}
 }
 

@@ -50,7 +50,7 @@ func TestTUIWorkflowAndConflict(t *testing.T) {
 	run("/title 1 Updated task")
 	run(`/body 1 First line\nSecond line`)
 	run("/move 1 in-progress")
-	run("/note 1 Work started")
+	run("/comment 1 Work started")
 	if out := run("/board"); !strings.Contains(out, "Updated task") {
 		t.Fatal(out)
 	}

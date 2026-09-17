@@ -181,7 +181,7 @@ func (c *Core) ClaimCard(ctx context.Context, cardID string, ttl int64, steal bo
 				// event log: the displaced agent finds out by reading the card
 				// it thought it held.
 				if _, err := tx.Exec(
-					`INSERT INTO note (id, card_id, actor, body_md, created_at) VALUES (?, ?, ?, ?, ?)`,
+					`INSERT INTO comment (id, card_id, actor, body_md, created_at) VALUES (?, ?, ?, ?, ?)`,
 					NewCardID(), cardID, c.actor,
 					"claimed from "+*card.Owner+": "+reason, now); err != nil {
 					return err

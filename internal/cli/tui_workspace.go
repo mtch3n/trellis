@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/jmoiron/sqlx"
 	"github.com/mtch3n/trellis/internal/core"
 	"github.com/rivo/tview"
 )
@@ -257,7 +258,7 @@ func (w *terminalWorkspace) selectCard(index int) {
 	w.selected = &card
 	w.session.seen[card.ID] = card.Version
 	text := fmt.Sprintf("[::b]%s  %s[::-]\n[#7ddbc4]%s · %s[-]\n\n%s", tuiText(card.Ref), tuiText(card.Title), tuiText(card.ColumnName), tuiText(card.PriorityName), terminalMarkdown(card.BodyMD))
-	notes, err := w.session.app.Core.GetNotesByCard(w.ctx, card.ID)
+	notes, err := w.session.app.Core.GetCommentsByCard(w.ctx, card.ID)
 	if err != nil {
 		text += "\n\nNotes unavailable: " + tuiText(err.Error())
 	} else {
@@ -334,16 +335,37 @@ func (w *terminalWorkspace) selectDoc(doc core.Knowledge) {
 	w.preview.SetTitle(" Document · Enter read · e edit ")
 	w.preview.SetText(text).ScrollToBeginning()
 }
+
+// activityRow is one line of the workspace's activity view.
+type activityRow struct {
+	TS     int64  `db:"ts"`
+	Actor  string `db:"actor"`
+	Action string `db:"action"`
+	Kind   string `db:"entity_type"`
+	Title  string `db:"title"`
+}
+
+// recentActivity is a project's latest 100 events, newest first, reads
+// excluded. A comment's title is its card's.
+func recentActivity(ctx context.Context, db *sqlx.DB, projectID string) ([]activityRow, error) {
+	var rows []activityRow
+	err := db.SelectContext(ctx, &rows, `
+		SELECT e.ts, e.actor, e.action, e.entity_type,
+		       COALESCE(c.title, k.title, cc.title, b.name, '') AS title
+		FROM event e
+		LEFT JOIN card c ON e.entity_type = 'card' AND e.entity_id = c.id
+		LEFT JOIN knowledge k ON e.entity_type = 'knowledge' AND e.entity_id = k.id
+		LEFT JOIN comment cm ON e.entity_type = 'comment' AND e.entity_id = cm.id
+		LEFT JOIN card cc ON cc.id = cm.card_id
+		LEFT JOIN board b ON e.entity_type = 'board' AND e.entity_id = b.id
+		WHERE e.project_id = ? AND e.action <> 'read'
+		ORDER BY e.seq DESC LIMIT 100`, projectID)
+	return rows, err
+}
+
 func (w *terminalWorkspace) renderActivity() {
-	var rows []struct {
-		TS     int64  `db:"ts"`
-		Actor  string `db:"actor"`
-		Action string `db:"action"`
-		Kind   string `db:"entity_type"`
-		Title  string `db:"title"`
-	}
-	err := w.session.app.db.SelectContext(w.ctx, &rows, `SELECT e.ts,e.actor,e.action,e.entity_type,COALESCE(c.title,k.title,nc.title,b.name,'') AS title FROM event e LEFT JOIN card c ON e.entity_type='card' AND e.entity_id=c.id LEFT JOIN knowledge k ON e.entity_type='knowledge' AND e.entity_id=k.id LEFT JOIN note n ON e.entity_type='note' AND e.entity_id=n.id LEFT JOIN card nc ON n.card_id=nc.id LEFT JOIN board b ON e.entity_type='board' AND e.entity_id=b.id WHERE c.project_id=? OR k.project_id=? OR nc.project_id=? OR b.project_id=? ORDER BY e.seq DESC LIMIT 100`, w.session.app.Project.ID, w.session.app.Project.ID, w.session.app.Project.ID, w.session.app.Project.ID)
-	w.preview.SetTitle(" Activity · latest 100 events for existing project items ")
+	rows, err := recentActivity(w.ctx, w.session.app.db, w.session.app.Project.ID)
+	w.preview.SetTitle(" Activity · latest 100 events ")
 	if err != nil {
 		w.preview.SetText(tuiText(err.Error()))
 		return
@@ -734,7 +756,7 @@ func (w *terminalWorkspace) note() {
 		if strings.TrimSpace(body) == "" {
 			return
 		}
-		_, err := w.session.app.Core.CreateNote(w.ctx, card.ID, body)
+		_, err := w.session.app.Core.CreateComment(w.ctx, card.ID, body)
 		if err != nil {
 			form.SetTitle(" " + tuiText(err.Error()) + " ")
 			return

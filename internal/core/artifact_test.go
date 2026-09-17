@@ -42,7 +42,7 @@ func TestArtifactStoresBytesOnDiskAndLinksToCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	var body string
-	if err := db.Get(&body, "SELECT COALESCE((SELECT body_md FROM note LIMIT 1), '')"); err != nil {
+	if err := db.Get(&body, "SELECT COALESCE((SELECT body_md FROM comment LIMIT 1), '')"); err != nil {
 		t.Fatal(err)
 	}
 	if body != "" {

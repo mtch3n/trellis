@@ -54,7 +54,7 @@ class PluginCLITest(unittest.TestCase):
                 self.assertIn(card["ref"], context)
                 self.assertEqual(cli("card", "show", card["ref"])["owner"], actor)
             self.assertIn("systemMessage", hook("stop"))
-            cli("card", "note", card["ref"], "--body", "Integration handoff verified")
+            cli("card", "comment", card["ref"], "--body", "Integration handoff verified")
             self.assertIsNone(hook("stop"))
 
             unpinned = Path(directory) / "unpinned"

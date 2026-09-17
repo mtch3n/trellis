@@ -60,7 +60,7 @@ func TestClaimContentionNamesTheHolderAndStealRecordsWhy(t *testing.T) {
 	if stolen.Owner == nil || *stolen.Owner != "sess:other" {
 		t.Fatalf("owner = %v, want the stealer", stolen.Owner)
 	}
-	notes, err := c.GetNotesByCard(t.Context(), card.ID)
+	notes, err := c.GetCommentsByCard(t.Context(), card.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +461,7 @@ func TestLeasedCardRejectsOtherWritesButAllowsNotes(t *testing.T) {
 	} else if e, ok := errors.AsType[*Error](err); !ok || e.Exit != 4 {
 		t.Fatalf("edit error = %v, want conflict", err)
 	}
-	if _, err := other.CreateNote(t.Context(), card.ID, "handoff"); err != nil {
+	if _, err := other.CreateComment(t.Context(), card.ID, "handoff"); err != nil {
 		t.Fatalf("note exception: %v", err)
 	}
 }

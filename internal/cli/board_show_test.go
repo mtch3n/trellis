@@ -13,8 +13,8 @@ func TestFormatBriefShowsUnownedCards(t *testing.T) {
 	brief := &boardBrief{
 		yours: []cardInfo{},
 		others: []cardInfo{
-			{Ref: "P-2", Title: "Second", Note: "Latest note"},
-			{Ref: "P-1", Title: "First", Note: "Some note"},
+			{Ref: "P-2", Title: "Second", Comment: "Latest note"},
+			{Ref: "P-1", Title: "First", Comment: "Some note"},
 		},
 		counts: map[string]int{"backlog": 2},
 		pins:   []core.Pin{},

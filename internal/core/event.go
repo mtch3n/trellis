@@ -34,7 +34,7 @@ var eventProjectQuery = map[string]string{
 	"knowledge": `SELECT project_id FROM knowledge WHERE id = ?`,
 	"board":     `SELECT project_id FROM board WHERE id = ?`,
 	"label":     `SELECT project_id FROM label WHERE id = ?`,
-	"note":      `SELECT c.project_id FROM note n JOIN card c ON c.id = n.card_id WHERE n.id = ?`,
+	"comment":   `SELECT c.project_id FROM comment cm JOIN card c ON c.id = cm.card_id WHERE cm.id = ?`,
 	"project":   `SELECT id FROM project WHERE id = ?`,
 }
 

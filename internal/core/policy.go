@@ -34,8 +34,8 @@ func (c *Core) WithPolicies(ps ...Policy) *Core {
 
 // checkWrite is the single chokepoint every mutating path in core passes
 // through. Because the call site is here rather than in a command handler,
-// `card note` — where an agent pastes command output — is covered by whatever
-// a user attaches, without card note knowing a policy exists.
+// `card comment` — where an agent pastes command output — is covered by whatever
+// a user attaches, without card comment knowing a policy exists.
 func (c *Core) checkWrite(ctx context.Context, w ProposedWrite) error {
 	if len(c.policies) == 0 {
 		return nil
