@@ -246,7 +246,7 @@ func TestDeletingAnArtifactLeavesEntryLinksAsStubs(t *testing.T) {
 	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
 		t.Fatalf("LoadEntry: %v", err)
 	}
-	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "attach"})
+	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "evidence"})
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
@@ -458,7 +458,7 @@ func TestUnlinkClearsANameWhoseArtifactIsGone(t *testing.T) {
 func TestUnlinkArtifactFromCard(t *testing.T) {
 	c, p, b := vaultCore(t)
 	a := addArtifact(t, c, p.ID, "shot.png", "\x89PNG\r\n\x1a\nx")
-	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "attach"})
+	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "evidence"})
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}

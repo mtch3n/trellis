@@ -129,7 +129,7 @@ func TestArtifactNamesStayUniqueWhenTheFileIsGone(t *testing.T) {
 func TestGraphNamesArtifactsByAddress(t *testing.T) {
 	c, p, b := vaultCore(t)
 	ctx := t.Context()
-	card, err := c.CreateCard(ctx, p.ID, b.ID, NewCard{Title: "attach evidence"})
+	card, err := c.CreateCard(ctx, p.ID, b.ID, NewCard{Title: "gather evidence"})
 	if err != nil {
 		t.Fatal(err)
 	}

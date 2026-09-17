@@ -19,11 +19,8 @@ internal/cli/vault_template_test.go	card-note	1	# why: asserts that `note` is no
 internal/cli/vault_template_test.go	owner	2	# why: an example template field name, not a card claimant
 internal/config/config.go	document	2	# why: a YAML document tree
 internal/core/artifact.go	document	1	# why: the artifact kind `document`, a file type such as a PDF
-internal/core/artifact_address_test.go	attach	1	# why: a card titled "attach evidence"
-internal/core/artifact_link_test.go	attach	2	# why: cards titled "attach"
 internal/core/artifact_mime_test.go	doc	1	# why: the fixture filename doc.pdf
 internal/core/artifact_mime_test.go	document	2	# why: the artifact kind `document`, a file type such as a PDF
-internal/core/artifact_test.go	attach	1	# why: a card titled "attach evidence"
 internal/core/board_test.go	owner	1	# why: this machine's owner, a person, not a card claimant
 internal/core/card.go	owner	1	# why: the SQLite write lock, not a card claimant
 internal/core/claim.go	owner	1	# why: the SQLite write lock, not a card claimant

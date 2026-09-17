@@ -26,7 +26,7 @@ func TestArtifactStoresBytesOnDiskAndLinksToCard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	card, err := c.CreateCard(t.Context(), project.ID, board.ID, NewCard{Title: "attach evidence"})
+	card, err := c.CreateCard(t.Context(), project.ID, board.ID, NewCard{Title: "gather evidence"})
 	if err != nil {
 		t.Fatal(err)
 	}

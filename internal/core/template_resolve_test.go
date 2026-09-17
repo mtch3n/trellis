@@ -24,7 +24,7 @@ func TestResolveRejectsWhenSourcesIsMissing(t *testing.T) {
 	writeCustomTemplate(t, c, "cited",
 		"---\nenforce: reject\nrequired: [sources]\nresolve: [sources]\n---\n# {{title}}\n")
 
-	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Claim", Template: "cited"})
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Statement", Template: "cited"})
 	e, ok := errors.AsType[*Error](err)
 	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "sources") {
 		t.Fatalf("err = %v, want template_violation naming sources", err)
@@ -36,7 +36,7 @@ func TestResolveRejectsAnUnresolvedCardAddress(t *testing.T) {
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
 	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Claim", Template: "cited", Sources: []string{"/XPSCTL/cards/XPSCTL-999"},
+		Title: "Statement", Template: "cited", Sources: []string{"/XPSCTL/cards/XPSCTL-999"},
 	})
 	e, ok := errors.AsType[*Error](err)
 	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "XPSCTL-999") {
@@ -49,7 +49,7 @@ func TestResolveRejectsAnUnresolvedWikilink(t *testing.T) {
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
 	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Claim", Template: "cited", Sources: []string{"[[missing]]"},
+		Title: "Statement", Template: "cited", Sources: []string{"[[missing]]"},
 	})
 	e, ok := errors.AsType[*Error](err)
 	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "[[missing]]") {
@@ -62,7 +62,7 @@ func TestResolveAcceptsAURLAndProse(t *testing.T) {
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
 	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Claim", Template: "cited",
+		Title: "Statement", Template: "cited",
 		Sources: []string{"https://example.com/paper", "discussed in standup on Tuesday"},
 	})
 	if err != nil {
@@ -84,7 +84,7 @@ func TestResolveAcceptsAResolvedCardEntryAndArtifact(t *testing.T) {
 	art := addArtifact(t, c, p.ID, "evidence.png", "\x89PNG\r\n\x1a\nx")
 
 	_, err = c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Claim", Template: "cited",
+		Title: "Statement", Template: "cited",
 		Sources: []string{
 			"/XPSCTL/cards/" + card.Ref,
 			"[[" + entry.Slug + "]]",
@@ -96,12 +96,12 @@ func TestResolveAcceptsAResolvedCardEntryAndArtifact(t *testing.T) {
 	}
 }
 
-func TestResolveBodyRejectsADanglingLink(t *testing.T) {
+func TestResolveBodyRejectsAStubLink(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "linked", "---\nenforce: reject\nresolve: [body]\n---\n# {{title}}\n")
 
 	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Claim", Template: "linked", Body: "# Claim\n\nSee [[missing]].\n",
+		Title: "Statement", Template: "linked", Body: "# Statement\n\nSee [[missing]].\n",
 	})
 	e, ok := errors.AsType[*Error](err)
 	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "[[missing]]") {
@@ -109,13 +109,13 @@ func TestResolveBodyRejectsADanglingLink(t *testing.T) {
 	}
 }
 
-func TestNoteTemplateStillAcceptsADanglingBodyLink(t *testing.T) {
+func TestAnEntryWithNoTemplateAcceptsAStubBodyLink(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Notes", Body: "# Notes\n\nSee [[not-written-yet]].\n",
 	})
 	if err != nil {
-		t.Fatalf("a template with no resolve rule must not block a stub link: %v", err)
+		t.Fatalf("an entry with no template must not block a stub body link: %v", err)
 	}
 	if entry.Slug != "notes" {
 		t.Errorf("slug = %q", entry.Slug)
@@ -130,7 +130,7 @@ func TestResolveAcceptsAFilesystemPathSource(t *testing.T) {
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
 	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Claim", Template: "cited", Sources: []string{"/usr/share/doc/x.txt:10"},
+		Title: "Statement", Template: "cited", Sources: []string{"/usr/share/doc/x.txt:10"},
 	})
 	if err != nil {
 		t.Fatalf("a filesystem path must pass unchecked: %v", err)
@@ -146,7 +146,7 @@ func TestResolveRejectsAnAddressShapedButMalformedSource(t *testing.T) {
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
 	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Claim", Template: "cited", Sources: []string{"/XPSCTL/cards/not-a-ref"},
+		Title: "Statement", Template: "cited", Sources: []string{"/XPSCTL/cards/not-a-ref"},
 	})
 	e, ok := errors.AsType[*Error](err)
 	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "not-a-ref") {
@@ -175,7 +175,7 @@ func TestResolveRejectsACardAddressWhoseRefPrefixDoesNotMatch(t *testing.T) {
 	}
 
 	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Claim", Template: "cited", Sources: []string{"/" + p.Key + "/cards/OTHER-5"},
+		Title: "Statement", Template: "cited", Sources: []string{"/" + p.Key + "/cards/OTHER-5"},
 	})
 	e, ok := errors.AsType[*Error](err)
 	if !ok || e.Code != "template_violation" {
@@ -199,7 +199,7 @@ func TestResolveRejectsAPromotedEntrysOldProjectAddress(t *testing.T) {
 	}
 
 	_, err = c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Claim", Template: "cited", Sources: []string{"/" + p.Key + "/vault/" + target.Slug},
+		Title: "Statement", Template: "cited", Sources: []string{"/" + p.Key + "/vault/" + target.Slug},
 	})
 	e, ok := errors.AsType[*Error](err)
 	if !ok || e.Code != "template_violation" {
@@ -216,11 +216,11 @@ func TestResolveBodyIgnoresURLAndRelativePathLookalikes(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "linked", "---\nenforce: reject\nresolve: [body]\n---\n# {{title}}\n")
 
-	body := "# Claim\n\n" +
+	body := "# Statement\n\n" +
 		"See https://example.com/foo/cards/bar for the upstream issue.\n" +
 		"Implemented in src/api/cards/handler.go.\n"
 	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Claim", Template: "linked", Body: body,
+		Title: "Statement", Template: "linked", Body: body,
 	})
 	if err != nil {
 		t.Fatalf("a URL path and a relative path must not be read as addresses: %v", err)

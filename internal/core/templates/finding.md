@@ -7,11 +7,11 @@ resolve: [sources, body]
 
 ## Fact
 
-<!-- What is true, stated as a claim. -->
+<!-- What is true, stated in one sentence. -->
 
 ## Evidence
 
-<!-- What supports the claim. Cite it in `sources`. -->
+<!-- What supports it. Cite it in `sources`. -->
 
 ## Scope
 
