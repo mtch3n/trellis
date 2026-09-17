@@ -109,36 +109,45 @@ func removeRevisionDirIfEmpty(entryPath string) error {
 	return syncDirectory(filepath.Dir(dir))
 }
 
-// captureKnowledgeRevision retains raw as version's copy of entryPath, unless
-// capture is disabled (historyKeep == 0), that version is already retained,
-// or raw is byte-identical to the newest retained revision — the two rules
-// that keep history free of repeats (revision-history design). It then trims
-// down to historyKeep.
-func (c *Core) captureKnowledgeRevision(entryPath string, version int64, raw []byte) error {
+// revisionToKeep says whether raw should be retained as version's copy of
+// entryPath, and where. It should not when capture is disabled
+// (historyKeep == 0), that version is already retained, or raw is
+// byte-identical to the newest retained revision — the two rules that keep
+// history free of repeats (revision-history design).
+func (c *Core) revisionToKeep(entryPath string, version int64, raw []byte) (string, bool, error) {
 	if c.historyKeep == 0 {
-		return nil
+		return "", false, nil
 	}
 	dest := revisionFilePath(entryPath, version)
 	if _, err := os.Stat(dest); err == nil {
-		return nil
+		return "", false, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+		return "", false, err
 	}
-	dir := revisionDir(entryPath)
-	versions, err := sortedRevisionVersions(dir)
+	versions, err := sortedRevisionVersions(revisionDir(entryPath))
 	if err != nil {
-		return err
+		return "", false, err
 	}
 	if len(versions) > 0 {
 		prior, err := os.ReadFile(revisionFilePath(entryPath, versions[len(versions)-1]))
 		if err != nil {
-			return err
+			return "", false, err
 		}
 		if string(prior) == string(raw) {
-			return nil
+			return "", false, nil
 		}
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	return dest, true, nil
+}
+
+// captureKnowledgeRevision retains raw as version's copy of entryPath when
+// revisionToKeep says to, then trims down to historyKeep.
+func (c *Core) captureKnowledgeRevision(entryPath string, version int64, raw []byte) error {
+	dest, keep, err := c.revisionToKeep(entryPath, version, raw)
+	if err != nil || !keep {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 		return err
 	}
 	if err := writeAtomic(dest, raw, false); err != nil {
@@ -146,6 +155,26 @@ func (c *Core) captureKnowledgeRevision(entryPath string, version int64, raw []b
 	}
 	_, err = trimRevisions(entryPath, c.historyKeep)
 	return err
+}
+
+// revisionFiles lists the files in an entry's revision directory, none when
+// it has none.
+func revisionFiles(entryPath string) ([]string, error) {
+	dir := revisionDir(entryPath)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, e := range entries {
+		if e.Type().IsRegular() {
+			files = append(files, filepath.Join(dir, e.Name()))
+		}
+	}
+	return files, nil
 }
 
 // moveDir moves the directory at src into destDir, refusing to replace

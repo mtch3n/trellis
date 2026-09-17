@@ -248,7 +248,11 @@ func TestMergeFailureRestoresFiles(t *testing.T) {
 	}
 	f := newMergeFixture(t)
 	core, _ := f.project("CORE")
-	f.doc(f.api, "Runbook", "x\n")
+	runbook := f.doc(f.api, "Runbook", "x\n")
+	// A revision, so its move is undone too.
+	if _, err := f.c.EditKnowledge(t.Context(), f.api.ID, runbook.Slug, "y\n", &runbook.Version); err != nil {
+		t.Fatal(err)
+	}
 	cite := f.doc(core, "Citations", "[[/API/knowledge/runbook]]\n")
 	before := f.snapshot()
 
@@ -267,6 +271,39 @@ func TestMergeFailureRestoresFiles(t *testing.T) {
 	}
 	if after := f.snapshot(); after != before {
 		t.Errorf("a failed merge left changes:\nbefore %s\nafter  %s", before, after)
+	}
+}
+
+// An entry keeps its history through a merge: its revisions move with it,
+// and a document whose links the merge rewrites keeps the text it had.
+func TestMergeMovesRevisionsAndKeepsOneForARewrite(t *testing.T) {
+	f := newMergeFixture(t)
+	ctx := t.Context()
+	core, _ := f.project("CORE")
+	runbook := f.doc(f.api, "Runbook", "first\n")
+	if _, err := f.c.EditKnowledge(ctx, f.api.ID, runbook.Slug, "second\n", &runbook.Version); err != nil {
+		t.Fatal(err)
+	}
+	cite := f.doc(core, "Citations", "[[/API/knowledge/runbook]]\n")
+
+	f.merge(MergeOptions{Apply: true})
+
+	// Version 1 is the retained copy in both cases.
+	has1 := func(projectID, slug string) {
+		t.Helper()
+		revs, err := f.c.ListKnowledgeRevisions(ctx, projectID, slug)
+		if err != nil || !slices.ContainsFunc(revs, func(r RevisionInfo) bool { return r.Version == 1 }) {
+			t.Fatalf("%s revisions = %+v, %v", slug, revs, err)
+		}
+	}
+	has1(f.mono.ID, "runbook")
+	moved := filepath.Join(f.root, "projects", "MONO", "knowledge", "runbook.md")
+	if old := readFile(t, revisionFilePath(moved, 1)); !strings.Contains(old, "first") {
+		t.Errorf("moved revision = %q, want the first text", old)
+	}
+	has1(core.ID, cite.Slug)
+	if old := readFile(t, revisionFilePath(cite.Path, 1)); !strings.Contains(old, "[[/API/knowledge/runbook]]") {
+		t.Errorf("kept revision = %q, want the text before the rewrite", old)
 	}
 }
 

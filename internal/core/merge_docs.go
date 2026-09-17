@@ -125,12 +125,25 @@ func (m *merger) moveDocs() error {
 			return err
 		}
 		if path != d.Path {
-			if err := m.touch(d.Path); err != nil {
+			// The entry's revisions move with it, one file at a time, so the
+			// backup holds each and a failure puts each back.
+			revs, err := revisionFiles(d.Path)
+			if err != nil {
 				return err
+			}
+			for _, f := range append([]string{d.Path}, revs...) {
+				if err := m.touch(f); err != nil {
+					return err
+				}
 			}
 			if m.apply {
 				if err := m.stage.move(d.Path, path); err != nil {
 					return err
+				}
+				for _, f := range revs {
+					if err := m.stage.move(f, filepath.Join(revisionDir(path), filepath.Base(f))); err != nil {
+						return err
+					}
 				}
 				m.docPath[d.ID] = path
 			}
@@ -288,11 +301,25 @@ func (m *merger) rewriteDoc(id string) error {
 	if !m.apply {
 		return nil
 	}
-	if err := m.stage.rewrite(current, []byte(text)); err != nil {
-		return err
-	}
+	// A rewrite is a Trellis write: the text it replaces is kept as a
+	// revision, like any edit's.
 	var doc Knowledge
 	if err := m.tx.Get(&doc, `SELECT * FROM knowledge WHERE id = ?`, id); err != nil {
+		return err
+	}
+	if err := m.c.refreshFromFile(m.tx, &doc); err != nil {
+		return err
+	}
+	rev, keep, err := m.c.revisionToKeep(current, doc.Version, raw)
+	if err != nil {
+		return err
+	}
+	if keep {
+		if err := m.stage.create(rev, raw); err != nil {
+			return err
+		}
+	}
+	if err := m.stage.rewrite(current, []byte(text)); err != nil {
 		return err
 	}
 	return m.c.refreshFromFile(m.tx, &doc)
