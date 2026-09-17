@@ -354,8 +354,8 @@ func newKnowledgeEditCmd() *cobra.Command {
 					edit.Sources = &sources
 				}
 				if setTags {
-					// Filter out empty strings (e.g., from --tag= to clear tags)
-					filtered := make([]string, 0, len(tags))
+					// Filter out empty strings (e.g., from --tag="" to clear tags)
+					filtered := make([]string, 0)
 					for _, t := range tags {
 						if t != "" {
 							filtered = append(filtered, t)
@@ -364,8 +364,8 @@ func newKnowledgeEditCmd() *cobra.Command {
 					edit.Tags = &filtered
 				}
 				if setLabels {
-					// Filter out empty strings (e.g., from --label= to clear labels)
-					filtered := make([]string, 0, len(labels))
+					// Filter out empty strings (e.g., from --label="" to clear labels)
+					filtered := make([]string, 0)
 					for _, l := range labels {
 						if l != "" {
 							filtered = append(filtered, l)
