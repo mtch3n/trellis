@@ -41,7 +41,7 @@ type Pin struct {
 //
 // A private entry has no recap. Its pin injects a pointer, ref and title, so
 // any recap supplied for it is discarded rather than stored: a stored one would
-// never be shown, and would sit in knowledge.recap and the event log until the
+// never be shown, and would sit in entry.recap and the event log until the
 // entry was un-marked and it was injected after all.
 func (c *Core) PinKnowledge(ctx context.Context, projectID, slug, recap, board string) (Pin, error) {
 	var pin Pin

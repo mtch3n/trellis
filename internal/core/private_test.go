@@ -272,7 +272,7 @@ func TestListKnowledgeStillReturnsPrivate(t *testing.T) {
 }
 
 // A private entry has no recap. Recall and the pin list blank one anyway, so a
-// stored recap would never be shown; it would only sit in knowledge.recap and
+// stored recap would never be shown; it would only sit in entry.recap and
 // the event log, waiting to be injected the moment the entry is un-marked.
 // Pinning succeeds with or without --recap and stores nothing either way.
 func TestPinOnPrivateStoresNoRecap(t *testing.T) {
@@ -619,7 +619,7 @@ func TestMarkingPrivatePurgesEveryLocalCopy(t *testing.T) {
 		t.Fatalf("read recap: %v", err)
 	}
 	if recap != "" {
-		t.Errorf("knowledge.recap = %q, want it cleared", recap)
+		t.Errorf("entry.recap = %q, want it cleared", recap)
 	}
 	for _, action := range []string{"pinned", "edited"} {
 		if n := countLeaks(action); n != 0 {
@@ -805,7 +805,7 @@ func TestMarkingPrivatePurgesArtifactLinkEvents(t *testing.T) {
 // UnpinKnowledge naming a board that does not exist is one such caller: loadDoc
 // purges, then boardByName fails. The old recap is back in the column and
 // nothing has read the document successfully since. If Pins ever went back to
-// reading knowledge.recap directly, this is the sequence that would leak it.
+// reading entry.recap directly, this is the sequence that would leak it.
 func TestPinsDoNotDiscloseAfterARolledBackPurge(t *testing.T) {
 	c, p, _ := kbCore(t)
 

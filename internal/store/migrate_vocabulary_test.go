@@ -3,6 +3,9 @@ package store
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -42,7 +45,15 @@ func readFile(t *testing.T, path string) string {
 // knowledge.template, a comment table, project(id, key, name, created_at).
 func rootBefore(t *testing.T) (string, *sqlx.DB) {
 	t.Helper()
-	root := t.TempDir()
+	return rootBeforeAt(t, t.TempDir())
+}
+
+// rootBeforeAt is rootBefore at a root the caller chose.
+func rootBeforeAt(t *testing.T, root string) (string, *sqlx.DB) {
+	t.Helper()
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	db, err := connect(filepath.Join(root, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -163,6 +174,8 @@ func TestVocabularyMigration(t *testing.T) {
 		{`SELECT entry_id FROM pin`, "e1"},
 		{`SELECT entry_id FROM nomination`, "e1"},
 		{`SELECT key FROM project_config`, "claim.ttl"},
+		// History keeps its words: an event's values are not rewritten.
+		{`SELECT new_value FROM event WHERE action = 'linked'`, "/TR/knowledge/a"},
 	}
 	for _, c := range checks {
 		var got string
@@ -203,4 +216,157 @@ func TestVocabularyMigrationPutsFilesBackWhenTheSchemaFails(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "projects", "TR", "vault")); !os.IsNotExist(err) {
 		t.Errorf("new vault directory left behind: %v", err)
 	}
+}
+
+// Keys may carry hyphens (vpath's key grammar), as trellis init makes them.
+// Inside a wikilink, or in a link target, a lower-case key is still a
+// reference; anywhere else only an upper-case one is.
+const hyphenEntryBefore = "---\ntitle: H\nsources:\n  - /KIOSK-ANALYSE/knowledge/x\n  - \"[[/api/knowledge/x]]\"\n---\n" +
+	"See [[/MY-APP/knowledge/b]], [[ /api/knowledge/x#why|x]], [[/home/me/knowledge/notes]] and /home/me/knowledge/notes.\n" +
+	"A bare /api/knowledge/x is prose.\n"
+
+const hyphenEntryAfter = "---\ntitle: H\nsources:\n  - /KIOSK-ANALYSE/vault/x\n  - \"[[/api/vault/x]]\"\n---\n" +
+	"See [[/MY-APP/vault/b]], [[ /api/vault/x#why|x]], [[/home/me/knowledge/notes]] and /home/me/knowledge/notes.\n" +
+	"A bare /api/knowledge/x is prose.\n"
+
+func TestVocabularyMigrationRewritesHyphenatedAndLowerCaseKeys(t *testing.T) {
+	root, db := rootBefore(t)
+	writeFile(t, filepath.Join(root, "projects", "MY-APP", "knowledge", "h.md"), hyphenEntryBefore)
+	for _, q := range []string{
+		`INSERT INTO project (id, key, name, created_at) VALUES ('p2', 'MY-APP', 'My app', 1)`,
+		`INSERT INTO board (id, project_id, name, slug, is_default, created_at) VALUES ('b2', 'p2', 'main', 'main', 1, 1)`,
+		`INSERT INTO column_ (id, board_id, name, position) VALUES ('c2', 'b2', 'backlog', 0)`,
+		`INSERT INTO card (id, project_id, board_id, seq, column_id, rank, title, body_md, ref, created_at, updated_at)
+		 VALUES ('k2', 'p2', 'b2', 1, 'c2', 'a', 'Second', 'see /MY-APP/knowledge/b', 'MY-APP-1', 1, 1)`,
+		`INSERT INTO comment (id, card_id, actor, body_md, created_at) VALUES ('m2', 'k2', 'agent:x', 'read /MY-APP/knowledge/b', 1)`,
+		`INSERT INTO knowledge (id, project_id, slug, title, content_hash, mtime, size, created_at, updated_at)
+		 VALUES ('e3', 'p2', 'h', 'H', '` + sha(hyphenEntryBefore) + `', 1, 1, 1, 1)`,
+		`INSERT INTO link (from_type, from_id, to_type, to_id, to_raw, rel) VALUES ('card', 'k2', 'doc', 'e3', '/MY-APP/knowledge/h', 'documents')`,
+		`INSERT INTO link (from_type, from_id, to_type, to_id, to_raw, rel) VALUES ('doc', 'e3', 'doc', NULL, '/api/knowledge/x#why', 'wikilink')`,
+		`INSERT INTO link (from_type, from_id, to_type, to_id, to_raw, rel) VALUES ('doc', 'e3', 'doc', NULL, '/home/me/knowledge/notes', 'wikilink')`,
+	} {
+		mustExec(t, db, q)
+	}
+	if err := goose.Up(db.DB, "migrations"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := readFile(t, filepath.Join(root, "projects", "MY-APP", "vault", "h.md")); got != hyphenEntryAfter {
+		t.Errorf("entry file:\n%s\nwant:\n%s", got, hyphenEntryAfter)
+	}
+	if _, err := os.Stat(filepath.Join(root, "projects", "MY-APP", "knowledge")); !os.IsNotExist(err) {
+		t.Errorf("old MY-APP vault still there: %v", err)
+	}
+	checks := []struct{ q, want string }{
+		{`SELECT body_md FROM card WHERE id = 'k2'`, "see /MY-APP/vault/b"},
+		{`SELECT body_md FROM comment WHERE id = 'm2'`, "read /MY-APP/vault/b"},
+		{`SELECT group_concat(to_raw, ' ') FROM (SELECT to_raw FROM link WHERE from_id IN ('k2', 'e3') ORDER BY to_raw)`,
+			"/MY-APP/vault/h /api/vault/x#why /home/me/knowledge/notes"},
+		{`SELECT content_hash FROM entry WHERE id = 'e3'`, sha(hyphenEntryAfter)},
+	}
+	for _, c := range checks {
+		var got string
+		if err := db.Get(&got, c.q); err != nil {
+			t.Fatalf("%s: %v", c.q, err)
+		}
+		if got != c.want {
+			t.Errorf("%s\n got %q\nwant %q", c.q, got, c.want)
+		}
+	}
+}
+
+// A root is a path, not a pattern: '[' in it must not hide the vaults.
+func TestVocabularyMigrationTakesARootLiterally(t *testing.T) {
+	root, db := rootBeforeAt(t, filepath.Join(t.TempDir(), "home[1]"))
+	if err := goose.Up(db.DB, "migrations"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(root, "projects", "TR", "vault", "a.md")); !strings.Contains(got, "[[/TR/vault/b]]") {
+		t.Errorf("entry file not moved and rewritten: %q", got)
+	}
+	if tpl := readFile(t, filepath.Join(root, "templates", "cited.md")); !strings.Contains(tpl, "\nresolve: [sources]\n") {
+		t.Errorf("template: %q", tpl)
+	}
+}
+
+// goose records the version after the migration returns, so a start can run
+// it again over work already done. That must change nothing.
+func TestVocabularyMigrationIsSafeToRerun(t *testing.T) {
+	root, db := rootBefore(t)
+	if err := goose.Up(db.DB, "migrations"); err != nil {
+		t.Fatal(err)
+	}
+	files, rows := filesUnder(t, root), tableRows(t, db)
+
+	if err := renameVocabulary(t.Context(), db.DB); err != nil {
+		t.Fatalf("rerun: %v", err)
+	}
+	if err := goose.Up(db.DB, "migrations"); err != nil {
+		t.Fatalf("Up again: %v", err)
+	}
+	// The file work alone, as a start that died before the schema step
+	// repeats it, finds nothing left to do.
+	var fw fileWork
+	if err := fw.moveVaults(root); err != nil {
+		t.Fatalf("moveVaults again: %v", err)
+	}
+	if err := fw.rewrite(root); err != nil {
+		t.Fatalf("rewrite again: %v", err)
+	}
+	if len(fw.moved) != 0 || len(fw.rewritten) != 0 {
+		t.Errorf("second file pass moved %v and rewrote %d files", fw.moved, len(fw.rewritten))
+	}
+
+	if got := filesUnder(t, root); !maps.Equal(got, files) {
+		t.Errorf("files changed on rerun:\n%v\nwant:\n%v", got, files)
+	}
+	if got := tableRows(t, db); got != rows {
+		t.Errorf("database changed on rerun:\n%s\nwant:\n%s", got, rows)
+	}
+}
+
+// filesUnder maps every file below root, the database aside, to its contents.
+func filesUnder(t *testing.T, root string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || strings.HasPrefix(d.Name(), "trellis.db") {
+			return err
+		}
+		out[path] = readFile(t, path)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// tableRows prints the schema and every row the migration touches.
+func tableRows(t *testing.T, db *sqlx.DB) string {
+	t.Helper()
+	var b strings.Builder
+	for _, q := range []string{
+		`SELECT type, name, COALESCE(sql, '') FROM sqlite_master ORDER BY name`,
+		`SELECT * FROM entry ORDER BY rowid`, `SELECT * FROM card ORDER BY rowid`,
+		`SELECT * FROM comment ORDER BY rowid`, `SELECT * FROM link ORDER BY rowid`,
+		`SELECT * FROM event ORDER BY rowid`, `SELECT * FROM pin ORDER BY rowid`,
+		`SELECT * FROM nomination ORDER BY rowid`, `SELECT * FROM project_config ORDER BY rowid`,
+	} {
+		rows, err := db.Queryx(q)
+		if err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+		for rows.Next() {
+			row, err := rows.SliceScan()
+			if err != nil {
+				t.Fatal(err)
+			}
+			fmt.Fprintln(&b, row...)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return b.String()
 }

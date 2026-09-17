@@ -5,7 +5,7 @@ import "github.com/jmoiron/sqlx"
 // purgeDisclosedCopies removes the copies of a body that trellis made before
 // its author declared it private. Three exist locally:
 //
-//	knowledge.recap / recap_hash   the stored recap
+//	entry.recap / recap_hash       the stored recap
 //	event.new_value  pinned        PinKnowledge writes the recap text there
 //	                               while the entry is still ordinary
 //	event.new_value  edited        EditKnowledgeFields writes the whole body
@@ -42,7 +42,7 @@ import "github.com/jmoiron/sqlx"
 // successful read recomputes the false-to-true transition from the file and
 // re-attempts the purge. Nothing discloses in the meantime: both Recall and
 // Pins decide what to redact from the file, not from the recap column, so a
-// rolled-back purge can leave knowledge.recap stale until a later read purges
+// rolled-back purge can leave entry.recap stale until a later read purges
 // again, but that stale value never reaches an agent.
 //
 // The vector index needs nothing here. Private entries are absent from the

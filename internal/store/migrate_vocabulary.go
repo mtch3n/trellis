@@ -97,14 +97,38 @@ type fileWork struct {
 	rewritten []fileChange
 }
 
+// vaultParents lists every directory that may hold a vault: each directory
+// under root/projects, then root/global. It lists rather than globs, since a
+// root may contain a pattern character such as '[' or '*'.
+func vaultParents(root string) ([]string, error) {
+	projects := filepath.Join(root, "projects")
+	entries, err := os.ReadDir(projects)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	var parents []string
+	for _, e := range entries {
+		dir := filepath.Join(projects, e.Name())
+		st, err := os.Stat(dir) // follows a symlinked project, as a glob would
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return nil, err
+		}
+		if st.IsDir() {
+			parents = append(parents, dir)
+		}
+	}
+	return append(parents, filepath.Join(root, "global")), nil
+}
+
 func (fw *fileWork) moveVaults(root string) error {
-	olds, err := filepath.Glob(filepath.Join(root, "projects", "*", "knowledge"))
+	parents, err := vaultParents(root)
 	if err != nil {
 		return err
 	}
-	olds = append(olds, filepath.Join(root, "global", "knowledge"))
-	for _, from := range olds {
-		to := filepath.Join(filepath.Dir(from), "vault")
+	for _, parent := range parents {
+		from, to := filepath.Join(parent, "knowledge"), filepath.Join(parent, "vault")
 		if _, err := os.Stat(from); errors.Is(err, fs.ErrNotExist) {
 			continue // nothing there, or moved by an attempt that died
 		} else if err != nil {
@@ -119,7 +143,7 @@ func (fw *fileWork) moveVaults(root string) error {
 			return err
 		}
 		fw.moved = append(fw.moved, dirMove{from, to})
-		if err := atomicfile.SyncDir(filepath.Dir(from)); err != nil {
+		if err := atomicfile.SyncDir(parent); err != nil {
 			return err
 		}
 	}
@@ -127,12 +151,12 @@ func (fw *fileWork) moveVaults(root string) error {
 }
 
 func (fw *fileWork) rewrite(root string) error {
-	vaults, err := filepath.Glob(filepath.Join(root, "projects", "*", "vault"))
+	parents, err := vaultParents(root)
 	if err != nil {
 		return err
 	}
-	vaults = append(vaults, filepath.Join(root, "global", "vault"))
-	for _, vault := range vaults {
+	for _, parent := range parents {
+		vault := filepath.Join(parent, "vault")
 		err := filepath.WalkDir(vault, func(path string, d fs.DirEntry, err error) error {
 			if path == vault && errors.Is(err, fs.ErrNotExist) {
 				return filepath.SkipDir
@@ -149,17 +173,22 @@ func (fw *fileWork) rewrite(root string) error {
 			if d.IsDir() || filepath.Ext(path) != ".md" {
 				return nil
 			}
-			return fw.edit(path, rewriteAddresses)
+			return fw.edit(path, rewriteEntry)
 		})
 		if err != nil {
 			return err
 		}
 	}
-	templates, err := filepath.Glob(filepath.Join(root, "templates", "*.md"))
-	if err != nil {
+	templates := filepath.Join(root, "templates")
+	entries, err := os.ReadDir(templates)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	for _, path := range templates {
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
+			continue
+		}
+		path := filepath.Join(templates, e.Name())
 		if err := fw.edit(path, func(s string) string { return renameTopLevelKey(s, "verify", "resolve", true) }); err != nil {
 			return err
 		}
@@ -254,14 +283,36 @@ func renameTopLevelKey(s, from, to string, header bool) string {
 	return strings.Join(lines, nl)
 }
 
-// oldAddress is an address written before the rename, at the start of a
-// token. Keys are matched upper-case only, as Trellis prints them, so a
-// filesystem path such as /home/me/knowledge/ is never touched. A hand-written
-// lower-case address is left alone; lint reports it as a stub.
-var oldAddress = regexp.MustCompile("(?m)(^|[\\s\\[(\"'`,:])(/[A-Z][A-Z0-9]*)/knowledge/")
+// keyPattern is a project key as vpath spells it: upper-case segments joined
+// by hyphens (MY-APP).
+const keyPattern = `[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*`
 
+var (
+	// oldAddress is an address written before the rename, at the start of a
+	// token. Its key is matched upper-case only, as Trellis prints it, so a
+	// filesystem path such as /home/me/knowledge/ is never touched.
+	oldAddress = regexp.MustCompile("(?m)(^|[\\s\\[(\"'`,:])(/" + keyPattern + ")/knowledge/")
+	// oldWikilinkAddress is an old address as a [[wikilink]] target. A
+	// target is always a reference, and core reads its key in any case.
+	oldWikilinkAddress = regexp.MustCompile(`(\[\[\s*)(/(?i:` + keyPattern + `))/knowledge/`)
+	// oldReference is an old address as a whole link target, in any case.
+	oldReference = regexp.MustCompile(`^(/(?i:` + keyPattern + `))/knowledge/`)
+)
+
+// rewriteAddresses rewrites old addresses in prose: a card, a comment.
 func rewriteAddresses(s string) string {
 	return oldAddress.ReplaceAllString(s, "${1}${2}/vault/")
+}
+
+// rewriteEntry rewrites old addresses in an entry file, where a wikilink
+// target also counts with a lower-case key.
+func rewriteEntry(s string) string {
+	return rewriteAddresses(oldWikilinkAddress.ReplaceAllString(s, "${1}${2}/vault/"))
+}
+
+// rewriteReference rewrites link.to_raw, which is always one reference.
+func rewriteReference(s string) string {
+	return oldReference.ReplaceAllString(s, "${1}/vault/")
 }
 
 func renameSchema(ctx context.Context, db *sql.DB, root string, rewritten []fileChange) error {
@@ -325,8 +376,15 @@ func renameSchema(ctx context.Context, db *sql.DB, root string, rewritten []file
 	if err := carryHashes(ctx, tx, root, rewritten); err != nil {
 		return err
 	}
-	for _, c := range [][2]string{{"card", "body_md"}, {"comment", "body_md"}, {"link", "to_raw"}} {
-		if err := rewriteColumn(ctx, tx, c[0], c[1], rewriteAddresses); err != nil {
+	for _, c := range []struct {
+		table, col string
+		change     func(string) string
+	}{
+		{"card", "body_md", rewriteAddresses},
+		{"comment", "body_md", rewriteAddresses},
+		{"link", "to_raw", rewriteReference},
+	} {
+		if err := rewriteColumn(ctx, tx, c.table, c.col, c.change); err != nil {
 			return err
 		}
 	}
