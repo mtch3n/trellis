@@ -116,9 +116,9 @@ func TestFrontmatterExtraKeysRenderInStableOrder(t *testing.T) {
 }
 
 func TestFrontmatterWithNoExtraKeysIsUnchanged(t *testing.T) {
-	fm := Frontmatter{Title: "Plain", Template: "note"}
+	fm := Frontmatter{Title: "Plain", Template: "decision"}
 	got := RenderDoc(fm, "body\n")
-	want := "---\ntitle: Plain\ntemplate: note\n---\n\nbody\n"
+	want := "---\ntitle: Plain\ntemplate: decision\n---\n\nbody\n"
 	if got != want {
 		t.Errorf("RenderDoc with no Extra = %q, want %q", got, want)
 	}

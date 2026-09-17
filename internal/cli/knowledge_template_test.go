@@ -6,13 +6,16 @@ import (
 	"testing"
 )
 
-func TestTemplateLsListsTheSixBuiltins(t *testing.T) {
+func TestTemplateLsListsTheFiveBuiltins(t *testing.T) {
 	projectEnv(t)
 	out := runCmd(t, "knowledge", "template", "ls", "--json")
-	for _, name := range []string{"decision", "finding", "note", "reference", "research", "runbook"} {
+	for _, name := range []string{"decision", "finding", "reference", "research", "runbook"} {
 		if !strings.Contains(out, `"`+name+`"`) {
 			t.Errorf("ls does not list %s:\n%s", name, out)
 		}
+	}
+	if strings.Contains(out, `"note"`) {
+		t.Errorf("ls should not list note (removed):\n%s", out)
 	}
 }
 
@@ -46,12 +49,12 @@ func TestTemplateEditThenNewEntryUsesIt(t *testing.T) {
 
 func TestTemplateRmThenReinstallRestoresABuiltin(t *testing.T) {
 	projectEnv(t)
-	runCmd(t, "knowledge", "template", "rm", "note")
-	if _, err := runCmdErr(t, "knowledge", "template", "show", "note"); cliErrCode(err) != "unknown_template" {
+	runCmd(t, "knowledge", "template", "rm", "decision")
+	if _, err := runCmdErr(t, "knowledge", "template", "show", "decision"); cliErrCode(err) != "unknown_template" {
 		t.Fatalf("after rm: err = %v, want unknown_template", err)
 	}
-	runCmd(t, "knowledge", "template", "reinstall", "note")
-	runCmd(t, "knowledge", "template", "show", "note")
+	runCmd(t, "knowledge", "template", "reinstall", "decision")
+	runCmd(t, "knowledge", "template", "show", "decision")
 }
 
 func TestTemplateReinstallRefusesANonBuiltin(t *testing.T) {
@@ -67,7 +70,7 @@ func TestTemplateCheckReportsWithoutBlocking(t *testing.T) {
 	runCmd(t, "knowledge", "template", "new", "strict")
 	runCmd(t, "knowledge", "template", "edit", "strict", "--body",
 		"---\nenforce: reject\nrequired: [owner]\n---\n# {{title}}\n")
-	runCmd(t, "knowledge", "new", "--title", "Loose", "--template", "note")
+	runCmd(t, "knowledge", "new", "--title", "Loose")
 
 	out := runCmd(t, "knowledge", "template", "check", "strict", "loose", "--json")
 	if !strings.Contains(out, "owner") {

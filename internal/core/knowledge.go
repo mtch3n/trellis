@@ -179,33 +179,43 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 				"use "+flag+" instead")
 		}
 	}
-	templatesDirPath, err := c.templatesDir()
-	if err != nil {
-		return Knowledge{}, err
-	}
-	tmpl, err := loadTemplate(templatesDirPath, cmpOr(in.Template, "note"))
-	if err != nil {
-		return Knowledge{}, err
-	}
-	fields := map[string][]string{"sources": cleanSources(in.Sources)}
-	for k, v := range in.Set {
-		fields[k] = []string{v}
-	}
+	// Handle empty template (no template enforced)
 	body := in.Body
-	checkSections := body != ""
-	if body == "" {
-		body = stripOptionalMarkers(renderTemplateBody(tmpl.Body, in.Title, in.Set))
-	}
-	violations := templateViolations(tmpl, fields, body, checkSections)
-	verifyProblems, err := c.templateVerifyViolations(ctx, projectID, tmpl, fields, body)
-	if err != nil {
-		return Knowledge{}, err
-	}
-	violations = append(violations, verifyProblems...)
-	if len(violations) > 0 && tmpl.Enforce == "reject" {
-		return Knowledge{}, ErrUsage("template_violation",
-			tmpl.Name+" does not meet its template:\n  - "+strings.Join(violations, "\n  - "),
-			templateViolationFix(tmpl.Name, violations))
+	var violations []string
+	if in.Template == "" {
+		// No template: just use provided body or create simple header
+		if body == "" {
+			body = "# " + in.Title + "\n"
+		}
+	} else {
+		// Template provided: load and validate
+		templatesDirPath, err := c.templatesDir()
+		if err != nil {
+			return Knowledge{}, err
+		}
+		tmpl, err := loadTemplate(templatesDirPath, in.Template)
+		if err != nil {
+			return Knowledge{}, err
+		}
+		fields := map[string][]string{"sources": cleanSources(in.Sources)}
+		for k, v := range in.Set {
+			fields[k] = []string{v}
+		}
+		checkSections := body != ""
+		if body == "" {
+			body = stripOptionalMarkers(renderTemplateBody(tmpl.Body, in.Title, in.Set))
+		}
+		violations = templateViolations(tmpl, fields, body, checkSections)
+		verifyProblems, err := c.templateVerifyViolations(ctx, projectID, tmpl, fields, body)
+		if err != nil {
+			return Knowledge{}, err
+		}
+		violations = append(violations, verifyProblems...)
+		if len(violations) > 0 && tmpl.Enforce == "reject" {
+			return Knowledge{}, ErrUsage("template_violation",
+				tmpl.Name+" does not meet its template:\n  - "+strings.Join(violations, "\n  - "),
+				templateViolationFix(tmpl.Name, violations))
+		}
 	}
 	if err := c.checkWrite(ctx, ProposedWrite{
 		Op: "doc.write", EntityType: "knowledge", ProjectID: projectID,
@@ -263,7 +273,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 
 		now := c.clock.NowMS()
 		fm := Frontmatter{
-			Title: in.Title, Template: cmpOr(in.Template, "note"), Summary: in.Summary,
+			Title: in.Title, Template: in.Template, Summary: in.Summary,
 			Provenance: provenance,
 			Private:    in.Private,
 			Board:      boardName, Tags: in.Tags, Labels: in.Labels,

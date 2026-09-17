@@ -450,7 +450,7 @@ func TestListKnowledgeFiltersByTypeAndProvenance(t *testing.T) {
 	}
 	mk("Chosen storage", "decision", "authored", "https://example.com/storage-comparison")
 	mk("Measured latency", "finding", "authored", "https://example.com/latency-numbers")
-	mk("Overheard preference", "note", "extracted")
+	mk("Overheard preference", "", "extracted")
 
 	cases := []struct {
 		name string
@@ -462,7 +462,7 @@ func TestListKnowledgeFiltersByTypeAndProvenance(t *testing.T) {
 		{"two types", KnowledgeFilter{Templates: []string{"decision", "finding"}}, 2},
 		{"one provenance", KnowledgeFilter{Provenances: []string{"extracted"}}, 1},
 		{"both dimensions", KnowledgeFilter{
-			Templates: []string{"note"}, Provenances: []string{"extracted"}}, 1},
+			Templates: []string{"decision"}, Provenances: []string{"authored"}}, 1},
 		{"both dimensions, no overlap", KnowledgeFilter{
 			Templates: []string{"decision"}, Provenances: []string{"extracted"}}, 0},
 	}
@@ -482,7 +482,7 @@ func TestListKnowledgeFiltersByTypeAndProvenance(t *testing.T) {
 func TestKnowledgeFilterBuildsTheSameQueryEveryTime(t *testing.T) {
 	// The clauses come out of a map, and map order reaching the query would
 	// make the same filter produce different SQL between runs.
-	f := KnowledgeFilter{Templates: []string{"note"}, Provenances: []string{"extracted"}}
+	f := KnowledgeFilter{Templates: []string{"decision"}, Provenances: []string{"extracted"}}
 	first, _ := f.where()
 	for range 20 {
 		if got, _ := f.where(); got != first {

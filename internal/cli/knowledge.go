@@ -43,7 +43,7 @@ func newKnowledgeNewCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !title.Changed() {
 				return core.ErrUsage("missing_title", "a knowledge entry needs a title",
-					`trellis knowledge new --title "Concurrency model" --template decision --source https://example.com`)
+					`trellis knowledge new --title "Concurrency model"`)
 			}
 			fields, err := parseSetFlags(setFlags)
 			if err != nil {
@@ -71,9 +71,9 @@ func newKnowledgeNewCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Var(&title, "title", "entry title")
-	cmd.Flags().Var(&body, "body", "markdown body (default: the template)")
+	cmd.Flags().Var(&body, "body", "markdown body (default: simple header)")
 	cmd.Flags().Var(&summary, "summary", "one line, used as the pinned recap when none is written")
-	cmd.Flags().StringVar(&template, "template", "note", strings.Join(core.Templates(), "|"))
+	cmd.Flags().StringVar(&template, "template", "", strings.Join(core.Templates(), "|")+" (optional)")
 	cmd.Flags().StringVar(&provenance, "provenance", "", "ingestion path: "+strings.Join(core.Provenances(), "|")+" (default authored)")
 	cmd.Flags().StringVar(&board, "board", "", "associate with a board (association, never ownership)")
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "free-form tags")

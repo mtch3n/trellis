@@ -121,7 +121,7 @@ func TestEventFeedFiltersByTemplate(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateKnowledge finding: %v", err)
 	}
-	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Notes", Template: "note"}); err != nil {
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Notes", Template: ""}); err != nil {
 		t.Fatalf("CreateKnowledge note: %v", err)
 	}
 

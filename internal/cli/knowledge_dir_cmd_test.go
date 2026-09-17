@@ -49,9 +49,9 @@ func TestKnowledgeMvCommand(t *testing.T) {
 
 func TestKnowledgeLsRendersATreeGroupedByDirectory(t *testing.T) {
 	docs := []core.Knowledge{
-		{Slug: "recall-ranking", Template: "note", Title: "Recall ranking"},
+		{Slug: "recall-ranking", Template: "decision", Title: "Recall ranking"},
 		{Slug: "deployment/rollback", Template: "runbook", Title: "Rollback"},
-		{Slug: "docs/rollback", Template: "note", Title: "Rollback (docs)"},
+		{Slug: "docs/rollback", Template: "decision", Title: "Rollback (docs)"},
 	}
 	out := renderKnowledgeList(docs)
 	if !strings.Contains(out, "deployment/\n") || !strings.Contains(out, "docs/\n") {
