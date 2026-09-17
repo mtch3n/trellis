@@ -127,7 +127,7 @@ func TestServerVaultGraphLabelsAndStealRoutes(t *testing.T) {
 		return rec
 	}
 
-	created := request(http.MethodPost, "/api/p/P5TEST/b/default/vault", `{"title":"Concurrency","summary":"leases","body":"first"}`)
+	created := request(http.MethodPost, "/api/p/P5TEST/b/default/vault", `{"title":"Concurrency","summary":"one writer at a time","body":"first"}`)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("entry create status = %d, body = %s", created.Code, created.Body)
 	}

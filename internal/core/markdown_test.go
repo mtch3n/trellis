@@ -51,7 +51,7 @@ func TestParseInlineTagsIgnoresHeadings(t *testing.T) {
 
 func TestFrontmatterRoundTrip(t *testing.T) {
 	fm := Frontmatter{Title: "Concurrency model", Template: "decision", Tags: []string{"sqlite"}}
-	raw := RenderEntry(fm, "# Concurrency model\n\nLeases, not locks.\n")
+	raw := RenderEntry(fm, "# Concurrency model\n\nOne writer at a time.\n")
 	back, body, err := SplitFrontmatter(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +59,7 @@ func TestFrontmatterRoundTrip(t *testing.T) {
 	if back.Title != fm.Title || back.Template != fm.Template || len(back.Tags) != 1 {
 		t.Errorf("round trip lost fields: %+v", back)
 	}
-	if FirstParagraph(body) != "Leases, not locks." {
+	if FirstParagraph(body) != "One writer at a time." {
 		t.Errorf("FirstParagraph = %q", FirstParagraph(body))
 	}
 }

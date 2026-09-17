@@ -258,15 +258,15 @@ func (w *terminalWorkspace) selectCard(index int) {
 	w.selected = &card
 	w.session.seen[card.ID] = card.Version
 	text := fmt.Sprintf("[::b]%s  %s[::-]\n[#7ddbc4]%s · %s[-]\n\n%s", tuiText(card.Ref), tuiText(card.Title), tuiText(card.ColumnName), tuiText(card.PriorityName), terminalMarkdown(card.BodyMD))
-	notes, err := w.session.app.Core.GetCommentsByCard(w.ctx, card.ID)
+	comments, err := w.session.app.Core.GetCommentsByCard(w.ctx, card.ID)
 	if err != nil {
-		text += "\n\nNotes unavailable: " + tuiText(err.Error())
+		text += "\n\nComments unavailable: " + tuiText(err.Error())
 	} else {
-		for _, note := range notes {
-			text += "\n\n[#7ddbc4]" + tuiText(note.Actor) + "[-]\n" + terminalMarkdown(note.BodyMD)
+		for _, comment := range comments {
+			text += "\n\n[#7ddbc4]" + tuiText(comment.Actor) + "[-]\n" + terminalMarkdown(comment.BodyMD)
 		}
 	}
-	w.preview.SetTitle(" Card · Enter read · e edit · m move · a note ")
+	w.preview.SetTitle(" Card · Enter read · e edit · m move · a comment ")
 	w.preview.SetText(text).ScrollToBeginning()
 }
 func (w *terminalWorkspace) renderVault() {
@@ -534,7 +534,7 @@ func (w *terminalWorkspace) key(event *tcell.EventKey) *tcell.EventKey {
 		w.move()
 		return nil
 	case 'a':
-		w.note()
+		w.comment()
 		return nil
 	case 'j':
 		return tcell.NewEventKey(tcell.KeyDown, 0, event.Modifiers())
@@ -626,7 +626,7 @@ Arrow keys or hjkl navigate · Enter open · Esc back
 / filter current view · : action menu · r refresh · q quit
 
 CARDS
-n create · e edit title and body · m move · a append note
+n create · e edit title and body · m move · a append comment
 
 VAULT
 Enter on a group collapses it; Enter on an entry expands reading.
@@ -653,7 +653,7 @@ func (w *terminalWorkspace) palette() {
 		{"New card or entry", "Create a card or entry", func() { w.edit(true) }},
 		{"Edit selected", "Edit the selected card or entry", func() { w.edit(false) }},
 		{"Move card", "Choose a destination column", w.move},
-		{"Add note", "Append a note to the selected card", w.note},
+		{"Add comment", "Append a comment to the selected card", w.comment},
 		{"Filter", "Find text in this view", func() { w.openInput("filter") }},
 		{"Run slash command", "Existing commands and project-wide search", func() { w.openInput("command") }},
 		{"Refresh", "Reload local data", w.refresh},
@@ -744,15 +744,15 @@ func (w *terminalWorkspace) move() {
 	}
 	w.showModal("Move", list, 50, len(w.columns)+4)
 }
-func (w *terminalWorkspace) note() {
+func (w *terminalWorkspace) comment() {
 	if w.view != "board" || w.selected == nil {
 		return
 	}
 	card := *w.selected
 	body := ""
 	form := tview.NewForm().SetLabelColor(tuiAccent).SetFieldBackgroundColor(tuiSelected).SetFieldTextColor(tuiFG)
-	tuiBox(form.Box, "Note · "+tuiText(card.Ref))
-	form.AddTextArea("Note", "", 0, 5, 0, func(s string) { body = s }).AddButton("Append", func() {
+	tuiBox(form.Box, "Comment · "+tuiText(card.Ref))
+	form.AddTextArea("Comment", "", 0, 5, 0, func(s string) { body = s }).AddButton("Append", func() {
 		if strings.TrimSpace(body) == "" {
 			return
 		}
@@ -765,5 +765,5 @@ func (w *terminalWorkspace) note() {
 		w.refresh()
 		w.focusContent()
 	}).AddButton("Cancel", w.closeModal).SetCancelFunc(w.closeModal)
-	w.showModal("Note", form, 75, 14)
+	w.showModal("Comment", form, 75, 14)
 }

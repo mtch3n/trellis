@@ -48,20 +48,20 @@ func TestEntryAddressSQLMatchesGo(t *testing.T) {
 func TestSearchRecallAndVectorHitsCarryAddresses(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	ctx := t.Context()
-	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Lease renewal", Body: "A claim starts the lease.\n"})
+	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Certificate rotation", Body: "Nightly rotation replaces the TLS certificate.\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "/XPSCTL/vault/lease-renewal"
+	const want = "/XPSCTL/vault/certificate-rotation"
 	if entry.Ref != want {
 		t.Errorf("created ref = %q, want %q", entry.Ref, want)
 	}
 
-	hits, err := c.Search(ctx, p.ID, "lease", SearchOpts{})
+	hits, err := c.Search(ctx, p.ID, "certificate", SearchOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	recalled, err := c.Recall(ctx, p.ID, "why did the lease expire", RecallOpts{})
+	recalled, err := c.Recall(ctx, p.ID, "why did the certificate rotation fail", RecallOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}

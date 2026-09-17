@@ -21,7 +21,7 @@ func TestCreateEntryWritesFileAndRow(t *testing.T) {
 	c, p, _ := vaultCore(t)
 
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Concurrency model", Template: "decision", Summary: "Leases, not locks",
+		Title: "Concurrency model", Template: "decision", Summary: "One writer at a time",
 		Sources: []string{"https://example.com/design-notes"},
 	})
 	if err != nil {
@@ -91,7 +91,7 @@ func TestExternalEditWins(t *testing.T) {
 func TestWikilinksResolveAndStub(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	target, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Concurrency model", Body: "# Concurrency model\n\n## Parallel safety\n\nLeases.\n",
+		Title: "Concurrency model", Body: "# Concurrency model\n\n## Parallel safety\n\nOne writer at a time.\n",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -236,12 +236,12 @@ func TestSearchByLabelCoversBothStores(t *testing.T) {
 func TestSearchMatchesTheSummary(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Concurrency model", Summary: "Leases, not locks; writes renew",
+		Title: "Concurrency model", Summary: "One writer at a time; others wait",
 		Body: "# Concurrency model\n\nDetail elsewhere.\n",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	hits, err := c.Search(t.Context(), p.ID, "leases", SearchOpts{})
+	hits, err := c.Search(t.Context(), p.ID, "wait", SearchOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func TestSearchMatchesTheSummary(t *testing.T) {
 func TestCreatingEntryResolvesInboundStubs(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	src, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Design", Body: "Depends on [[lease-protocol]].\n",
+		Title: "Design", Body: "Depends on [[certificate-rotation]].\n",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -270,13 +270,13 @@ func TestCreatingEntryResolvesInboundStubs(t *testing.T) {
 	}
 
 	target, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Lease protocol", Body: "How leases are taken.\n",
+		Title: "Certificate rotation", Body: "How certificates are rotated.\n",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if target.Slug != "lease-protocol" {
-		t.Fatalf("Slug = %q, want lease-protocol", target.Slug)
+	if target.Slug != "certificate-rotation" {
+		t.Fatalf("Slug = %q, want certificate-rotation", target.Slug)
 	}
 
 	back, err := c.Backlinks(t.Context(), target.ID)
@@ -303,20 +303,20 @@ func TestCreatingEntryResolvesInboundStubs(t *testing.T) {
 func TestRecreatingEntryReclaimsStubbedLinks(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Lease protocol", Body: "First cut.\n",
+		Title: "Certificate rotation", Body: "First cut.\n",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Design", Body: "Depends on [[lease-protocol]].\n",
+		Title: "Design", Body: "Depends on [[certificate-rotation]].\n",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.DeleteEntry(t.Context(), p.ID, "lease-protocol"); err != nil {
+	if err := c.DeleteEntry(t.Context(), p.ID, "certificate-rotation"); err != nil {
 		t.Fatal(err)
 	}
 	again, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Lease protocol", Body: "Second cut.\n",
+		Title: "Certificate rotation", Body: "Second cut.\n",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -332,7 +332,7 @@ func TestRecreatingEntryReclaimsStubbedLinks(t *testing.T) {
 
 func TestProvenanceDefaultsToAuthored(t *testing.T) {
 	c, p, _ := vaultCore(t)
-	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Lease renewal"})
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Certificate rotation"})
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestProvenanceReachesBothTheFileAndTheRow(t *testing.T) {
 	ctx := t.Context()
 
 	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{
-		Title: "Lease renewal", Provenance: "extracted",
+		Title: "Certificate rotation", Provenance: "extracted",
 	})
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
@@ -369,7 +369,7 @@ func TestProvenanceSurvivesAnEdit(t *testing.T) {
 	ctx := t.Context()
 
 	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{
-		Title: "Lease renewal", Provenance: "prompted",
+		Title: "Certificate rotation", Provenance: "prompted",
 	})
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
@@ -394,7 +394,7 @@ func TestProvenanceSurvivesAnEdit(t *testing.T) {
 func TestUnknownProvenanceIsRejectedWithTheAllowedSet(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Lease renewal", Provenance: "vibes",
+		Title: "Certificate rotation", Provenance: "vibes",
 	})
 	if err == nil {
 		t.Fatal("an invented provenance was accepted")
@@ -410,7 +410,7 @@ func TestProvenanceIsReadBackFromTheFile(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 
-	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Lease renewal"})
+	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Certificate rotation"})
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}

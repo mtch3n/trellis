@@ -56,12 +56,12 @@ func refsIn(t *testing.T, out, field string) []string {
 
 func TestEveryPrintedEntryRefOpens(t *testing.T) {
 	targetEnv(t)
-	const want = "/ALPHA/vault/lease-renewal"
-	if got := refOf(t, "vault", "new", "--title", "Lease renewal", "--body", "A claim starts the lease.\n"); got != want {
+	const want = "/ALPHA/vault/certificate-rotation"
+	if got := refOf(t, "vault", "new", "--title", "Certificate rotation", "--body", "Nightly rotation replaces the TLS certificate.\n"); got != want {
 		t.Fatalf("created = %s", got)
 	}
-	refs := refsIn(t, runCmd(t, "search", "lease", "--json"), "results")
-	refs = append(refs, refsIn(t, runCmd(t, "recall", "why did the lease expire", "--json"), "results")...)
+	refs := refsIn(t, runCmd(t, "search", "certificate", "--json"), "results")
+	refs = append(refs, refsIn(t, runCmd(t, "recall", "why did the certificate rotation fail", "--json"), "results")...)
 	if len(refs) != 2 {
 		t.Fatalf("refs = %v", refs)
 	}

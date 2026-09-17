@@ -13,13 +13,13 @@ func TestRecallFindsWhatAPhraseSearchCannot(t *testing.T) {
 	ctx := t.Context()
 
 	if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
-		Title:   "Lease renewal on claim",
-		Summary: "A claim starts the lease and a note renews it.",
+		Title:   "Certificate rotation on deploy",
+		Summary: "A deploy starts the rotation and a restart finishes it.",
 	}); err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
 
-	sentence := "why does the lease expire when an agent goes quiet halfway through"
+	sentence := "why does the certificate rotation fail when a deploy goes quiet halfway through"
 
 	phrase, err := c.Search(ctx, p.ID, sentence, SearchOpts{})
 	if err != nil {
@@ -36,8 +36,8 @@ func TestRecallFindsWhatAPhraseSearchCannot(t *testing.T) {
 	if len(hits) == 0 {
 		t.Fatal("Recall found nothing in a sentence naming the entry's subject")
 	}
-	if hits[0].Ref != "/XPSCTL/vault/lease-renewal-on-claim" {
-		t.Errorf("first hit = %q, want /XPSCTL/vault/lease-renewal-on-claim", hits[0].Ref)
+	if hits[0].Ref != "/XPSCTL/vault/certificate-rotation-on-deploy" {
+		t.Errorf("first hit = %q, want /XPSCTL/vault/certificate-rotation-on-deploy", hits[0].Ref)
 	}
 }
 
@@ -80,7 +80,7 @@ func TestRecallOmitsRefsTheCallerAlreadyHolds(t *testing.T) {
 	ctx := t.Context()
 
 	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{
-		Title: "Staleness and leases", Summary: "When a quiet lease may be taken over",
+		Title: "Staleness and certificates", Summary: "When a quiet certificate may be replaced",
 	})
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
@@ -175,7 +175,7 @@ func TestRecallTermsDropFunctionWordsAndStubs(t *testing.T) {
 }
 
 func TestRecallTermsAreStableForTheSameText(t *testing.T) {
-	text := "the daemon restart loses the vector index and the lease"
+	text := "the daemon restart loses the vector index and the certificate"
 	first := recallTerms(text, 3)
 	for range 5 {
 		if got := recallTerms(text, 3); !slices.Equal(got, first) {

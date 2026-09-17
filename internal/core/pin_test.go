@@ -5,7 +5,7 @@ import "testing"
 func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Concurrency model", Summary: "Leases, not locks", Body: "# Concurrency model\n\nBody.\n",
+		Title: "Concurrency model", Summary: "One writer at a time", Body: "# Concurrency model\n\nBody.\n",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -15,7 +15,7 @@ func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PinEntry: %v", err)
 	}
-	if pin.Recap != "Leases, not locks" {
+	if pin.Recap != "One writer at a time" {
 		t.Errorf("Recap = %q, want the frontmatter summary", pin.Recap)
 	}
 
@@ -49,7 +49,7 @@ func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
 func TestPinWithoutBoardUpdatesExistingPin(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
-		Title: "Concurrency model", Summary: "Leases, not locks", Body: "# Concurrency model\n\nBody.\n",
+		Title: "Concurrency model", Summary: "One writer at a time", Body: "# Concurrency model\n\nBody.\n",
 	})
 	if err != nil {
 		t.Fatal(err)
