@@ -141,6 +141,18 @@ was renamed. Absolute references change:
   becomes `[[x-src]]`, so it still names the same entry.
 - **`trellis link` targets** (`rel = 'documents'`) holding `/SRC/knowledge/...`
   get their `to_raw` updated.
+- **A moved SRC document's `artifacts:` list**, naming an artifact of its own
+  that was renamed on conflict, is rewritten to the artifact's new name. Left
+  alone, the old name would resolve, once DST exists, to whatever DST already
+  has under it — a different file, never the one the document meant.
+- **`sources:` frontmatter**, in any project's documents, has each item that
+  is a plain absolute address under `/SRC/` rewritten the same way a wikilink
+  is: `/SRC/knowledge/x` becomes `/DST/knowledge/x`, or DST's collapsed
+  entry's address; `/SRC/artifacts/shot.png` becomes `/DST/artifacts/...`,
+  renamed the same way a renamed artifact's name is; `/SRC/cards/API-12`
+  becomes `/DST/cards/API-12` — a card's ref never changes. A URL, prose, a
+  `path:lines` pointer, and a `[[wikilink]]`-shaped item are left alone: only
+  a plain address is one of these three things.
 - **Stubs:** after the moves, every stub whose source is now in DST, or whose
   target is an address under `/DST/`, is re-resolved. A DST document that cited
   `[[x]]` before x existed there now resolves.
