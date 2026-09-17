@@ -65,7 +65,7 @@ truthfully copy: those are authored by the people who read them.
 
 ## Evidence on Hand
 
-- `TRELLIS/pain-point-analysis-sept-2026` — derived from 20,287 prompts and
+- `/TRELLIS/knowledge/pain-point-analysis-sept-2026` — derived from 20,287 prompts and
   1,810 session transcripts, Feb–Sep 2026. Read it before re-analyzing; the doc
   states re-deriving is expensive.
 - Usage is overwhelmingly agent-driven: 149 invocations on Sep 14 against

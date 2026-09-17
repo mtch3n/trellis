@@ -61,6 +61,11 @@ exist yet. An unresolved link is a stub, not an error — it marks the gap and
 `knowledge lint` lists it later. This is how a vault accumulates without anyone
 planning it.
 
+A bare `[[slug]]` means this project. To link another project's entry or a
+vault entry, write its address: `[[/OTHER/knowledge/runbook]]`,
+`[[/GLOBAL/knowledge/conventions]]`. The form `[[KEY/slug]]` is not a
+cross-project link; lint reports it as a stub.
+
 ## Pinning
 
 Pin only when *not* knowing the fact causes a wrong action. Pinned recaps are
