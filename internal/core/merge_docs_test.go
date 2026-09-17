@@ -116,6 +116,32 @@ func TestMergeCollapsesAnIdenticalDocument(t *testing.T) {
 	}
 }
 
+// recordEvent looks up its project from the knowledge row itself; collapsing
+// must record the "collapsed" event before deleting that row, or the event's
+// project_id lands NULL -- which retire()'s later re-homing does not match
+// either -- and it never reaches DST's project-scoped feed.
+func TestMergeCollapsedDocumentEventIsProjectScoped(t *testing.T) {
+	f := newMergeFixture(t)
+	ctx := t.Context()
+	a := f.doc(f.api, "Shared", "Identical body.\n")
+	if err := os.WriteFile(f.doc(f.mono, "Shared", "x\n").Path, []byte(readFile(t, a.Path)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.c.ReadKnowledge(ctx, f.mono.ID, "shared"); err != nil {
+		t.Fatal(err)
+	}
+
+	f.merge(MergeOptions{Apply: true})
+
+	events, _, err := f.c.EventFeed(ctx, EventQuery{ProjectID: f.mono.ID, Kinds: []string{"knowledge"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(events, func(e FeedEvent) bool { return e.Action == "collapsed" }) {
+		t.Errorf("MONO's project-scoped feed lacks the collapse event: %+v", events)
+	}
+}
+
 func TestMergeStopsOnADifferingDocument(t *testing.T) {
 	f := newMergeFixture(t)
 	f.doc(f.api, "Runbook", "API's way.\n")

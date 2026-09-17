@@ -182,6 +182,13 @@ func (m *merger) collapseDoc(d docRow, into string) error {
 			return err
 		}
 	}
+	// recordEvent looks up its project_id from the knowledge row itself, so it
+	// must run before that row is gone -- otherwise the event lands with a
+	// NULL project_id, which retire()'s later re-homing (WHERE project_id =
+	// src) does not match either, and it never reaches SRC's or DST's feed.
+	if err := m.c.recordEvent(m.tx, "knowledge", d.ID, "collapsed", "into", "", into); err != nil {
+		return err
+	}
 	if _, err := m.tx.Exec(`DELETE FROM link WHERE from_type = 'doc' AND from_id = ?`, d.ID); err != nil {
 		return err
 	}
@@ -189,7 +196,7 @@ func (m *merger) collapseDoc(d docRow, into string) error {
 		return err
 	}
 	delete(m.fromSrc, d.ID)
-	return m.c.recordEvent(m.tx, "knowledge", d.ID, "collapsed", "into", "", into)
+	return nil
 }
 
 // references rewrites every link that named a SRC document by address, in
