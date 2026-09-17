@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-func TestTemplateLsListsTheFiveBuiltins(t *testing.T) {
+func TestTemplateLsListsTheBuiltins(t *testing.T) {
 	projectEnv(t)
 	out := runCmd(t, "knowledge", "template", "ls", "--json")
-	for _, name := range []string{"decision", "finding", "reference", "research", "runbook"} {
+	for _, name := range []string{"decision", "finding", "glossary", "reference", "research", "runbook"} {
 		if !strings.Contains(out, `"`+name+`"`) {
 			t.Errorf("ls does not list %s:\n%s", name, out)
 		}
