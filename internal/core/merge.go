@@ -166,6 +166,11 @@ func (c *Core) runMerge(ctx context.Context, srcKey, dstKey string, opts MergeOp
 	})
 	switch {
 	case err == nil:
+		if apply {
+			if ferr := stage.finalize(); ferr != nil {
+				return plan, fmt.Errorf("removing the files a moved entry left behind: %w", ferr)
+			}
+		}
 		return plan, nil
 	case errors.Is(err, errPlanOnly):
 		return plan, nil // plan mode stages no file operations
