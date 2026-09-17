@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -58,8 +59,7 @@ type feedRow struct {
 	KBTemplate   string `db:"kb_template"`
 	BoardName    string `db:"board_name"`
 	LabelName    string `db:"label_name"`
-	CommentKey   string `db:"comment_key"`
-	CommentSeq   int64  `db:"comment_seq"`
+	CommentRef   string `db:"comment_ref"`
 	CommentTitle string `db:"comment_title"`
 }
 
@@ -97,8 +97,8 @@ func (r feedRow) toFeedEvent() FeedEvent {
 			ev.Title = r.LabelName
 		}
 	case "comment":
-		if r.CommentKey != "" {
-			ev.Ref = r.CommentKey + "-" + itoa(r.CommentSeq)
+		if r.CommentRef != "" {
+			ev.Ref = r.CommentRef
 			ev.Title = r.CommentTitle
 		}
 	}
@@ -130,7 +130,13 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64
 	} else {
 		actionClause, actionArgs = inClause("e.action", q.Actions)
 	}
-	docTypeClause, docTypeArgs := inClause("k.template", q.Templates)
+	// A deleted entry's row is gone, and its template with it, so its
+	// deleted event passes a template filter rather than vanish from it.
+	templateClause, templateArgs := inClause("k.template", q.Templates)
+	if templateClause != "" {
+		templateClause = " AND (" + strings.TrimPrefix(templateClause, " AND ") +
+			" OR (e.entity_type = 'knowledge' AND e.action = 'deleted'))"
+	}
 	var actorClause string
 	var actorArgs []any
 	if q.NotActor != "" {
@@ -147,7 +153,7 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64
 	args := []any{q.After}
 	args = append(args, kindArgs...)
 	args = append(args, actionArgs...)
-	args = append(args, docTypeArgs...)
+	args = append(args, templateArgs...)
 	args = append(args, actorArgs...)
 	args = append(args, projectArgs...)
 	args = append(args, limit)
@@ -166,8 +172,7 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64
 		    COALESCE(k.template, '') AS kb_template,
 		    COALESCE(b.name, '') AS board_name,
 		    COALESCE(l.name, '') AS label_name,
-		    COALESCE(pn.key, '') AS comment_key,
-		    COALESCE(nc.seq, 0) AS comment_seq,
+		    COALESCE(nc.ref, '') AS comment_ref,
 		    COALESCE(nc.title, '') AS comment_title
 		FROM event e
 		LEFT JOIN card c ON c.id = e.entity_id AND e.entity_type = 'card'
@@ -177,10 +182,9 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64
 		LEFT JOIN label l ON l.id = e.entity_id AND e.entity_type = 'label'
 		LEFT JOIN comment cm ON cm.id = e.entity_id AND e.entity_type = 'comment'
 		LEFT JOIN card nc ON nc.id = cm.card_id
-		LEFT JOIN project pn ON pn.id = nc.project_id
 		WHERE e.seq > ?
 		  AND e.entity_type IN ('card', 'knowledge', 'board', 'label', 'comment')` +
-		kindClause + actionClause + docTypeClause + actorClause + projectClause + `
+		kindClause + actionClause + templateClause + actorClause + projectClause + `
 		ORDER BY e.seq ASC
 		LIMIT ?`
 

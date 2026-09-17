@@ -420,3 +420,22 @@ func TestMergeDropsDerivedStateBeforeApplying(t *testing.T) {
 		t.Errorf("warnings = %v", plan.Warnings)
 	}
 }
+
+// A comment on a merged card is reported under the card's own ref, not a
+// key-seq pair the card does not answer to.
+func TestFeedNamesACommentOnAMergedCardByItsRef(t *testing.T) {
+	f := newMergeFixture(t)
+	card := f.card(f.api, f.apiBoard, "moved", nil, nil)
+	f.card(f.mono, f.monoBoard, "already here", nil, nil)
+	f.merge(MergeOptions{Apply: true})
+	if _, err := f.c.CreateComment(t.Context(), card.ID, "after the merge"); err != nil {
+		t.Fatal(err)
+	}
+	events, _, err := f.c.EventFeed(t.Context(), EventQuery{ProjectID: f.mono.ID, Kinds: []string{"comment"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Ref != card.Ref {
+		t.Fatalf("comment events = %+v, want ref %s", events, card.Ref)
+	}
+}

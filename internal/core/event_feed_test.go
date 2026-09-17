@@ -1,6 +1,7 @@
 package core
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -390,5 +391,29 @@ func TestEventFeedKnowledgeRefUsesGlobalForAnEscalatedDoc(t *testing.T) {
 	}
 	if want := DocAddress("", true, doc.Slug); len(events) != 1 || events[0].Ref != want {
 		t.Fatalf("events = %+v, want ref %s", events, want)
+	}
+}
+
+// A template filter still shows the deletion of an entry, whose row, and
+// template, are gone.
+func TestEventFeedTemplateFilterKeepsDeletions(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Latency", Template: "research"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.DeleteKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+		t.Fatal(err)
+	}
+	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Templates: []string{"research"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var actions []string
+	for _, e := range events {
+		actions = append(actions, e.Action)
+	}
+	if !slices.Contains(actions, "deleted") {
+		t.Errorf("actions = %v, want the deletion", actions)
 	}
 }
