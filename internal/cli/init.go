@@ -30,7 +30,7 @@ func newInitCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if projectFlagKey != "" {
 				return core.ErrUsage("init_project_flag", "init names its project with --key, not --project",
-					"trellis init --key "+strings.ToUpper(projectFlagKey))
+					"trellis init --key "+normalizeProjectArg(projectFlagKey))
 			}
 			dir, err := os.Getwd()
 			if err != nil {
@@ -123,7 +123,7 @@ func initNotes(res core.InitResult, overridden *resolve.Pin) []string {
 	if overridden != nil {
 		notes = append(notes, fmt.Sprintf("this pin overrides %s from %s", overridden.Target, overridden.Path))
 	}
-	if env := strings.ToUpper(os.Getenv("TRELLIS_PROJECT")); env != "" && env != res.Project.Key {
+	if env := normalizeProjectArg(os.Getenv("TRELLIS_PROJECT")); env != "" && env != res.Project.Key {
 		notes = append(notes, fmt.Sprintf("TRELLIS_PROJECT=%s is set; commands in this environment act on %s, not on this pin", env, env))
 	}
 	return notes

@@ -352,7 +352,7 @@ func formatConfigTable(rows []configRow) string {
 // working directory, because a file written anywhere else would never be read.
 // A project named by --project or TRELLIS_PROJECT has no pin to write beside.
 func repoConfigDir() (string, error) {
-	if projectKey() != "" {
+	if projectFlagKey != "" || os.Getenv("TRELLIS_PROJECT") != "" {
 		return "", core.ErrUsage("no_pin",
 			"--repo writes beside a .trellis pin, and --project or TRELLIS_PROJECT names a project without one",
 			"run the command inside the pinned directory, without --project")

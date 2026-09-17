@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/mtch3n/trellis/internal/core"
+	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 )
 
@@ -14,13 +15,12 @@ func newCardArchiveCmd() *cobra.Command {
 		Short: "Archive a card, releasing any lease",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBoard(func(app *appCtx) error {
-				ref := core.ParseCardRef(args[0])
+			return withTarget(refArg{Collection: vpath.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				action, fn := "archived", app.Core.ArchiveCard
 				if restore {
 					action, fn = "restored", app.Core.UnarchiveCard
 				}
-				card, err := fn(cmd.Context(), app.Project.ID, ref)
+				card, err := fn(cmd.Context(), app.Project.ID, core.ParseCardRef(ref))
 				if err != nil {
 					return err
 				}
