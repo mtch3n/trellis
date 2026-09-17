@@ -142,3 +142,65 @@ func homeDir() string {
 	}
 	return normalizeDir(h)
 }
+
+// ScanRoot is where a merge looks for pins to rewrite: the nearest ancestor
+// of dir, dir included, that contains .git, within the walk's usual
+// boundaries; dir itself when there is none.
+func ScanRoot(dir string) (string, error) {
+	start, err := canonicalDir(dir)
+	if err != nil {
+		return "", err
+	}
+	home := homeDir()
+	for d := start; ; {
+		parent := filepath.Dir(d)
+		if d == home || parent == d {
+			return start, nil
+		}
+		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
+			return d, nil
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+		d = parent
+	}
+}
+
+// PinsUnder lists the pins beneath root. It skips .git directories and every
+// nested directory holding its own .git: a nested repository has its own pins
+// and its own commits. Symlinks are not followed. A pin that cannot be read
+// or parsed, and a directory that cannot be listed, is reported in skipped
+// rather than failing the scan.
+func PinsUnder(root string) (pins []Pin, skipped []string, err error) {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			skipped = append(skipped, path+": "+walkErr.Error())
+			if d != nil && d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			if path != root {
+				if _, err := os.Lstat(filepath.Join(path, ".git")); err == nil {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		if d.Name() != PinFile || !d.Type().IsRegular() {
+			return nil
+		}
+		pin, err := ReadPin(path)
+		if err != nil {
+			skipped = append(skipped, path)
+			return nil
+		}
+		pins = append(pins, pin)
+		return nil
+	})
+	return pins, skipped, err
+}
