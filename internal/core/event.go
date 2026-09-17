@@ -7,10 +7,10 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// recordEvent appends to the monotonic change feed inside the caller's
+// recordEvent appends to the monotonic event log inside the caller's
 // transaction. Every mutation records one, from P0: the event log is also the
 // cursor a future sync extension reads, and history cannot be backfilled.
-// It fills project_id from the entity's row, so a project-scoped feed still
+// It fills project_id from the entity's row, so a project-scoped read still
 // reaches an entity after it is deleted. Deletions record their event before
 // removing the row for that reason.
 func (c *Core) recordEvent(tx *sqlx.Tx, entityType, entityID, action, field, oldV, newV string) error {

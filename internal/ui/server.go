@@ -341,14 +341,14 @@ func (s *Server) handleProjectEvents(w http.ResponseWriter, r *http.Request) {
 		limit = v
 	}
 
-	events, next, err := s.core.EventFeed(ctx, core.EventQuery{ProjectID: p.ID, After: after, Limit: limit})
+	events, next, err := s.core.EventLog(ctx, core.EventQuery{ProjectID: p.ID, After: after, Limit: limit})
 	if err != nil {
 		s.coreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, struct {
-		Events []core.FeedEvent `json:"events"`
-		Next   *int64           `json:"next"`
+		Events []core.LogEvent `json:"events"`
+		Next   *int64          `json:"next"`
 	}{events, next})
 }
 
@@ -384,11 +384,11 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// A deleted entity has no row left to join, so its event falls back to the
-	// name it recorded when it went. project narrows the feed to one
+	// name it recorded when it went. project narrows the event log to one
 	// project's events, which is what an overview asks for; it filters on
 	// the event's own project_id rather than a live-row join, so a deleted
 	// card or entry, and label and comment events (never joined below), stay
-	// in a project-scoped feed instead of only the unfiltered one.
+	// in a project-scoped read instead of only the unfiltered one.
 	project := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("project")))
 	events := []activityInfo{}
 	err := s.db.SelectContext(ctx, &events, `

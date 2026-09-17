@@ -192,7 +192,7 @@ func (m *merger) collapseEntry(e entryRow, into string) error {
 	// recordEvent looks up its project_id from the entry row itself, so it
 	// must run before that row is gone -- otherwise the event lands with a
 	// NULL project_id, which retire()'s later re-homing (WHERE project_id =
-	// src) does not match either, and it never reaches SRC's or DST's feed.
+	// src) does not match either, and it never reaches SRC's or DST's events.
 	if err := m.c.recordEvent(m.tx, "entry", e.ID, "collapsed", "into", "", into); err != nil {
 		return err
 	}

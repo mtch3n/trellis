@@ -68,7 +68,7 @@ const ownedEntities = `SELECT id FROM card WHERE project_id = ?
 // DeleteProject removes a project and everything it owns: boards, cards,
 // comments, labels, entry rows, and the project's directory under the
 // Trellis home, which holds its entry files, artifacts and vectors. The
-// event log is kept; it is the change feed.
+// event log is kept: it records every change.
 //
 // Two things refuse rather than proceed. A card an agent holds right now,
 // because deleting work out from under a running session is not a cleanup.

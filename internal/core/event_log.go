@@ -9,33 +9,33 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// eventKinds lists every entity_type EventFeed's WHERE clause matches. A
+// eventEntities lists every entity_type EventLog's WHERE clause matches. A
 // --kind naming anything else -- a stale name from before a rename, such as
 // "note" before migration 0021 renamed it to "comment" -- must fail loudly
 // rather than quietly match nothing.
-var eventKinds = []string{"card", "entry", "board", "label", "comment"}
+var eventEntities = []string{"card", "entry", "board", "label", "comment"}
 
-// EventQuery filters a read of the event feed. The zero value reads every
-// project's events from the beginning, all kinds, every action but "read".
+// EventQuery filters a read of the event log. The zero value reads every
+// project's events from the beginning, all entities, every action but "read".
 type EventQuery struct {
 	ProjectID string   // "" = every project
 	After     int64    // exclusive
 	Limit     int      // default 1000, max 5000
-	Kinds     []string // card | entry | board | label | comment; empty = all
+	Entities  []string // card | entry | board | label | comment; empty = all
 	Actions   []string // created, edited, moved, ...; empty = all but read
 	Templates []string // entries only: finding, decision, ...
 	NotActor  string   // skip events written by this actor
 }
 
-// FeedEvent is one entry an extension, the CLI or the web timeline can react
+// LogEvent is one event an extension, the CLI or the web timeline can react
 // to. Content never ships: old and new are populated only for a card's
 // column move, and a deleted entity's ref and title are empty except for its
 // own deleted event, whose title is what was recorded at deletion.
-type FeedEvent struct {
+type LogEvent struct {
 	Seq      int64  `json:"seq"`
 	TS       int64  `json:"ts"`
 	Actor    string `json:"actor"`
-	Kind     string `json:"kind"`
+	Entity   string `json:"kind"`
 	Ref      string `json:"ref"`
 	Title    string `json:"title"`
 	Template string `json:"template,omitempty"`
@@ -45,16 +45,16 @@ type FeedEvent struct {
 	New      string `json:"new,omitempty"`
 }
 
-// feedRow is what the join returns, before the disclosure policy in
-// toFeedEvent decides what of it may leave. Every joined column is
+// logRow is what the join returns, before the disclosure policy in
+// toLogEvent decides what of it may leave. Every joined column is
 // COALESCE'd to its type's zero value, so "" (or 0 for a seq) means the
 // corresponding entity is not the one this event is about, or no longer
 // exists.
-type feedRow struct {
+type logRow struct {
 	Seq           int64  `db:"seq"`
 	TS            int64  `db:"ts"`
 	Actor         string `db:"actor"`
-	Kind          string `db:"kind"`
+	Entity        string `db:"entity"`
 	Action        string `db:"action"`
 	Field         string `db:"field"`
 	OldValue      string `db:"old_value"`
@@ -71,18 +71,18 @@ type feedRow struct {
 	CommentTitle  string `db:"comment_title"`
 }
 
-// toFeedEvent applies the feed's disclosure policy. It is the only place that
-// decides what leaves: old/new travel only for a card's column move, and ref
-// and title come from the entity's current row, empty when it no longer
+// toLogEvent applies the event log's disclosure policy. It is the only place
+// that decides what leaves: old/new travel only for a card's column move, and
+// ref and title come from the entity's current row, empty when it no longer
 // exists, except that a deleted event's own title is what old_value recorded.
-func (r feedRow) toFeedEvent() FeedEvent {
-	ev := FeedEvent{
-		Seq: r.Seq, TS: r.TS, Actor: r.Actor, Kind: r.Kind, Action: r.Action, Field: r.Field,
+func (r logRow) toLogEvent() LogEvent {
+	ev := LogEvent{
+		Seq: r.Seq, TS: r.TS, Actor: r.Actor, Entity: r.Entity, Action: r.Action, Field: r.Field,
 	}
-	if r.Kind == "card" && r.Action == "moved" {
+	if r.Entity == "card" && r.Action == "moved" {
 		ev.Old, ev.New = r.OldValue, r.NewValue
 	}
-	switch r.Kind {
+	switch r.Entity {
 	case "card":
 		if r.CardRef != "" {
 			ev.Ref = r.CardRef
@@ -117,16 +117,16 @@ func (r feedRow) toFeedEvent() FeedEvent {
 	return ev
 }
 
-// EventFeed is the one query behind the CLI, the web endpoint and any future
-// extension. See toFeedEvent for the disclosure policy and the Global
+// EventLog is the one query behind the CLI, the web endpoint and any future
+// extension. See toLogEvent for the disclosure policy and the Global
 // Constraints in the plan for why ProjectID scoping cannot reach a
 // hard-deleted entity's history.
-func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64, error) {
-	for _, k := range q.Kinds {
-		if !slices.Contains(eventKinds, k) {
+func (c *Core) EventLog(ctx context.Context, q EventQuery) ([]LogEvent, *int64, error) {
+	for _, k := range q.Entities {
+		if !slices.Contains(eventEntities, k) {
 			return nil, nil, ErrUsage("unknown_event_kind",
-				fmt.Sprintf("%q is not an event kind: %s", k, strings.Join(eventKinds, ", ")),
-				"trellis events --kind "+strings.Join(eventKinds, "|"))
+				fmt.Sprintf("%q is not an event entity: %s", k, strings.Join(eventEntities, ", ")),
+				"trellis events --kind "+strings.Join(eventEntities, "|"))
 		}
 	}
 	limit := q.Limit
@@ -137,7 +137,7 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64
 		limit = 5000
 	}
 
-	kindClause, kindArgs := inClause("e.entity_type", q.Kinds)
+	entityClause, entityArgs := inClause("e.entity_type", q.Entities)
 	var actionClause string
 	var actionArgs []any
 	if len(q.Actions) == 0 {
@@ -166,7 +166,7 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64
 	}
 
 	args := []any{q.After}
-	args = append(args, kindArgs...)
+	args = append(args, entityArgs...)
 	args = append(args, actionArgs...)
 	args = append(args, templateArgs...)
 	args = append(args, actorArgs...)
@@ -175,7 +175,7 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64
 
 	query := `
 		SELECT
-		    e.seq, e.ts, e.actor, e.entity_type AS kind, e.action,
+		    e.seq, e.ts, e.actor, e.entity_type AS entity, e.action,
 		    COALESCE(e.field, '') AS field,
 		    COALESCE(e.old_value, '') AS old_value,
 		    COALESCE(e.new_value, '') AS new_value,
@@ -199,20 +199,20 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64
 		LEFT JOIN card nc ON nc.id = cm.card_id
 		WHERE e.seq > ?
 		  AND e.entity_type IN ('card', 'entry', 'board', 'label', 'comment')` +
-		kindClause + actionClause + templateClause + actorClause + projectClause + `
+		entityClause + actionClause + templateClause + actorClause + projectClause + `
 		ORDER BY e.seq ASC
 		LIMIT ?`
 
-	var rows []feedRow
+	var rows []logRow
 	if err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		return tx.Select(&rows, query, args...)
 	}); err != nil {
 		return nil, nil, err
 	}
 
-	events := make([]FeedEvent, len(rows))
+	events := make([]LogEvent, len(rows))
 	for i, r := range rows {
-		events[i] = r.toFeedEvent()
+		events[i] = r.toLogEvent()
 	}
 	if len(events) == 0 {
 		return events, nil, nil

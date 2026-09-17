@@ -30,10 +30,10 @@ func wikilinkTarget(s string) (string, bool) {
 const addressPattern = `/[A-Za-z][A-Za-z0-9-]*/(?:cards|vault|artifacts)/\S+`
 
 // addressShapeRE matches a whole value shaped like an absolute address. A
-// source or other verified field value earns a address.Parse attempt only
-// when it has this shape in full; any other "/"-prefixed value — a
-// filesystem path such as "/usr/share/doc/x.txt:10" — is external prose
-// and passes verify unchecked.
+// source, or any other value of a field the resolve rule names, earns an
+// address.Parse attempt only when it has this shape in full; any other
+// "/"-prefixed value — a filesystem path such as "/usr/share/doc/x.txt:10" —
+// is external prose and passes the resolve rule unchecked.
 var addressShapeRE = regexp.MustCompile(`^` + addressPattern + `$`)
 
 // absoluteAddressRE finds an address-shaped substring in free text, but
@@ -137,12 +137,12 @@ func (c *Core) resolvesInternalReference(tx *sqlx.Tx, projectID, s string) (ok, 
 	return false, true, nil
 }
 
-// verifyFieldValues checks every value of a verified field, returning the
-// ones that do not resolve. A value that is not itself a wikilink or an
-// absolute address is not an internal reference and is never flagged: a
-// URL, a path:lines pointer, and prose all pass unchecked, which is the
-// point of keeping sources free-form.
-func (c *Core) verifyFieldValues(tx *sqlx.Tx, projectID string, values []string) ([]string, error) {
+// resolveFieldValues checks every value of a field the resolve rule names,
+// returning the ones that do not resolve. A value that is not itself a
+// wikilink or an absolute address is not an internal reference and is never
+// flagged: a URL, a path:lines pointer, and prose all pass unchecked, which
+// is the point of keeping sources free-form.
+func (c *Core) resolveFieldValues(tx *sqlx.Tx, projectID string, values []string) ([]string, error) {
 	var unresolved []string
 	for _, v := range values {
 		v = strings.TrimSpace(v)
@@ -160,11 +160,11 @@ func (c *Core) verifyFieldValues(tx *sqlx.Tx, projectID string, values []string)
 	return unresolved, nil
 }
 
-// verifyBody checks every wikilink and absolute address written in an
+// resolveBody checks every wikilink and absolute address written in an
 // entry body. Wikilinks resolve exactly as resolveEntryRef does today —
 // today's project-and-vault scope, not the cross-project resolution a
 // later address layer adds.
-func (c *Core) verifyBody(tx *sqlx.Tx, projectID, body string) ([]string, error) {
+func (c *Core) resolveBody(tx *sqlx.Tx, projectID, body string) ([]string, error) {
 	var unresolved []string
 	for _, ref := range ParseWikilinks(body) {
 		toID, err := c.resolveEntryRef(tx, projectID, ref)
@@ -187,24 +187,24 @@ func (c *Core) verifyBody(tx *sqlx.Tx, projectID, body string) ([]string, error)
 	return unresolved, nil
 }
 
-// templateVerifyViolations runs a template's verify rule: every value of
+// templateResolveViolations runs a template's resolve rule: every value of
 // each named field, or every reference in the body when the field named is
 // "body", must resolve. It reads in the caller's transaction: the store has
 // one connection, so opening another here would wait on the caller forever.
-func (c *Core) templateVerifyViolations(tx *sqlx.Tx, projectID string, t Template,
+func (c *Core) templateResolveViolations(tx *sqlx.Tx, projectID string, t Template,
 	fields map[string][]string, body string) ([]string, error) {
-	if len(t.Verify) == 0 {
+	if len(t.Resolve) == 0 {
 		return nil, nil
 	}
 	var out []string
 	err := func() error {
-		for _, name := range t.Verify {
+		for _, name := range t.Resolve {
 			var refs []string
 			var err error
 			if name == "body" {
-				refs, err = c.verifyBody(tx, projectID, body)
+				refs, err = c.resolveBody(tx, projectID, body)
 			} else {
-				refs, err = c.verifyFieldValues(tx, projectID, fields[name])
+				refs, err = c.resolveFieldValues(tx, projectID, fields[name])
 			}
 			if err != nil {
 				return err

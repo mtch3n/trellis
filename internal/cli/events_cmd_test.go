@@ -14,7 +14,7 @@ func TestRunEventsFollowPrintsAnEventWrittenAfterItStarted(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	var seen []int64
 	calls := 0
-	fetch := func(after int64) ([]core.FeedEvent, *int64, error) {
+	fetch := func(after int64) ([]core.LogEvent, *int64, error) {
 		calls++
 		if calls == 1 {
 			// Nothing yet: this is the poll that runs before anything new
@@ -25,10 +25,10 @@ func TestRunEventsFollowPrintsAnEventWrittenAfterItStarted(t *testing.T) {
 		// Stop the loop once the second poll has found the new event, so
 		// the test does not depend on a real clock.
 		cancel()
-		return []core.FeedEvent{{Seq: seq, Kind: "card", Action: "created"}}, &seq, nil
+		return []core.LogEvent{{Seq: seq, Entity: "card", Action: "created"}}, &seq, nil
 	}
 
-	err := runEventsFollow(ctx, time.Millisecond, 0, fetch, func(ev core.FeedEvent) error {
+	err := runEventsFollow(ctx, time.Millisecond, 0, fetch, func(ev core.LogEvent) error {
 		seen = append(seen, ev.Seq)
 		return nil
 	})
@@ -44,10 +44,10 @@ func TestRunEventsFollowStopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	calls := 0
-	err := runEventsFollow(ctx, time.Millisecond, 0, func(int64) ([]core.FeedEvent, *int64, error) {
+	err := runEventsFollow(ctx, time.Millisecond, 0, func(int64) ([]core.LogEvent, *int64, error) {
 		calls++
 		return nil, nil, nil
-	}, func(core.FeedEvent) error { return nil })
+	}, func(core.LogEvent) error { return nil })
 	if err != nil {
 		t.Fatalf("runEventsFollow: %v", err)
 	}

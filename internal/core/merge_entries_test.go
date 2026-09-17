@@ -119,7 +119,7 @@ func TestMergeCollapsesAnIdenticalEntry(t *testing.T) {
 // recordEvent looks up its project from the entry row itself; collapsing
 // must record the "collapsed" event before deleting that row, or the event's
 // project_id lands NULL -- which retire()'s later re-homing does not match
-// either -- and it never reaches DST's project-scoped feed.
+// either -- and it never reaches DST's project-scoped events.
 func TestMergeCollapsedEntryEventIsProjectScoped(t *testing.T) {
 	f := newMergeFixture(t)
 	ctx := t.Context()
@@ -133,12 +133,12 @@ func TestMergeCollapsedEntryEventIsProjectScoped(t *testing.T) {
 
 	f.merge(MergeOptions{Apply: true})
 
-	events, _, err := f.c.EventFeed(ctx, EventQuery{ProjectID: f.mono.ID, Kinds: []string{"entry"}})
+	events, _, err := f.c.EventLog(ctx, EventQuery{ProjectID: f.mono.ID, Entities: []string{"entry"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.ContainsFunc(events, func(e FeedEvent) bool { return e.Action == "collapsed" }) {
-		t.Errorf("MONO's project-scoped feed lacks the collapse event: %+v", events)
+	if !slices.ContainsFunc(events, func(e LogEvent) bool { return e.Action == "collapsed" }) {
+		t.Errorf("MONO's project-scoped events lack the collapse event: %+v", events)
 	}
 }
 

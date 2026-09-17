@@ -341,7 +341,7 @@ type activityRow struct {
 	TS     int64  `db:"ts"`
 	Actor  string `db:"actor"`
 	Action string `db:"action"`
-	Kind   string `db:"entity_type"`
+	Entity string `db:"entity_type"`
 	Title  string `db:"title"`
 }
 
@@ -375,7 +375,7 @@ func (w *terminalWorkspace) renderActivity() {
 		if !matchesFilter(w.filter, row.Title, row.Actor, row.Action) {
 			continue
 		}
-		fmt.Fprintf(&out, "[#9cabb9]%s[-]  [#7ddbc4]%s[-] %s\n  %s · %s\n\n", time.UnixMilli(row.TS).Format("Jan 02 15:04"), tuiText(row.Kind), tuiText(row.Action), tuiText(row.Title), tuiText(row.Actor))
+		fmt.Fprintf(&out, "[#9cabb9]%s[-]  [#7ddbc4]%s[-] %s\n  %s · %s\n\n", time.UnixMilli(row.TS).Format("Jan 02 15:04"), tuiText(row.Entity), tuiText(row.Action), tuiText(row.Title), tuiText(row.Actor))
 	}
 	if out.Len() == 0 {
 		out.WriteString("\n No activity to show.")

@@ -19,7 +19,7 @@ func writeCustomTemplate(t *testing.T, c *Core, name, raw string) {
 	}
 }
 
-func TestVerifyRejectsWhenSourcesIsMissing(t *testing.T) {
+func TestResolveRejectsWhenSourcesIsMissing(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "cited",
 		"---\nenforce: reject\nrequired: [sources]\nresolve: [sources]\n---\n# {{title}}\n")
@@ -31,7 +31,7 @@ func TestVerifyRejectsWhenSourcesIsMissing(t *testing.T) {
 	}
 }
 
-func TestVerifyRejectsAnUnresolvedCardAddress(t *testing.T) {
+func TestResolveRejectsAnUnresolvedCardAddress(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
@@ -44,7 +44,7 @@ func TestVerifyRejectsAnUnresolvedCardAddress(t *testing.T) {
 	}
 }
 
-func TestVerifyRejectsAnUnresolvedWikilink(t *testing.T) {
+func TestResolveRejectsAnUnresolvedWikilink(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
@@ -57,7 +57,7 @@ func TestVerifyRejectsAnUnresolvedWikilink(t *testing.T) {
 	}
 }
 
-func TestVerifyAcceptsAURLAndProse(t *testing.T) {
+func TestResolveAcceptsAURLAndProse(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
@@ -70,7 +70,7 @@ func TestVerifyAcceptsAURLAndProse(t *testing.T) {
 	}
 }
 
-func TestVerifyAcceptsAResolvedCardEntryAndArtifact(t *testing.T) {
+func TestResolveAcceptsAResolvedCardEntryAndArtifact(t *testing.T) {
 	c, p, b := vaultCore(t)
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Evidence"})
@@ -96,7 +96,7 @@ func TestVerifyAcceptsAResolvedCardEntryAndArtifact(t *testing.T) {
 	}
 }
 
-func TestVerifyBodyRejectsADanglingLink(t *testing.T) {
+func TestResolveBodyRejectsADanglingLink(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "linked", "---\nenforce: reject\nresolve: [body]\n---\n# {{title}}\n")
 
@@ -115,7 +115,7 @@ func TestNoteTemplateStillAcceptsADanglingBodyLink(t *testing.T) {
 		Title: "Notes", Body: "# Notes\n\nSee [[not-written-yet]].\n",
 	})
 	if err != nil {
-		t.Fatalf("a template with no verify rule must not block a dangling link: %v", err)
+		t.Fatalf("a template with no resolve rule must not block a dangling link: %v", err)
 	}
 	if entry.Slug != "notes" {
 		t.Errorf("slug = %q", entry.Slug)
@@ -125,7 +125,7 @@ func TestNoteTemplateStillAcceptsADanglingBodyLink(t *testing.T) {
 // Ruling: a "/"-prefixed source only counts as an internal reference when it
 // has the address shape /<key>/(cards|vault|artifacts)/<rest>. Anything
 // else that merely starts with "/" is external and passes unchecked.
-func TestVerifyAcceptsAFilesystemPathSource(t *testing.T) {
+func TestResolveAcceptsAFilesystemPathSource(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
@@ -141,7 +141,7 @@ func TestVerifyAcceptsAFilesystemPathSource(t *testing.T) {
 // address (a malformed ref, here) is unresolved and rejected — the shape
 // check only decides whether to bother resolving at all, not whether the
 // address is well-formed.
-func TestVerifyRejectsAnAddressShapedButMalformedSource(t *testing.T) {
+func TestResolveRejectsAnAddressShapedButMalformedSource(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
@@ -154,12 +154,12 @@ func TestVerifyRejectsAnAddressShapedButMalformedSource(t *testing.T) {
 	}
 }
 
-// review-knowledge #17: verify matched a card address on seq alone,
+// review-knowledge #17: the resolve rule matched a card address on seq alone,
 // ignoring the ref's own prefix, so an address naming a different project's
 // (or a nonexistent) ref "resolved" whenever this project happened to have
 // a card at the same seq. card.ref is unique; match on it the way loadCard
 // already does for a qualified reference.
-func TestVerifyRejectsACardAddressWhoseRefPrefixDoesNotMatch(t *testing.T) {
+func TestResolveRejectsACardAddressWhoseRefPrefixDoesNotMatch(t *testing.T) {
 	c, p, b := vaultCore(t)
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 	var fifth Card
@@ -183,11 +183,11 @@ func TestVerifyRejectsACardAddressWhoseRefPrefixDoesNotMatch(t *testing.T) {
 	}
 }
 
-// An entry address counted an promoted row because it had no
+// An entry address counted a promoted row because it had no
 // "global = 0" filter, while resolveEntryRef's own address branch excludes
 // exactly that row -- an entry's old project address becomes a stub, not a
 // hit, once it lives in the global vault instead.
-func TestVerifyRejectsAPromotedEntrysOldProjectAddress(t *testing.T) {
+func TestResolveRejectsAPromotedEntrysOldProjectAddress(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 	target, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Shared"})
@@ -212,7 +212,7 @@ func TestVerifyRejectsAPromotedEntrysOldProjectAddress(t *testing.T) {
 // relative path must never be mistaken for one, since in both cases the
 // character right before the "/" is neither whitespace, "(", nor the start
 // of the text.
-func TestVerifyBodyIgnoresURLAndRelativePathLookalikes(t *testing.T) {
+func TestResolveBodyIgnoresURLAndRelativePathLookalikes(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "linked", "---\nenforce: reject\nresolve: [body]\n---\n# {{title}}\n")
 

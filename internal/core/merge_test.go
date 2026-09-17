@@ -311,7 +311,7 @@ func TestMergePlansMarkerRewrites(t *testing.T) {
 }
 
 // A merged card keeps its revisions and its relations, and its history moves
-// with it: DST's event feed shows what happened to the card before the merge.
+// with it: DST's event log shows what happened to the card before the merge.
 func TestMergeCarriesCardRevisionsRelationsAndHistory(t *testing.T) {
 	f := newMergeFixture(t)
 	ctx := t.Context()
@@ -438,7 +438,7 @@ func TestFeedNamesACommentOnAMergedCardByItsRef(t *testing.T) {
 	if _, err := f.c.CreateComment(t.Context(), card.ID, "after the merge"); err != nil {
 		t.Fatal(err)
 	}
-	events, _, err := f.c.EventFeed(t.Context(), EventQuery{ProjectID: f.mono.ID, Kinds: []string{"comment"}})
+	events, _, err := f.c.EventLog(t.Context(), EventQuery{ProjectID: f.mono.ID, Entities: []string{"comment"}})
 	if err != nil {
 		t.Fatal(err)
 	}

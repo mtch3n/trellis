@@ -51,9 +51,9 @@ func TestEditUnderARejectTemplateIsRefused(t *testing.T) {
 	}
 }
 
-// The verify rule reads in the edit's own transaction. With one database
+// The resolve rule reads in the edit's own transaction. With one database
 // connection, a second transaction would wait forever, so this has a deadline.
-func TestEditRunsTheVerifyRule(t *testing.T) {
+func TestEditRunsTheResolveRule(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry := newDecision(t, c, p.ID)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)

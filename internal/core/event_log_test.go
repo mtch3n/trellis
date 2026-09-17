@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestEventFeedOrdersBySeqAndPages(t *testing.T) {
+func TestEventLogOrdersBySeqAndPages(t *testing.T) {
 	// vaultCore's project and board setup already recorded a "board created"
 	// event before either card exists, so every query here is filtered to
 	// Kinds: []string{"card"} — otherwise the very first page would return
@@ -23,17 +23,17 @@ func TestEventFeedOrdersBySeqAndPages(t *testing.T) {
 		t.Fatalf("CreateCard: %v", err)
 	}
 
-	first, next, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"card"}, Limit: 1})
+	first, next, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"card"}, Limit: 1})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if len(first) != 1 || first[0].Title != "one" || next == nil {
 		t.Fatalf("first page = %+v, next = %v", first, next)
 	}
 
-	second, next2, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"card"}, After: *next, Limit: 1})
+	second, next2, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"card"}, After: *next, Limit: 1})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if len(second) != 1 || second[0].Title != "two" || next2 == nil || *next2 <= *next {
 		t.Fatalf("second page = %+v, next = %v (first next %v)", second, next2, next)
@@ -41,16 +41,16 @@ func TestEventFeedOrdersBySeqAndPages(t *testing.T) {
 	_ = card1
 	_ = card2
 
-	empty, emptyNext, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"card"}, After: *next2})
+	empty, emptyNext, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"card"}, After: *next2})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if len(empty) != 0 || emptyNext != nil {
 		t.Errorf("empty page = %+v, next = %v, want nil next", empty, emptyNext)
 	}
 }
 
-func TestEventFeedDefaultAndMaxLimit(t *testing.T) {
+func TestEventLogDefaultAndMaxLimit(t *testing.T) {
 	c, p, _ := vaultCore(t)
 
 	// The default (1000) and the cap (5000) only bite past that many rows.
@@ -75,24 +75,24 @@ func TestEventFeedDefaultAndMaxLimit(t *testing.T) {
 		t.Fatalf("bulk insert events: %v", err)
 	}
 
-	def, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"card"}})
+	def, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"card"}})
 	if err != nil {
-		t.Fatalf("EventFeed (default limit): %v", err)
+		t.Fatalf("EventLog (default limit): %v", err)
 	}
 	if len(def) != 1000 {
 		t.Fatalf("default limit must be 1000; got %d events", len(def))
 	}
 
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"card"}, Limit: 50000})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"card"}, Limit: 50000})
 	if err != nil {
-		t.Fatalf("EventFeed (limit above cap): %v", err)
+		t.Fatalf("EventLog (limit above cap): %v", err)
 	}
 	if len(events) != 5000 {
 		t.Fatalf("a limit above 5000 must still be capped sanely; got %d events for %d writes", len(events), bulk)
 	}
 }
 
-func TestEventFeedFiltersByKind(t *testing.T) {
+func TestEventLogFiltersByEntity(t *testing.T) {
 	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "card"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
@@ -101,11 +101,11 @@ func TestEventFeedFiltersByKind(t *testing.T) {
 		t.Fatalf("CreateLabel: %v", err)
 	}
 
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"label"}})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"label"}})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
-	if len(events) != 1 || events[0].Kind != "label" || events[0].Ref != "urgent" {
+	if len(events) != 1 || events[0].Entity != "label" || events[0].Ref != "urgent" {
 		t.Fatalf("events = %+v, want exactly one label event named urgent", events)
 	}
 }
@@ -114,20 +114,20 @@ func TestEventFeedFiltersByKind(t *testing.T) {
 // nothing silently. "note" is the exact case: migration 0021 renamed those
 // events to "comment", and the CLI's own help text said "note" until this
 // fix.
-func TestEventFeedRejectsAnUnknownKind(t *testing.T) {
+func TestEventLogRejectsAnUnknownEntity(t *testing.T) {
 	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "card"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
 
-	_, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"note"}})
+	_, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"note"}})
 	ce, ok := errors.AsType[*Error](err)
 	if !ok || ce.Code != "unknown_event_kind" {
 		t.Fatalf("err = %v, want an unknown_event_kind usage error", err)
 	}
 }
 
-func TestEventFeedExcludesReadByDefaultButNotWhenAsked(t *testing.T) {
+func TestEventLogExcludesReadByDefaultButNotWhenAsked(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Runbook"})
 	if err != nil {
@@ -137,9 +137,9 @@ func TestEventFeedExcludesReadByDefaultButNotWhenAsked(t *testing.T) {
 		t.Fatalf("ReadEntry: %v", err)
 	}
 
-	byDefault, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+	byDefault, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	for _, ev := range byDefault {
 		if ev.Action == "read" {
@@ -147,16 +147,16 @@ func TestEventFeedExcludesReadByDefaultButNotWhenAsked(t *testing.T) {
 		}
 	}
 
-	withReads, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Actions: []string{"read"}})
+	withReads, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Actions: []string{"read"}})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if len(withReads) != 1 || withReads[0].Action != "read" {
 		t.Fatalf("events = %+v, want exactly the one read event", withReads)
 	}
 }
 
-func TestEventFeedFiltersByTemplate(t *testing.T) {
+func TestEventLogFiltersByTemplate(t *testing.T) {
 	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "unrelated"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
@@ -170,30 +170,30 @@ func TestEventFeedFiltersByTemplate(t *testing.T) {
 		t.Fatalf("CreateEntry note: %v", err)
 	}
 
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Templates: []string{"finding"}})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Templates: []string{"finding"}})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
-	if len(events) != 1 || events[0].Kind != "entry" || events[0].Template != "finding" || events[0].Title != "Bug" {
+	if len(events) != 1 || events[0].Entity != "entry" || events[0].Template != "finding" || events[0].Title != "Bug" {
 		t.Fatalf("events = %+v, want exactly the one finding, and no card event", events)
 	}
 }
 
-func TestEventFeedNotActorSkipsItsOwnWrites(t *testing.T) {
+func TestEventLogNotActorSkipsItsOwnWrites(t *testing.T) {
 	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "mine"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, NotActor: c.actor})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, NotActor: c.actor})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if len(events) != 0 {
 		t.Errorf("events = %+v, want none: every write in this test was made by NotActor", events)
 	}
 }
 
-func TestEventFeedScopesByProject(t *testing.T) {
+func TestEventLogScopesByProject(t *testing.T) {
 	c, p, b := vaultCore(t)
 	p2 := seededProject2(t, c)
 	b2 := seededBoard(t, c, p2)
@@ -207,24 +207,24 @@ func TestEventFeedScopesByProject(t *testing.T) {
 	// Filtered to Kinds: []string{"card"} throughout: vaultCore and
 	// seededBoard each already record a "board created" event for their own
 	// project, and this test is about project scoping, not board noise.
-	scoped, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"card"}})
+	scoped, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"card"}})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if len(scoped) != 1 || scoped[0].Title != "in p" {
 		t.Fatalf("scoped events = %+v, want only p's card", scoped)
 	}
 
-	all, _, err := c.EventFeed(t.Context(), EventQuery{Kinds: []string{"card"}})
+	all, _, err := c.EventLog(t.Context(), EventQuery{Entities: []string{"card"}})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if len(all) != 2 {
 		t.Fatalf("--all-projects (ProjectID \"\") card events = %+v, want both", all)
 	}
 }
 
-func TestEventFeedNeverReturnsEditedContent(t *testing.T) {
+func TestEventLogNeverReturnsEditedContent(t *testing.T) {
 	c, p, b := vaultCore(t)
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Old Title"})
 	if err != nil {
@@ -236,8 +236,8 @@ func TestEventFeedNeverReturnsEditedContent(t *testing.T) {
 		t.Fatalf("EditCard: %v", err)
 	}
 
-	// The raw row really does hold both titles: prove the feed's blanking is
-	// its own policy, not a coincidence of what got written.
+	// The raw row really does hold both titles: prove the event log's
+	// blanking is its own policy, not a coincidence of what got written.
 	var rawOld, rawNew string
 	if err := c.db.Get(&rawOld, `SELECT old_value FROM event WHERE entity_id = ? AND action = 'edited' AND field = 'title'`, card.ID); err != nil {
 		t.Fatal(err)
@@ -249,16 +249,16 @@ func TestEventFeedNeverReturnsEditedContent(t *testing.T) {
 		t.Fatalf("test setup: raw event old/new = %q/%q, want the real titles", rawOld, rawNew)
 	}
 
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Actions: []string{"edited"}})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Actions: []string{"edited"}})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if len(events) != 1 || events[0].Old != "" || events[0].New != "" {
 		t.Fatalf("events = %+v, want old/new blanked even though the row holds real text", events)
 	}
 }
 
-func TestEventFeedCardMovedCarriesColumnNames(t *testing.T) {
+func TestEventLogCardMovedCarriesColumnNames(t *testing.T) {
 	c, p, b := vaultCore(t)
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "moves"})
 	if err != nil {
@@ -275,16 +275,16 @@ func TestEventFeedCardMovedCarriesColumnNames(t *testing.T) {
 		t.Fatalf("MoveCard: %v", err)
 	}
 
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Actions: []string{"moved"}})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Actions: []string{"moved"}})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if len(events) != 1 || events[0].Old != cols[0].Name || events[0].New != cols[1].Name {
 		t.Fatalf("events = %+v, want old=%s new=%s", events, cols[0].Name, cols[1].Name)
 	}
 }
 
-func TestEventFeedDeletedCardHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *testing.T) {
+func TestEventLogDeletedCardHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *testing.T) {
 	c, p, b := vaultCore(t)
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Gone"})
 	if err != nil {
@@ -296,9 +296,9 @@ func TestEventFeedDeletedCardHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *test
 
 	// A project-scoped read now reaches a hard-deleted entity's history
 	// because the event table carries project_id.
-	scoped, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"card"}})
+	scoped, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"card"}})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if len(scoped) != 2 {
 		t.Fatalf("project-scoped events = %+v, want created + deleted", scoped)
@@ -307,9 +307,9 @@ func TestEventFeedDeletedCardHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *test
 	// Kinds: []string{"card"} excludes vaultCore's own "board created" event,
 	// whose ref is still the (undeleted) board's name and would otherwise
 	// trip the loop below, which assumes every returned event is this card's.
-	events, _, err := c.EventFeed(t.Context(), EventQuery{Kinds: []string{"card"}})
+	events, _, err := c.EventLog(t.Context(), EventQuery{Entities: []string{"card"}})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if len(events) != 2 {
 		t.Fatalf("events = %+v, want created + deleted", events)
@@ -327,7 +327,7 @@ func TestEventFeedDeletedCardHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *test
 	}
 }
 
-func TestEventFeedDeletedEntryHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *testing.T) {
+func TestEventLogDeletedEntryHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Temporary"})
 	if err != nil {
@@ -342,9 +342,9 @@ func TestEventFeedDeletedEntryHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *tes
 	// Kinds: []string{"entry"} excludes vaultCore's own "board created"
 	// event, whose ref and title are still the (undeleted) board's — the
 	// loop below assumes every returned event is this entry's.
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"entry"}})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"entry"}})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	var sawDeleted bool
 	for _, ev := range events {
@@ -365,7 +365,7 @@ func TestEventFeedDeletedEntryHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *tes
 	}
 }
 
-func TestEventFeedPrivateEntryCarriesRefAndTitleOnly(t *testing.T) {
+func TestEventLogPrivateEntryCarriesRefAndTitleOnly(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Prod credentials", Private: true})
 	if err != nil {
@@ -378,9 +378,9 @@ func TestEventFeedPrivateEntryCarriesRefAndTitleOnly(t *testing.T) {
 
 	// Kinds: []string{"entry"} excludes vaultCore's own "board created"
 	// event, whose title is the board's name, not this entry's.
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"entry"}})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"entry"}})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if len(events) < 2 {
 		t.Fatalf("events = %+v, want created + edited", events)
@@ -398,7 +398,7 @@ func TestEventFeedPrivateEntryCarriesRefAndTitleOnly(t *testing.T) {
 	}
 }
 
-func TestEventFeedCommentRefIsItsCardsRef(t *testing.T) {
+func TestEventLogCommentRefIsItsCardsRef(t *testing.T) {
 	c, p, b := vaultCore(t)
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Has a comment"})
 	if err != nil {
@@ -408,16 +408,16 @@ func TestEventFeedCommentRefIsItsCardsRef(t *testing.T) {
 		t.Fatalf("CreateComment: %v", err)
 	}
 
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"comment"}})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"comment"}})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if len(events) != 1 || events[0].Ref != card.Ref || events[0].Title != "Has a comment" {
 		t.Fatalf("comment event = %+v, want ref=%s title=%s", events[0], card.Ref, "Has a comment")
 	}
 }
 
-func TestEventFeedEntryRefUsesGlobalForAPromotedEntry(t *testing.T) {
+func TestEventLogEntryRefUsesGlobalForAPromotedEntry(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Widely useful"})
 	if err != nil {
@@ -429,9 +429,9 @@ func TestEventFeedEntryRefUsesGlobalForAPromotedEntry(t *testing.T) {
 
 	// Kinds: []string{"entry"} excludes vaultCore's own "board created"
 	// event, which also has action "created".
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"entry"}, Actions: []string{"created"}})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"entry"}, Actions: []string{"created"}})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if want := EntryAddress("", true, entry.Slug); len(events) != 1 || events[0].Ref != want {
 		t.Fatalf("events = %+v, want ref %s", events, want)
@@ -440,7 +440,7 @@ func TestEventFeedEntryRefUsesGlobalForAPromotedEntry(t *testing.T) {
 
 // A template filter still shows the deletion of an entry, whose row, and
 // template, are gone.
-func TestEventFeedTemplateFilterKeepsDeletions(t *testing.T) {
+func TestEventLogTemplateFilterKeepsDeletions(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Latency", Template: "research"})
 	if err != nil {
@@ -449,7 +449,7 @@ func TestEventFeedTemplateFilterKeepsDeletions(t *testing.T) {
 	if err := c.DeleteEntry(t.Context(), p.ID, entry.Slug); err != nil {
 		t.Fatal(err)
 	}
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Templates: []string{"research"}})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Templates: []string{"research"}})
 	if err != nil {
 		t.Fatal(err)
 	}

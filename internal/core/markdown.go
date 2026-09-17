@@ -38,7 +38,7 @@ type Frontmatter struct {
 	// path:lines pointer, a card ref, a wikilink, an absolute address, or
 	// free prose. Free-form by design — recording that a claim was checked
 	// against something, not that the something is true. A template's
-	// verify rule (TRELLIS-35) checks only the internal-reference forms
+	// resolve rule (TRELLIS-35) checks only the internal-reference forms
 	// (wikilinks and absolute addresses); everything else passes unchecked.
 	Sources []string `yaml:"sources,omitempty"`
 	Created string   `yaml:"created,omitempty"`

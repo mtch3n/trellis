@@ -29,9 +29,9 @@ func TestAckAdvancesTheCursor(t *testing.T) {
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if len(events) == 0 {
 		t.Fatal("no events to ack")
@@ -57,9 +57,9 @@ func TestAckNeverMovesBackwards(t *testing.T) {
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "b"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	last := events[len(events)-1].Seq
 	first := events[0].Seq
@@ -81,9 +81,9 @@ func TestAckRefusesASeqPastTheNewest(t *testing.T) {
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	newest := events[len(events)-1].Seq
 
@@ -106,9 +106,9 @@ func TestEventGapAfterPartialPruning(t *testing.T) {
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "b"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if _, err := c.AckEventConsumer(t.Context(), "worker", events[0].Seq); err != nil {
 		t.Fatalf("AckEventConsumer: %v", err)
@@ -149,9 +149,9 @@ func TestEventGapWhenEveryEventIsPruned(t *testing.T) {
 		if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 			t.Fatalf("CreateCard: %v", err)
 		}
-		events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+		events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID})
 		if err != nil {
-			t.Fatalf("EventFeed: %v", err)
+			t.Fatalf("EventLog: %v", err)
 		}
 		newest := events[len(events)-1].Seq
 		if _, err := c.AckEventConsumer(t.Context(), "worker", newest); err != nil {
@@ -176,9 +176,9 @@ func TestEventGapWhenEveryEventIsPruned(t *testing.T) {
 		if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 			t.Fatalf("CreateCard: %v", err)
 		}
-		events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+		events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID})
 		if err != nil {
-			t.Fatalf("EventFeed: %v", err)
+			t.Fatalf("EventLog: %v", err)
 		}
 		acked := events[0].Seq
 		if _, err := c.AckEventConsumer(t.Context(), "worker", acked); err != nil {
@@ -228,9 +228,9 @@ func TestListEventConsumersReportsCursorLagAndGap(t *testing.T) {
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "b"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventLog: %v", err)
 	}
 	if _, err := c.AckEventConsumer(t.Context(), "worker", events[0].Seq); err != nil {
 		t.Fatalf("AckEventConsumer: %v", err)

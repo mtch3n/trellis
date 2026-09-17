@@ -32,11 +32,11 @@ type TemplateRules struct {
 	// appear here without being Required, in which case it may be
 	// omitted, but if supplied it must be one of its choices.
 	Choices map[string][]string `yaml:"choices,omitempty"`
-	// Verify names fields (or the literal "body") whose internal
+	// Resolve names fields (or the literal "body") whose internal
 	// references must resolve. Anything that is not a wikilink or an
 	// absolute Trellis address passes unchecked: a URL, a path:lines
-	// pointer and prose all cite without being verifiable.
-	Verify []string `yaml:"resolve,omitempty"`
+	// pointer and prose all cite without being resolvable.
+	Resolve []string `yaml:"resolve,omitempty"`
 }
 
 // Template is a parsed template file: its rules, its skeleton body (with
@@ -47,7 +47,7 @@ type Template struct {
 	Enforce  string
 	Required []string
 	Choices  map[string][]string
-	Verify   []string
+	Resolve  []string
 	Body     string
 	BuiltIn  bool
 }
@@ -212,7 +212,7 @@ func loadTemplate(dir, name string) (Template, error) {
 	}
 	return Template{
 		Name: name, Path: path, Enforce: enforce,
-		Required: rules.Required, Choices: rules.Choices, Verify: rules.Verify, Body: body,
+		Required: rules.Required, Choices: rules.Choices, Resolve: rules.Resolve, Body: body,
 	}, nil
 }
 
@@ -320,12 +320,12 @@ func (c *Core) templateNamed(name string) (Template, error) {
 }
 
 // templateProblems is every way an entry falls short of its template: the
-// field and section rules, then the verify rule, read in the caller's
+// field and section rules, then the resolve rule, read in the caller's
 // transaction.
 func (c *Core) templateProblems(tx *sqlx.Tx, projectID string, t Template, fields map[string][]string,
 	body string, checkSections bool) ([]string, error) {
 	problems := templateViolations(t, fields, body, checkSections)
-	unresolved, err := c.templateVerifyViolations(tx, projectID, t, fields, body)
+	unresolved, err := c.templateResolveViolations(tx, projectID, t, fields, body)
 	return append(problems, unresolved...), err
 }
 
@@ -518,7 +518,7 @@ func (c *Core) ReinstallTemplate(ctx context.Context, name string) (Template, er
 }
 
 // CheckTemplate reports name's violations against slug's current fields and
-// sections, plus its verify rule — the same three lint and edit check. It
+// sections, plus its resolve rule — the same three lint and edit check. It
 // never blocks and never errors because of a violation — the entry
 // already exists.
 func (c *Core) CheckTemplate(ctx context.Context, projectID, name, slug string) ([]string, error) {

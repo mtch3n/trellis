@@ -72,7 +72,7 @@ func TestDeleteProjectRemovesEverythingItOwns(t *testing.T) {
 	}
 	if n := count(t, c,
 		`SELECT COUNT(*) FROM event WHERE entity_type = 'project' AND entity_id = ? AND action = 'deleted'`, p.ID); n != 1 {
-		t.Errorf("deleted events = %d, want 1: the event log is the change feed", n)
+		t.Errorf("deleted events = %d, want 1: the event log records every change", n)
 	}
 }
 

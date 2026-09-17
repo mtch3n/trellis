@@ -200,7 +200,7 @@ func TestMergeLabel(t *testing.T) {
 
 // recordEvent looks up its project from the label's own row; merging must
 // record the "merged" event before deleting that row, or the event's
-// project_id lands NULL and a project-scoped feed never shows it.
+// project_id lands NULL and a project-scoped read never shows it.
 func TestMergeLabelEventIsProjectScoped(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
@@ -217,12 +217,12 @@ func TestMergeLabelEventIsProjectScoped(t *testing.T) {
 		t.Fatalf("failed to merge labels: %v", err)
 	}
 
-	events, _, err := c.EventFeed(ctx, EventQuery{ProjectID: p.ID, Kinds: []string{"label"}})
+	events, _, err := c.EventLog(ctx, EventQuery{ProjectID: p.ID, Entities: []string{"label"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.ContainsFunc(events, func(e FeedEvent) bool { return e.Action == "merged" }) {
-		t.Errorf("project-scoped feed lacks the label merge event: %+v", events)
+	if !slices.ContainsFunc(events, func(e LogEvent) bool { return e.Action == "merged" }) {
+		t.Errorf("project-scoped events lack the label merge event: %+v", events)
 	}
 }
 

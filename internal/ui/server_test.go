@@ -268,10 +268,10 @@ func TestServerDeletesAProjectOnlyWhenTheKeyIsRetyped(t *testing.T) {
 }
 
 // TestActivityScopedToProjectIncludesDeletedLabelAndCommentEvents guards
-// against computing the activity feed's project filter from live-row joins:
+// against computing the event log's project filter from live-row joins:
 // a deleted card has no row left to join, and label and comment events are
 // never joined at all, so a naive filter drops all three from a
-// project-scoped feed even though the event rows themselves carry the
+// project-scoped read even though the event rows themselves carry the
 // project.
 func TestActivityScopedToProjectIncludesDeletedLabelAndCommentEvents(t *testing.T) {
 	dir := t.TempDir()
@@ -437,8 +437,8 @@ func TestServerProjectEventsPageThroughCardAndEntryHistory(t *testing.T) {
 
 	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	type page struct {
-		Events []core.FeedEvent `json:"events"`
-		Next   *int64           `json:"next"`
+		Events []core.LogEvent `json:"events"`
+		Next   *int64          `json:"next"`
 	}
 	get := func(path string) (page, []byte) {
 		t.Helper()
@@ -464,14 +464,14 @@ func TestServerProjectEventsPageThroughCardAndEntryHistory(t *testing.T) {
 			t.Fatalf("events out of order: %v", all.Events)
 		}
 		if event.Field != "column" && (event.Old != "" || event.New != "") {
-			t.Errorf("%s %s %s carries values %q -> %q; only column moves may", event.Kind, event.Action, event.Field, event.Old, event.New)
+			t.Errorf("%s %s %s carries values %q -> %q; only column moves may", event.Entity, event.Action, event.Field, event.Old, event.New)
 		}
 		switch {
-		case event.Kind == "card" && event.Action == "moved":
+		case event.Entity == "card" && event.Action == "moved":
 			moved = event.Ref == "EVT-1" && event.Old == "backlog" && event.New == "in-progress"
-		case event.Kind == "card" && event.Action == "claimed":
+		case event.Entity == "card" && event.Action == "claimed":
 			claimed = event.Ref == "EVT-1" && event.Actor == "ui-events-test"
-		case event.Kind == "entry" && event.Action == "edited":
+		case event.Entity == "entry" && event.Action == "edited":
 			edited = event.Ref == "/EVT/vault/"+entry.Slug
 		}
 	}

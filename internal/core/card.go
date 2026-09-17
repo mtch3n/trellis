@@ -626,7 +626,7 @@ func (c *Core) EditCard(ctx context.Context, projectID string, ref CardRef, e Ca
 
 // DeleteCard removes a card outright. Archiving (P1) is for finished work;
 // this is for the duplicates an agent creates by mistake. The event log is
-// never touched — it is the change feed.
+// never touched: it records every change, this one included.
 func (c *Core) DeleteCard(ctx context.Context, projectID string, ref CardRef) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var card Card
