@@ -318,6 +318,7 @@ func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, 
 			}
 			return err
 		}
+		*undo = append(*undo, fileWrite{path: from.Path, old: raw, written: ContentHash(out)})
 		st, err := os.Stat(from.Path)
 		if err != nil {
 			return err
@@ -333,7 +334,7 @@ func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, 
 		if err != nil {
 			return err
 		}
-		*undo = append(*undo, fileWrite{path: from.Path, old: raw, written: ContentHash(out), revisionDest: revisionDest})
+		(*undo)[len(*undo)-1].revisionDest = revisionDest
 		if _, err := tx.Exec(`UPDATE knowledge SET content_hash = ?, mtime = ?, size = ?, version = ?, updated_at = ?
 			WHERE id = ?`, from.ContentHash, from.MTime, from.Size, from.Version, from.UpdatedAt, from.ID); err != nil {
 			return err
