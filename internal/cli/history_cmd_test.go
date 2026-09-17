@@ -55,3 +55,72 @@ func TestCardHistoryAndDiff(t *testing.T) {
 		t.Fatalf("diff = %s, want draft removed and final added", diff)
 	}
 }
+
+// review-cli #9: card history/diff, knowledge history/diff and knowledge mv
+// never adopted withTarget, so a reference that names its own project failed
+// with unresolved outside any pin, unlike every other reference-taking
+// command.
+func TestHistoryDiffAndMvNeedNoPin(t *testing.T) {
+	pinEnv(t, "loose")
+	seedProject(t, "BETA")
+
+	created := runCmd(t, "card", "new", "--title", "Ship", "--body", "draft", "--project", "BETA", "--json")
+	var card core.Card
+	if err := json.Unmarshal([]byte(created), &card); err != nil {
+		t.Fatal(err)
+	}
+	runCmd(t, "card", "edit", card.Ref, "--body", "final", "--if-version", "1", "--project", "BETA")
+
+	for _, args := range [][]string{
+		{"card", "history", "/BETA/cards/" + card.Ref},
+		{"card", "history", card.Ref},
+		{"card", "diff", card.Ref},
+	} {
+		if _, err := runCmdErr(t, args...); err != nil {
+			t.Errorf("%v: %v", args, err)
+		}
+	}
+
+	refOf(t, "knowledge", "new", "--title", "Notes", "--project", "BETA")
+	runCmd(t, "knowledge", "edit", "notes", "--body", "changed", "--if-version", "1", "--project", "BETA")
+	for _, args := range [][]string{
+		{"knowledge", "history", "/BETA/knowledge/notes"},
+		{"knowledge", "diff", "/BETA/knowledge/notes"},
+	} {
+		if _, err := runCmdErr(t, args...); err != nil {
+			t.Errorf("%v: %v", args, err)
+		}
+	}
+
+	if got := refOf(t, "knowledge", "mv", "/BETA/knowledge/notes", "notes-2"); got != "/BETA/knowledge/notes-2" {
+		t.Errorf("knowledge mv with no pin = %s", got)
+	}
+}
+
+// knowledge history on a /GLOBAL address needs no project at all, exactly as
+// knowledge show already does.
+func TestKnowledgeHistoryOnAVaultEntryNeedsNoPin(t *testing.T) {
+	pinEnv(t, "loose")
+	seedProject(t, "ALPHA")
+	refOf(t, "knowledge", "new", "--title", "Conventions", "--project", "ALPHA")
+	escalateByHand(t, "ALPHA", "conventions")
+
+	if _, err := runCmdErr(t, "knowledge", "history", "/GLOBAL/knowledge/conventions"); err != nil {
+		t.Errorf("knowledge history on a vault entry with no pin: %v", err)
+	}
+}
+
+// review-cli #9: card relate never adopted withTargets for its second card,
+// so it could not name a project of its own -- the same rule card block
+// already follows for --by. With no pin, an address is what names the
+// project: TestABlockerAddressNamesTheProject's pattern, for relate.
+func TestCardRelateOtherCardNamesItsProject(t *testing.T) {
+	pinEnv(t, "loose")
+	seedProject(t, "BETA")
+	refOf(t, "card", "new", "--title", "first", "--project", "BETA")
+	refOf(t, "card", "new", "--title", "second", "--project", "BETA")
+	out := runCmd(t, "card", "relate", "2", "relates-to", "/BETA/cards/BETA-1", "--json")
+	if !strings.Contains(out, `"ref":"BETA-2"`) || !strings.Contains(out, `"BETA-1"`) {
+		t.Errorf("card relate with an addressed other card = %s", out)
+	}
+}

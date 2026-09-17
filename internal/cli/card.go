@@ -135,8 +135,8 @@ func newCardHistoryCmd() *cobra.Command {
 		Short: "List a card's retained revisions",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBoard(func(app *appCtx) error {
-				revs, err := app.Core.ListCardRevisions(cmd.Context(), app.Project.ID, core.ParseCardRef(args[0]))
+			return withTarget(refArg{Collection: vpath.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+				revs, err := app.Core.ListCardRevisions(cmd.Context(), app.Project.ID, core.ParseCardRef(ref))
 				if err != nil {
 					return err
 				}
@@ -161,8 +161,8 @@ func newCardDiffCmd() *cobra.Command {
 		Short: "Show a unified diff between two retained revisions",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBoard(func(app *appCtx) error {
-				d, err := app.Core.DiffCard(cmd.Context(), app.Project.ID, core.ParseCardRef(args[0]), from, to)
+			return withTarget(refArg{Collection: vpath.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+				d, err := app.Core.DiffCard(cmd.Context(), app.Project.ID, core.ParseCardRef(ref), from, to)
 				if err != nil {
 					return err
 				}
