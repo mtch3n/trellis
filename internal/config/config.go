@@ -886,7 +886,7 @@ func settingNode(info KeyInfo, value any) (*yaml.Node, string) {
 		if err := validatePositiveDuration(info.Key, s); err != nil {
 			return nil, err.Error()
 		}
-		return &yaml.Node{Kind: yaml.ScalarNode, Value: s}, ""
+		return quotedScalar(s), ""
 	case TypeEnum:
 		s, ok := value.(string)
 		if !ok {
@@ -895,13 +895,13 @@ func settingNode(info KeyInfo, value any) (*yaml.Node, string) {
 		if err := validateChoice(info.Key, s, info.Choices); err != nil {
 			return nil, err.Error()
 		}
-		return &yaml.Node{Kind: yaml.ScalarNode, Value: s}, ""
+		return quotedScalar(s), ""
 	case TypeString:
 		s, ok := value.(string)
 		if !ok {
 			return nil, fmt.Sprintf("%s: must be a string", info.Key)
 		}
-		return &yaml.Node{Kind: yaml.ScalarNode, Value: s}, ""
+		return quotedScalar(s), ""
 	case TypeList:
 		items, ok := asStringList(value)
 		if !ok {
@@ -909,12 +909,22 @@ func settingNode(info KeyInfo, value any) (*yaml.Node, string) {
 		}
 		seq := &yaml.Node{Kind: yaml.SequenceNode}
 		for _, item := range items {
-			seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: item})
+			seq.Content = append(seq.Content, quotedScalar(item))
 		}
 		return seq, ""
 	default:
 		return nil, fmt.Sprintf("%s: unsupported type", info.Key)
 	}
+}
+
+// quotedScalar wraps a string-typed setting value in an explicitly
+// double-quoted YAML scalar. board.default_columns ["true", "123"] must
+// come back as those exact strings, not the bool and int a plain scalar
+// would resolve to on the next parse -- by us or by anything else that
+// reads config.yaml -- so every string, duration, enum and list-item value
+// SetGlobalValues writes is quoted, never left to YAML's own type guessing.
+func quotedScalar(s string) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: s}
 }
 
 // asWholeNumber accepts an int, an int64, or a float64 with no fractional

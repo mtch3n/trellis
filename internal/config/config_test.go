@@ -519,6 +519,47 @@ func TestSetGlobalValuesThenLoadReadsTypedValuesBack(t *testing.T) {
 	}
 }
 
+// board.default_columns is a list of strings, but nothing stops an item
+// looking exactly like a bool or an int -- "true", "123". Written as a plain
+// YAML scalar those would resolve to the bool true and the int 123 on the
+// next parse, by Load or by anything else that reads config.yaml generically
+// (a []any decode, say). settingNode's explicit double-quoted style must
+// keep them strings all the way through.
+func TestSetGlobalValuesQuotesStringLookingListItems(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("TRELLIS_HOME", root)
+	if _, err := SetGlobalValues(map[string]any{
+		"board.default_columns": []any{"true", "123"},
+	}, nil); err != nil {
+		t.Fatalf("SetGlobalValues: %v", err)
+	}
+
+	text := readFile(t, filepath.Join(root, "config.yaml"))
+	if !strings.Contains(text, `"true"`) || !strings.Contains(text, `"123"`) {
+		t.Errorf("config.yaml does not quote the string-looking items:\n%s", text)
+	}
+
+	// A generic decode -- what a different, less careful YAML reader would
+	// do -- must still see strings, not a bool and an int.
+	var generic map[string]any
+	if err := yaml.Unmarshal([]byte(text), &generic); err != nil {
+		t.Fatalf("generic unmarshal: %v", err)
+	}
+	board, _ := generic["board"].(map[string]any)
+	items, _ := board["default_columns"].([]any)
+	if len(items) != 2 || items[0] != "true" || items[1] != "123" {
+		t.Fatalf("generic decode = %#v, want the strings [\"true\" \"123\"]", items)
+	}
+
+	reloaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(reloaded.Board.DefaultColumns) != 2 || reloaded.Board.DefaultColumns[0] != "true" || reloaded.Board.DefaultColumns[1] != "123" {
+		t.Errorf("Load() Board.DefaultColumns = %v, want [true 123] as strings", reloaded.Board.DefaultColumns)
+	}
+}
+
 func TestSetGlobalValuesRefusesANonEditableKey(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("TRELLIS_HOME", root)
