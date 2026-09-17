@@ -3,6 +3,7 @@ package store
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
@@ -272,6 +273,90 @@ func TestVocabularyMigrationRewritesHyphenatedAndLowerCaseKeys(t *testing.T) {
 		if got != c.want {
 			t.Errorf("%s\n got %q\nwant %q", c.q, got, c.want)
 		}
+	}
+}
+
+// linkVault moves TR's vault directory out of root and leaves a symlink in
+// its place, returning where the directory went. That name starts with a
+// dot, as a hidden directory's does: it is still the vault, not a revision
+// directory. The test is skipped where symlinks need a privilege it lacks.
+func linkVault(t *testing.T, root string) string {
+	t.Helper()
+	link := filepath.Join(root, "projects", "TR", "knowledge")
+	target := filepath.Join(t.TempDir(), ".entries")
+	if err := os.Rename(link, target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("cannot create a symlink here: %v", err)
+	}
+	return target
+}
+
+func isSymlink(path string) bool {
+	st, err := os.Lstat(path)
+	return err == nil && st.Mode()&fs.ModeSymlink != 0
+}
+
+// A vault directory may be a symlink to one kept elsewhere. The move renames
+// the link; the rewrite must still reach the entries behind it and carry
+// their hashes, or every rewritten address would read as a diagnostic.
+func TestVocabularyMigrationFollowsASymlinkedVault(t *testing.T) {
+	root, db := rootBefore(t)
+	target := linkVault(t, root)
+	if err := goose.Up(db.DB, "migrations"); err != nil {
+		t.Fatal(err)
+	}
+
+	if !isSymlink(filepath.Join(root, "projects", "TR", "vault")) {
+		t.Fatal("the vault link was not moved")
+	}
+	want := strings.ReplaceAll(entryBefore, "/TR/knowledge/", "/TR/vault/")
+	if got := readFile(t, filepath.Join(target, "a.md")); got != want {
+		t.Errorf("entry behind the link:\n%s\nwant:\n%s", got, want)
+	}
+	if r := readFile(t, filepath.Join(target, ".a.md", "1.md")); !strings.Contains(r, "/TR/knowledge/b") {
+		t.Errorf("a revision behind the link was rewritten: %q", r)
+	}
+	var row struct {
+		ContentHash string `db:"content_hash"`
+		RecapHash   string `db:"recap_hash"`
+	}
+	if err := db.Get(&row, `SELECT content_hash, recap_hash FROM entry WHERE id = 'e1'`); err != nil {
+		t.Fatal(err)
+	}
+	if row.ContentHash != sha(want) || row.RecapHash != sha(want) {
+		t.Errorf("entry row = %+v; want both hashes %s", row, sha(want))
+	}
+
+	// The file work, repeated, finds nothing left to do behind the link.
+	var fw fileWork
+	if err := fw.moveVaults(root); err != nil {
+		t.Fatalf("moveVaults again: %v", err)
+	}
+	if err := fw.rewrite(root); err != nil {
+		t.Fatalf("rewrite again: %v", err)
+	}
+	if len(fw.moved) != 0 || len(fw.rewritten) != 0 {
+		t.Errorf("second file pass moved %v and rewrote %d files", fw.moved, len(fw.rewritten))
+	}
+}
+
+func TestVocabularyMigrationPutsASymlinkedVaultBack(t *testing.T) {
+	root, db := rootBefore(t)
+	target := linkVault(t, root)
+	mustExec(t, db, `CREATE TABLE entry (x INTEGER)`) // makes the table rename fail
+	if err := goose.Up(db.DB, "migrations"); err == nil {
+		t.Fatal("want the schema step to fail")
+	}
+	if got := readFile(t, filepath.Join(target, "a.md")); got != entryBefore {
+		t.Errorf("entry behind the link not restored:\n%s", got)
+	}
+	if !isSymlink(filepath.Join(root, "projects", "TR", "knowledge")) {
+		t.Error("the vault link was not put back")
+	}
+	if _, err := os.Lstat(filepath.Join(root, "projects", "TR", "vault")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("new vault link left behind: %v", err)
 	}
 }
 

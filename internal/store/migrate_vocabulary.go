@@ -156,11 +156,16 @@ func (fw *fileWork) rewrite(root string) error {
 		return err
 	}
 	for _, parent := range parents {
-		vault := filepath.Join(parent, "vault")
-		err := filepath.WalkDir(vault, func(path string, d fs.DirEntry, err error) error {
-			if path == vault && errors.Is(err, fs.ErrNotExist) {
-				return filepath.SkipDir
-			}
+		// WalkDir does not follow a root that is a symlink, so a linked vault
+		// is walked at its target. Every path recorded below is resolved, as
+		// carryHashes compares them.
+		vault, err := filepath.EvalSymlinks(filepath.Join(parent, "vault"))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		err = filepath.WalkDir(vault, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
@@ -376,6 +381,9 @@ func renameSchema(ctx context.Context, db *sql.DB, root string, rewritten []file
 	if err := carryHashes(ctx, tx, root, rewritten); err != nil {
 		return err
 	}
+	// card_revision.body_md is left out on purpose: a retained revision is
+	// history and keeps its words (spec §5), as the .<slug>.md/ revision
+	// directories beside entry files do.
 	for _, c := range []struct {
 		table, col string
 		change     func(string) string
