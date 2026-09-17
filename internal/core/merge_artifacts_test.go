@@ -119,7 +119,7 @@ func TestMergeCollapsedArtifactDoesNotDuplicateACardLink(t *testing.T) {
 	}
 }
 
-// A doc names its artifacts by name (doc_relations.go), so collapsing the
+// An entry names its artifacts by name (entry_relations.go), so collapsing the
 // artifact it names must leave that name in place, not the id underneath it.
 func TestMergeCollapsedArtifactKeepsAnEntryLinksName(t *testing.T) {
 	f := newMergeFixture(t)
