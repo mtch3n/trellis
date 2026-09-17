@@ -70,7 +70,7 @@ func (s *Server) handleArtifact(w http.ResponseWriter, r *http.Request) {
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil {
-		s.error(w, http.StatusInternalServerError, err.Error())
+		s.error(w, http.StatusInternalServerError, "artifact file unreadable")
 		return
 	}
 	// Headers first: ServeContent sniffs the body only when Content-Type is
