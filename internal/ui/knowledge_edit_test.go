@@ -2,8 +2,10 @@ package ui
 
 import (
 	"context"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -188,5 +190,64 @@ func TestKnowledgeCreateCarriesSources(t *testing.T) {
 	}
 	if len(doc.Sources) != 1 || doc.Sources[0] != "https://sqlite.org/whentouse.html" {
 		t.Fatalf("sources = %v", doc.Sources)
+	}
+}
+
+// Without a private field on the create request, the only way to make an
+// entry private from the web is to create it ordinary and PATCH it private
+// afterward -- a window in which the body already reached an embedder under
+// vector search. A private entry created over HTTP must be private from its
+// first write: the file on disk must say so from the moment CreateKnowledge
+// returns, not after a follow-up request.
+func TestKnowledgeCreatePrivateOverHTTPIsPrivateFromFirstWrite(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-create-test").WithKBRoot(t.TempDir())
+	ctx := context.Background()
+	p, err := c.CreateProject(ctx, "CREATE", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateBoard(ctx, p.ID, "default", true); err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(c, db, "127.0.0.1:0")
+	post := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/p/CREATE/b/default/knowledge", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := post(`{"title":"Staging credentials","private":true}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("private create status = %d, body = %s", rec.Code, rec.Body)
+	}
+	var created core.Knowledge
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if !created.Private {
+		t.Fatalf("created response Private = false, want true: %s", rec.Body)
+	}
+
+	raw, err := os.ReadFile(created.Path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(raw), "private: true") {
+		t.Errorf("file written by the create request is missing private: true:\n%s", raw)
+	}
+
+	doc, err := c.LoadKnowledge(ctx, p.ID, created.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !doc.Private {
+		t.Fatal("reloaded doc Private = false, want true")
 	}
 }

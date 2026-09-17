@@ -2,6 +2,8 @@ package core
 
 import (
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -48,20 +50,44 @@ func TestEventFeedOrdersBySeqAndPages(t *testing.T) {
 }
 
 func TestEventFeedDefaultAndMaxLimit(t *testing.T) {
-	c, p, b := kbCore(t)
-	for i := 0; i < 3; i++ {
-		if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "x"}); err != nil {
-			t.Fatalf("CreateCard: %v", err)
+	c, p, _ := kbCore(t)
+
+	// The default (1000) and the cap (5000) only bite past that many rows.
+	// Driving that many writes through CreateCard would make this the
+	// slowest test in the suite for no benefit -- the limit logic does not
+	// care how a row got there -- so the events are inserted directly.
+	// Kinds: []string{"card"} below excludes kbCore's own "board created"
+	// event, so every one of these rows, and only these, is in scope.
+	const bulk = 5100
+	var sb strings.Builder
+	args := make([]any, 0, bulk*3)
+	for i := 0; i < bulk; i++ {
+		if i > 0 {
+			sb.WriteString(",")
 		}
+		sb.WriteString("(?, 'bulk', 'card', ?, 'created', ?)")
+		args = append(args, c.clock.NowMS(), "bulk-card-"+strconv.Itoa(i), p.ID)
 	}
-	// Kinds: []string{"card"} excludes kbCore's own "board created" event, so
-	// the count below is exactly the three writes this test made.
+	if _, err := c.db.Exec(
+		`INSERT INTO event (ts, actor, entity_type, entity_id, action, project_id) VALUES `+sb.String(),
+		args...); err != nil {
+		t.Fatalf("bulk insert events: %v", err)
+	}
+
+	def, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"card"}})
+	if err != nil {
+		t.Fatalf("EventFeed (default limit): %v", err)
+	}
+	if len(def) != 1000 {
+		t.Fatalf("default limit must be 1000; got %d events", len(def))
+	}
+
 	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"card"}, Limit: 50000})
 	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
+		t.Fatalf("EventFeed (limit above cap): %v", err)
 	}
-	if len(events) != 3 {
-		t.Fatalf("a limit above 5000 must still be capped sanely; got %d events for 3 writes", len(events))
+	if len(events) != 5000 {
+		t.Fatalf("a limit above 5000 must still be capped sanely; got %d events for %d writes", len(events), bulk)
 	}
 }
 

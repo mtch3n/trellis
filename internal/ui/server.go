@@ -368,29 +368,30 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// A deleted entity has no row left to join, so its event falls back to the
-	// name it recorded when it went. project narrows the feed to one project's
-	// events, which is what an overview asks for.
+	// name it recorded when it went. project narrows the feed to one
+	// project's events, which is what an overview asks for; it filters on
+	// the event's own project_id rather than a live-row join, so a deleted
+	// card or entry, and label and comment events (never joined below), stay
+	// in a project-scoped feed instead of only the unfiltered one.
 	project := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("project")))
 	events := []activityInfo{}
 	err := s.db.SelectContext(ctx, &events, `
-		SELECT * FROM (
-			SELECT e.seq, e.ts, e.actor, e.entity_type, e.action,
-			       COALESCE(e.field, '') AS field,
-			       COALESCE(c.title, k.title, b.name, pp.key,
-			                CASE WHEN e.action = 'deleted' THEN NULLIF(e.old_value, '') END,
-			                e.entity_id) AS title,
-			       COALESCE(pc.key, pk.key, pb.key, pp.key, '') AS project_key
-			FROM event e
-			LEFT JOIN card c ON c.id = e.entity_id AND e.entity_type = 'card'
-			LEFT JOIN project pc ON pc.id = c.project_id
-			LEFT JOIN knowledge k ON k.id = e.entity_id AND e.entity_type = 'knowledge'
-			LEFT JOIN project pk ON pk.id = k.project_id
-			LEFT JOIN board b ON b.id = e.entity_id AND e.entity_type = 'board'
-			LEFT JOIN project pb ON pb.id = b.project_id
-			LEFT JOIN project pp ON pp.id = e.entity_id AND e.entity_type = 'project'
-		)
-		WHERE ? = '' OR project_key = ?
-		ORDER BY seq DESC LIMIT ?`, project, project, limit)
+		SELECT e.seq, e.ts, e.actor, e.entity_type, e.action,
+		       COALESCE(e.field, '') AS field,
+		       COALESCE(c.title, k.title, b.name, pp.key,
+		                CASE WHEN e.action = 'deleted' THEN NULLIF(e.old_value, '') END,
+		                e.entity_id) AS title,
+		       COALESCE(pc.key, pk.key, pb.key, pp.key, '') AS project_key
+		FROM event e
+		LEFT JOIN card c ON c.id = e.entity_id AND e.entity_type = 'card'
+		LEFT JOIN project pc ON pc.id = c.project_id
+		LEFT JOIN knowledge k ON k.id = e.entity_id AND e.entity_type = 'knowledge'
+		LEFT JOIN project pk ON pk.id = k.project_id
+		LEFT JOIN board b ON b.id = e.entity_id AND e.entity_type = 'board'
+		LEFT JOIN project pb ON pb.id = b.project_id
+		LEFT JOIN project pp ON pp.id = e.entity_id AND e.entity_type = 'project'
+		WHERE ? = '' OR e.project_id = (SELECT id FROM project WHERE key = ?)
+		ORDER BY e.seq DESC LIMIT ?`, project, project, limit)
 	if err != nil {
 		s.error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -410,6 +411,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	key := strings.ToUpper(r.PathValue("key"))
 	var in deleteProjectRequest
 	if !decodeJSON(w, r, &in) {
+		s.error(w, http.StatusBadRequest, "invalid JSON; nothing changed")
 		return
 	}
 	if strings.ToUpper(strings.TrimSpace(in.Confirm)) != key {
@@ -833,7 +835,11 @@ type knowledgeRequest struct {
 	Body     string `json:"body"`
 	Summary  string `json:"summary"`
 	Template string `json:"template"`
-	Version  *int64 `json:"version"`
+	// Private marks the entry from its first write, so a private entry
+	// never has a window where its body already reached the embedder under
+	// vector search before a follow-up PATCH could mark it private.
+	Private bool   `json:"private"`
+	Version *int64 `json:"version"`
 	// Sources and Set carry what a template may require, so a browser can
 	// satisfy a template that rejects an entry without them. Without these
 	// the only way to create from such a template would be the CLI.
@@ -1117,6 +1123,11 @@ func (s *Server) handleGlobalKnowledgeList(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	withoutContent(docs)
+	// An artifact belongs to a project; the global list spans every project
+	// (and the vault, which has none), so it never carries artifacts.
+	for i := range docs {
+		docs[i].Artifacts = nil
+	}
 	writeJSON(w, http.StatusOK, docs)
 }
 
@@ -1160,7 +1171,7 @@ func (s *Server) handleKnowledgeCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	doc, err := s.write.CreateKnowledge(ctx, p.ID, core.NewKnowledge{
 		Title: in.Title, Body: in.Body, Summary: in.Summary, Template: in.Template,
-		Board: b.Name, Sources: in.Sources, Set: in.Set, Dir: in.Dir,
+		Private: in.Private, Board: b.Name, Sources: in.Sources, Set: in.Set, Dir: in.Dir,
 	})
 	if err != nil {
 		s.coreError(w, err)

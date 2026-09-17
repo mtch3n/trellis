@@ -235,6 +235,13 @@ func TestServerDeletesAProjectOnlyWhenTheKeyIsRetyped(t *testing.T) {
 		t.Fatalf("activity scoped to KEPT = %d, body = %s", scoped.Code, scoped.Body)
 	}
 
+	if rec := request(http.MethodDelete, "/api/p/GONE", `not json`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("malformed body status = %d, want 400, body = %s", rec.Code, rec.Body)
+	}
+	if rec := request(http.MethodGet, "/api/p/GONE/boards", ""); rec.Code != http.StatusOK {
+		t.Fatalf("a malformed delete request must leave the project: %d", rec.Code)
+	}
+
 	if rec := request(http.MethodDelete, "/api/p/GONE", `{"confirm":"gone-ish"}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("mistyped confirmation status = %d, want 400, body = %s", rec.Code, rec.Body)
 	}
@@ -254,6 +261,80 @@ func TestServerDeletesAProjectOnlyWhenTheKeyIsRetyped(t *testing.T) {
 	projects := request(http.MethodGet, "/api/projects", "")
 	if bytes.Contains(projects.Body.Bytes(), []byte(`"GONE"`)) || !bytes.Contains(projects.Body.Bytes(), []byte(`"KEPT"`)) {
 		t.Fatalf("projects after delete = %s", projects.Body)
+	}
+}
+
+// TestActivityScopedToProjectIncludesDeletedLabelAndCommentEvents guards
+// against computing the activity feed's project filter from live-row joins:
+// a deleted card has no row left to join, and label and comment events are
+// never joined at all, so a naive filter drops all three from a
+// project-scoped feed even though the event rows themselves carry the
+// project.
+func TestActivityScopedToProjectIncludesDeletedLabelAndCommentEvents(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-activity-test").WithKBRoot(t.TempDir())
+	p, err := c.CreateProject(context.Background(), "SCOPE", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board, err := c.CreateBoard(context.Background(), p.ID, "default", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(c, db, "127.0.0.1:0")
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	card, err := c.CreateCard(context.Background(), p.ID, board.ID, core.NewCard{Title: "gone soon"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := request(http.MethodDelete, "/api/p/SCOPE/b/default/cards/"+card.Ref, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete card status = %d, body = %s", rec.Code, rec.Body)
+	}
+
+	if rec := request(http.MethodPost, "/api/p/SCOPE/labels", `{"name":"old"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("create label old status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if rec := request(http.MethodPost, "/api/p/SCOPE/labels", `{"name":"new"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("create label new status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if rec := request(http.MethodPost, "/api/p/SCOPE/labels/merge", `{"from":"old","into":"new"}`); rec.Code != http.StatusOK {
+		t.Fatalf("label merge status = %d, body = %s", rec.Code, rec.Body)
+	}
+
+	other, err := c.CreateCard(context.Background(), p.ID, board.ID, core.NewCard{Title: "commented"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := request(http.MethodPost, "/api/p/SCOPE/b/default/cards/"+other.Ref+"/comments", `{"body":"noted"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("create comment status = %d, body = %s", rec.Code, rec.Body)
+	}
+
+	scoped := request(http.MethodGet, "/api/activity?project=SCOPE", "")
+	if scoped.Code != http.StatusOK {
+		t.Fatalf("scoped activity status = %d, body = %s", scoped.Code, scoped.Body)
+	}
+	body := scoped.Body.Bytes()
+	if !bytes.Contains(body, []byte(`"action":"deleted"`)) {
+		t.Errorf("scoped activity is missing the deleted card event: %s", body)
+	}
+	if !bytes.Contains(body, []byte(`"entity_type":"label"`)) {
+		t.Errorf("scoped activity is missing the label merge event: %s", body)
+	}
+	if !bytes.Contains(body, []byte(`"entity_type":"comment"`)) {
+		t.Errorf("scoped activity is missing the comment event: %s", body)
 	}
 }
 
