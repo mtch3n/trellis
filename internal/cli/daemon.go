@@ -49,10 +49,6 @@ func newDaemonCmd() *cobra.Command {
 	return cmd
 }
 
-func runApplicationServer(bind string, port int) error {
-	return runApplicationServerContext(context.Background(), bind, port)
-}
-
 func runApplicationServerContext(parent context.Context, bind string, port int) error {
 	if bind == "" {
 		bind = "127.0.0.1"

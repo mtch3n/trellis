@@ -304,11 +304,6 @@ type eventInfo struct {
 	ProjectKey string `db:"project_key" json:"project"`
 }
 
-const (
-	projectEventsPage    = 1000
-	projectEventsPageMax = 5000
-)
-
 // handleProjectEvents returns the events of a project's cards and entries,
 // oldest first, a page at a time. The event log only shrinks through
 // maintenance, so the caller pages forward with ?after=<next> and can poll the
