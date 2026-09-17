@@ -14,16 +14,16 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/atomicfile"
-	"github.com/mtch3n/trellis/internal/vpath"
 )
 
 //go:embed templates/*.md
 var templateFS embed.FS
 
-// GlobalKey names the global vault. vpath owns the reservation: no project can
+// GlobalKey names the global vault. package address owns the reservation: no project can
 // take the key, so /GLOBAL/vault/<slug> never collides with a project.
-const GlobalKey = vpath.GlobalKey
+const GlobalKey = address.GlobalKey
 
 // Knowledge is the cached row for one markdown file. The file always wins: every
 // read compares mtime and size and re-reads when they moved (§5).

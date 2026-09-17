@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 )
 
@@ -29,7 +29,7 @@ func newLinkCmd() *cobra.Command {
 		Short: "Link a card to a knowledge entry",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				if err := conflictIfDocElsewhere(app, args[0], args[1]); err != nil {
 					return err
 				}
@@ -115,27 +115,27 @@ func newGraphCmd() *cobra.Command {
 			}
 			switch {
 			case strings.HasPrefix(arg, "/"):
-				target, _ := vpath.SplitAnchor(arg)
-				p, err := vpath.Parse(strings.TrimSpace(target))
+				target, _ := address.SplitAnchor(arg)
+				p, err := address.Parse(strings.TrimSpace(target))
 				if err != nil {
 					return core.ErrUsage("bad_path", err.Error(), "trellis search <words>   # results carry valid addresses")
 				}
 				switch p.Collection {
-				case vpath.CollectionCards, vpath.CollectionKnowledge, vpath.CollectionArtifacts:
+				case address.CollectionCards, address.CollectionVault, address.CollectionArtifacts:
 				default:
 					return core.ErrUsage("wrong_collection",
 						arg+" names a project or a board; a graph starts from a card, an entry or an artifact",
 						"trellis card ls")
 				}
 				return withTarget(refArg{Collection: p.Collection, Value: arg, NoProject: true}, run(p.Collection))
-			case vpath.ValidCardRef(strings.ToUpper(arg)) && keyNamesProject(core.ParseCardRef(arg).ProjectKey):
+			case address.ValidCardRef(strings.ToUpper(arg)) && keyNamesProject(core.ParseCardRef(arg).ProjectKey):
 				// KEY-N is a card ref everywhere, but only once KEY actually
 				// names a project (existing or merged): a knowledge slug that
 				// merely looks like PREFIX-N, such as release-2026, is not a
 				// card ref just because it matches the grammar, and falls
 				// through to the relative lookup below, which tries an entry
 				// first.
-				return withTarget(refArg{Collection: vpath.CollectionCards, Value: arg}, run(vpath.CollectionCards))
+				return withTarget(refArg{Collection: address.CollectionCards, Value: arg}, run(address.CollectionCards))
 			}
 			relative := run("")
 			return withBoard(func(app *appCtx) error { return relative(app, arg) })
@@ -152,13 +152,13 @@ func newGraphCmd() *cobra.Command {
 func resolveEntity(cmd *cobra.Command, app *appCtx, collection, ref string) (string, error) {
 	ctx := cmd.Context()
 	switch collection {
-	case vpath.CollectionKnowledge:
+	case address.CollectionVault:
 		doc, err := app.Core.LoadKnowledge(ctx, app.Project.ID, ref)
 		return doc.ID, err
-	case vpath.CollectionCards:
+	case address.CollectionCards:
 		card, err := app.Core.GetCard(ctx, app.Project.ID, core.ParseCardRef(ref))
 		return card.ID, err
-	case vpath.CollectionArtifacts:
+	case address.CollectionArtifacts:
 		a, err := app.Core.ResolveArtifact(ctx, app.Project.ID, ref)
 		return a.ID, err
 	}

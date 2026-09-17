@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mtch3n/trellis/internal/vpath"
+	"github.com/mtch3n/trellis/internal/address"
 )
 
 // isolateHome points $HOME (and Windows' USERPROFILE) at a fresh directory so
@@ -72,7 +72,7 @@ func TestFindPinNearestWins(t *testing.T) {
 	src := mkdir(t, api, "src", "deep")
 	web := mkdir(t, repo, "web")
 
-	if got := mustFind(t, src); got.Target != vpath.BoardPath("API", "api") {
+	if got := mustFind(t, src); got.Target != address.Board("API", "api") {
 		t.Errorf("from api/src/deep: %+v, want /API/boards/api", got.Target)
 	}
 	got := mustFind(t, web)

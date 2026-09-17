@@ -355,7 +355,7 @@ func TestMoveKnowledgeAcceptsTheCanonicalAddress(t *testing.T) {
 	}
 }
 
-// The virtual-paths spec requires an address naming another project to be
+// The address spec requires an address naming another project to be
 // refused with wrong_project, not treated as not-found.
 func TestMoveKnowledgeRefusesAnotherProjectsAddress(t *testing.T) {
 	c, p, _ := kbCore(t)

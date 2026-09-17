@@ -1,4 +1,4 @@
-package vpath
+package address
 
 import (
 	"strings"
@@ -6,14 +6,14 @@ import (
 )
 
 func TestParsePinAcceptsBothShapes(t *testing.T) {
-	cases := map[string]Path{
-		"/TRELLIS":              ProjectPath("TRELLIS"),
-		"  /trellis\n":          ProjectPath("TRELLIS"),
-		"/KIOSK-ANALYSE":        ProjectPath("KIOSK-ANALYSE"),
-		"/MONO/boards/api":      BoardPath("MONO", "api"),
-		"/MONO/boards/api-work": BoardPath("MONO", "api-work"),
-		"/MONO/boards/重構":       BoardPath("MONO", "重構"),
-		"/P2024/boards/2024-q1": BoardPath("P2024", "2024-q1"),
+	cases := map[string]Address{
+		"/TRELLIS":              Project("TRELLIS"),
+		"  /trellis\n":          Project("TRELLIS"),
+		"/KIOSK-ANALYSE":        Project("KIOSK-ANALYSE"),
+		"/MONO/boards/api":      Board("MONO", "api"),
+		"/MONO/boards/api-work": Board("MONO", "api-work"),
+		"/MONO/boards/重構":       Board("MONO", "重構"),
+		"/P2024/boards/2024-q1": Board("P2024", "2024-q1"),
 	}
 	for in, want := range cases {
 		got, err := ParsePin(in)
@@ -38,7 +38,7 @@ func TestParsePinRejects(t *testing.T) {
 		"/1ABC":                  "not a project key",
 		"/MY_APP":                "not a project key",
 		"/A--B":                  "not a project key",
-		"/GLOBAL":                "global knowledge vault",
+		"/GLOBAL":                "global vault",
 		"/MONO/boards":           "not a pin",
 		"/MONO/cards/MONO-1":     "not a pin",
 		"/MONO/boards/api/extra": "not a pin",
@@ -60,19 +60,19 @@ func TestParsePinRejects(t *testing.T) {
 }
 
 func TestPathStringAndBoard(t *testing.T) {
-	for _, p := range []Path{ProjectPath("A"), BoardPath("A-B", "api")} {
+	for _, p := range []Address{Project("A"), Board("A-B", "api")} {
 		got, err := ParsePin(p.String())
 		if err != nil || got != p {
 			t.Errorf("ParsePin(%q) = %+v, %v; want %+v", p.String(), got, err, p)
 		}
 	}
-	if got := BoardPath("MONO", "api").String(); got != "/MONO/boards/api" {
+	if got := Board("MONO", "api").String(); got != "/MONO/boards/api" {
 		t.Errorf("String() = %q", got)
 	}
-	if got := BoardPath("MONO", "api").Board(); got != "api" {
+	if got := Board("MONO", "api").Board(); got != "api" {
 		t.Errorf("Board() = %q", got)
 	}
-	if got := ProjectPath("MONO").Board(); got != "" {
+	if got := Project("MONO").Board(); got != "" {
 		t.Errorf("Board() of a project path = %q", got)
 	}
 }
@@ -116,15 +116,15 @@ func TestValidSlugMatchesBoardSlugs(t *testing.T) {
 func TestParseEachCollection(t *testing.T) {
 	cases := []struct {
 		in   string
-		want Path
+		want Address
 	}{
-		{"/TRELLIS/cards/TRELLIS-12", Path{"TRELLIS", CollectionCards, "TRELLIS-12"}},
-		{"/trellis/cards/trellis-12", Path{"TRELLIS", CollectionCards, "TRELLIS-12"}},
-		{"/TRELLIS/vault/concurrency-model", Path{"TRELLIS", CollectionKnowledge, "concurrency-model"}},
-		{"/GLOBAL/vault/pain-point-analysis", Path{"GLOBAL", CollectionKnowledge, "pain-point-analysis"}},
-		{"/TRELLIS/vault/ops/deploy/rollback", Path{"TRELLIS", CollectionKnowledge, "ops/deploy/rollback"}},
-		{"/global/vault/pain-point-analysis", Path{"GLOBAL", CollectionKnowledge, "pain-point-analysis"}},
-		{"/TRELLIS/artifacts/photo.PNG", Path{"TRELLIS", CollectionArtifacts, "photo.PNG"}},
+		{"/TRELLIS/cards/TRELLIS-12", Address{"TRELLIS", CollectionCards, "TRELLIS-12"}},
+		{"/trellis/cards/trellis-12", Address{"TRELLIS", CollectionCards, "TRELLIS-12"}},
+		{"/TRELLIS/vault/concurrency-model", Address{"TRELLIS", CollectionVault, "concurrency-model"}},
+		{"/GLOBAL/vault/pain-point-analysis", Address{"GLOBAL", CollectionVault, "pain-point-analysis"}},
+		{"/TRELLIS/vault/ops/deploy/rollback", Address{"TRELLIS", CollectionVault, "ops/deploy/rollback"}},
+		{"/global/vault/pain-point-analysis", Address{"GLOBAL", CollectionVault, "pain-point-analysis"}},
+		{"/TRELLIS/artifacts/photo.PNG", Address{"TRELLIS", CollectionArtifacts, "photo.PNG"}},
 	}
 	for _, c := range cases {
 		got, err := Parse(c.in)

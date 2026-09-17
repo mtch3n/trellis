@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/mtch3n/trellis/internal/vpath"
+	"github.com/mtch3n/trellis/internal/address"
 )
 
 // LintFinding is one problem with the vault. Lint reports; it never repairs.
@@ -239,7 +239,7 @@ func linkFinding(c *Core, tx *sqlx.Tx, targets linkTargets, d Knowledge, raw str
 	toID, anchor sql.NullString) (LintFinding, bool, error) {
 	ref := ParseReference(raw)
 	if !toID.Valid {
-		target, _ := vpath.SplitAnchor(raw)
+		target, _ := address.SplitAnchor(raw)
 		target = strings.TrimSpace(target)
 		if strings.HasPrefix(target, "/") && ref.ProjectKey == "" {
 			return addressFinding(d, raw, target), true, nil
@@ -327,7 +327,7 @@ func anchorSet(body string) map[string]bool {
 func addressFinding(d Knowledge, raw, target string) LintFinding {
 	f := LintFinding{Kind: "wrong_collection", Doc: d.Ref, Ref: raw,
 		Fix: "trellis knowledge edit " + d.Ref + " --body @file   # a wikilink names /KEY/vault/<slug>"}
-	if _, err := vpath.Parse(target); err != nil {
+	if _, err := address.Parse(target); err != nil {
 		f.Kind = "bad_path"
 	}
 	return f
@@ -338,7 +338,7 @@ func stubFix(ref Reference) string {
 	switch ref.ProjectKey {
 	case "":
 		return `trellis knowledge new --title "` + ref.Raw + `"`
-	case vpath.GlobalKey:
+	case address.GlobalKey:
 		return `trellis knowledge new --title "` + ref.Slug + `"   # then a human escalates it`
 	}
 	return "trellis --project " + ref.ProjectKey + ` knowledge new --title "` + ref.Slug + `"`

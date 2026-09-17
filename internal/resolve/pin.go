@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/mtch3n/trellis/internal/vpath"
+	"github.com/mtch3n/trellis/internal/address"
 )
 
 // PinFile is the file that links a directory to a project.
@@ -17,10 +17,10 @@ const PinFile = ".trellis"
 // the storage root $HOME/.trellis. The walk skips it; init refuses it.
 var ErrNotRegular = errors.New("not a regular file")
 
-// Pin is a .trellis file and the virtual path it names.
+// Pin is a .trellis file and the address it names.
 type Pin struct {
 	Path   string // absolute path of the file
-	Target vpath.Path
+	Target address.Address
 }
 
 // PinError is a .trellis entry that cannot serve as a pin: malformed content,
@@ -53,7 +53,7 @@ func ReadPin(path string) (Pin, error) {
 	if err != nil {
 		return Pin{}, err
 	}
-	target, err := vpath.ParsePin(string(b))
+	target, err := address.ParsePin(string(b))
 	if err != nil {
 		return Pin{}, &PinError{Path: path, Err: err}
 	}

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/mtch3n/trellis/internal/vpath"
+	"github.com/mtch3n/trellis/internal/address"
 )
 
 type docRow struct {
@@ -287,29 +287,29 @@ func (m *merger) docsCiting(key string) ([]string, error) {
 // stored ref never changes. Anything else -- a URL, prose, a path:lines
 // pointer, a wikilink, or an address elsewhere -- is left alone.
 func (m *merger) rewriteSourceAddress(raw string) (string, bool) {
-	target, anchor := vpath.SplitAnchor(strings.TrimSpace(raw))
+	target, anchor := address.SplitAnchor(strings.TrimSpace(raw))
 	if anchor != "" {
 		anchor = "#" + anchor
 	}
-	p, err := vpath.Parse(target)
+	p, err := address.Parse(target)
 	if err != nil || p.Project != m.src.Key {
 		return "", false
 	}
 	switch p.Collection {
-	case vpath.CollectionKnowledge:
+	case address.CollectionVault:
 		to, ok := m.addr[DocAddress(m.src.Key, false, p.Name)]
 		if !ok {
 			return "", false
 		}
 		return to + anchor, true
-	case vpath.CollectionArtifacts:
+	case address.CollectionArtifacts:
 		name := p.Name
 		if to, ok := m.artRenamed[name]; ok {
 			name = to
 		}
 		return ArtifactAddress(m.dst.Key, name) + anchor, true
-	case vpath.CollectionCards:
-		return vpath.CardPath(m.dst.Key, p.Name).String() + anchor, true
+	case address.CollectionCards:
+		return address.Card(m.dst.Key, p.Name).String() + anchor, true
 	default:
 		return "", false
 	}
@@ -361,7 +361,7 @@ func (m *merger) rewriteDoc(id string) error {
 	}
 	fromSrc := m.fromSrc[id]
 	text := RewriteWikilinks(string(raw), func(ref Reference) (string, bool) {
-		_, anchor := vpath.SplitAnchor(ref.Raw)
+		_, anchor := address.SplitAnchor(ref.Raw)
 		if anchor != "" {
 			anchor = "#" + anchor
 		}
@@ -454,7 +454,7 @@ func (m *merger) rewriteCardTargets(prefix string) error {
 		if ref.ProjectKey != m.src.Key || !ok {
 			continue
 		}
-		if _, anchor := vpath.SplitAnchor(l.ToRaw); anchor != "" {
+		if _, anchor := address.SplitAnchor(l.ToRaw); anchor != "" {
 			to += "#" + anchor
 		}
 		if _, err := m.tx.Exec(

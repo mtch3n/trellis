@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/core"
 	"github.com/mtch3n/trellis/internal/resolve"
-	"github.com/mtch3n/trellis/internal/vpath"
 )
 
 // resolvedProject is the project a command acts on and, when a pin chose it,
@@ -92,7 +92,7 @@ func namedProjectKey() (string, error) {
 	flag := normalizeProjectArg(projectFlagKey)
 	fromBoard := ""
 	if v := strings.TrimSpace(boardFlag); strings.HasPrefix(v, "/") {
-		p, err := core.ParseAddress(v, vpath.CollectionBoards)
+		p, err := core.ParseAddress(v, address.CollectionBoards)
 		if err != nil {
 			return "", err
 		}
@@ -111,7 +111,7 @@ func boardNamed(ctx context.Context, c *core.Core, p core.Project, v string) (co
 	if !strings.HasPrefix(v, "/") {
 		return c.SelectBoard(ctx, p.ID, v)
 	}
-	addr, err := core.ParseAddress(v, vpath.CollectionBoards)
+	addr, err := core.ParseAddress(v, address.CollectionBoards)
 	if err != nil {
 		return core.Board{}, err
 	}
@@ -131,7 +131,7 @@ func projectConflict(have, arg, named string) error {
 // upper-cased and left for the lookup to report.
 func normalizeProjectArg(v string) string {
 	v = strings.TrimSpace(v)
-	if p, err := vpath.Parse(v); err == nil && p.Collection == "" {
+	if p, err := address.Parse(v); err == nil && p.Collection == "" {
 		return p.Project
 	}
 	return strings.ToUpper(v)

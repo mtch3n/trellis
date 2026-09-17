@@ -10,8 +10,8 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -51,7 +51,7 @@ func newKnowledgeNewCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return withTargets([]refArg{{Collection: vpath.CollectionBoards, Value: board}}, func(app *appCtx, refs []string) error {
+			return withTargets([]refArg{{Collection: address.CollectionBoards, Value: board}}, func(app *appCtx, refs []string) error {
 				doc, err := app.Core.CreateKnowledge(cmd.Context(), app.Project.ID, core.NewKnowledge{
 					Title: title.String(), Body: body.String(), Template: template,
 					Provenance: provenance,
@@ -96,7 +96,7 @@ func newKnowledgeShowCmd() *cobra.Command {
 		Short: "Show one entry with its backlinks",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
 				doc, err := app.Core.ReadKnowledge(cmd.Context(), app.Project.ID, ref)
 				if err != nil {
 					return err
@@ -154,7 +154,7 @@ func newKnowledgeHistoryCmd() *cobra.Command {
 		Short: "List an entry's retained revisions",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
 				revs, err := app.Core.ListKnowledgeRevisions(cmd.Context(), app.Project.ID, ref)
 				if err != nil {
 					return err
@@ -180,7 +180,7 @@ func newKnowledgeDiffCmd() *cobra.Command {
 		Short: "Show a unified diff between two retained revisions",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
 				d, err := app.Core.DiffKnowledge(cmd.Context(), app.Project.ID, ref, from, to)
 				if err != nil {
 					return err
@@ -351,7 +351,7 @@ func newKnowledgeEditCmd() *cobra.Command {
 					"name what to change: --body, --source, --template, --tag, --label, --private or --set",
 					"trellis knowledge edit "+args[0]+" --body @notes.md")
 			}
-			return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
 				edit := core.KnowledgeEdit{Set: fields}
 				if body.Changed() {
 					b := body.String()
@@ -426,7 +426,7 @@ func newKnowledgeRmCmd() *cobra.Command {
 		Short: "Delete an entry and its file",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: args[0]}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0]}, func(app *appCtx, ref string) error {
 				if err := app.Core.DeleteKnowledge(cmd.Context(), app.Project.ID, ref); err != nil {
 					return err
 				}
@@ -444,7 +444,7 @@ func newKnowledgeMvCmd() *cobra.Command {
 		Short: "Move or rename an entry within its project's vault",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: args[0]}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0]}, func(app *appCtx, ref string) error {
 				slug, err := knowledgeSlugArg(ref)
 				if err != nil {
 					return err
@@ -471,7 +471,7 @@ func knowledgeSlugArg(ref string) (string, error) {
 	if !strings.HasPrefix(v, "/") {
 		return v, nil
 	}
-	p, err := core.ParseAddress(v, vpath.CollectionKnowledge)
+	p, err := core.ParseAddress(v, address.CollectionVault)
 	if err != nil {
 		return "", err
 	}
@@ -488,8 +488,8 @@ func newKnowledgePinCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTargets([]refArg{
-				{Collection: vpath.CollectionKnowledge, Value: args[0]},
-				{Collection: vpath.CollectionBoards, Value: board},
+				{Collection: address.CollectionVault, Value: args[0]},
+				{Collection: address.CollectionBoards, Value: board},
 			}, func(app *appCtx, refs []string) error {
 				if remove {
 					if err := app.Core.UnpinKnowledge(cmd.Context(), app.Project.ID, refs[0], refs[1]); err != nil {
@@ -598,7 +598,7 @@ func newKnowledgeNominateCmd() *cobra.Command {
 		Short: "Propose an entry for the global vault",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: args[0]}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0]}, func(app *appCtx, ref string) error {
 				if err := app.Core.NominateKnowledge(cmd.Context(), app.Project.ID, ref, reason.String()); err != nil {
 					return err
 				}
@@ -650,7 +650,7 @@ func newKnowledgeEscalateCmd() *cobra.Command {
 			if err := requireHuman(args[0]); err != nil {
 				return err
 			}
-			return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: args[0]}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0]}, func(app *appCtx, ref string) error {
 				doc, err := app.Core.EscalateKnowledge(cmd.Context(), app.Project.ID, ref, reason.String())
 				if err != nil {
 					return err

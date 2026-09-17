@@ -15,13 +15,13 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/home"
 	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/mtch3n/trellis/internal/service"
 	"github.com/mtch3n/trellis/internal/store"
 	"github.com/mtch3n/trellis/internal/version"
-	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 )
 
@@ -256,25 +256,25 @@ func checkWebUI(status daemonStatus, cfg config.Config) Check {
 // keeps the port it was started with, so config drift only bites at the next
 // restart; a stopped daemon cannot start at all if something else holds it.
 func checkPort(status daemonStatus, cfg config.Config) Check {
-	address := net.JoinHostPort(cfg.UI.Bind, strconv.Itoa(cfg.UI.Port))
+	addr := net.JoinHostPort(cfg.UI.Bind, strconv.Itoa(cfg.UI.Port))
 	if !cfg.UI.UIEnabled() {
 		return ok("http port", "no port is bound while ui.enabled is false")
 	}
 	if status.Running && status.URL != "" {
 		serving := servingAddress(status.URL)
-		if serving != "" && serving != address {
-			return warn("http port", fmt.Sprintf("daemon is serving %s, but ui.bind/ui.port say %s", serving, address),
+		if serving != "" && serving != addr {
+			return warn("http port", fmt.Sprintf("daemon is serving %s, but ui.bind/ui.port say %s", serving, addr),
 				"trellis daemon restart to adopt the configured port")
 		}
-		return ok("http port", address+" served by the daemon")
+		return ok("http port", addr+" served by the daemon")
 	}
-	listener, err := net.Listen("tcp", address)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fail("http port", address+" is already in use by another process",
+		return fail("http port", addr+" is already in use by another process",
 			"trellis config set ui.port <other port>")
 	}
 	_ = listener.Close()
-	return ok("http port", address+" is free")
+	return ok("http port", addr+" is free")
 }
 
 // servingAddress extracts host:port from the daemon's health URL, which
@@ -344,7 +344,7 @@ func checkProjectKeys() Check {
 	if err := db.Select(&keys, `SELECT key FROM project ORDER BY key`); err != nil {
 		return warn("project keys", "cannot read project keys: "+err.Error(), "trellis maintenance")
 	}
-	bad := slices.DeleteFunc(keys, vpath.ValidKey)
+	bad := slices.DeleteFunc(keys, address.ValidKey)
 	if len(bad) == 0 {
 		return ok("project keys", "every key can be pinned")
 	}

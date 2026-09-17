@@ -1,8 +1,8 @@
 package cli
 
 import (
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 )
 
@@ -15,7 +15,7 @@ func newCardArchiveCmd() *cobra.Command {
 		Short: "Archive a card, releasing any lease",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				action, fn := "archived", app.Core.ArchiveCard
 				if restore {
 					action, fn = "restored", app.Core.UnarchiveCard

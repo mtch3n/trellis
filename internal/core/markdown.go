@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/mtch3n/trellis/internal/vpath"
+	"github.com/mtch3n/trellis/internal/address"
 	"gopkg.in/yaml.v3"
 )
 
@@ -208,15 +208,15 @@ func FirstParagraph(body string) string {
 // lint says why.
 func ParseReference(raw string) Reference {
 	raw = strings.TrimSpace(raw)
-	target, anchor := vpath.SplitAnchor(raw)
+	target, anchor := address.SplitAnchor(raw)
 	target = strings.TrimSpace(target)
 	ref := Reference{Raw: raw, Anchor: Slugify(anchor)}
 	if !strings.HasPrefix(target, "/") {
 		ref.Slug = normalizeSlugPath(target)
 		return ref
 	}
-	p, err := vpath.Parse(target)
-	if err != nil || p.Collection != vpath.CollectionKnowledge {
+	p, err := address.Parse(target)
+	if err != nil || p.Collection != address.CollectionVault {
 		ref.Slug = target
 		return ref
 	}

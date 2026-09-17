@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/mtch3n/trellis/internal/vpath"
+	"github.com/mtch3n/trellis/internal/address"
 )
 
 // syncDocRelations rewrites everything derived from a doc's text: its
@@ -126,7 +126,7 @@ func (c *Core) resolveDocRef(tx *sqlx.Tx, projectID string, ref Reference) (any,
 	// Bare-leaf fallback: only for an unqualified reference that does not
 	// already name a directory. A unique match resolves; more than one stays
 	// a stub, which Lint reports as ambiguous_link rather than stub. If
-	// virtual paths removed Reference.ProjectKey entirely for a relative
+	// addresses removed Reference.ProjectKey entirely for a relative
 	// target (rather than leaving it always ""), drop that half of the
 	// condition — every non-absolute reference reaching this point is
 	// unqualified by construction.
@@ -186,8 +186,8 @@ func (c *Core) Backlinks(ctx context.Context, docID string) ([]Backlink, error) 
 // The target may be in another project; link rows carry no foreign key, and
 // wikilinks cross projects too.
 func (c *Core) LinkCardToDoc(ctx context.Context, projectID string, cardRef CardRef, target string) error {
-	if t, _ := vpath.SplitAnchor(strings.TrimSpace(target)); strings.HasPrefix(strings.TrimSpace(t), "/") {
-		if _, err := ParseAddress(strings.TrimSpace(t), vpath.CollectionKnowledge); err != nil {
+	if t, _ := address.SplitAnchor(strings.TrimSpace(target)); strings.HasPrefix(strings.TrimSpace(t), "/") {
+		if _, err := ParseAddress(strings.TrimSpace(t), address.CollectionVault); err != nil {
 			return err
 		}
 	}

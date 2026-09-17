@@ -3,8 +3,8 @@ package cli
 import (
 	"strings"
 
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 )
 
@@ -23,8 +23,8 @@ func newCardBlockCmd() *cobra.Command {
 			// --by takes a reference too, so it can name the project: a
 			// blocker lives in its card's project.
 			return withTargets([]refArg{
-				{Collection: vpath.CollectionCards, Value: args[0]},
-				{Collection: vpath.CollectionCards, Value: by},
+				{Collection: address.CollectionCards, Value: args[0]},
+				{Collection: address.CollectionCards, Value: by},
 			}, func(app *appCtx, refs []string) error {
 				link := app.Core.BlockCard
 				if remove {

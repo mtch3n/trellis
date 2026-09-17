@@ -3,8 +3,8 @@ package cli
 import (
 	"strings"
 
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 )
 
@@ -19,8 +19,8 @@ func newCardRelateCmd() *cobra.Command {
 			// project: a relation, like a blocker, lives in its own card's
 			// project.
 			return withTargets([]refArg{
-				{Collection: vpath.CollectionCards, Value: args[0]},
-				{Collection: vpath.CollectionCards, Value: args[2]},
+				{Collection: address.CollectionCards, Value: args[0]},
+				{Collection: address.CollectionCards, Value: args[2]},
 			}, func(app *appCtx, refs []string) error {
 				ctx := cmd.Context()
 				ref, rel, other := core.ParseCardRef(refs[0]), args[1], core.ParseCardRef(refs[1])

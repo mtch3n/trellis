@@ -16,7 +16,7 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/mtch3n/trellis/internal/vpath"
+	"github.com/mtch3n/trellis/internal/address"
 )
 
 type Artifact struct {
@@ -268,7 +268,7 @@ func (c *Core) ResolveArtifact(ctx context.Context, projectID, arg string) (Arti
 
 		name := arg
 		if strings.HasPrefix(arg, "/") {
-			p, err := ParseAddress(arg, vpath.CollectionArtifacts)
+			p, err := ParseAddress(arg, address.CollectionArtifacts)
 			if err != nil {
 				return err
 			}
@@ -325,7 +325,7 @@ func (c *Core) UnlinkArtifactFromDoc(ctx context.Context, projectID, slug, artif
 		// Left unparsed, this would never match anything editDocArtifacts
 		// finds, and the unlink would silently do nothing.
 		if strings.HasPrefix(artifactRef, "/") {
-			if p, perr := ParseAddress(artifactRef, vpath.CollectionArtifacts); perr == nil {
+			if p, perr := ParseAddress(artifactRef, address.CollectionArtifacts); perr == nil {
 				name = p.Name
 			}
 		}

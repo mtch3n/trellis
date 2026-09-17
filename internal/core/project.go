@@ -10,9 +10,9 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/atomicfile"
 	"github.com/mtch3n/trellis/internal/resolve"
-	"github.com/mtch3n/trellis/internal/vpath"
 )
 
 // Project is a virtual namespace, named by its key. No directory belongs to
@@ -185,7 +185,7 @@ func normalizeKey(key string) string { return strings.ToUpper(strings.TrimSpace(
 // checkNewKey enforces the key grammar on keys being created. Existing rows
 // may predate it; they stay reachable by --project.
 func checkNewKey(key string) error {
-	if !vpath.ValidKey(key) {
+	if !address.ValidKey(key) {
 		return ErrUsage("bad_key",
 			fmt.Sprintf("%q is not a project key: use upper-case letters, digits and single hyphens, starting with a letter", key),
 			"trellis init --key <KEY>")
@@ -339,9 +339,9 @@ func (c *Core) InitProject(ctx context.Context, req InitRequest) (InitResult, er
 		return res, nil
 	}
 
-	target := vpath.ProjectPath(res.Project.Key)
+	target := address.Project(res.Project.Key)
 	if res.Board != nil {
-		target = vpath.BoardPath(res.Project.Key, res.Board.Slug)
+		target = address.Board(res.Project.Key, res.Board.Slug)
 	}
 	err = atomicfile.Write(res.PinPath, []byte(target.String()+"\n"), false)
 	switch {
@@ -363,7 +363,7 @@ func (c *Core) InitProject(ctx context.Context, req InitRequest) (InitResult, er
 	}
 }
 
-func pinExists(path string, target vpath.Path, flag string) error {
+func pinExists(path string, target address.Address, flag string) error {
 	return ErrConflict("pin_exists",
 		fmt.Sprintf("%s already names %s, which %s contradicts", path, target, flag),
 		"edit or delete "+path+", then rerun trellis init")

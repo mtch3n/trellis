@@ -5,8 +5,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 )
 
@@ -107,7 +107,7 @@ func newBoardCmd() *cobra.Command {
 		Short: "Set the default board",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionBoards, Value: args[0]}, func(app *appCtx, name string) error {
+			return withTarget(refArg{Collection: address.CollectionBoards, Value: args[0]}, func(app *appCtx, name string) error {
 				board, err := app.Core.SetDefaultBoard(cmd.Context(), app.Project.ID, name)
 				if err != nil {
 					return err
@@ -130,7 +130,7 @@ func newBoardCmd() *cobra.Command {
 
 func newBoardRenameCmd() *cobra.Command {
 	return &cobra.Command{Use: "rename <from> <to>", Short: "Rename a board", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
-		return withTarget(refArg{Collection: vpath.CollectionBoards, Value: args[0]}, func(app *appCtx, name string) error {
+		return withTarget(refArg{Collection: address.CollectionBoards, Value: args[0]}, func(app *appCtx, name string) error {
 			b, err := app.Core.RenameBoard(cmd.Context(), app.Project.ID, name, args[1])
 			if err != nil {
 				return err
@@ -143,7 +143,7 @@ func newBoardRenameCmd() *cobra.Command {
 func newBoardRmCmd() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{Use: "rm <name>", Short: "Delete a board", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		return withTarget(refArg{Collection: vpath.CollectionBoards, Value: args[0]}, func(app *appCtx, name string) error {
+		return withTarget(refArg{Collection: address.CollectionBoards, Value: args[0]}, func(app *appCtx, name string) error {
 			if err := app.Core.DeleteBoard(cmd.Context(), app.Project.ID, name, force); err != nil {
 				return err
 			}

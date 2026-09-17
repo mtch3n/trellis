@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/mtch3n/trellis/internal/vpath"
+	"github.com/mtch3n/trellis/internal/address"
 )
 
 type Card struct {
@@ -175,7 +175,7 @@ func cardElsewhere(tx *sqlx.Tx, ref string) error {
 		return err
 	}
 	return ErrUsage("wrong_project", fmt.Sprintf("%s is a card in project %s", ref, holder),
-		"trellis card show "+vpath.CardPath(holder, ref).String())
+		"trellis card show "+address.Card(holder, ref).String())
 }
 
 // CardHolder finds the project that holds the card a qualified ref names,

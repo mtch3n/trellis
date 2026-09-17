@@ -6,8 +6,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 )
 
@@ -94,7 +94,7 @@ func newCardShowCmd() *cobra.Command {
 		Short: "Show one card",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				card, err := app.Core.GetCard(cmd.Context(), app.Project.ID, core.ParseCardRef(ref))
 				if err != nil {
 					return err
@@ -135,7 +135,7 @@ func newCardHistoryCmd() *cobra.Command {
 		Short: "List a card's retained revisions",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				revs, err := app.Core.ListCardRevisions(cmd.Context(), app.Project.ID, core.ParseCardRef(ref))
 				if err != nil {
 					return err
@@ -161,7 +161,7 @@ func newCardDiffCmd() *cobra.Command {
 		Short: "Show a unified diff between two retained revisions",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				d, err := app.Core.DiffCard(cmd.Context(), app.Project.ID, core.ParseCardRef(ref), from, to)
 				if err != nil {
 					return err
@@ -263,7 +263,7 @@ func newCardMoveCmd() *cobra.Command {
 		Short: "Move a card to another column",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				column := targetColumn
 				if len(args) == 2 {
 					column = args[1]
@@ -305,7 +305,7 @@ func newCardEditCmd() *cobra.Command {
 		Short: "Edit a card",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				var e core.CardEdit
 				if title.Changed() {
 					e.Title = ptrOf(title.String())
@@ -355,7 +355,7 @@ func newCardRmCmd() *cobra.Command {
 		Short: "Delete a card",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				if err := app.Core.DeleteCard(cmd.Context(), app.Project.ID, core.ParseCardRef(ref)); err != nil {
 					return err
 				}
@@ -382,7 +382,7 @@ func newCardClaimCmd() *cobra.Command {
 				return core.ErrUsage("missing_reason", "stealing a card records why",
 					`trellis card claim `+args[0]+` --steal --reason "held 4h, no notes"`)
 			}
-			return withTarget(refArg{Collection: vpath.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				id, err := cardID(cmd, app, ref)
 				if err != nil {
 					return err
@@ -410,7 +410,7 @@ func newCardReleaseCmd() *cobra.Command {
 		Short: "Release ownership of a card",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				id, err := cardID(cmd, app, ref)
 				if err != nil {
 					return err
@@ -437,7 +437,7 @@ func newCardRenewCmd() *cobra.Command {
 		Short: "Extend the lease on a card you own",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				id, err := cardID(cmd, app, ref)
 				if err != nil {
 					return err
@@ -502,7 +502,7 @@ func newCardCommentCmd() *cobra.Command {
 				return core.ErrUsage("missing_body", "a comment needs text",
 					`trellis card comment <card> --body "..."`)
 			}
-			return withTarget(refArg{Collection: vpath.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				id, err := cardID(cmd, app, ref)
 				if err != nil {
 					return err

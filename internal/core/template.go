@@ -13,8 +13,8 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/atomicfile"
-	"github.com/mtch3n/trellis/internal/vpath"
 	"gopkg.in/yaml.v3"
 )
 
@@ -169,7 +169,7 @@ func validateTemplateRules(rules TemplateRules) error {
 // `template rm ../../x` nor a --template naming another entry's address can
 // ever resolve outside <root>/templates.
 func checkTemplateName(name string) error {
-	if !vpath.ValidSlug(name) {
+	if !address.ValidSlug(name) {
 		return ErrUsage("bad_template_name",
 			`"`+name+`" is not a valid template name: use lower-case letters and digits joined by single hyphens`,
 			"trellis knowledge template ls")

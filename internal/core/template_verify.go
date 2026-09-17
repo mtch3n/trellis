@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/mtch3n/trellis/internal/vpath"
+	"github.com/mtch3n/trellis/internal/address"
 )
 
 // wikilinkTarget reports whether s is written as a wikilink, [[target]] or
@@ -24,13 +24,13 @@ func wikilinkTarget(s string) (string, bool) {
 
 // addressPattern is the shape of an absolute Trellis address: a slash, a
 // project key, one of the three known collections, and a name. It is
-// deliberately loose about the key and name — vpath.Parse validates those
+// deliberately loose about the key and name — address.Parse validates those
 // — so this only decides which values, or substrings of a document body,
 // are worth attempting to resolve as an address at all.
 const addressPattern = `/[A-Za-z][A-Za-z0-9-]*/(?:cards|vault|artifacts)/\S+`
 
 // addressShapeRE matches a whole value shaped like an absolute address. A
-// source or other verified field value earns a vpath.Parse attempt only
+// source or other verified field value earns a address.Parse attempt only
 // when it has this shape in full; any other "/"-prefixed value — a
 // filesystem path such as "/usr/share/doc/x.txt:10" — is external prose
 // and passes verify unchecked.
@@ -70,9 +70,9 @@ func bodyAbsoluteAddresses(body string) []string {
 // a reference at all: isRef is false and ok means nothing. A "/"-prefixed
 // value only counts as an address candidate when it has the address shape
 // in full (addressShapeRE); any other "/"-prefixed value, such as a
-// filesystem path, is external and is never even offered to vpath.Parse.
+// filesystem path, is external and is never even offered to address.Parse.
 // Every accepted form is resolved here, in one place, so a later layer
-// that widens what resolves (cross-project wikilinks, once virtual paths
+// that widens what resolves (cross-project wikilinks, once addresses
 // ship) changes only this function.
 func (c *Core) resolvesInternalReference(tx *sqlx.Tx, projectID, s string) (ok, isRef bool, err error) {
 	if target, is := wikilinkTarget(s); is {
@@ -83,13 +83,13 @@ func (c *Core) resolvesInternalReference(tx *sqlx.Tx, projectID, s string) (ok, 
 	if !addressShapeRE.MatchString(trimmed) {
 		return false, false, nil
 	}
-	p, perr := vpath.Parse(trimmed)
+	p, perr := address.Parse(trimmed)
 	if perr != nil {
 		// It has the shape of an address and does not even parse: an
 		// unresolved reference, not prose that happens to look like one.
 		return false, true, nil
 	}
-	if p.Collection == vpath.CollectionKnowledge && p.Project == "GLOBAL" {
+	if p.Collection == address.CollectionVault && p.Project == "GLOBAL" {
 		var n int
 		if err := tx.Get(&n, `SELECT COUNT(*) FROM entry WHERE slug = ? AND global = 1`, p.Name); err != nil {
 			return false, true, err
@@ -104,7 +104,7 @@ func (c *Core) resolvesInternalReference(tx *sqlx.Tx, projectID, s string) (ok, 
 		return false, true, err
 	}
 	switch p.Collection {
-	case vpath.CollectionCards:
+	case address.CollectionCards:
 		ref := ParseCardRef(p.Name)
 		if ref.Seq <= 0 {
 			return false, true, nil
@@ -118,7 +118,7 @@ func (c *Core) resolvesInternalReference(tx *sqlx.Tx, projectID, s string) (ok, 
 			return false, true, err
 		}
 		return n > 0, true, nil
-	case vpath.CollectionKnowledge:
+	case address.CollectionVault:
 		// An entry that escalated out of this project keeps its project_id;
 		// resolveDocRef's own address branch excludes it (k.global = 0) so
 		// the old project address becomes a stub, not a hit. Match that here.
@@ -127,7 +127,7 @@ func (c *Core) resolvesInternalReference(tx *sqlx.Tx, projectID, s string) (ok, 
 			return false, true, err
 		}
 		return n > 0, true, nil
-	case vpath.CollectionArtifacts:
+	case address.CollectionArtifacts:
 		toID, err := c.resolveArtifactName(tx, destProjectID, p.Name)
 		if err != nil {
 			return false, true, err
@@ -163,7 +163,7 @@ func (c *Core) verifyFieldValues(tx *sqlx.Tx, projectID string, values []string)
 // verifyBody checks every wikilink and absolute address written in a
 // document body. Wikilinks resolve exactly as resolveDocRef does today —
 // today's project-and-vault scope, not the cross-project resolution a
-// later virtual-paths layer adds.
+// later address layer adds.
 func (c *Core) verifyBody(tx *sqlx.Tx, projectID, body string) ([]string, error) {
 	var unresolved []string
 	for _, ref := range ParseWikilinks(body) {

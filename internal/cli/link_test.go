@@ -13,7 +13,7 @@ func TestGraphSlugEndingInDigitsIsAnEntryNotACard(t *testing.T) {
 		t.Fatal("seed entry")
 	}
 	// The slug core.SlugifyPath derives from "Release 2026" is "release-2026",
-	// which vpath.ValidCardRef also accepts as a card ref of project RELEASE.
+	// which address.ValidCardRef also accepts as a card ref of project RELEASE.
 	if got := refOf(t, "knowledge", "show", "release-2026"); got != "/ALPHA/vault/release-2026" {
 		t.Fatalf("knowledge show release-2026 = %s", got)
 	}
@@ -55,8 +55,8 @@ func TestLinkRelativeDocMeansTheCurrentProject(t *testing.T) {
 }
 
 // An address doc still crosses projects on purpose: link's documented
-// exception (docs/superpowers/specs/2026-09-16-virtual-paths-design.md,
-// "Cross-project operations").
+// exception (the 2026-09-16 address design spec, "Cross-project
+// operations").
 func TestLinkStillCrossesProjectsWithAnAddressedDoc(t *testing.T) {
 	targetEnv(t)
 	refOf(t, "knowledge", "new", "--title", "Runbook", "--project", "BETA")

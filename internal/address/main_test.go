@@ -1,4 +1,4 @@
-package vpath
+package address
 
 import (
 	"testing"

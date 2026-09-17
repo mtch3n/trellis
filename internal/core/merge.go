@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/resolve"
-	"github.com/mtch3n/trellis/internal/vpath"
 )
 
 // MergeOptions tunes `trellis project merge`.
@@ -290,7 +290,7 @@ func rewritePin(r PinRewrite) error {
 	if err != nil {
 		return err
 	}
-	current, err := vpath.ParsePin(string(raw))
+	current, err := address.ParsePin(string(raw))
 	if err != nil {
 		return err
 	}
@@ -381,7 +381,7 @@ func (m *merger) load(srcKey, dstKey string) (refused bool, err error) {
 		return false, err
 	}
 	switch {
-	case !vpath.ValidKey(m.dst.Key):
+	case !address.ValidKey(m.dst.Key):
 		m.plan.Refused = fmt.Sprintf("%s cannot be named by a pin; merge into a project whose key can", m.dst.Key)
 	case held > 0:
 		m.plan.Refused = fmt.Sprintf("%s has %d %s held by an agent right now", m.src.Key, held, plural(held, "card", "cards"))
@@ -554,7 +554,7 @@ func (m *merger) pins() error {
 			continue
 		}
 		m.plan.Pins.Rewrite = append(m.plan.Pins.Rewrite, PinRewrite{
-			Path: p.Path, From: p.Target.String(), To: vpath.BoardPath(m.dst.Key, slug).String(),
+			Path: p.Path, From: p.Target.String(), To: address.Board(m.dst.Key, slug).String(),
 		})
 	}
 	m.plan.Pins.Left = append(m.plan.Pins.Left, m.opts.UnreadablePins...)

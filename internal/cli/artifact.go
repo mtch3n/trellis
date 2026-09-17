@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 )
 
@@ -50,8 +50,8 @@ func newArtifactAddCmd() *cobra.Command {
 				return err
 			}
 			return withTargets([]refArg{
-				{Collection: vpath.CollectionCards, Value: card},
-				{Collection: vpath.CollectionKnowledge, Value: doc},
+				{Collection: address.CollectionCards, Value: card},
+				{Collection: address.CollectionVault, Value: doc},
 			}, func(app *appCtx, refs []string) error {
 				// Resolve card ID before creating artifact so we fail early if the ref is bad
 				var resolvedCardID string
@@ -99,7 +99,7 @@ func newArtifactLinkCmd() *cobra.Command {
 				return err
 			}
 			if doc != "" {
-				return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: doc}, func(app *appCtx, ref string) error {
+				return withTarget(refArg{Collection: address.CollectionVault, Value: doc}, func(app *appCtx, ref string) error {
 					a, err := app.Core.ResolveArtifact(cmd.Context(), app.Project.ID, args[0])
 					if err != nil {
 						return err
@@ -113,8 +113,8 @@ func newArtifactLinkCmd() *cobra.Command {
 				})
 			}
 			return withTargets([]refArg{
-				{Collection: vpath.CollectionArtifacts, Value: args[0]},
-				{Collection: vpath.CollectionCards, Value: card},
+				{Collection: address.CollectionArtifacts, Value: args[0]},
+				{Collection: address.CollectionCards, Value: card},
 			}, func(app *appCtx, refs []string) error {
 				a, err := app.Core.ResolveArtifact(cmd.Context(), app.Project.ID, refs[0])
 				if err != nil {
@@ -149,8 +149,8 @@ func newArtifactUnlinkCmd() *cobra.Command {
 				return err
 			}
 			return withTargets([]refArg{
-				{Collection: vpath.CollectionCards, Value: card},
-				{Collection: vpath.CollectionKnowledge, Value: doc},
+				{Collection: address.CollectionCards, Value: card},
+				{Collection: address.CollectionVault, Value: doc},
 			}, func(app *appCtx, refs []string) error {
 				if refs[1] != "" {
 					entry, err := app.Core.UnlinkArtifactFromDoc(cmd.Context(), app.Project.ID, refs[1], args[0])
@@ -191,8 +191,8 @@ func newArtifactLsCmd() *cobra.Command {
 				return err
 			}
 			return withTargets([]refArg{
-				{Collection: vpath.CollectionCards, Value: card},
-				{Collection: vpath.CollectionKnowledge, Value: doc},
+				{Collection: address.CollectionCards, Value: card},
+				{Collection: address.CollectionVault, Value: doc},
 			}, func(app *appCtx, refs []string) error {
 				var cardIDValue, docIDValue string
 				if refs[0] != "" {
@@ -232,7 +232,7 @@ func newArtifactRmCmd() *cobra.Command {
 		Short: "Delete an artifact; entries that name it keep the name as a stub",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withTarget(refArg{Collection: vpath.CollectionArtifacts, Value: args[0]}, func(app *appCtx, ref string) error {
+			return withTarget(refArg{Collection: address.CollectionArtifacts, Value: args[0]}, func(app *appCtx, ref string) error {
 				a, err := app.Core.ResolveArtifact(cmd.Context(), app.Project.ID, ref)
 				if err != nil {
 					return err

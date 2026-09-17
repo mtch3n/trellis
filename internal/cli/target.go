@@ -8,14 +8,14 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/vpath"
 )
 
 // refArg is one reference a command takes, positional or from a flag, and
 // the collection it names.
 type refArg struct {
-	Collection string // vpath.CollectionCards, CollectionKnowledge, CollectionBoards or CollectionArtifacts
+	Collection string // address.CollectionCards, CollectionKnowledge, CollectionBoards or CollectionArtifacts
 	Value      string // "" when an optional flag was not given
 	// NoProject lets a /GLOBAL/vault address run with no project at all:
 	// reading, editing or walking from a vault entry needs none. fn then
@@ -38,7 +38,7 @@ type refArg struct {
 func argProject(ctx context.Context, c *core.Core, a refArg) (key, ref string, err error) {
 	v := strings.TrimSpace(a.Value)
 	if !strings.HasPrefix(v, "/") {
-		if a.Collection == vpath.CollectionCards {
+		if a.Collection == address.CollectionCards {
 			if r := core.ParseCardRef(v); r.ProjectKey != "" {
 				if holder, found, err := c.CardHolder(ctx, v); err != nil {
 					return "", "", err
@@ -51,17 +51,17 @@ func argProject(ctx context.Context, c *core.Core, a refArg) (key, ref string, e
 		return "", v, nil
 	}
 	target := v
-	if a.Collection == vpath.CollectionKnowledge {
-		target, _ = vpath.SplitAnchor(v) // only an entry has headings
+	if a.Collection == address.CollectionVault {
+		target, _ = address.SplitAnchor(v) // only an entry has headings
 	}
 	p, err := core.ParseAddress(strings.TrimSpace(target), a.Collection)
 	if err != nil {
 		return "", "", err
 	}
 	switch {
-	case p.Project == vpath.GlobalKey:
+	case p.Project == address.GlobalKey:
 		return "", v, nil // the vault belongs to no project
-	case a.Collection == vpath.CollectionBoards:
+	case a.Collection == address.CollectionBoards:
 		return p.Project, p.Name, nil
 	default:
 		return p.Project, v, nil
@@ -124,7 +124,7 @@ func withTargets(args []refArg, fn func(app *appCtx, refs []string) error) error
 	}
 	defer app.db.Close()
 	for i, a := range args {
-		if a.Collection != vpath.CollectionBoards || keys[i] == "" {
+		if a.Collection != address.CollectionBoards || keys[i] == "" {
 			continue
 		}
 		// A board address works on that board; core takes board names.
@@ -210,11 +210,11 @@ func targetContext(ctx context.Context, c *core.Core, db *sqlx.DB, a refArg, key
 // drags it onto OTHER's default board.
 func namedBoard(ctx context.Context, c *core.Core, p core.Project, collection, ref string) (core.Board, error) {
 	switch {
-	case collection == vpath.CollectionBoards:
+	case collection == address.CollectionBoards:
 		return core.Board{}, nil // withTargets sets the addressed board
 	case boardFlag != "":
 		return boardNamed(ctx, c, p, boardFlag)
-	case collection == vpath.CollectionCards:
+	case collection == address.CollectionCards:
 		card, err := c.GetCard(ctx, p.ID, core.ParseCardRef(ref))
 		if err != nil {
 			// The command looks the card up itself and reports this in its
@@ -243,7 +243,7 @@ func isUnresolved(err error) bool {
 
 // isVaultAddress reports whether v is a /GLOBAL address.
 func isVaultAddress(v string) bool {
-	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(v)), "/"+vpath.GlobalKey+"/")
+	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(v)), "/"+address.GlobalKey+"/")
 }
 
 // tuiCardRef reads a card argument inside the workspace, which is bound to
@@ -253,7 +253,7 @@ func isVaultAddress(v string) bool {
 func tuiCardRef(app *appCtx, arg string) (core.CardRef, error) {
 	arg = strings.TrimSpace(arg)
 	if strings.HasPrefix(arg, "/") {
-		p, err := core.ParseAddress(arg, vpath.CollectionCards)
+		p, err := core.ParseAddress(arg, address.CollectionCards)
 		if err != nil {
 			return core.CardRef{}, err
 		}

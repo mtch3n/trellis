@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/resolve"
-	"github.com/mtch3n/trellis/internal/vpath"
 )
 
 type mergeFixture struct {
@@ -294,10 +294,10 @@ func TestMergePlansPinRewrites(t *testing.T) {
 	f := newMergeFixture(t)
 	f.board(f.api, "Web")
 	pins := []resolve.Pin{
-		{Path: "/r/api/.trellis", Target: vpath.ProjectPath("API")},
-		{Path: "/r/web/.trellis", Target: vpath.BoardPath("API", "web")},
-		{Path: "/r/gone/.trellis", Target: vpath.BoardPath("API", "gone")},
-		{Path: "/r/.trellis", Target: vpath.ProjectPath("MONO")},
+		{Path: "/r/api/.trellis", Target: address.Project("API")},
+		{Path: "/r/web/.trellis", Target: address.Board("API", "web")},
+		{Path: "/r/gone/.trellis", Target: address.Board("API", "gone")},
+		{Path: "/r/.trellis", Target: address.Project("MONO")},
 	}
 	plan := f.merge(MergeOptions{ScanRoot: "/r", Pins: pins, UnreadablePins: []string{"/r/bad/.trellis"}})
 	want := []PinRewrite{
@@ -361,7 +361,7 @@ func TestMergeFinishesAfterTheCommit(t *testing.T) {
 	})
 
 	plan := f.merge(MergeOptions{Apply: true, ScanRoot: repo,
-		Pins: []resolve.Pin{{Path: pinPath, Target: vpath.ProjectPath("API")}}})
+		Pins: []resolve.Pin{{Path: pinPath, Target: address.Project("API")}}})
 
 	if got := readFile(t, pinPath); got != "/MONO/boards/api\n" {
 		t.Errorf("pin = %q", got)
@@ -388,7 +388,7 @@ func TestMergeLeavesAPinThatChanged(t *testing.T) {
 	writeFile(t, pinPath, "/OTHER\n")
 
 	plan := f.merge(MergeOptions{Apply: true, ScanRoot: repo,
-		Pins: []resolve.Pin{{Path: pinPath, Target: vpath.ProjectPath("API")}}})
+		Pins: []resolve.Pin{{Path: pinPath, Target: address.Project("API")}}})
 
 	if got := readFile(t, pinPath); got != "/OTHER\n" {
 		t.Errorf("pin = %q, want it untouched", got)

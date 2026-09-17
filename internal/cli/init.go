@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/core"
 	"github.com/mtch3n/trellis/internal/resolve"
-	"github.com/mtch3n/trellis/internal/vpath"
 	"github.com/spf13/cobra"
 )
 
@@ -51,7 +51,7 @@ func newInitCmd() *cobra.Command {
 				req.Existing = &existing
 			case errors.Is(err, fs.ErrNotExist):
 				if req.Key == "" {
-					if req.Key = vpath.KeyFromName(filepath.Base(dir)); req.Key == "" {
+					if req.Key = address.KeyFromName(filepath.Base(dir)); req.Key == "" {
 						return core.ErrUsage("missing_key",
 							fmt.Sprintf("cannot derive a project key from %q", filepath.Base(dir)),
 							"trellis init --key <KEY>")
