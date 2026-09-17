@@ -35,7 +35,7 @@ func TestEntryLinksEndpoint(t *testing.T) {
 	defer ts.Close()
 
 	// 1. empty array test
-	resp, err := http.Get(ts.URL + "/api/p/UITEST/links/knowledge")
+	resp, err := http.Get(ts.URL + "/api/p/UITEST/links/vault")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestEntryLinksEndpoint(t *testing.T) {
 	}
 
 	// 2. 404 for unknown project
-	resp404, err := http.Get(ts.URL + "/api/p/UNKNOWN/links/knowledge")
+	resp404, err := http.Get(ts.URL + "/api/p/UNKNOWN/links/vault")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestEntryLinksEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	respJSON, err := http.Get(ts.URL + "/api/p/UITEST/links/knowledge")
+	respJSON, err := http.Get(ts.URL + "/api/p/UITEST/links/vault")
 	if err != nil {
 		t.Fatal(err)
 	}

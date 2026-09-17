@@ -39,7 +39,7 @@ func TestEntryEditWritesTitleAndSummary(t *testing.T) {
 
 	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	patch := func(body string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPatch, "/api/p/EDIT/b/default/knowledge/"+entry.Slug, strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPatch, "/api/p/EDIT/b/default/vault/"+entry.Slug, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		s.mux.ServeHTTP(rec, req)
@@ -117,7 +117,7 @@ func TestEntryEditMetadata(t *testing.T) {
 
 	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	patch := func(body string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPatch, "/api/p/META/b/default/knowledge/"+entry.Slug, strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPatch, "/api/p/META/b/default/vault/"+entry.Slug, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		s.mux.ServeHTTP(rec, req)
@@ -171,7 +171,7 @@ func TestEntryCreateCarriesSources(t *testing.T) {
 	}
 	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	post := func(body string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPost, "/api/p/CREATE/b/default/knowledge", strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPost, "/api/p/CREATE/b/default/vault", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		s.mux.ServeHTTP(rec, req)
@@ -220,7 +220,7 @@ func TestEntryCreatePrivateOverHTTPIsPrivateFromFirstWrite(t *testing.T) {
 	}
 	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	post := func(body string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPost, "/api/p/CREATE/b/default/knowledge", strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPost, "/api/p/CREATE/b/default/vault", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		s.mux.ServeHTTP(rec, req)

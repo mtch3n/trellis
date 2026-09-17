@@ -674,7 +674,7 @@ func Describe() []KeyInfo {
 		{Key: "card.ls_limit", Type: TypeInt, Editable: true, Restart: false,
 			Description: "The default number of cards a listing returns."},
 		{Key: "search.method", Type: TypeEnum, Choices: slices.Clone(searchMethods), Editable: true, Restart: true,
-			Description: "Which method finds cards and knowledge entries: full-text, vector, or hybrid."},
+			Description: "Which method finds cards and vault entries: full-text, vector, or hybrid."},
 		{Key: "search.vector.enabled", Type: TypeBool, Editable: false, Restart: true,
 			Description: "Whether the optional semantic vector index is built and searched."},
 		{Key: "search.vector.provider", Type: TypeString, Editable: false, Restart: true,
@@ -690,7 +690,7 @@ func Describe() []KeyInfo {
 		{Key: "search.vector.limit", Type: TypeInt, Editable: false, Restart: true,
 			Description: "The default number of vector search results."},
 		{Key: "history.keep", Type: TypeInt, Min: ptr(0), Editable: true, Restart: false,
-			Description: "How many revisions each knowledge entry and card retains."},
+			Description: "How many revisions each vault entry and card retains."},
 	}
 }
 

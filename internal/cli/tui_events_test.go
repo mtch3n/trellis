@@ -4,8 +4,8 @@ import (
 	"testing"
 )
 
-// The activity view reads a project's events, a comment titled by its card.
-func TestRecentActivityListsCommentsByTheirCard(t *testing.T) {
+// The events view reads a project's events, a comment titled by its card.
+func TestRecentEventsListsCommentsByTheirCard(t *testing.T) {
 	projectEnv(t)
 	runCmd(t, "card", "new", "--title", "Wire the event log")
 	runCmd(t, "card", "comment", "1", "--body", "started")
@@ -19,9 +19,9 @@ func TestRecentActivityListsCommentsByTheirCard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows, err := recentActivity(t.Context(), db, p.ID)
+	rows, err := recentEvents(t.Context(), db, p.ID)
 	if err != nil {
-		t.Fatalf("recentActivity: %v", err)
+		t.Fatalf("recentEvents: %v", err)
 	}
 	if len(rows) == 0 || rows[0].Entity != "comment" || rows[0].Title != "Wire the event log" {
 		t.Fatalf("rows = %+v, want the comment first, titled by its card", rows)

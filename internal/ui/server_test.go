@@ -127,7 +127,7 @@ func TestServerVaultGraphLabelsAndStealRoutes(t *testing.T) {
 		return rec
 	}
 
-	created := request(http.MethodPost, "/api/p/P5TEST/b/default/knowledge", `{"title":"Concurrency","summary":"leases","body":"first"}`)
+	created := request(http.MethodPost, "/api/p/P5TEST/b/default/vault", `{"title":"Concurrency","summary":"leases","body":"first"}`)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("entry create status = %d, body = %s", created.Code, created.Body)
 	}
@@ -139,19 +139,19 @@ func TestServerVaultGraphLabelsAndStealRoutes(t *testing.T) {
 		t.Fatalf("created entry = %+v", entry)
 	}
 
-	listed := request(http.MethodGet, "/api/p/P5TEST/b/default/knowledge", "")
+	listed := request(http.MethodGet, "/api/p/P5TEST/b/default/vault", "")
 	if listed.Code != http.StatusOK || !bytes.Contains(listed.Body.Bytes(), []byte(`"slug":"`+entry.Slug+`"`)) {
 		t.Fatalf("entry list status = %d, body = %s", listed.Code, listed.Body)
 	}
-	projectEntries := request(http.MethodGet, "/api/p/P5TEST/knowledge", "")
+	projectEntries := request(http.MethodGet, "/api/p/P5TEST/vault", "")
 	if projectEntries.Code != http.StatusOK || !bytes.Contains(projectEntries.Body.Bytes(), []byte(`"slug":"`+entry.Slug+`"`)) {
 		t.Fatalf("project entry status = %d, body = %s", projectEntries.Code, projectEntries.Body)
 	}
-	globalEntries := request(http.MethodGet, "/api/global/knowledge", "")
+	globalEntries := request(http.MethodGet, "/api/global/vault", "")
 	if globalEntries.Code != http.StatusOK {
 		t.Fatalf("global entry status = %d, body = %s", globalEntries.Code, globalEntries.Body)
 	}
-	edited := request(http.MethodPatch, "/api/p/P5TEST/b/default/knowledge/"+entry.Slug, `{"body":"second","version":1}`)
+	edited := request(http.MethodPatch, "/api/p/P5TEST/b/default/vault/"+entry.Slug, `{"body":"second","version":1}`)
 	if edited.Code != http.StatusOK || !bytes.Contains(edited.Body.Bytes(), []byte("second")) {
 		t.Fatalf("entry edit status = %d, body = %s", edited.Code, edited.Body)
 	}
@@ -163,9 +163,9 @@ func TestServerVaultGraphLabelsAndStealRoutes(t *testing.T) {
 	if search.Code != http.StatusOK || !bytes.Contains(search.Body.Bytes(), []byte(`"kind":"entry"`)) {
 		t.Fatalf("search status = %d, body = %s", search.Code, search.Body)
 	}
-	activity := request(http.MethodGet, "/api/activity?limit=10", "")
-	if activity.Code != http.StatusOK || !bytes.Contains(activity.Body.Bytes(), []byte(`"entity":"entry"`)) {
-		t.Fatalf("activity status = %d, body = %s", activity.Code, activity.Body)
+	events := request(http.MethodGet, "/api/events?limit=10", "")
+	if events.Code != http.StatusOK || !bytes.Contains(events.Body.Bytes(), []byte(`"entity":"entry"`)) {
+		t.Fatalf("events status = %d, body = %s", events.Code, events.Body)
 	}
 
 	labels := request(http.MethodGet, "/api/p/P5TEST/labels", "")
@@ -232,10 +232,10 @@ func TestServerDeletesAProjectOnlyWhenTheKeyIsRetyped(t *testing.T) {
 		t.Fatalf("create status = %d, body = %s", rec.Code, rec.Body)
 	}
 
-	scoped := request(http.MethodGet, "/api/activity?project=KEPT", "")
+	scoped := request(http.MethodGet, "/api/events?project=KEPT", "")
 	if scoped.Code != http.StatusOK || bytes.Contains(scoped.Body.Bytes(), []byte("doomed")) ||
 		!bytes.Contains(scoped.Body.Bytes(), []byte("kept board")) {
-		t.Fatalf("activity scoped to KEPT = %d, body = %s", scoped.Code, scoped.Body)
+		t.Fatalf("events scoped to KEPT = %d, body = %s", scoped.Code, scoped.Body)
 	}
 
 	if rec := request(http.MethodDelete, "/api/p/GONE", `not json`); rec.Code != http.StatusBadRequest {
@@ -267,13 +267,13 @@ func TestServerDeletesAProjectOnlyWhenTheKeyIsRetyped(t *testing.T) {
 	}
 }
 
-// TestActivityScopedToProjectIncludesDeletedLabelAndCommentEvents guards
+// TestEventsScopedToProjectIncludesDeletedLabelAndCommentEvents guards
 // against computing the event log's project filter from live-row joins:
 // a deleted card has no row left to join, and label and comment events are
 // never joined at all, so a naive filter drops all three from a
 // project-scoped read even though the event rows themselves carry the
 // project.
-func TestActivityScopedToProjectIncludesDeletedLabelAndCommentEvents(t *testing.T) {
+func TestEventsScopedToProjectIncludesDeletedLabelAndCommentEvents(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
@@ -281,7 +281,7 @@ func TestActivityScopedToProjectIncludesDeletedLabelAndCommentEvents(t *testing.
 	}
 	defer db.Close()
 
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-activity-test", dir)
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-events-test", dir)
 	p, err := c.CreateProject(context.Background(), "SCOPE", false)
 	if err != nil {
 		t.Fatal(err)
@@ -326,19 +326,19 @@ func TestActivityScopedToProjectIncludesDeletedLabelAndCommentEvents(t *testing.
 		t.Fatalf("create comment status = %d, body = %s", rec.Code, rec.Body)
 	}
 
-	scoped := request(http.MethodGet, "/api/activity?project=SCOPE", "")
+	scoped := request(http.MethodGet, "/api/events?project=SCOPE", "")
 	if scoped.Code != http.StatusOK {
-		t.Fatalf("scoped activity status = %d, body = %s", scoped.Code, scoped.Body)
+		t.Fatalf("scoped events status = %d, body = %s", scoped.Code, scoped.Body)
 	}
 	body := scoped.Body.Bytes()
 	if !bytes.Contains(body, []byte(`"action":"deleted"`)) {
-		t.Errorf("scoped activity is missing the deleted card event: %s", body)
+		t.Errorf("scoped events is missing the deleted card event: %s", body)
 	}
 	if !bytes.Contains(body, []byte(`"entity":"label"`)) {
-		t.Errorf("scoped activity is missing the label merge event: %s", body)
+		t.Errorf("scoped events is missing the label merge event: %s", body)
 	}
 	if !bytes.Contains(body, []byte(`"entity":"comment"`)) {
-		t.Errorf("scoped activity is missing the comment event: %s", body)
+		t.Errorf("scoped events is missing the comment event: %s", body)
 	}
 }
 

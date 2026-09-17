@@ -20,7 +20,7 @@ func TestEntryHistoryAndDiffRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	history := serve(s, http.MethodGet, "/api/p/"+p.Key+"/knowledge/"+entry.Slug+"/history", nil)
+	history := serve(s, http.MethodGet, "/api/p/"+p.Key+"/vault/"+entry.Slug+"/history", nil)
 	if history.Code != http.StatusOK {
 		t.Fatalf("history status = %d, body = %s", history.Code, history.Body)
 	}
@@ -32,17 +32,17 @@ func TestEntryHistoryAndDiffRoutes(t *testing.T) {
 		t.Fatalf("revisions = %+v, want [2 1]", revs)
 	}
 
-	diff := serve(s, http.MethodGet, "/api/p/"+p.Key+"/knowledge/"+entry.Slug+"/diff", nil)
+	diff := serve(s, http.MethodGet, "/api/p/"+p.Key+"/vault/"+entry.Slug+"/diff", nil)
 	if diff.Code != http.StatusOK || !strings.Contains(diff.Body.String(), "line two") {
 		t.Fatalf("diff status = %d, body = %s", diff.Code, diff.Body)
 	}
 
-	explicit := serve(s, http.MethodGet, "/api/p/"+p.Key+"/knowledge/"+entry.Slug+"/diff?from=1&to=2", nil)
+	explicit := serve(s, http.MethodGet, "/api/p/"+p.Key+"/vault/"+entry.Slug+"/diff?from=1&to=2", nil)
 	if explicit.Code != http.StatusOK || !strings.Contains(explicit.Body.String(), `"from":1`) {
 		t.Fatalf("explicit diff status = %d, body = %s", explicit.Code, explicit.Body)
 	}
 
-	badRange := serve(s, http.MethodGet, "/api/p/"+p.Key+"/knowledge/"+entry.Slug+"/diff?from=9&to=9", nil)
+	badRange := serve(s, http.MethodGet, "/api/p/"+p.Key+"/vault/"+entry.Slug+"/diff?from=9&to=9", nil)
 	if badRange.Code != http.StatusBadRequest {
 		t.Errorf("unretained version status = %d, want 400", badRange.Code)
 	}
@@ -84,7 +84,7 @@ func TestHistoryRoutesAreProtected(t *testing.T) {
 	h := s.protectedHandler("127.0.0.1:0")
 
 	do := func(token string) int {
-		req := httptest.NewRequest(http.MethodGet, "/api/p/"+p.Key+"/knowledge/"+entry.Slug+"/history", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/p/"+p.Key+"/vault/"+entry.Slug+"/history", nil)
 		req.Host = "127.0.0.1:0"
 		if token != "" {
 			req.Header.Set("X-Trellis-Token", token)

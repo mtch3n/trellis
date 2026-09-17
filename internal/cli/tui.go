@@ -20,7 +20,7 @@ const tuiHelp = `/board [name]           Show cards, or switch board
 /body <card> <text>      Replace its body (use \n for line breaks)
 /move <card> <column>    Move a card
 /comment <card> <text>   Add a comment
-/search <query>          Search project cards and knowledge (up to 50 hits)
+/search <query>          Search project cards and entries (up to 50 hits)
 /help                   Show commands
 /quit                   Exit
 

@@ -107,7 +107,7 @@ func TestEntryListsCarryArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, path := range []string{"/api/p/ART/knowledge", "/api/p/ART/b/default/knowledge"} {
+	for _, path := range []string{"/api/p/ART/vault", "/api/p/ART/b/default/vault"} {
 		t.Run(path, func(t *testing.T) {
 			items := getJSON(t, s, path)
 

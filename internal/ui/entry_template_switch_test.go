@@ -33,7 +33,7 @@ func TestEntryTemplateSwitchFromTheWeb(t *testing.T) {
 	}
 	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	send := func(method, path, body string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(method, "/api/p/SWITCH/b/default/knowledge"+path, strings.NewReader(body))
+		req := httptest.NewRequest(method, "/api/p/SWITCH/b/default/vault"+path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		s.mux.ServeHTTP(rec, req)

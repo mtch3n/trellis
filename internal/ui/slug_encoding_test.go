@@ -71,8 +71,8 @@ func TestSlugWithSlashEncoded(t *testing.T) {
 	if !strings.Contains(enc, "%2F") {
 		t.Fatalf("escaped slug %q keeps a raw slash", enc)
 	}
-	project := "/api/p/SLUG/knowledge/" + enc
-	board := "/api/p/SLUG/b/board1/knowledge/" + enc
+	project := "/api/p/SLUG/vault/" + enc
+	board := "/api/p/SLUG/b/board1/vault/" + enc
 
 	var edited core.Entry
 	decode("patch", request(http.MethodPatch, board, `{"body":"How to roll back safely.","version":1}`), http.StatusOK, &edited)

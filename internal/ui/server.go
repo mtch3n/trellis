@@ -141,24 +141,24 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/comments", s.handleCreateComment)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/relations", s.handleCreateCardRelation)
 	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/cards/{card}/relations/{rel}/{ref}", s.handleDeleteCardRelation)
-	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/knowledge", s.handleEntryList)
-	s.mux.HandleFunc("GET /api/p/{key}/knowledge", s.handleProjectEntryList)
-	s.mux.HandleFunc("GET /api/p/{key}/links/knowledge", s.handleEntryLinks)
-	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}/history", s.handleEntryHistory)
-	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}/diff", s.handleEntryDiff)
-	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}", s.handleGetEntry)
+	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/vault", s.handleEntryList)
+	s.mux.HandleFunc("GET /api/p/{key}/vault", s.handleProjectEntryList)
+	s.mux.HandleFunc("GET /api/p/{key}/links/vault", s.handleEntryLinks)
+	s.mux.HandleFunc("GET /api/p/{key}/vault/{slug}/history", s.handleEntryHistory)
+	s.mux.HandleFunc("GET /api/p/{key}/vault/{slug}/diff", s.handleEntryDiff)
+	s.mux.HandleFunc("GET /api/p/{key}/vault/{slug}", s.handleGetEntry)
 	s.mux.HandleFunc("GET /api/p/{key}/artifacts/{name}", s.handleArtifact)
-	s.mux.HandleFunc("GET /api/global/knowledge", s.handleGlobalEntryList)
-	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/knowledge", s.handleEntryCreate)
-	s.mux.HandleFunc("PATCH /api/p/{key}/b/{board}/knowledge/{slug}", s.handleEntryEdit)
-	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/knowledge/{slug}", s.handleDeleteEntry)
+	s.mux.HandleFunc("GET /api/global/vault", s.handleGlobalEntryList)
+	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/vault", s.handleEntryCreate)
+	s.mux.HandleFunc("PATCH /api/p/{key}/b/{board}/vault/{slug}", s.handleEntryEdit)
+	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/vault/{slug}", s.handleDeleteEntry)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/graph/{entity}", s.handleGraph)
 	s.mux.HandleFunc("GET /api/p/{key}/labels", s.handleLabels)
 	s.mux.HandleFunc("POST /api/p/{key}/labels", s.handleCreateLabel)
 	s.mux.HandleFunc("DELETE /api/p/{key}/labels/{name}", s.handleDeleteLabel)
 	s.mux.HandleFunc("POST /api/p/{key}/labels/merge", s.handleLabelMerge)
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
-	s.mux.HandleFunc("GET /api/activity", s.handleActivity)
+	s.mux.HandleFunc("GET /api/events", s.handleEvents)
 	// SPA fallback
 	s.mux.HandleFunc("/", s.handleSPA)
 }
@@ -293,7 +293,7 @@ type boardInfo struct {
 	IsDefault bool `json:"is_default"`
 }
 
-type activityInfo struct {
+type eventInfo struct {
 	Seq        int64  `db:"seq" json:"seq"`
 	Timestamp  int64  `db:"ts" json:"timestamp"`
 	Actor      string `db:"actor" json:"actor"`
@@ -374,7 +374,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, hits)
 }
 
-func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	limit := 50
@@ -390,7 +390,7 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 	// card or entry, and label and comment events (never joined below), stay
 	// in a project-scoped read instead of only the unfiltered one.
 	project := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("project")))
-	events := []activityInfo{}
+	events := []eventInfo{}
 	err := s.db.SelectContext(ctx, &events, `
 		SELECT e.seq, e.ts, e.actor, e.entity_type, e.action,
 		       COALESCE(e.field, '') AS field,

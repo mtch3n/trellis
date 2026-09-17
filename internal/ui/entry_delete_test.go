@@ -41,7 +41,7 @@ func TestDeleteEntry(t *testing.T) {
 	}
 
 	// Create an entry
-	createResp := request(http.MethodPost, "/api/p/KDEL/b/board1/knowledge", `{"title":"Test Entry","body":"content"}`)
+	createResp := request(http.MethodPost, "/api/p/KDEL/b/board1/vault", `{"title":"Test Entry","body":"content"}`)
 	if createResp.Code != http.StatusCreated {
 		t.Fatalf("create entry status = %d, body = %s", createResp.Code, createResp.Body)
 	}
@@ -52,13 +52,13 @@ func TestDeleteEntry(t *testing.T) {
 	}
 
 	// Test deleting the entry
-	deleteResp := request(http.MethodDelete, "/api/p/KDEL/b/board1/knowledge/"+entry.Slug, "")
+	deleteResp := request(http.MethodDelete, "/api/p/KDEL/b/board1/vault/"+entry.Slug, "")
 	if deleteResp.Code != http.StatusNoContent {
 		t.Fatalf("delete entry status = %d, expected 204, body = %s", deleteResp.Code, deleteResp.Body)
 	}
 
 	// Verify it's deleted by trying to get it
-	getResp := request(http.MethodGet, "/api/p/KDEL/b/board1/knowledge", "")
+	getResp := request(http.MethodGet, "/api/p/KDEL/b/board1/vault", "")
 	if getResp.Code != http.StatusOK {
 		t.Fatalf("list entry status = %d", getResp.Code)
 	}
@@ -73,7 +73,7 @@ func TestDeleteEntry(t *testing.T) {
 	}
 
 	// Test deleting non-existent entry returns 404
-	deleteNotFoundResp := request(http.MethodDelete, "/api/p/KDEL/b/board1/knowledge/nonexistent", "")
+	deleteNotFoundResp := request(http.MethodDelete, "/api/p/KDEL/b/board1/vault/nonexistent", "")
 	if deleteNotFoundResp.Code != http.StatusNotFound {
 		t.Fatalf("delete nonexistent entry status = %d, expected 404", deleteNotFoundResp.Code)
 	}

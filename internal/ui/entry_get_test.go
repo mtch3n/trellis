@@ -18,7 +18,7 @@ import (
 	"github.com/mtch3n/trellis/internal/store"
 )
 
-// TestGetSingleEntry tests GET /api/p/{key}/knowledge/{slug}
+// TestGetSingleEntry tests GET /api/p/{key}/vault/{slug}
 func TestGetSingleEntry(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
@@ -48,7 +48,7 @@ func TestGetSingleEntry(t *testing.T) {
 	}
 
 	// Create an entry
-	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/knowledge", `{"title":"Test Entry","body":"Test content"}`)
+	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/vault", `{"title":"Test Entry","body":"Test content"}`)
 	if createResp.Code != http.StatusCreated {
 		t.Fatalf("create entry status = %d, body = %s", createResp.Code, createResp.Body)
 	}
@@ -59,7 +59,7 @@ func TestGetSingleEntry(t *testing.T) {
 	}
 
 	// Test GET single entry returns body
-	getResp := request(http.MethodGet, "/api/p/"+projKey+"/knowledge/"+entry.Slug, "")
+	getResp := request(http.MethodGet, "/api/p/"+projKey+"/vault/"+entry.Slug, "")
 	if getResp.Code != http.StatusOK {
 		t.Fatalf("get single entry status = %d, expected 200, body = %s", getResp.Code, getResp.Body)
 	}
@@ -77,7 +77,7 @@ func TestGetSingleEntry(t *testing.T) {
 	}
 
 	// Test GET non-existent entry returns 404
-	notFoundResp := request(http.MethodGet, "/api/p/"+projKey+"/knowledge/nonexistent", "")
+	notFoundResp := request(http.MethodGet, "/api/p/"+projKey+"/vault/nonexistent", "")
 	if notFoundResp.Code != http.StatusNotFound {
 		t.Fatalf("get nonexistent entry status = %d, expected 404", notFoundResp.Code)
 	}
@@ -125,7 +125,7 @@ func TestGetSingleEntryWithEncodedSlug(t *testing.T) {
 
 	// Test GET with percent-encoded slug
 	encodedSlug := url.PathEscape(entry.Slug)
-	getResp := request(http.MethodGet, "/api/p/"+projKey+"/knowledge/"+encodedSlug, "")
+	getResp := request(http.MethodGet, "/api/p/"+projKey+"/vault/"+encodedSlug, "")
 	if getResp.Code != http.StatusOK {
 		t.Fatalf("get with encoded slug status = %d, expected 200, body = %s", getResp.Code, getResp.Body)
 	}
@@ -170,7 +170,7 @@ func TestListEntriesExcludesBody(t *testing.T) {
 	}
 
 	// Create an entry
-	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/knowledge", `{"title":"Test Entry","body":"Test content"}`)
+	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/vault", `{"title":"Test Entry","body":"Test content"}`)
 	if createResp.Code != http.StatusCreated {
 		t.Fatalf("create entry status = %d, body = %s", createResp.Code, createResp.Body)
 	}
@@ -181,7 +181,7 @@ func TestListEntriesExcludesBody(t *testing.T) {
 	}
 
 	// Test board entry list excludes body
-	boardListResp := request(http.MethodGet, "/api/p/"+projKey+"/b/board1/knowledge", "")
+	boardListResp := request(http.MethodGet, "/api/p/"+projKey+"/b/board1/vault", "")
 	if boardListResp.Code != http.StatusOK {
 		t.Fatalf("board list status = %d", boardListResp.Code)
 	}
@@ -202,7 +202,7 @@ func TestListEntriesExcludesBody(t *testing.T) {
 	}
 
 	// Test project entry list excludes body
-	projListResp := request(http.MethodGet, "/api/p/"+projKey+"/knowledge", "")
+	projListResp := request(http.MethodGet, "/api/p/"+projKey+"/vault", "")
 	if projListResp.Code != http.StatusOK {
 		t.Fatalf("project list status = %d", projListResp.Code)
 	}
@@ -287,7 +287,7 @@ func TestPrivateEntryListExcludesSummaryRecap(t *testing.T) {
 	}
 
 	// Test board entry list
-	boardListResp := request(http.MethodGet, "/api/p/PRIVLIST/b/board1/knowledge", "")
+	boardListResp := request(http.MethodGet, "/api/p/PRIVLIST/b/board1/vault", "")
 	if boardListResp.Code != http.StatusOK {
 		t.Fatalf("board list status = %d", boardListResp.Code)
 	}
@@ -375,7 +375,7 @@ func TestGlobalEntryListExcludesBody(t *testing.T) {
 
 	list := func() []core.Entry {
 		t.Helper()
-		rec := request(http.MethodGet, "/api/global/knowledge", "")
+		rec := request(http.MethodGet, "/api/global/vault", "")
 		if rec.Code != http.StatusOK {
 			t.Fatalf("global list status = %d, body = %s", rec.Code, rec.Body)
 		}
@@ -461,7 +461,7 @@ func TestGlobalEntryListNeverCarriesArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rec := request(http.MethodGet, "/api/global/knowledge", "")
+	rec := request(http.MethodGet, "/api/global/vault", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("global list status = %d, body = %s", rec.Code, rec.Body)
 	}
@@ -501,7 +501,7 @@ func TestGetEntryFields(t *testing.T) {
 	}
 
 	// Create an entry with Set fields
-	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/knowledge",
+	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/vault",
 		`{"title":"Test Entry","body":"Content","set":{"owner":"alice","severity":"high"}}`)
 	if createResp.Code != http.StatusCreated {
 		t.Fatalf("create status = %d, body = %s", createResp.Code, createResp.Body)
@@ -513,7 +513,7 @@ func TestGetEntryFields(t *testing.T) {
 	}
 
 	// GET the detail endpoint
-	detailResp := request(http.MethodGet, "/api/p/"+projKey+"/knowledge/"+entry.Slug, "")
+	detailResp := request(http.MethodGet, "/api/p/"+projKey+"/vault/"+entry.Slug, "")
 	if detailResp.Code != http.StatusOK {
 		t.Fatalf("detail status = %d, body = %s", detailResp.Code, detailResp.Body)
 	}
@@ -565,14 +565,14 @@ func TestGetEntryFieldsPrivateList(t *testing.T) {
 	}
 
 	// Create a private entry with Set fields
-	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/knowledge",
+	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/vault",
 		`{"title":"Private Entry","body":"Content","private":true,"set":{"owner":"alice"}}`)
 	if createResp.Code != http.StatusCreated {
 		t.Fatalf("create status = %d, body = %s", createResp.Code, createResp.Body)
 	}
 
 	// List endpoints should have empty Fields for private entries
-	listResp := request(http.MethodGet, "/api/p/"+projKey+"/knowledge", "")
+	listResp := request(http.MethodGet, "/api/p/"+projKey+"/vault", "")
 	if listResp.Code != http.StatusOK {
 		t.Fatalf("list status = %d, body = %s", listResp.Code, listResp.Body)
 	}
