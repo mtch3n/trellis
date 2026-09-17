@@ -2,6 +2,9 @@ package cli
 
 import (
 	"encoding/json/v2"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -51,5 +54,63 @@ func TestProjectLsListsKeysAndBoardCounts(t *testing.T) {
 	}
 	if got["ALPHA"] != 2 || got["BETA"] != 1 || len(got) != 2 {
 		t.Errorf("projects = %v", got)
+	}
+}
+
+func TestProjectMergeEndToEnd(t *testing.T) {
+	repo := pinEnv(t, "mono")
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	seedProject(t, "MONO")
+	seedProject(t, "API")
+	writePin(t, repo, "/MONO\n")
+	api := filepath.Join(repo, "api")
+	if err := os.Mkdir(api, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writePin(t, api, "/API\n")
+	t.Chdir(api)
+	if out := runCmd(t, "card", "new", "--title", "from api", "--json"); !strings.Contains(out, `"ref":"API-1"`) {
+		t.Fatalf("card new = %s", out)
+	}
+
+	_, err := execCmd("project", "merge", "api")
+	if ce := coreErr(t, err); ce.Code != "missing_into" {
+		t.Errorf("no --into: %+v", ce)
+	}
+
+	var plan struct {
+		Ready bool `json:"ready"`
+		Pins  struct {
+			Rewrite []struct {
+				Path string `json:"path"`
+				To   string `json:"to"`
+			} `json:"rewrite"`
+		} `json:"pins"`
+	}
+	out := runCmd(t, "project", "merge", "api", "--into", "/mono", "--json")
+	if err := json.Unmarshal([]byte(out), &plan); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !plan.Ready || len(plan.Pins.Rewrite) != 1 || plan.Pins.Rewrite[0].To != "/MONO/boards/api" {
+		t.Errorf("plan = %+v", plan)
+	}
+	if got, _ := os.ReadFile(filepath.Join(api, ".trellis")); string(got) != "/API\n" {
+		t.Errorf("the plan rewrote a pin: %q", got)
+	}
+
+	runCmd(t, "project", "merge", "api", "--into", "mono", "--apply")
+
+	if got, _ := os.ReadFile(filepath.Join(api, ".trellis")); string(got) != "/MONO/boards/api\n" {
+		t.Errorf("pin after the merge = %q", got)
+	}
+	if got := showBoard(t); got.Project != "MONO" || got.Slug != "api" {
+		t.Errorf("this directory now opens %+v", got)
+	}
+	runCmd(t, "card", "show", "API-1")
+	_, err = execCmd("--project", "API", "card", "ls")
+	if ce := coreErr(t, err); ce.Code != "project_merged" {
+		t.Errorf("--project API: %+v", ce)
 	}
 }

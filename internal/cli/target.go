@@ -169,6 +169,17 @@ func targetContext(a refArg, key, ref string, relative bool) (*appCtx, error) {
 		return fail(rerr)
 	}
 	p, err := c.ProjectByKey(ctx, key)
+	// If the project was merged, follow the chain to find where it is now.
+	if err != nil {
+		if ce, ok := errors.AsType[*core.Error](err); ok && ce.Code == "project_merged" {
+			// The error's Detail field contains the target project key.
+			if detail, ok := ce.Detail.(map[string]string); ok {
+				if into := detail["into"]; into != "" {
+					p, err = c.ProjectByKey(ctx, into)
+				}
+			}
+		}
+	}
 	if err != nil {
 		return fail(err)
 	}
