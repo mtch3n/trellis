@@ -19,7 +19,7 @@ const tuiHelp = `/board [name]           Show cards, or switch board
 /title <card> <text>     Rename a card you have read
 /body <card> <text>      Replace its body (use \n for line breaks)
 /move <card> <column>    Move a card
-/note <card> <text>      Append a note
+/comment <card> <text>   Add a comment
 /search <query>          Search project cards and knowledge (up to 50 hits)
 /help                   Show commands
 /quit                   Exit
@@ -27,7 +27,7 @@ const tuiHelp = `/board [name]           Show cards, or switch board
 Tab completes commands · ↑/↓ history · Ctrl-D or Ctrl-C exits
 Text without a slash searches the project. No AI provider is required.`
 
-var tuiCommands = []string{"/board", "/boards", "/show", "/new", "/title", "/body", "/move", "/note", "/search", "/help", "/quit"}
+var tuiCommands = []string{"/board", "/boards", "/show", "/new", "/title", "/body", "/move", "/comment", "/search", "/help", "/quit"}
 
 func newTUICmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -161,7 +161,7 @@ func (s *tuiSession) execute(ctx context.Context, line string) (string, error) {
 		}
 		s.seen[card.ID] = card.Version
 		return "Created " + card.Ref + " · " + card.Title, nil
-	case "/show", "/title", "/body", "/move", "/note":
+	case "/show", "/title", "/body", "/move", "/comment":
 		ref, text := tuiSplit(arg)
 		if ref == "" || (command != "/show" && text == "") || (command == "/show" && text != "") {
 			return "", fmt.Errorf("invalid arguments for %s; see /help", command)
@@ -195,7 +195,7 @@ func (s *tuiSession) execute(ctx context.Context, line string) (string, error) {
 			if err != nil {
 				return "", err
 			}
-		case "/note":
+		case "/comment":
 			if _, err = app.Core.CreateComment(ctx, card.ID, text); err != nil {
 				return "", err
 			}

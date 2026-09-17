@@ -1,6 +1,6 @@
 ---
 name: writing-knowledge
-description: Use when deciding whether a finding is worth recording and where it belongs - after debugging something non-obvious, when a measurement or decision would otherwise be re-derived, when an approach failed and the reason matters, or when the user says to write something down. Covers what each kind of entry must contain and when a card note or project memory is the better home instead.
+description: Use when deciding whether a finding is worth recording and where it belongs - after debugging something non-obvious, when a measurement or decision would otherwise be re-derived, when an approach failed and the reason matters, or when the user says to write something down. Covers what each kind of entry must contain and when a card comment or project memory is the better home instead.
 ---
 
 # Writing knowledge
@@ -24,7 +24,7 @@ session will trust it.
 | The thing | Home | Why |
 |---|---|---|
 | Durable fact about *this* repo — a decision, a trap, a measurement | Trellis knowledge | Searchable, linkable, survives a clear |
-| Progress, evidence, what is left on a specific task | Card note | Belongs to the work, not the vault |
+| Progress, evidence, what is left on a specific task | Card comment | Belongs to the work, not the vault |
 | How the user wants to work, across every project | Project memory / CLAUDE.md | Already the working store; do not migrate it |
 | Fact useful in several repos | Trellis knowledge, then `nominate` | Agents nominate; a human promotes |
 | Still a hypothesis | Nowhere yet | Wait until it is verified |

@@ -74,7 +74,7 @@ func (c *Core) CreateComment(ctx context.Context, cardID, body string) (Comment,
 func (c *Core) GetCommentsByCard(ctx context.Context, cardID string) ([]Comment, error) {
 	var comments []Comment
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		return tx.Select(&comments, `SELECT * FROM comment WHERE card_id = ? ORDER BY created_at`,
+		return tx.Select(&comments, `SELECT * FROM comment WHERE card_id = ? ORDER BY created_at, id`,
 			cardID)
 	})
 	return comments, err

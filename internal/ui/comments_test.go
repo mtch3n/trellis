@@ -67,6 +67,25 @@ func TestCreateComment(t *testing.T) {
 		t.Fatalf("expected comment body 'This is a test comment', got %q", comment.BodyMD)
 	}
 
+	// A card holds any number of comments; the detail lists them oldest first.
+	if rec := request(http.MethodPost, "/api/p/TEST/b/board1/cards/"+cardRef+"/comments", `{"body":"A second comment"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("second comment status = %d, body = %s", rec.Code, rec.Body)
+	}
+	detailResp := request(http.MethodGet, "/api/p/TEST/b/board1/cards/"+cardRef, "")
+	var detail struct {
+		Comments []core.Comment `json:"comments"`
+		Notes    any            `json:"notes"`
+	}
+	if err := json.Unmarshal(detailResp.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("card detail: %v, body = %.200s", err, detailResp.Body)
+	}
+	if len(detail.Comments) != 2 || detail.Comments[0].BodyMD != "This is a test comment" || detail.Comments[1].BodyMD != "A second comment" {
+		t.Fatalf("detail comments = %+v", detail.Comments)
+	}
+	if detail.Notes != nil {
+		t.Errorf("card detail still carries notes: %v", detail.Notes)
+	}
+
 	// Test creating a comment with empty body returns 400
 	emptyResp := request(http.MethodPost, "/api/p/TEST/b/board1/cards/"+cardRef+"/comments", `{"body":""}`)
 	if emptyResp.Code != http.StatusBadRequest {
