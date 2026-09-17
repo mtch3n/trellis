@@ -31,12 +31,12 @@ func newExtensionConfigCmd() *cobra.Command {
 				}
 				repoDir = dir
 			}
-			doc, _, _, err := config.LoadRepo(repoDir)
+			repo, _, _, err := config.LoadRepo(repoDir)
 			if err != nil {
 				return core.ErrUsage("bad_repo_config", err.Error(), "fix the file .trellis.yaml/.trellis.yml names")
 			}
 			var subtree any
-			if m, ok := doc.Extensions.(map[string]any); ok {
+			if m, ok := repo.Extensions.(map[string]any); ok {
 				subtree = m[args[0]]
 			}
 			return Emit(cmd, subtree, func() string {

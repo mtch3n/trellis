@@ -26,7 +26,7 @@ type projectContext struct {
 	db      *sqlx.DB
 	cfg     config.Config
 	present map[string]bool
-	repo    config.RepoDoc
+	repo    config.RepoFile
 }
 
 // loadGlobalConfig resolves the storage root and loads the global config

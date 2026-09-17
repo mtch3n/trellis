@@ -54,7 +54,7 @@ func (s *Service) vectorDBFile(projectKey string) string {
 
 func (s *Service) vectorConfig(ctx context.Context, projectID string) (config.VectorSearchConfig, string, error) {
 	get := func(key, fallback string) string {
-		value, _, err := config.EffectiveValue(ctx, s.cfg, map[string]bool{}, config.RepoDoc{}, s.db, projectID, key)
+		value, _, err := config.EffectiveValue(ctx, s.cfg, map[string]bool{}, config.RepoFile{}, s.db, projectID, key)
 		if err != nil {
 			return fallback
 		}

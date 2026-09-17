@@ -47,7 +47,6 @@ internal/cli/daemon_spawn_unix.go	attach	2
 internal/cli/daemon_spawn_windows.go	attach	3
 internal/cli/events.go	feed	1
 internal/cli/events_cmd_test.go	card-note	2
-internal/cli/extension.go	doc	2
 internal/cli/history_cmd_test.go	knowledge-ident	16
 internal/cli/init.go	pin-file	3
 internal/cli/init_test.go	pin-file	4
@@ -99,9 +98,7 @@ internal/cli/tui_workspace.go	knowledge-ident	4
 internal/cli/vector.go	document	3
 internal/cli/vector.go	knowledge-base	1
 internal/cli/vector.go	stale-other	2
-internal/config/config.go	doc	7
-internal/config/config.go	document	4
-internal/config/config_test.go	doc	23
+internal/config/config.go	document	2
 internal/core/address.go	knowledge-cli	2
 internal/core/address_test.go	knowledge-ident	2
 internal/core/address_test.go	lease	5

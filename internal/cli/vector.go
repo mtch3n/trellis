@@ -29,9 +29,9 @@ func effectiveVectorConfig(ctx context.Context, db *sqlx.DB, projectID string) (
 		}
 	}
 	// No search.vector.* key is repository-safe (Global Constraints), so an
-	// empty RepoDoc is correct here, not a placeholder to fill in later.
+	// empty RepoFile is correct here, not a placeholder to fill in later.
 	get := func(key, fallback string) string {
-		v, _, e := config.EffectiveValue(ctx, cfg, present, config.RepoDoc{}, db, projectID, key)
+		v, _, e := config.EffectiveValue(ctx, cfg, present, config.RepoFile{}, db, projectID, key)
 		if e != nil {
 			return fallback
 		}

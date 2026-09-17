@@ -160,7 +160,7 @@ func TestProjectOverrideTakesPrecedence(t *testing.T) {
 	cfg := Defaults()
 
 	// Without override, should get default.
-	value, source, err := EffectiveValue(ctx, cfg, map[string]bool{}, RepoDoc{}, db, projectID, "card.ls_limit")
+	value, source, err := EffectiveValue(ctx, cfg, map[string]bool{}, RepoFile{}, db, projectID, "card.ls_limit")
 	if err != nil {
 		t.Fatalf("EffectiveValue: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestProjectOverrideTakesPrecedence(t *testing.T) {
 	}
 
 	// Now should get the override.
-	value, source, err = EffectiveValue(ctx, cfg, map[string]bool{}, RepoDoc{}, db, projectID, "card.ls_limit")
+	value, source, err = EffectiveValue(ctx, cfg, map[string]bool{}, RepoFile{}, db, projectID, "card.ls_limit")
 	if err != nil {
 		t.Fatalf("EffectiveValue after override: %v", err)
 	}
@@ -645,9 +645,9 @@ func TestRepoConfigPathWithNeitherFileIsNotAnError(t *testing.T) {
 }
 
 func TestLoadRepoWithNoFileReturnsNotOK(t *testing.T) {
-	doc, path, ok, err := LoadRepo(t.TempDir())
-	if err != nil || ok || path != "" || len(doc.Present) != 0 {
-		t.Fatalf("doc=%+v path=%q ok=%v err=%v, want a not-ok zero result", doc, path, ok, err)
+	repo, path, ok, err := LoadRepo(t.TempDir())
+	if err != nil || ok || path != "" || len(repo.Present) != 0 {
+		t.Fatalf("repo=%+v path=%q ok=%v err=%v, want a not-ok zero result", repo, path, ok, err)
 	}
 }
 
@@ -659,31 +659,31 @@ func TestLoadRepoAppliesAllowedKeys(t *testing.T) {
   labels.require_on_card: true
   board.default_columns: [todo, doing, done]
 `)
-	doc, path, ok, err := LoadRepo(dir)
+	repo, path, ok, err := LoadRepo(dir)
 	if err != nil {
 		t.Fatalf("LoadRepo: %v", err)
 	}
 	if !ok || path == "" {
 		t.Fatalf("ok=%v path=%q, want a loaded repo config", ok, path)
 	}
-	if doc.Config.Card.LsLimit != 25 {
-		t.Errorf("Card.LsLimit = %d, want 25", doc.Config.Card.LsLimit)
+	if repo.Config.Card.LsLimit != 25 {
+		t.Errorf("Card.LsLimit = %d, want 25", repo.Config.Card.LsLimit)
 	}
-	if doc.Config.Claim.TTL != "45m" {
-		t.Errorf("Claim.TTL = %q, want 45m", doc.Config.Claim.TTL)
+	if repo.Config.Claim.TTL != "45m" {
+		t.Errorf("Claim.TTL = %q, want 45m", repo.Config.Claim.TTL)
 	}
-	if !doc.Config.Labels.RequireOnCard {
+	if !repo.Config.Labels.RequireOnCard {
 		t.Error("Labels.RequireOnCard = false, want true")
 	}
-	if len(doc.Config.Board.DefaultColumns) != 3 || doc.Config.Board.DefaultColumns[0] != "todo" {
-		t.Errorf("Board.DefaultColumns = %v", doc.Config.Board.DefaultColumns)
+	if len(repo.Config.Board.DefaultColumns) != 3 || repo.Config.Board.DefaultColumns[0] != "todo" {
+		t.Errorf("Board.DefaultColumns = %v", repo.Config.Board.DefaultColumns)
 	}
 	for _, k := range []string{"card.ls_limit", "claim.ttl", "labels.require_on_card", "board.default_columns"} {
-		if !doc.Present[k] {
+		if !repo.Present[k] {
 			t.Errorf("Present[%q] = false, want true", k)
 		}
 	}
-	if doc.Present["search.method"] {
+	if repo.Present["search.method"] {
 		t.Error("Present[\"search.method\"] = true, but the file never set it")
 	}
 }
@@ -781,13 +781,13 @@ extensions:
       type: finding
       run: ./scripts/review-finding.sh
 `)
-	doc, _, ok, err := LoadRepo(dir)
+	repo, _, ok, err := LoadRepo(dir)
 	if err != nil || !ok {
 		t.Fatalf("LoadRepo: ok=%v err=%v", ok, err)
 	}
-	m, isMap := doc.Extensions.(map[string]any)
+	m, isMap := repo.Extensions.(map[string]any)
 	if !isMap {
-		t.Fatalf("Extensions = %#v (%T), want a map", doc.Extensions, doc.Extensions)
+		t.Fatalf("Extensions = %#v (%T), want a map", repo.Extensions, repo.Extensions)
 	}
 	actions, isSlice := m["actions"].([]any)
 	if !isSlice || len(actions) != 1 {
@@ -796,9 +796,9 @@ extensions:
 }
 
 func TestLoadRepoWithEmptyDirReadsNothing(t *testing.T) {
-	doc, path, ok, err := LoadRepo("")
-	if err != nil || ok || path != "" || doc.Extensions != nil {
-		t.Fatalf("doc=%+v path=%q ok=%v err=%v, want a not-ok zero result for an empty dir", doc, path, ok, err)
+	repo, path, ok, err := LoadRepo("")
+	if err != nil || ok || path != "" || repo.Extensions != nil {
+		t.Fatalf("repo=%+v path=%q ok=%v err=%v, want a not-ok zero result for an empty dir", repo, path, ok, err)
 	}
 }
 
@@ -852,7 +852,7 @@ func TestEffectiveValueReportsDefaultThenConfigThenRepoThenProject(t *testing.T)
 	ctx := context.Background()
 
 	// 1. Nothing set anywhere: default.
-	value, source, err := EffectiveValue(ctx, Defaults(), map[string]bool{}, RepoDoc{}, db, "p1", "claim.ttl")
+	value, source, err := EffectiveValue(ctx, Defaults(), map[string]bool{}, RepoFile{}, db, "p1", "claim.ttl")
 	if err != nil {
 		t.Fatalf("EffectiveValue: %v", err)
 	}
@@ -863,7 +863,7 @@ func TestEffectiveValueReportsDefaultThenConfigThenRepoThenProject(t *testing.T)
 	// 2. The global file set it: config.
 	globalCfg := Defaults()
 	globalCfg.Claim.TTL = "20m"
-	value, source, err = EffectiveValue(ctx, globalCfg, map[string]bool{"claim.ttl": true}, RepoDoc{}, db, "p1", "claim.ttl")
+	value, source, err = EffectiveValue(ctx, globalCfg, map[string]bool{"claim.ttl": true}, RepoFile{}, db, "p1", "claim.ttl")
 	if err != nil {
 		t.Fatalf("EffectiveValue: %v", err)
 	}
@@ -872,7 +872,7 @@ func TestEffectiveValueReportsDefaultThenConfigThenRepoThenProject(t *testing.T)
 	}
 
 	// 3. The repository file also set it: repo wins over the global file.
-	repo := RepoDoc{Config: Config{Claim: ClaimConfig{TTL: "45m"}}, Present: map[string]bool{"claim.ttl": true}}
+	repo := RepoFile{Config: Config{Claim: ClaimConfig{TTL: "45m"}}, Present: map[string]bool{"claim.ttl": true}}
 	value, source, err = EffectiveValue(ctx, globalCfg, map[string]bool{"claim.ttl": true}, repo, db, "p1", "claim.ttl")
 	if err != nil {
 		t.Fatalf("EffectiveValue: %v", err)
@@ -897,14 +897,14 @@ func TestEffectiveValueReportsDefaultThenConfigThenRepoThenProject(t *testing.T)
 func TestEffectiveValueUnknownKey(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
-	if _, _, err := EffectiveValue(context.Background(), Defaults(), map[string]bool{}, RepoDoc{}, db, "p1", "no.such.key"); err == nil {
+	if _, _, err := EffectiveValue(context.Background(), Defaults(), map[string]bool{}, RepoFile{}, db, "p1", "no.such.key"); err == nil {
 		t.Fatal("want an error for an unknown key")
 	}
 }
 
 func TestApplyRepoOverridesCopiesEveryPresentKey(t *testing.T) {
 	cfg := Defaults()
-	repo := RepoDoc{
+	repo := RepoFile{
 		Config: Config{
 			Card:   CardConfig{LsLimit: 5},
 			Claim:  ClaimConfig{TTL: "5m"},

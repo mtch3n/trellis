@@ -328,7 +328,7 @@ func validateChoice(key, raw string, choices []string) error {
 // highest: built-in defaults, the global config file, a repository's
 // .trellis.yaml, then a project override in the database. source names
 // whichever layer answered: "default", "config", "repo" or "project".
-func EffectiveValue(ctx context.Context, cfg Config, present map[string]bool, repo RepoDoc, db *sqlx.DB, projectID, key string) (value, source string, err error) {
+func EffectiveValue(ctx context.Context, cfg Config, present map[string]bool, repo RepoFile, db *sqlx.DB, projectID, key string) (value, source string, err error) {
 	value, found := GetValue(cfg, key)
 	if !found {
 		return "", "", fmt.Errorf("unknown config key: %q", key)
@@ -458,47 +458,47 @@ func RepoConfigPath(dir string) (string, error) {
 	}
 }
 
-// RepoDoc is a parsed, validated .trellis.yaml. Config holds only the keys
+// RepoFile is a parsed, validated .trellis.yaml. Config holds only the keys
 // RepoSafe allows, decoded onto a zero Config so GetValue can read them back
 // with its existing per-key formatting. Present marks exactly which dotted
 // keys the file set, distinguishing an explicit value from one that happens
 // to share Config's zero value. Extensions is the "extensions" subtree
 // exactly as written, decoded to a generic value: core parses it as YAML and
 // never interprets it.
-type RepoDoc struct {
+type RepoFile struct {
 	Config     Config
 	Present    map[string]bool
 	Extensions any
 }
 
 // LoadRepo reads and validates the repository config file in dir. ok is
-// false with a zero RepoDoc when dir has no ".trellis.yaml"/".trellis.yml"
+// false with a zero RepoFile when dir has no ".trellis.yaml"/".trellis.yml"
 // (including dir == ""); err is non-nil when one exists but is invalid —
 // both files present, an unknown top-level key, a key a repository may not
 // set, or a value that does not parse for its key — and always names the
 // file and, where applicable, the key.
-func LoadRepo(dir string) (doc RepoDoc, path string, ok bool, err error) {
+func LoadRepo(dir string) (repo RepoFile, path string, ok bool, err error) {
 	path, err = RepoConfigPath(dir)
 	if err != nil || path == "" {
-		return RepoDoc{}, path, false, err
+		return RepoFile{}, path, false, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return RepoDoc{}, path, false, fmt.Errorf("read %s: %w", path, err)
+		return RepoFile{}, path, false, fmt.Errorf("read %s: %w", path, err)
 	}
 
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
-		return RepoDoc{}, path, false, fmt.Errorf("parse %s: %w", path, err)
+		return RepoFile{}, path, false, fmt.Errorf("parse %s: %w", path, err)
 	}
-	doc = RepoDoc{Config: Config{}, Present: map[string]bool{}}
+	repo = RepoFile{Config: Config{}, Present: map[string]bool{}}
 	if len(root.Content) == 0 {
-		// An empty file: a valid, empty document.
-		return doc, path, true, nil
+		// An empty file is valid and sets nothing.
+		return repo, path, true, nil
 	}
 	body := root.Content[0]
 	if body.Kind != yaml.MappingNode {
-		return RepoDoc{}, path, false, fmt.Errorf("%s: the document must be a mapping", path)
+		return RepoFile{}, path, false, fmt.Errorf("%s: the file must be a mapping", path)
 	}
 
 	for i := 0; i+1 < len(body.Content); i += 2 {
@@ -507,30 +507,30 @@ func LoadRepo(dir string) (doc RepoDoc, path string, ok bool, err error) {
 		switch topKey {
 		case "config":
 			if topVal.Kind != yaml.MappingNode {
-				return RepoDoc{}, path, false, fmt.Errorf("%s: config must be a mapping of dotted keys to values", path)
+				return RepoFile{}, path, false, fmt.Errorf("%s: config must be a mapping of dotted keys to values", path)
 			}
 			for j := 0; j+1 < len(topVal.Content); j += 2 {
 				key := topVal.Content[j].Value
 				valueNode := topVal.Content[j+1]
 				if !RepoSafe(key) {
-					return RepoDoc{}, path, false, fmt.Errorf("%s: %q may not be set by a repository", path, key)
+					return RepoFile{}, path, false, fmt.Errorf("%s: %q may not be set by a repository", path, key)
 				}
-				if err := setConfigField(&doc.Config, key, valueNode); err != nil {
-					return RepoDoc{}, path, false, fmt.Errorf("%s: %q: %w", path, key, err)
+				if err := setConfigField(&repo.Config, key, valueNode); err != nil {
+					return RepoFile{}, path, false, fmt.Errorf("%s: %q: %w", path, key, err)
 				}
-				doc.Present[key] = true
+				repo.Present[key] = true
 			}
 		case "extensions":
 			var ext any
 			if err := topVal.Decode(&ext); err != nil {
-				return RepoDoc{}, path, false, fmt.Errorf("%s: extensions: %w", path, err)
+				return RepoFile{}, path, false, fmt.Errorf("%s: extensions: %w", path, err)
 			}
-			doc.Extensions = ext
+			repo.Extensions = ext
 		default:
-			return RepoDoc{}, path, false, fmt.Errorf("%s: unknown top-level key %q", path, topKey)
+			return RepoFile{}, path, false, fmt.Errorf("%s: unknown top-level key %q", path, topKey)
 		}
 	}
-	return doc, path, true, nil
+	return repo, path, true, nil
 }
 
 // searchMethods lists every value search.method accepts: internal/retrieval's
@@ -1112,7 +1112,7 @@ func presentKeys(raw Config) map[string]bool {
 // Core's claim TTL, default columns and label/tag requirements — that needs
 // a whole Config to seed something with, before any per-key project override
 // is even in the picture.
-func ApplyRepoOverrides(cfg Config, repo RepoDoc) Config {
+func ApplyRepoOverrides(cfg Config, repo RepoFile) Config {
 	for key := range repo.Present {
 		switch key {
 		case "card.ls_limit":

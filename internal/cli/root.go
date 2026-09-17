@@ -260,7 +260,7 @@ func extractCommandAndSuggestions(root *cobra.Command, err error) (string, []str
 // configInt reads a project-effective integer setting, falling back to def when
 // the value is missing or unparseable: a bad setting must not break a listing.
 func configInt(ctx context.Context, app *appCtx, key string, def int) int {
-	raw, _, err := config.EffectiveValue(ctx, app.cfg, map[string]bool{}, config.RepoDoc{}, app.db, app.Project.ID, key)
+	raw, _, err := config.EffectiveValue(ctx, app.cfg, map[string]bool{}, config.RepoFile{}, app.db, app.Project.ID, key)
 	if err != nil {
 		return def
 	}
