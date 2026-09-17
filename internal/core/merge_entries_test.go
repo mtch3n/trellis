@@ -106,7 +106,7 @@ func TestMergeCollapsesAnIdenticalEntry(t *testing.T) {
 	plan := f.merge(MergeOptions{Apply: true})
 
 	if !slices.Equal(plan.Entries.Collapsed, []string{"shared"}) || plan.Entries.Moved != 1 {
-		t.Errorf("knowledge = %+v", plan.Entries)
+		t.Errorf("entries = %+v", plan.Entries)
 	}
 	if n := f.count(`SELECT count(*) FROM entry WHERE slug = 'shared'`); n != 1 {
 		t.Errorf("%d shared entries remain", n)
@@ -116,7 +116,7 @@ func TestMergeCollapsesAnIdenticalEntry(t *testing.T) {
 	}
 }
 
-// recordEvent looks up its project from the knowledge row itself; collapsing
+// recordEvent looks up its project from the entry row itself; collapsing
 // must record the "collapsed" event before deleting that row, or the event's
 // project_id lands NULL -- which retire()'s later re-homing does not match
 // either -- and it never reaches DST's project-scoped feed.
@@ -264,12 +264,12 @@ func TestMergeEntryPlanMatchesApply(t *testing.T) {
 	}
 }
 
-// A failure after files have moved, and after a citing document has really
+// A failure after files have moved, and after a citing entry has really
 // been rewritten, puts every file back and changes nothing. Two citing
-// documents in different projects: references() visits them in ascending id
+// entries in different projects: references() visits them in ascending id
 // order, so blocking whichever one sorts second still lets the other's
 // rewrite land on disk before the merge fails -- the half of this test a
-// single blocked document could never reach.
+// single blocked entry could never reach.
 func TestMergeFailureRestoresFiles(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("permission bits do not deny writes here")
@@ -309,7 +309,7 @@ func TestMergeFailureRestoresFiles(t *testing.T) {
 			applied.EntriesRewritten, freeAddr)
 	}
 	if got := readFile(t, free.Path); got != freeOriginal {
-		t.Errorf("the document whose rewrite landed was not restored:\n%s", got)
+		t.Errorf("the entry whose rewrite landed was not restored:\n%s", got)
 	}
 	if after := f.snapshot(); after != before {
 		t.Errorf("a failed merge left changes:\nbefore %s\nafter  %s", before, after)
@@ -317,7 +317,7 @@ func TestMergeFailureRestoresFiles(t *testing.T) {
 }
 
 // An entry keeps its history through a merge: its revisions move with it,
-// and a document whose links the merge rewrites keeps the text it had.
+// and an entry whose links the merge rewrites keeps the text it had.
 func TestMergeMovesRevisionsAndKeepsOneForARewrite(t *testing.T) {
 	f := newMergeFixture(t)
 	ctx := t.Context()
@@ -438,7 +438,7 @@ func TestMergeStopsWhenAFileChangesAfterTheBackup(t *testing.T) {
 
 // A decision entry's sources: frontmatter names things by absolute address,
 // the same way a wikilink or a trellis link target does, and must follow the
-// same three objects through a merge: a knowledge entry, an artifact renamed
+// same three objects through a merge: an entry, an artifact renamed
 // here by a conflict, and a card, whose stored ref never changes.
 func TestMergeRewritesSourcesAddresses(t *testing.T) {
 	f := newMergeFixture(t)

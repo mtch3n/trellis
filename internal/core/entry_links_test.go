@@ -11,33 +11,33 @@ func TestEntryLinksListsAddressesAndWithholdsPrivateSources(t *testing.T) {
 		t.Helper()
 		entry, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: title, Body: body, Private: private})
 		if err != nil {
-			t.Fatalf("CreateKnowledge %s: %v", title, err)
+			t.Fatalf("CreateEntry %s: %v", title, err)
 		}
 		return entry
 	}
 
-	create("Target Doc", "target\n", false)
-	vault := create("Vault Doc", "[[target-doc]]\n", false)
+	create("Target Entry", "target\n", false)
+	vault := create("Vault Entry", "[[target-entry]]\n", false)
 	if _, err := c.EscalateKnowledge(ctx, p.ID, vault.Slug, "shared"); err != nil {
 		t.Fatalf("EscalateKnowledge: %v", err)
 	}
-	create("Source Doc", "[[target-doc#usage]] [[missing-one]] [[/GLOBAL/vault/vault-doc]]\n", false)
-	create("Secret Doc", "[[target-doc]]\n", true)
+	create("Source Entry", "[[target-entry#usage]] [[missing-one]] [[/GLOBAL/vault/vault-entry]]\n", false)
+	create("Secret Entry", "[[target-entry]]\n", true)
 	// Private in the file only: the mirror still says public.
-	stale := create("Stale Doc", "[[target-doc]]\n", false)
+	stale := create("Stale Entry", "[[target-entry]]\n", false)
 	setPrivateInFile(t, stale.Path, true)
 
 	links, err := c.EntryLinks(ctx, p.ID)
 	if err != nil {
-		t.Fatalf("KnowledgeLinks: %v", err)
+		t.Fatalf("EntryLinks: %v", err)
 	}
 	addr := func(s string) *string { return &s }
 	key := p.Key
 	want := []EntryLink{
-		{From: "/GLOBAL/vault/vault-doc", To: addr("/" + key + "/vault/target-doc"), Raw: "target-doc"},
-		{From: "/" + key + "/vault/source-doc", To: addr("/GLOBAL/vault/vault-doc"), Raw: "/GLOBAL/vault/vault-doc"},
-		{From: "/" + key + "/vault/source-doc", To: nil, Raw: "missing-one"},
-		{From: "/" + key + "/vault/source-doc", To: addr("/" + key + "/vault/target-doc"), Raw: "target-doc#usage", Anchor: "usage"},
+		{From: "/GLOBAL/vault/vault-entry", To: addr("/" + key + "/vault/target-entry"), Raw: "target-entry"},
+		{From: "/" + key + "/vault/source-entry", To: addr("/GLOBAL/vault/vault-entry"), Raw: "/GLOBAL/vault/vault-entry"},
+		{From: "/" + key + "/vault/source-entry", To: nil, Raw: "missing-one"},
+		{From: "/" + key + "/vault/source-entry", To: addr("/" + key + "/vault/target-entry"), Raw: "target-entry#usage", Anchor: "usage"},
 	}
 	if len(links) != len(want) {
 		t.Fatalf("links = %s, want %d", show(links), len(want))

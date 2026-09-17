@@ -34,7 +34,7 @@ type Entry struct {
 	Slug      string  `db:"slug" json:"slug"`
 	Title     string  `db:"title" json:"title"`
 	// Path is derived from the storage root, the entry's project key (or the
-	// global vault), and its slug — see docPath. It is filled by docView and
+	// global vault), and its slug — see entryPath. It is filled by entryView and
 	// refreshFromFile, never scanned from a column.
 	Path       string  `db:"-" json:"path"`
 	Template   string  `db:"template" json:"template"`
@@ -64,11 +64,11 @@ type Entry struct {
 	Sources   []string       `db:"-" json:"sources,omitempty"`
 	Fields    map[string]any `db:"-" json:"fields"`
 	Missing   bool           `db:"-" json:"missing,omitzero"` // file is missing; content withheld
-	// Warnings is set only by CreateKnowledge, when creating from a
+	// Warnings is set only by CreateEntry, when creating from a
 	// template under enforce: warn found a problem: a missing required
 	// field, a value outside its choices, or a missing section. It is
-	// never persisted or reloaded — the render-once model checks a
-	// document against its template once, at creation.
+	// never persisted or reloaded — the render-once model checks an
+	// entry against its template once, at creation.
 	Warnings []string `db:"-" json:"warnings,omitempty"`
 }
 
@@ -102,14 +102,14 @@ type NewEntry struct {
 	NewDir bool
 	// Set supplies values for fields a template asks for (required or
 	// choices), and any other field the caller wants recorded. Every entry
-	// is written into the new document's frontmatter.
+	// is written into the new entry's frontmatter.
 	Set map[string]string
 	// Sources cites what this entry's claims are based on. See
 	// Frontmatter.Sources.
 	Sources []string
 }
 
-// EntryEdit is a whole-document replacement. Nil fields retain their
+// EntryEdit is a whole-entry replacement. Nil fields retain their
 // current values, allowing callers to update frontmatter without losing the
 // body (or update the body without losing title and summary).
 type EntryEdit struct {
@@ -144,7 +144,7 @@ func Templates() []string {
 
 // vaultDir is where a project's vault lives: one directory per project, plus
 // the reserved global one. It does not create the directory; a write that
-// needs it existing goes through kbDir.
+// needs it existing goes through makeVaultDir.
 func (c *Core) vaultDir(projectKey string, global bool) string {
 	if global {
 		return filepath.Join(c.root, "global", "vault")
@@ -152,7 +152,7 @@ func (c *Core) vaultDir(projectKey string, global bool) string {
 	return filepath.Join(c.root, "projects", projectKey, "vault")
 }
 
-// makeVaultDir is docDir, creating the directory: only a write needs that.
+// makeVaultDir is vaultDir, creating the directory: only a write needs that.
 func (c *Core) makeVaultDir(projectKey string, global bool) (string, error) {
 	dir := c.vaultDir(projectKey, global)
 	return dir, os.MkdirAll(dir, 0o700)
@@ -166,7 +166,7 @@ func (c *Core) entryPath(projectKey string, global bool, slug string) string {
 	return filepath.Join(c.vaultDir(projectKey, global), filepath.FromSlash(slug)+".md")
 }
 
-// keyOfEntry resolves the project key a document's file and address are built
+// keyOfEntry resolves the project key an entry's file and address are built
 // from: the global vault's reserved key for a global entry, or its owning
 // project's key otherwise.
 func (c *Core) keyOfEntry(tx *sqlx.Tx, entry *Entry) (string, error) {
@@ -182,7 +182,7 @@ func (c *Core) keyOfEntry(tx *sqlx.Tx, entry *Entry) (string, error) {
 // record, and a row pointing at a file that was never written would be a lie.
 func (c *Core) CreateEntry(ctx context.Context, projectID string, in NewEntry) (Entry, error) {
 	if strings.TrimSpace(in.Title) == "" {
-		return Entry{}, ErrUsage("missing_title", "a knowledge entry needs a title",
+		return Entry{}, ErrUsage("missing_title", "an entry needs a title",
 			`trellis knowledge new --title "Concurrency model"`)
 	}
 	provenance, err := checkProvenance(in.Provenance)
@@ -248,7 +248,7 @@ func (c *Core) CreateEntry(ctx context.Context, projectID string, in NewEntry) (
 		}
 	}
 	if err := c.checkWrite(ctx, ProposedWrite{
-		Op: "doc.write", EntityType: "entry", ProjectID: projectID,
+		Op: "entry.write", EntityType: "entry", ProjectID: projectID,
 		Fields: map[string]string{"title": in.Title, "body": body},
 	}); err != nil {
 		return Entry{}, err
@@ -369,7 +369,7 @@ func (c *Core) CreateEntry(ctx context.Context, projectID string, in NewEntry) (
 		return c.entryView(tx, &entry)
 	})
 	if err != nil && writtenPath != "" {
-		// A failed transaction must not leave a database-less knowledge file.
+		// A failed transaction must not leave an entry file without its row.
 		// Keep a committed file intact if SQLite reports an ambiguous commit by
 		// only removing the path when it still has the exact bytes we wrote.
 		if raw, readErr := os.ReadFile(writtenPath); readErr == nil && ContentHash(string(raw)) == entry.ContentHash {
@@ -440,7 +440,7 @@ func (c *Core) LoadEntry(ctx context.Context, projectID, slug string) (Entry, er
 	return entry, err
 }
 
-// ReadEntry is LoadKnowledge plus the read counter that the escalation
+// ReadEntry is LoadEntry plus the read counter that the escalation
 // queue and `knowledge ls --cold` are computed from. Separate from Load so
 // internal lookups — lint, the graph, resolving a link — do not inflate a
 // number that is supposed to mean "a person or agent went and read this".
@@ -495,7 +495,7 @@ func (c *Core) loadEntry(tx *sqlx.Tx, projectID, slug string, out *Entry) error 
 	return c.entryView(tx, out)
 }
 
-// extraToFields converts Frontmatter.Extra to Knowledge.Fields.
+// extraToFields converts Frontmatter.Extra to Entry.Fields.
 // Each Extra value becomes a string or []string (for slices).
 // Nil values are dropped. An empty Extra becomes an empty but non-nil map.
 func extraToFields(extra map[string]any) map[string]any {
@@ -565,7 +565,7 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, entry *Entry) (err error) {
 	// Unlike Title, an empty template is meaningful: it means "no template",
 	// not "keep whatever the row had". cmpOr here would make removing the
 	// key by hand a no-op, so ls --template, the Templates recall filter and
-	// Knowledge.Template would all keep reporting a template the file no
+	// Entry.Template would all keep reporting a template the file no
 	// longer names.
 	entry.Template = fm.Template
 	entry.Summary = fm.Summary
@@ -655,7 +655,7 @@ func (c *Core) entryView(tx *sqlx.Tx, entry *Entry) error {
 		entry.ID); err != nil {
 		return err
 	}
-	// rowid order is the order syncDocRelations inserted the rows, which is
+	// rowid order is the order syncEntryRelations inserted the rows, which is
 	// the order the file lists the names.
 	entry.Artifacts = nil
 	return tx.Select(&entry.Artifacts,
@@ -669,9 +669,9 @@ func (c *Core) entryView(tx *sqlx.Tx, entry *Entry) error {
 		 ORDER BY l.rowid`, entry.ID)
 }
 
-// ListKnowledge returns the selected board's entries plus the unscoped ones
+// ListEntries returns the selected board's entries plus the unscoped ones
 // (§10.1): a board is a lens, so narrowing by one never hides project-wide
-// knowledge. An empty boardID lists the whole project.
+// entries. An empty boardID lists the whole project.
 // EntryFilter narrows a listing. A zero value lists everything the project
 // can see, which is what almost every caller wants.
 type EntryFilter struct {
@@ -771,7 +771,7 @@ func (c *Core) EditEntry(ctx context.Context, projectID, slug, body string, ifVe
 	return c.EditEntryFields(ctx, projectID, slug, EntryEdit{Body: &body, IfVersion: ifVersion})
 }
 
-// changedOnDisk reports that a knowledge file no longer holds the bytes a
+// changedOnDisk reports that an entry file no longer holds the bytes a
 // write inside this transaction was based on: something outside Trellis, an
 // editor most likely, won the race.
 func changedOnDisk(slug string) error {
@@ -865,13 +865,13 @@ func (c *Core) EditEntryFields(ctx context.Context, projectID, slug string, in E
 			fields["sources"] = strings.Join(*in.Sources, "\n")
 		}
 		if err := c.checkWrite(ctx, ProposedWrite{
-			Op: "doc.write", EntityType: "entry", EntityID: entry.ID, ProjectID: projectID,
+			Op: "entry.write", EntityType: "entry", EntityID: entry.ID, ProjectID: projectID,
 			Fields: fields,
 		}); err != nil {
 			return err
 		}
 
-		// The one read this write is based on. loadDoc's own read, above, may
+		// The one read this write is based on. loadEntry's own read, above, may
 		// be stale by now: checkWrite just ran arbitrary policy code, and
 		// nothing here holds a lock against a program outside Trellis.
 		raw, err := os.ReadFile(entry.Path)
@@ -896,7 +896,7 @@ func (c *Core) EditEntryFields(ctx context.Context, projectID, slug string, in E
 		}
 		if in.Title != nil {
 			if strings.TrimSpace(*in.Title) == "" {
-				return ErrUsage("missing_title", "a knowledge entry needs a title", "trellis knowledge show "+entry.Slug)
+				return ErrUsage("missing_title", "an entry needs a title", "trellis knowledge show "+entry.Slug)
 			}
 			fm.Title = *in.Title
 		}
@@ -1110,7 +1110,7 @@ func (c *Core) DeleteEntry(ctx context.Context, projectID, slug string) error {
 		}
 		if err := tx.Get(&entry, q, projectID, exactSlug); err != nil {
 			if err.Error() == "sql: no rows in result set" {
-				return ErrNotFound("knowledge_not_found", "no knowledge entry "+slug+" owned by this project", "trellis knowledge ls")
+				return ErrNotFound("knowledge_not_found", "no entry "+slug+" owned by this project", "trellis knowledge ls")
 			}
 			return err
 		}
@@ -1167,7 +1167,7 @@ func (c *Core) DeleteEntry(ctx context.Context, projectID, slug string) error {
 		// when it shows the delete landed, the delete is a success no
 		// matter what Commit reported. When done is false, the closure's
 		// own defer already restored -- there is nothing here to resolve,
-		// including the "not found" case where doc.ID is not a real row.
+		// including the "not found" case where entry.ID is not a real row.
 		var gone int
 		qerr := c.db.Get(&gone, `SELECT COUNT(*) FROM entry WHERE id = ?`, entry.ID)
 		if writeLanded(gone == 0, qerr) {

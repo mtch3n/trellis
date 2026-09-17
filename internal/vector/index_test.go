@@ -136,7 +136,7 @@ func TestUpsertSkipsUnchangedAndPreservesOnEmbeddingFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(after) != string(before) {
-		t.Fatalf("unchanged document was embedded again: before %q after %q", before, after)
+		t.Fatalf("unchanged entry was embedded again: before %q after %q", before, after)
 	}
 	if err := os.WriteFile(failed, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -180,10 +180,10 @@ func TestIndexesUseSeparateVirtualTablesAndDatabases(t *testing.T) {
 	if a.virtualTable == b.virtualTable || a.shadowTable == b.shadowTable {
 		t.Fatalf("project vector tables collided: %q and %q", a.virtualTable, b.virtualTable)
 	}
-	if _, err := a.Upsert(t.Context(), []Entry{{ID: "a-doc", Content: "alpha"}}, "a"); err != nil {
+	if _, err := a.Upsert(t.Context(), []Entry{{ID: "a-entry", Content: "alpha"}}, "a"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.Upsert(t.Context(), []Entry{{ID: "b-doc", Content: "bravo"}}, "b"); err != nil {
+	if _, err := b.Upsert(t.Context(), []Entry{{ID: "b-entry", Content: "bravo"}}, "b"); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := a.Count(t.Context(), "a"); err != nil || got != 1 {

@@ -91,7 +91,7 @@ func TestFindingTemplateSkeletonHasFactEvidenceScope(t *testing.T) {
 		Title: "Flaky test", Template: "finding", Sources: []string{"https://ci.example.com/run/482"},
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	for _, heading := range []string{"## Fact", "## Evidence", "## Scope"} {
 		if !strings.Contains(entry.BodyMD, heading) {

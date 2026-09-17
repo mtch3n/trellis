@@ -25,7 +25,7 @@ func TestCreateEntryWritesFileAndRow(t *testing.T) {
 		Sources: []string{"https://example.com/design-notes"},
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if entry.Slug != "concurrency-model" || entry.Ref != "/XPSCTL/vault/concurrency-model" {
 		t.Errorf("slug/ref = %q/%q", entry.Slug, entry.Ref)
@@ -75,7 +75,7 @@ func TestExternalEditWins(t *testing.T) {
 
 	got, err := c.LoadEntry(t.Context(), p.ID, "notes")
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if got.Title != "Edited elsewhere" {
 		t.Errorf("Title = %q, want the file's title: the file always wins", got.Title)
@@ -147,7 +147,7 @@ func TestLinkCardToEntryAndOrphanLint(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := c.LinkCardToEntry(t.Context(), p.ID, CardRef{Seq: card.Seq}, "runbook#steps"); err != nil {
-		t.Fatalf("LinkCardToDoc: %v", err)
+		t.Fatalf("LinkCardToEntry: %v", err)
 	}
 
 	back, err := c.Backlinks(t.Context(), entry.ID)
@@ -252,7 +252,7 @@ func TestSearchMatchesTheSummary(t *testing.T) {
 
 // A reference may be written before the entry it names. Creating that entry is
 // what turns the stub into a real edge, so the backlink appears without the
-// referring document being touched again.
+// referring entry being touched again.
 func TestCreatingEntryResolvesInboundStubs(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	src, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
@@ -334,7 +334,7 @@ func TestProvenanceDefaultsToAuthored(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Lease renewal"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if entry.Provenance != "authored" {
 		t.Errorf("provenance = %q, want authored", entry.Provenance)
@@ -349,7 +349,7 @@ func TestProvenanceReachesBothTheFileAndTheRow(t *testing.T) {
 		Title: "Lease renewal", Provenance: "extracted",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if entry.Provenance != "extracted" {
 		t.Errorf("row provenance = %q", entry.Provenance)
@@ -372,12 +372,12 @@ func TestProvenanceSurvivesAnEdit(t *testing.T) {
 		Title: "Lease renewal", Provenance: "prompted",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	// A mark that does not survive an edit cannot anchor an experiment.
 	edited, err := c.EditEntry(ctx, p.ID, entry.Slug, "rewritten body\n", &entry.Version)
 	if err != nil {
-		t.Fatalf("EditKnowledge: %v", err)
+		t.Fatalf("EditEntry: %v", err)
 	}
 	if edited.Provenance != "prompted" {
 		t.Errorf("provenance after edit = %q, want prompted", edited.Provenance)
@@ -412,7 +412,7 @@ func TestProvenanceIsReadBackFromTheFile(t *testing.T) {
 
 	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Lease renewal"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	raw, err := os.ReadFile(entry.Path)
 	if err != nil {
@@ -428,7 +428,7 @@ func TestProvenanceIsReadBackFromTheFile(t *testing.T) {
 	// The file is the record; editing it out of band must win.
 	got, err := c.ReadEntry(ctx, p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("ReadKnowledge: %v", err)
+		t.Fatalf("ReadEntry: %v", err)
 	}
 	if got.Provenance != "extracted" {
 		t.Errorf("provenance = %q, want the file's value", got.Provenance)
@@ -444,7 +444,7 @@ func TestListEntriesFiltersByTypeAndProvenance(t *testing.T) {
 		if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 			Title: title, Template: template, Provenance: prov, Sources: sources,
 		}); err != nil {
-			t.Fatalf("CreateKnowledge %s: %v", title, err)
+			t.Fatalf("CreateEntry %s: %v", title, err)
 		}
 	}
 	mk("Chosen storage", "decision", "authored", "https://example.com/storage-comparison")
@@ -469,7 +469,7 @@ func TestListEntriesFiltersByTypeAndProvenance(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			entries, err := c.ListEntries(ctx, p.ID, tc.f)
 			if err != nil {
-				t.Fatalf("ListKnowledge: %v", err)
+				t.Fatalf("ListEntries: %v", err)
 			}
 			if len(entries) != tc.want {
 				t.Errorf("got %d entries, want %d", len(entries), tc.want)
@@ -496,7 +496,7 @@ func TestCreateEntrySetWritesExtraFields(t *testing.T) {
 		Title: "Rollback the API", Template: "runbook", Set: map[string]string{"owner": "alice"},
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	raw, err := os.ReadFile(entry.Path)
 	if err != nil {
@@ -559,7 +559,7 @@ func TestCreateEntryWarnsInsteadOfRejecting(t *testing.T) {
 
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "X", Template: "lenient"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if len(entry.Warnings) != 1 || !strings.Contains(entry.Warnings[0], "owner") {
 		t.Errorf("Warnings = %v, want one naming owner", entry.Warnings)
@@ -598,7 +598,7 @@ func TestCreateEntryRecordsSourcesAndReadsThemBack(t *testing.T) {
 		Title: "Cited", Sources: []string{"https://example.com", "  "},
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if len(entry.Sources) != 1 || entry.Sources[0] != "https://example.com" {
 		t.Fatalf("Sources = %v, want the blank entry dropped", entry.Sources)
@@ -606,7 +606,7 @@ func TestCreateEntryRecordsSourcesAndReadsThemBack(t *testing.T) {
 
 	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if len(got.Sources) != 1 || got.Sources[0] != "https://example.com" {
 		t.Errorf("Sources after reload = %v", got.Sources)
@@ -619,14 +619,14 @@ func TestEditEntryReplacesSources(t *testing.T) {
 		Title: "Backfilled", Sources: []string{"https://example.com"},
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	next := []string{"https://example.com", "https://example.org"}
 	got, err := c.EditEntryFields(t.Context(), p.ID, entry.Slug,
 		EntryEdit{Sources: &next, IfVersion: &entry.Version})
 	if err != nil {
-		t.Fatalf("EditKnowledgeFields: %v", err)
+		t.Fatalf("EditEntryFields: %v", err)
 	}
 	if len(got.Sources) != 2 {
 		t.Errorf("Sources = %v, want two", got.Sources)
@@ -654,7 +654,7 @@ func TestCreateEntryRefusesAStaleRevisionDirectory(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Old", Body: "the old private body\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := os.Stat(revisionFilePath(entry.Path, 1)); err != nil {
 		t.Fatalf("version 1 must exist before the simulated outside removal: %v", err)
@@ -673,7 +673,7 @@ func TestCreateEntryRefusesAStaleRevisionDirectory(t *testing.T) {
 	}
 	// The refusal must not have written anything either.
 	if _, err := os.Stat(entry.Path); !os.IsNotExist(err) {
-		t.Errorf("CreateKnowledge left a file behind despite refusing: %v", err)
+		t.Errorf("CreateEntry left a file behind despite refusing: %v", err)
 	}
 }
 
@@ -686,7 +686,7 @@ func TestRemovingTemplateByHandClearsTheRow(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Plan", Template: "runbook"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if entry.Template != "runbook" {
 		t.Fatalf("Template = %q, want runbook", entry.Template)
@@ -706,7 +706,7 @@ func TestRemovingTemplateByHandClearsTheRow(t *testing.T) {
 
 	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if got.Template != "" {
 		t.Errorf("Template = %q after removing the key by hand, want empty", got.Template)
@@ -720,7 +720,7 @@ func TestEntryFieldsFromSet(t *testing.T) {
 		Set:   map[string]string{"owner": "alice", "severity": "high"},
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if entry.Fields == nil {
 		t.Error("Fields should be non-nil")
@@ -739,7 +739,7 @@ func TestEntryFieldsEmpty(t *testing.T) {
 		Title: "Plain entry",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if entry.Fields == nil {
 		t.Error("Fields should be non-nil even when empty")
@@ -751,12 +751,12 @@ func TestEntryFieldsEmpty(t *testing.T) {
 
 func TestEntryFieldsFromYAMLList(t *testing.T) {
 	c, p, _ := vaultCore(t)
-	// Create a knowledge entry, then modify the file to add a YAML list field
+	// Create an entry, then modify the file to add a YAML list field
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Team members",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	// Modify the file to add a YAML list field
@@ -778,7 +778,7 @@ func TestEntryFieldsFromYAMLList(t *testing.T) {
 	// Load it and check Fields
 	loaded, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 
 	members, ok := loaded.Fields["members"].([]string)

@@ -68,7 +68,7 @@ func TestEntryLinksEndpoint(t *testing.T) {
 	}
 
 	// 3. JSON shape test
-	// Create a document with a link
+	// Create an entry with a link
 	_, err = c.CreateEntry(context.Background(), p.ID, core.NewEntry{
 		Title: "Source",
 		Body:  "[[target]]\n",

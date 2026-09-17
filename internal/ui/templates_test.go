@@ -67,7 +67,7 @@ func TestTemplatesRouteListsRules(t *testing.T) {
 	t.Error("a user template is not listed")
 }
 
-// templateCRUDServer builds a server backed by a fresh KB root, for the
+// templateCRUDServer builds a server backed by a fresh storage root, for the
 // per-template routes: get, put, post, delete and reinstall.
 func templateCRUDServer(t *testing.T) (*Server, string) {
 	t.Helper()

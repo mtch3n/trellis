@@ -23,7 +23,7 @@ type artifactMove struct {
 	into string
 }
 
-// planArtifacts applies the document rules to artifacts, by file name.
+// planArtifacts applies the entry rules to artifacts, by file name.
 // There is no vault for artifacts, so every conflict may be renamed.
 func (m *merger) planArtifacts() error {
 	var src, dst []artifactRow
@@ -131,10 +131,10 @@ func (m *merger) moveArtifacts() error {
 				return err
 			}
 			// A card link's to_raw is the artifact id and must follow it to
-			// the new one. A doc link's to_raw is the artifact's name,
-			// resolved within the document's own project by
+			// the new one. An entry link's to_raw is the artifact's name,
+			// resolved within the entry's own project by
 			// resolveArtifactName, and renaming the id underneath it must not
-			// change what the document typed.
+			// change what the entry typed.
 			if _, err := m.tx.Exec(
 				`UPDATE OR IGNORE link SET to_id = ?,
 				        to_raw = CASE WHEN from_type = 'card' THEN ? ELSE to_raw END

@@ -220,7 +220,7 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 		brief.counts[r.ColumnName] = r.Count
 	}
 
-	// PINNED: pin joined to knowledge, comparing recap_hash against
+	// PINNED: pin joined to entry, comparing recap_hash against
 	// content_hash. Ordered most recently pinned first.
 	// Read MaxInjectedPins + 1 to know if there are more; the brief renders
 	// only MaxInjectedPins in full, then counts the rest.
@@ -280,7 +280,7 @@ func formatBrief(brief *boardBrief) string {
 		result.WriteString("\n")
 	}
 
-	// PINNED section: knowledge the agent wrote down for its future self.
+	// PINNED section: entries the agent wrote down for its future self.
 	// Trimmed before YOURS and DO THIS, and each line carries the command that
 	// expands it, because an agent that cannot act on a line ignores it (§10.5).
 	if len(brief.pins) > 0 {

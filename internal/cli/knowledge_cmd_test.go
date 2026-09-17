@@ -244,7 +244,7 @@ func TestKnowledgeLsDisclosesNoContent(t *testing.T) {
 
 // One malformed flag in any vault file fails every command, because the CLI
 // sweeps the vault before running one. The failure is deliberate; not saying
-// which file caused it is not. `card ls` never touches knowledge, which is
+// which file caused it is not. `card ls` never touches entries, which is
 // what makes the missing path so hard to act on.
 func TestABadPrivateValueNamesTheFileInEveryCommand(t *testing.T) {
 	projectEnv(t)

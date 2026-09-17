@@ -12,7 +12,7 @@ import (
 	"github.com/mtch3n/trellis/internal/address"
 )
 
-// syncEntryRelations rewrites everything derived from a doc's text: its
+// syncEntryRelations rewrites everything derived from an entry's text: its
 // wikilinks, its inline #tags and its frontmatter tags and labels. Derived data
 // is replaced rather than merged, because the file is the record: a link deleted
 // from the text must disappear from the graph.
@@ -90,16 +90,16 @@ func (c *Core) syncEntryRelations(tx *sqlx.Tx, entry *Entry, fm Frontmatter, bod
 	return nil
 }
 
-// resolveEntryRef turns a reference into a doc id, or NULL for a stub. An
+// resolveEntryRef turns a reference into an entry id, or NULL for a stub. An
 // unresolved link is listed by `knowledge lint`, never an error: writing a link
 // to something not yet written is how a vault gets built.
 //
 // A relative reference resolves in the source's project first and in the
-// vault second, the order loadDoc uses for a relative argument. An address
+// vault second, the order loadEntry uses for a relative argument. An address
 // resolves wherever it points, another project included: the link names its
 // target exactly, and reading that project by name is already allowed. A
 // project or entry that does not exist yet leaves a stub, which
-// resolveDocStubs fills in when the entry is created or escalated.
+// resolveEntryStubs fills in when the entry is created or escalated.
 func (c *Core) resolveEntryRef(tx *sqlx.Tx, projectID string, ref Reference) (any, error) {
 	var q string
 	var args []any
@@ -151,7 +151,7 @@ func entriesWithLeaf(tx *sqlx.Tx, projectID, leaf string) ([]string, error) {
 	return ids, err
 }
 
-// Backlink is one inbound reference to a doc.
+// Backlink is one inbound reference to an entry.
 type Backlink struct {
 	FromType string `db:"from_type" json:"from_type"`
 	Ref      string `db:"ref" json:"ref"`
@@ -159,7 +159,7 @@ type Backlink struct {
 	Anchor   string `db:"anchor" json:"anchor,omitempty"`
 }
 
-// Backlinks answers "what points here" for cards and docs alike.
+// Backlinks answers "what points here" for cards and entries alike.
 func (c *Core) Backlinks(ctx context.Context, entryID string) ([]Backlink, error) {
 	out := []Backlink{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
@@ -178,7 +178,7 @@ func (c *Core) Backlinks(ctx context.Context, entryID string) ([]Backlink, error
 	return out, err
 }
 
-// LinkCardToEntry is the structured card-to-doc relationship (§10.2):
+// LinkCardToEntry is the structured card-to-entry relationship (§10.2):
 //
 //	trellis link XPSCTL-12 design#concurrency
 //	trellis link XPSCTL-12 /OTHER/vault/runbook#rollback
@@ -202,7 +202,7 @@ func (c *Core) LinkCardToEntry(ctx context.Context, projectID string, cardRef Ca
 			return err
 		}
 		if toID == nil {
-			return ErrNotFound("knowledge_not_found", "no knowledge entry "+ref.Raw,
+			return ErrNotFound("knowledge_not_found", "no entry "+ref.Raw,
 				`trellis knowledge new --title "..."`)
 		}
 		if _, err := tx.Exec(
@@ -253,7 +253,7 @@ func (c *Core) resolveEntryStubs(tx *sqlx.Tx, entry *Entry) error {
 	}
 	for _, s := range stubs {
 		if s.FromID == entry.ID {
-			continue // a doc referring to itself before it existed
+			continue // an entry referring to itself before it existed
 		}
 		toID, err := c.resolveEntryRef(tx, s.ProjectID, ParseReference(s.ToRaw))
 		if err != nil {
@@ -306,7 +306,7 @@ func dedupeNames(in []string) []string {
 	return out
 }
 
-// EntryLink is a link out of a knowledge entry. From and To are
+// EntryLink is a link out of an entry. From and To are
 // canonical addresses; To is nil for a stub.
 type EntryLink struct {
 	From   string  `json:"from"`
@@ -315,7 +315,7 @@ type EntryLink struct {
 	Anchor string  `json:"anchor"`
 }
 
-// EntryLinks lists the links out of a project's knowledge entries,
+// EntryLinks lists the links out of a project's entries,
 // including the ones it escalated to the vault, ordered by source and then raw
 // target. A private entry's links are left out: where it links says what it
 // is about. The flag is read from the files, not the mirror.

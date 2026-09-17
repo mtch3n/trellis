@@ -57,7 +57,7 @@ func openCore() (*core.Core, *sqlx.DB, error) {
 	c := core.New(db, core.RealClock{}, cliActor(), root)
 	if err := c.SyncEntrySearch(context.Background()); err != nil {
 		db.Close()
-		return nil, nil, fmt.Errorf("rebuild knowledge search: %w", err)
+		return nil, nil, fmt.Errorf("rebuild entry search: %w", err)
 	}
 	cfg, cfgErr := config.Load(root)
 	if cfgErr != nil {

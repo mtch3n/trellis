@@ -1,4 +1,4 @@
-// Package vector provides the optional semantic index for knowledge files.
+// Package vector provides the optional semantic index for entry files.
 // SQLite/FTS remains the default search path; this package is a derived cache.
 package vector
 
@@ -352,7 +352,7 @@ func (i *Index) upsert(ctx context.Context, entries []Entry, dataset string) (in
 	}
 	n := 0
 	for dIndex, r := range replacements {
-		// Remove all previous chunks first. A document that shrinks must not
+		// Remove all previous chunks first. An entry that shrinks must not
 		// leave its old tail chunks in the derived index.
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+i.shadowTable+` WHERE dataset_id = ? AND (id = ? OR id LIKE ? || ':%')`, dataset, r.entry.ID, r.entry.ID); err != nil {
 			return n, err

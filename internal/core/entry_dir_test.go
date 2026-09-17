@@ -14,7 +14,7 @@ func TestCreateEntryWithDirNestsTheSlugAndPath(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback runbook", Dir: "deployment"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if entry.Slug != "deployment/rollback-runbook" {
 		t.Fatalf("slug = %q, want deployment/rollback-runbook", entry.Slug)
@@ -32,7 +32,7 @@ func TestCreateEntryWithNoDirStaysAtTheRoot(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Recall ranking"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if entry.Slug != "recall-ranking" {
 		t.Fatalf("slug = %q, want recall-ranking", entry.Slug)
@@ -43,11 +43,11 @@ func TestUniqueSlugOperatesOnTheFullPathNotJustTheLeaf(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	a, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge a: %v", err)
+		t.Fatalf("CreateEntry a: %v", err)
 	}
 	b, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "docs"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge b: %v", err)
+		t.Fatalf("CreateEntry b: %v", err)
 	}
 	if a.Slug != "deployment/rollback" || b.Slug != "docs/rollback" {
 		t.Fatalf("slugs = %q, %q — two directories must not force a numeric suffix", a.Slug, b.Slug)
@@ -56,7 +56,7 @@ func TestUniqueSlugOperatesOnTheFullPathNotJustTheLeaf(t *testing.T) {
 	// behavior is unchanged.
 	c2, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge c2: %v", err)
+		t.Fatalf("CreateEntry c2: %v", err)
 	}
 	if c2.Slug != "deployment/rollback-2" {
 		t.Fatalf("slug = %q, want deployment/rollback-2", c2.Slug)
@@ -74,7 +74,7 @@ func TestCreateEntryTitledLikeAReservedNameGetsASuffix(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "CON"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if entry.Slug != "con-2" {
 		t.Fatalf("slug = %q, want con-2: \"con\" alone cannot be opened on Windows", entry.Slug)
@@ -89,7 +89,7 @@ func TestCreateEntryTruncatesAnOverLongTitleSlugAndKeepsTheFullTitle(t *testing.
 	title := "A title so long that its slugified form has to be truncated to fit the per-segment ceiling of ninety six characters"
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: title})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if len(entry.Slug) > maxPathSegmentLen {
 		t.Fatalf("slug %q is %d characters, want <= %d", entry.Slug, len(entry.Slug), maxPathSegmentLen)
@@ -110,7 +110,7 @@ func TestCreateEntryTruncatesAnOverLongTitleSlugAndKeepsTheFullTitle(t *testing.
 func TestCreatingADirectoryThatResemblesAnExistingOneIsRefused(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Notes", Dir: "deploy"}); err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Runbook", Dir: "deployment"})
 	if pathErrCode(err) != "similar_directory" {
@@ -124,11 +124,11 @@ func TestCreatingADirectoryThatResemblesAnExistingOneIsRefused(t *testing.T) {
 func TestNewDirCreatesItAnyway(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Notes", Dir: "deploy"}); err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Runbook", Dir: "deployment", NewDir: true})
 	if err != nil {
-		t.Fatalf("CreateKnowledge with NewDir: %v", err)
+		t.Fatalf("CreateEntry with NewDir: %v", err)
 	}
 	if entry.Slug != "deployment/runbook" {
 		t.Fatalf("slug = %q, want deployment/runbook", entry.Slug)
@@ -138,22 +138,22 @@ func TestNewDirCreatesItAnyway(t *testing.T) {
 func TestWritingIntoAnExistingDirectoryIsNeverRefused(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "First", Dir: "deploy"}); err != nil {
-		t.Fatalf("CreateKnowledge first: %v", err)
+		t.Fatalf("CreateEntry first: %v", err)
 	}
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Second", Dir: "deployment", NewDir: true}); err != nil {
-		t.Fatalf("CreateKnowledge second: %v", err)
+		t.Fatalf("CreateEntry second: %v", err)
 	}
 	// "deploy" now resembles "deployment", which also exists, but "deploy"
 	// itself is an existing directory and writing into it is never refused.
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Third", Dir: "deploy"}); err != nil {
-		t.Fatalf("CreateKnowledge third into the existing deploy/: %v", err)
+		t.Fatalf("CreateEntry third into the existing deploy/: %v", err)
 	}
 }
 
 func TestApiDoesNotMatchApisLegacyAsADirectory(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "X", Dir: "apis-legacy"}); err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Y", Dir: "api"}); err != nil {
 		t.Fatalf("api must not be refused as resembling apis-legacy: %v", err)
@@ -164,11 +164,11 @@ func TestBareLeafOpensTheUniqueMatch(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	created, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	got, err := c.LoadEntry(t.Context(), p.ID, "rollback")
 	if err != nil {
-		t.Fatalf("LoadKnowledge by bare leaf: %v", err)
+		t.Fatalf("LoadEntry by bare leaf: %v", err)
 	}
 	if got.ID != created.ID {
 		t.Fatalf("got %q, want %q", got.Slug, created.Slug)
@@ -179,11 +179,11 @@ func TestBareLeafAmbiguityListsCandidatesAndOpensNeither(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	a, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge a: %v", err)
+		t.Fatalf("CreateEntry a: %v", err)
 	}
 	b, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "docs"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge b: %v", err)
+		t.Fatalf("CreateEntry b: %v", err)
 	}
 	_, err = c.LoadEntry(t.Context(), p.ID, "rollback")
 	e, ok := errors.AsType[*Error](err)
@@ -199,14 +199,14 @@ func TestBareLeafAmbiguityListsCandidatesAndOpensNeither(t *testing.T) {
 func TestFullPathStillResolvesExactlyEvenWhenALeafIsAmbiguous(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment"}); err != nil {
-		t.Fatalf("CreateKnowledge a: %v", err)
+		t.Fatalf("CreateEntry a: %v", err)
 	}
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "docs"}); err != nil {
-		t.Fatalf("CreateKnowledge b: %v", err)
+		t.Fatalf("CreateEntry b: %v", err)
 	}
 	got, err := c.LoadEntry(t.Context(), p.ID, "deployment/rollback")
 	if err != nil {
-		t.Fatalf("LoadKnowledge by full path: %v", err)
+		t.Fatalf("LoadEntry by full path: %v", err)
 	}
 	if got.Slug != "deployment/rollback" {
 		t.Fatalf("slug = %q", got.Slug)
@@ -225,10 +225,10 @@ func TestDeleteEntryByBareLeaf(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if err := c.DeleteEntry(t.Context(), p.ID, "rollback"); err != nil {
-		t.Fatalf("DeleteKnowledge by bare leaf: %v", err)
+		t.Fatalf("DeleteEntry by bare leaf: %v", err)
 	}
 	if _, err := os.Stat(entry.Path); !os.IsNotExist(err) {
 		t.Fatalf("file still exists: %v", err)
@@ -242,16 +242,16 @@ func TestDeleteEntryDoesNotBareLeafIntoTheGlobalVault(t *testing.T) {
 	other := seededProject2(t, c)
 	entry, err := c.CreateEntry(t.Context(), other.ID, NewEntry{Title: "Shared", Dir: "docs"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.EscalateKnowledge(t.Context(), other.ID, entry.Slug, "cross-project"); err != nil {
 		t.Fatalf("EscalateKnowledge: %v", err)
 	}
-	// LoadKnowledge from an unrelated project finds it in the vault...
+	// LoadEntry from an unrelated project finds it in the vault...
 	if _, err := c.LoadEntry(t.Context(), p.ID, "shared"); err != nil {
-		t.Fatalf("LoadKnowledge should find the global entry: %v", err)
+		t.Fatalf("LoadEntry should find the global entry: %v", err)
 	}
-	// ...but DeleteKnowledge from that same unrelated project must not.
+	// ...but DeleteEntry from that same unrelated project must not.
 	if err := c.DeleteEntry(t.Context(), p.ID, "shared"); pathErrCode(err) != "knowledge_not_found" {
 		t.Fatalf("err = %v, want knowledge_not_found: rm must not reach into another project's escalated entry", err)
 	}
@@ -261,12 +261,12 @@ func TestMoveEntryUpdatesSlugPathAndFile(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	oldPath := entry.Path
 	moved, err := c.MoveEntry(t.Context(), p.ID, entry.Slug, "deployment/rollback-runbook", false)
 	if err != nil {
-		t.Fatalf("MoveKnowledge: %v", err)
+		t.Fatalf("MoveEntry: %v", err)
 	}
 	if moved.Slug != "deployment/rollback-runbook" {
 		t.Fatalf("slug = %q", moved.Slug)
@@ -286,10 +286,10 @@ func TestMoveEntryRefusesToReplaceAnExistingSlug(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	a, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "A"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge a: %v", err)
+		t.Fatalf("CreateEntry a: %v", err)
 	}
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "B"}); err != nil {
-		t.Fatalf("CreateKnowledge b: %v", err)
+		t.Fatalf("CreateEntry b: %v", err)
 	}
 	_, err = c.MoveEntry(t.Context(), p.ID, a.Slug, "b", false)
 	if pathErrCode(err) != "slug_taken" {
@@ -303,18 +303,18 @@ func TestMoveEntryRefusesToReplaceAnExistingSlug(t *testing.T) {
 func TestMoveEntryChecksTheDestinationDirectoryForResemblance(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Notes", Dir: "deploy"}); err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Runbook"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.MoveEntry(t.Context(), p.ID, entry.Slug, "deployment/runbook", false); pathErrCode(err) != "similar_directory" {
 		t.Fatalf("err = %v, want similar_directory", err)
 	}
 	moved, err := c.MoveEntry(t.Context(), p.ID, entry.Slug, "deployment/runbook", true)
 	if err != nil {
-		t.Fatalf("MoveKnowledge with newDir: %v", err)
+		t.Fatalf("MoveEntry with newDir: %v", err)
 	}
 	if moved.Slug != "deployment/runbook" {
 		t.Fatalf("slug = %q", moved.Slug)
@@ -325,7 +325,7 @@ func TestMoveEntryRefusesAGlobalEntry(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Shared"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason"); err != nil {
 		t.Fatalf("EscalateKnowledge: %v", err)
@@ -335,20 +335,20 @@ func TestMoveEntryRefusesAGlobalEntry(t *testing.T) {
 	}
 }
 
-// review-knowledge #8: MoveKnowledge gave ref to resolveSlug directly instead
-// of parsing it through readDocArg first, so the canonical address show,
+// review-knowledge #8: MoveEntry gave ref to resolveSlug directly instead
+// of parsing it through readEntryArg first, so the canonical address show,
 // search and recall all print (/KEY/vault/x) was rejected as
 // knowledge_not_found.
 func TestMoveEntryAcceptsTheCanonicalAddress(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	address := "/" + p.Key + "/vault/" + entry.Slug
 	moved, err := c.MoveEntry(t.Context(), p.ID, address, "deploy/rollback", false)
 	if err != nil {
-		t.Fatalf("MoveKnowledge(%s): %v", address, err)
+		t.Fatalf("MoveEntry(%s): %v", address, err)
 	}
 	if moved.Slug != "deploy/rollback" {
 		t.Errorf("slug = %q, want deploy/rollback", moved.Slug)
@@ -362,7 +362,7 @@ func TestMoveEntryRefusesAnotherProjectsAddress(t *testing.T) {
 	p2 := seededProject2(t, c)
 	entry, err := c.CreateEntry(t.Context(), p2.ID, NewEntry{Title: "Elsewhere"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	address := "/" + p2.Key + "/vault/" + entry.Slug
 	if _, err := c.MoveEntry(t.Context(), p.ID, address, "new-name", false); pathErrCode(err) != "wrong_project" {
@@ -371,18 +371,18 @@ func TestMoveEntryRefusesAnotherProjectsAddress(t *testing.T) {
 }
 
 // review-knowledge #7: a move changes an entry's address exactly the way
-// escalate and demote do, and resolveDocStubs must run for it too, so a
+// escalate and demote do, and resolveEntryStubs must run for it too, so a
 // wikilink written to the new path before the move backfills instead of
 // staying a stub until the referrer's own file next changes.
 func TestMoveEntryBackfillsStubsThatNameTheNewPath(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	referrer, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Index", Body: "[[deploy/rollback]]\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge referrer: %v", err)
+		t.Fatalf("CreateEntry referrer: %v", err)
 	}
 	target, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge target: %v", err)
+		t.Fatalf("CreateEntry target: %v", err)
 	}
 
 	findings, err := c.Lint(t.Context(), p.ID)
@@ -400,7 +400,7 @@ func TestMoveEntryBackfillsStubsThatNameTheNewPath(t *testing.T) {
 	}
 
 	if _, err := c.MoveEntry(t.Context(), p.ID, target.Slug, "deploy/rollback", false); err != nil {
-		t.Fatalf("MoveKnowledge: %v", err)
+		t.Fatalf("MoveEntry: %v", err)
 	}
 
 	findings, err = c.Lint(t.Context(), p.ID)
@@ -418,7 +418,7 @@ func TestMoveEntryMovesTheRevisionDirectoryIfPresent(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Standup"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	// Simulate the revision-history feature having already captured a
 	// version: a hidden directory named ".<filename>" beside the entry.
@@ -431,7 +431,7 @@ func TestMoveEntryMovesTheRevisionDirectoryIfPresent(t *testing.T) {
 	}
 	moved, err := c.MoveEntry(t.Context(), p.ID, entry.Slug, "deployment/standup", false)
 	if err != nil {
-		t.Fatalf("MoveKnowledge: %v", err)
+		t.Fatalf("MoveEntry: %v", err)
 	}
 	if _, err := os.Stat(oldRevDir); !os.IsNotExist(err) {
 		t.Fatalf("old revision directory must be gone: %v", err)
@@ -450,10 +450,10 @@ func TestMoveEntryIsFineWithNoRevisionDirectory(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Plain"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.MoveEntry(t.Context(), p.ID, entry.Slug, "elsewhere", false); err != nil {
-		t.Fatalf("MoveKnowledge: %v", err)
+		t.Fatalf("MoveEntry: %v", err)
 	}
 }
 
@@ -461,11 +461,11 @@ func TestMoveEntryByBareLeaf(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	moved, err := c.MoveEntry(t.Context(), p.ID, "rollback", "docs/rollback", false)
 	if err != nil {
-		t.Fatalf("MoveKnowledge by bare leaf: %v", err)
+		t.Fatalf("MoveEntry by bare leaf: %v", err)
 	}
 	if moved.ID != entry.ID || moved.Slug != "docs/rollback" {
 		t.Fatalf("moved = %+v", moved)
@@ -476,7 +476,7 @@ func TestEscalateKnowledgePreservesTheSubpath(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	global, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason")
 	if err != nil {
@@ -494,14 +494,14 @@ func TestDemoteEntryPreservesTheSubpath(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason"); err != nil {
 		t.Fatalf("EscalateKnowledge: %v", err)
 	}
 	back, err := c.DemoteEntry(t.Context(), entry.Slug, "reason")
 	if err != nil {
-		t.Fatalf("DemoteKnowledge: %v", err)
+		t.Fatalf("DemoteEntry: %v", err)
 	}
 	if back.Slug != "deployment/rollback" {
 		t.Fatalf("slug = %q, want the subpath preserved", back.Slug)
@@ -515,7 +515,7 @@ func TestEscalateKnowledgeMovesTheRevisionDirectory(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	oldRevDir := revisionDir(entry.Path)
 	if err := os.MkdirAll(oldRevDir, 0o700); err != nil {
@@ -543,10 +543,10 @@ func TestEscalateDemoteMoveTheRevisionDirectoryForANestedSlug(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.EditEntry(t.Context(), p.ID, entry.Slug, "v2\n", &entry.Version); err != nil {
-		t.Fatalf("EditKnowledge: %v", err)
+		t.Fatalf("EditEntry: %v", err)
 	}
 
 	global, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason")
@@ -570,7 +570,7 @@ func TestEscalateDemoteMoveTheRevisionDirectoryForANestedSlug(t *testing.T) {
 
 	back, err := c.DemoteEntry(t.Context(), global.Slug, "reason")
 	if err != nil {
-		t.Fatalf("DemoteKnowledge: %v", err)
+		t.Fatalf("DemoteEntry: %v", err)
 	}
 	if filepath.Base(filepath.Dir(back.Path)) != "deployment" {
 		t.Fatalf("path = %q, want the subpath preserved after demote", back.Path)
@@ -582,8 +582,8 @@ func TestEscalateDemoteMoveTheRevisionDirectoryForANestedSlug(t *testing.T) {
 	}
 }
 
-// DemoteKnowledge and VerifyKnowledge look a global entry up by slug with a
-// direct query, not through loadDoc/resolveSlug, so they need their own fix
+// DemoteEntry and VerifyEntry look a global entry up by slug with a
+// direct query, not through loadEntry/resolveSlug, so they need their own fix
 // for a directory-shaped slug: today they flatten the input with a
 // whole-string Slugify, which would turn "deployment/rollback" into
 // "deployment-rollback" and never find the row.
@@ -591,13 +591,13 @@ func TestDemoteEntryResolvesADirectoryShapedSlug(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason"); err != nil {
 		t.Fatalf("EscalateKnowledge: %v", err)
 	}
 	if _, err := c.DemoteEntry(t.Context(), "deployment/rollback", "reason"); err != nil {
-		t.Fatalf("DemoteKnowledge by full path: %v", err)
+		t.Fatalf("DemoteEntry by full path: %v", err)
 	}
 }
 
@@ -605,13 +605,13 @@ func TestVerifyEntryResolvesADirectoryShapedSlug(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason"); err != nil {
 		t.Fatalf("EscalateKnowledge: %v", err)
 	}
 	if err := c.VerifyEntry(t.Context(), "deployment/rollback"); err != nil {
-		t.Fatalf("VerifyKnowledge by full path: %v", err)
+		t.Fatalf("VerifyEntry by full path: %v", err)
 	}
 }
 
@@ -619,17 +619,17 @@ func TestListEntriesFiltersByTagsRequiringAll(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	both, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Both", Tags: []string{"a", "b"}})
 	if err != nil {
-		t.Fatalf("CreateKnowledge both: %v", err)
+		t.Fatalf("CreateEntry both: %v", err)
 	}
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "OnlyA", Tags: []string{"a"}}); err != nil {
-		t.Fatalf("CreateKnowledge onlyA: %v", err)
+		t.Fatalf("CreateEntry onlyA: %v", err)
 	}
 	entries, err := c.ListEntries(t.Context(), p.ID, EntryFilter{Tags: []string{"a", "b"}})
 	if err != nil {
-		t.Fatalf("ListKnowledge: %v", err)
+		t.Fatalf("ListEntries: %v", err)
 	}
 	if len(entries) != 1 || entries[0].ID != both.ID {
-		t.Fatalf("docs = %+v, want only %q", entries, both.Slug)
+		t.Fatalf("entries = %+v, want only %q", entries, both.Slug)
 	}
 }
 
@@ -637,25 +637,25 @@ func TestListEntriesScopesToADirectoryAndItsSubtree(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	root, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge root: %v", err)
+		t.Fatalf("CreateEntry root: %v", err)
 	}
 	nested, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Setup", Dir: "deployment/aws", NewDir: true})
 	if err != nil {
-		t.Fatalf("CreateKnowledge nested: %v", err)
+		t.Fatalf("CreateEntry nested: %v", err)
 	}
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Elsewhere", Dir: "docs"}); err != nil {
-		t.Fatalf("CreateKnowledge elsewhere: %v", err)
+		t.Fatalf("CreateEntry elsewhere: %v", err)
 	}
 	entries, err := c.ListEntries(t.Context(), p.ID, EntryFilter{Dir: "deployment"})
 	if err != nil {
-		t.Fatalf("ListKnowledge: %v", err)
+		t.Fatalf("ListEntries: %v", err)
 	}
 	if len(entries) != 2 {
-		t.Fatalf("docs = %+v, want the 2 entries under deployment/", entries)
+		t.Fatalf("entries = %+v, want the 2 entries under deployment/", entries)
 	}
 	ids := map[string]bool{entries[0].ID: true, entries[1].ID: true}
 	if !ids[root.ID] || !ids[nested.ID] {
-		t.Errorf("docs = %+v, want %q and %q", entries, root.Slug, nested.Slug)
+		t.Errorf("entries = %+v, want %q and %q", entries, root.Slug, nested.Slug)
 	}
 }
 
@@ -672,7 +672,7 @@ func findingsOfKind(findings []LintFinding, kind string) []LintFinding {
 func TestLintReportsDeepDirectories(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment/aws/runbooks"}); err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	findings, err := c.Lint(t.Context(), p.ID)
 	if err != nil {
@@ -686,7 +686,7 @@ func TestLintReportsDeepDirectories(t *testing.T) {
 func TestLintDoesNotReportDeepDirectoryAtDepthTwo(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment/aws"}); err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	findings, err := c.Lint(t.Context(), p.ID)
 	if err != nil {
@@ -701,7 +701,7 @@ func TestLintReportsALongDirectoryName(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	long := "a-directory-name-that-is-well-past-thirty-characters"
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "X", Dir: long}); err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	findings, err := c.Lint(t.Context(), p.ID)
 	if err != nil {
@@ -716,10 +716,10 @@ func TestLintReportsALongDirectoryName(t *testing.T) {
 func TestLintReportsSimilarDirectories(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "A", Dir: "deploy"}); err != nil {
-		t.Fatalf("CreateKnowledge a: %v", err)
+		t.Fatalf("CreateEntry a: %v", err)
 	}
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "B", Dir: "deployment", NewDir: true}); err != nil {
-		t.Fatalf("CreateKnowledge b: %v", err)
+		t.Fatalf("CreateEntry b: %v", err)
 	}
 	findings, err := c.Lint(t.Context(), p.ID)
 	if err != nil {
@@ -734,12 +734,12 @@ func TestWikilinkToADirectoryPathResolves(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	target, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge target: %v", err)
+		t.Fatalf("CreateEntry target: %v", err)
 	}
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Runbook index",
 		Body: "See [[deployment/rollback]] for the steps.\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge doc: %v", err)
+		t.Fatalf("CreateEntry entry: %v", err)
 	}
 	back, err := c.Backlinks(t.Context(), target.ID)
 	if err != nil {
@@ -754,11 +754,11 @@ func TestWikilinkBareLeafResolvesTheUniqueMatch(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	target, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge target: %v", err)
+		t.Fatalf("CreateEntry target: %v", err)
 	}
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Index", Body: "See [[rollback]].\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge doc: %v", err)
+		t.Fatalf("CreateEntry entry: %v", err)
 	}
 	back, err := c.Backlinks(t.Context(), target.ID)
 	if err != nil {
@@ -772,14 +772,14 @@ func TestWikilinkBareLeafResolvesTheUniqueMatch(t *testing.T) {
 func TestWikilinkToAnAmbiguousLeafStaysAStubAndLintReportsIt(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment"}); err != nil {
-		t.Fatalf("CreateKnowledge a: %v", err)
+		t.Fatalf("CreateEntry a: %v", err)
 	}
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "docs"}); err != nil {
-		t.Fatalf("CreateKnowledge b: %v", err)
+		t.Fatalf("CreateEntry b: %v", err)
 	}
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Index", Body: "See [[rollback]].\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge doc: %v", err)
+		t.Fatalf("CreateEntry entry: %v", err)
 	}
 	findings, err := c.Lint(t.Context(), p.ID)
 	if err != nil {
@@ -800,16 +800,16 @@ func TestMoveEntryRewritesInboundWikilinks(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	target, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge target: %v", err)
+		t.Fatalf("CreateEntry target: %v", err)
 	}
 	referrer, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Index",
 		Body: "See [[rollback]] for the steps.\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge referrer: %v", err)
+		t.Fatalf("CreateEntry referrer: %v", err)
 	}
 	moved, err := c.MoveEntry(t.Context(), p.ID, target.Slug, "deployment/rollback", false)
 	if err != nil {
-		t.Fatalf("MoveKnowledge: %v", err)
+		t.Fatalf("MoveEntry: %v", err)
 	}
 	raw, err := os.ReadFile(referrer.Path)
 	if err != nil {
@@ -847,7 +847,7 @@ func TestMoveEntryRewritesOnlyLinksToTheEntry(t *testing.T) {
 	}
 
 	if _, err := c.MoveEntry(ctx, p.ID, target.Slug, "deploy/rollback-plan", false); err != nil {
-		t.Fatalf("MoveKnowledge: %v", err)
+		t.Fatalf("MoveEntry: %v", err)
 	}
 
 	got, err := c.LoadEntry(ctx, p.ID, referrer.Slug)
@@ -898,7 +898,7 @@ func TestMoveEntryCapturesTheReferrersRewrittenVersion(t *testing.T) {
 	}
 
 	if _, err := c.MoveEntry(ctx, p.ID, target.Slug, "deploy/rollback", false); err != nil {
-		t.Fatalf("MoveKnowledge: %v", err)
+		t.Fatalf("MoveEntry: %v", err)
 	}
 
 	moved, err := c.LoadEntry(ctx, p.ID, referrer.Slug)
@@ -966,7 +966,7 @@ func TestMoveEntryFailureRestoresRewrittenReferrers(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(lockedDir, 0o700) })
 
 	if _, err := c.MoveEntry(ctx, p.ID, target.Slug, "deploy/rollback", false); err == nil {
-		t.Fatal("MoveKnowledge succeeded; the locked referrer should have failed it")
+		t.Fatal("MoveEntry succeeded; the locked referrer should have failed it")
 	}
 
 	if raw, err := os.ReadFile(first.Path); err != nil || string(raw) != string(firstRaw) {
@@ -1019,7 +1019,7 @@ func TestMoveEntryCommitFailureUndoesRewrittenReferrersToo(t *testing.T) {
 	}
 
 	if _, err := c.MoveEntry(ctx, p.ID, target.Slug, "deploy/rollback", false); err == nil {
-		t.Fatal("MoveKnowledge succeeded; the deferred foreign key violation should have failed its commit")
+		t.Fatal("MoveEntry succeeded; the deferred foreign key violation should have failed its commit")
 	}
 
 	raw, err := os.ReadFile(referrer.Path)

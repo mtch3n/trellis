@@ -112,7 +112,7 @@ func (c *Core) MoveEntry(ctx context.Context, projectID, ref, newPath string, ne
 			return err
 		}
 		// ref may be the canonical address show/search/recall print
-		// (/KEY/vault/x), not just a bare slug: parse it the way loadDoc
+		// (/KEY/vault/x), not just a bare slug: parse it the way loadEntry
 		// does, so a /GLOBAL address is refused up front and one naming
 		// another project reports wrong_project instead of not-found.
 		d, derr := readEntryArg(ref, key)
@@ -231,11 +231,11 @@ type fileWrite struct {
 	path         string
 	old          []byte
 	written      string // content hash of what was written
-	revisionDest string // the new version captureKnowledgeRevision wrote, if any
+	revisionDest string // the new version captureEntryRevision wrote, if any
 }
 
-// rewriteInboundWikilinks rewrites every wikilink that resolves to doc so it
-// names doc's new slug. Which links those are comes from the link rows, by
+// rewriteInboundWikilinks rewrites every wikilink that resolves to entry so it
+// names entry's new slug. Which links those are comes from the link rows, by
 // their stored text, so a link that merely looks alike -- or a bare leaf that
 // resolves to another entry -- is left alone. An address stays an address.
 //

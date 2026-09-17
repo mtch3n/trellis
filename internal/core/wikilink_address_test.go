@@ -236,7 +236,7 @@ func TestLinkCardToEntryAcrossProjects(t *testing.T) {
 	}
 	ref := CardRef{Seq: card.Seq}
 	if err := c.LinkCardToEntry(ctx, p.ID, ref, "/OTHERPROJ/vault/runbook#rollback"); err != nil {
-		t.Fatalf("LinkCardToDoc: %v", err)
+		t.Fatalf("LinkCardToEntry: %v", err)
 	}
 	back, err := c.Backlinks(ctx, target.ID)
 	if err != nil {

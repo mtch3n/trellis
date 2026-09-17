@@ -139,17 +139,17 @@ func TestMergeCollapsedArtifactKeepsAnEntryLinksName(t *testing.T) {
 		t.Fatal(err)
 	}
 	if toRaw != "logo.png" {
-		t.Errorf("doc link to_raw = %q, want the artifact's name", toRaw)
+		t.Errorf("entry link to_raw = %q, want the artifact's name", toRaw)
 	}
 	items, err := f.c.ListArtifacts(ctx, f.mono.ID, "", entry.ID)
 	if err != nil || len(items) != 1 || items[0].ID != monoLogo.ID {
-		t.Errorf("doc's artifacts after the merge = %+v, %v", items, err)
+		t.Errorf("entry's artifacts after the merge = %+v, %v", items, err)
 	}
 }
 
-// A SRC document naming a renamed artifact must follow it: left alone, the
+// A SRC entry naming a renamed artifact must follow it: left alone, the
 // old name resolves, after the merge, to whatever DST already has under it --
-// a different file with the same name, never the one the document meant.
+// a different file with the same name, never the one the entry meant.
 func TestMergeRenamedArtifactRewritesTheEntryThatNamesIt(t *testing.T) {
 	f := newMergeFixture(t)
 	ctx := t.Context()

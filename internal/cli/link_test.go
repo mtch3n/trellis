@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// review-cli #5: a knowledge slug that merely looks like a qualified card ref
+// review-cli #5: an entry slug that merely looks like a qualified card ref
 // (PREFIX-N) must not be routed as a card of a project named PREFIX when no
 // such project exists.
 func TestGraphSlugEndingInDigitsIsAnEntryNotACard(t *testing.T) {
@@ -32,7 +32,7 @@ func TestGraphStillRoutesAQualifiedCardRef(t *testing.T) {
 	}
 }
 
-// review-cli #10: a relative document argument must mean the current
+// review-cli #10: a relative entry argument must mean the current
 // project, not wherever the card happens to live, and must say so loudly
 // rather than silently reading the wrong one.
 func TestLinkRelativeEntryMeansTheCurrentProject(t *testing.T) {
@@ -54,7 +54,7 @@ func TestLinkRelativeEntryMeansTheCurrentProject(t *testing.T) {
 	}
 }
 
-// An address doc still crosses projects on purpose: link's documented
+// An entry address still crosses projects on purpose: link's documented
 // exception (the 2026-09-16 address design spec, "Cross-project
 // operations").
 func TestLinkStillCrossesProjectsWithAnAddressedEntry(t *testing.T) {

@@ -16,7 +16,7 @@ import (
 
 // An entry in a directory has a slug with a slash in it. The web client
 // sends that slash as %2F so the slug stays one path segment, and every
-// knowledge route has to accept it.
+// entry route has to accept it.
 func TestSlugWithSlashEncoded(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))

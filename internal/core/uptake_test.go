@@ -61,7 +61,7 @@ func TestUptakePairsAnInjectionWithTheReadThatFollows(t *testing.T) {
 	}
 
 	if _, err := c.ReadEntry(ctx, p.ID, entry.Slug); err != nil {
-		t.Fatalf("ReadKnowledge: %v", err)
+		t.Fatalf("ReadEntry: %v", err)
 	}
 	if got := uptakeFor(t, c, p.ID, "authored"); got.Injected != 1 || got.Opened != 1 {
 		t.Errorf("after the read: %+v, want injected 1 opened 1", got)

@@ -186,7 +186,7 @@ func (c *Core) CreateArtifact(ctx context.Context, projectID, source string) (Ar
 	return out, err
 }
 
-// backfillArtifactStubs binds every doc stub named name to id, the artifact
+// backfillArtifactStubs binds every entry stub named name to id, the artifact
 // CreateArtifact just made. A stub is a link row with to_id NULL because no
 // artifact had that name when the entry's file was synced.
 func backfillArtifactStubs(tx *sqlx.Tx, projectID, name, id string) error {
@@ -322,7 +322,7 @@ func (c *Core) UnlinkArtifactFromEntry(ctx context.Context, projectID, slug, art
 	case ok && e.Code == "artifact_not_found":
 		// Keep the reference as written -- except an address, whose file-list
 		// entry is only ever the name, never the whole "/KEY/artifacts/x.png".
-		// Left unparsed, this would never match anything editDocArtifacts
+		// Left unparsed, this would never match anything editEntryArtifacts
 		// finds, and the unlink would silently do nothing.
 		if strings.HasPrefix(artifactRef, "/") {
 			if p, perr := ParseAddress(artifactRef, address.CollectionArtifacts); perr == nil {
@@ -341,7 +341,7 @@ func (c *Core) UnlinkArtifactFromEntry(ctx context.Context, projectID, slug, art
 }
 
 // editEntryArtifacts reads an entry's artifact list from its file, lets change
-// produce the next one, and writes it through EditKnowledgeFields. The list is
+// produce the next one, and writes it through EditEntryFields. The list is
 // read from the file rather than from derived link rows, which can lag the file
 // after a database restore; rewriting the file from a lagging copy would drop
 // names. IfVersion makes a concurrent edit between the read and the write a

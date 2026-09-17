@@ -132,7 +132,7 @@ type SearchOpts struct {
 	Method      string // optional per-request override: fts, vector, or hybrid
 }
 
-// Search runs one FTS query over cards and knowledge entries at once, so one
+// Search runs one FTS query over cards and entries at once, so one
 // described vocabulary covers both (§10).
 func (c *Core) Search(ctx context.Context, projectID, query string, o SearchOpts) ([]SearchHit, error) {
 	if o.Limit <= 0 {
@@ -253,13 +253,13 @@ func (c *Core) matchEntries(ctx context.Context, projectID, match string, limit 
 // ListSearchEntries is the corpus every vector index build, count and prune
 // reads. Private entries are dropped here rather than at each call site. Nothing
 // enforces that a vector path reads its corpus from here: a new builder that
-// queried the knowledge table directly would reintroduce them. Routing every
+// queried the entry table directly would reintroduce them. Routing every
 // one through this function is a convention, and a new one must keep it.
 //
 // The filter is applied after refreshFromFile and never in the SELECT. The
 // private column is a mirror of the file and is stale for exactly one read
 // after the file changes, which is the read that matters: filtering in SQL
-// would still select a document just marked private, and would never again
+// would still select an entry just marked private, and would never again
 // select one just un-marked.
 func (c *Core) ListSearchEntries(ctx context.Context, projectID string) ([]Entry, error) {
 	entries := []Entry{}

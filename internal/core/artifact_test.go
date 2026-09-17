@@ -107,7 +107,7 @@ func TestCreateArtifactStopsOnAStatErrorInsteadOfLoopingForever(t *testing.T) {
 // review-knowledge #16: unlinking a missing artifact by its address is a
 // silent no-op. ResolveArtifact fails not-found, so the fallback "keep the
 // reference as written" kept the whole address (/KEY/artifacts/x.png) --
-// which never equals the plain name (x.png) editDocArtifacts's list holds --
+// which never equals the plain name (x.png) editEntryArtifacts's list holds --
 // so the stub is never found and nothing changes, without an error either.
 func TestUnlinkArtifactFromEntryByAddressWhenTheArtifactIsGone(t *testing.T) {
 	c, p, _ := vaultCore(t)
@@ -121,10 +121,10 @@ func TestUnlinkArtifactFromEntryByAddressWhenTheArtifactIsGone(t *testing.T) {
 	}
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Notes"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.LinkArtifactToEntry(t.Context(), p.ID, entry.Slug, artifact.Name); err != nil {
-		t.Fatalf("LinkArtifactToDoc: %v", err)
+		t.Fatalf("LinkArtifactToEntry: %v", err)
 	}
 	address := ArtifactAddress(p.Key, artifact.Name)
 
@@ -133,7 +133,7 @@ func TestUnlinkArtifactFromEntryByAddressWhenTheArtifactIsGone(t *testing.T) {
 	}
 
 	if _, err := c.UnlinkArtifactFromEntry(t.Context(), p.ID, entry.Slug, address); err != nil {
-		t.Fatalf("UnlinkArtifactFromDoc(%s): %v", address, err)
+		t.Fatalf("UnlinkArtifactFromEntry(%s): %v", address, err)
 	}
 
 	raw, err := os.ReadFile(entry.Path)

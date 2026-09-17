@@ -19,7 +19,7 @@ type artifactItem struct {
 	URL string `json:"url,omitempty"`
 }
 
-// entryItem is a knowledge entry as the UI list endpoints return it. Its
+// entryItem is an entry as the UI list endpoints return it. Its
 // Artifacts field shadows the embedded one; encoding/json/v2 resolves that in
 // favour of the shallower field.
 type entryItem struct {

@@ -164,7 +164,7 @@ func (c *Core) captureEntryRevision(entryPath string, version int64, raw []byte)
 	return dest, nil
 }
 
-// discardCapturedRevision removes a revision file captureKnowledgeRevision
+// discardCapturedRevision removes a revision file captureEntryRevision
 // wrote, when the write it was speculatively captured for turned out not to
 // land. A no-op for "" (nothing was written) and for a file already gone.
 func discardCapturedRevision(dest string) error {
@@ -230,7 +230,7 @@ func copyDirAtomic(dest, src string) error {
 	return atomicfile.SyncDir(dest)
 }
 
-// RevisionInfo is one retained version of a knowledge entry, newest first.
+// RevisionInfo is one retained version of an entry, newest first.
 type RevisionInfo struct {
 	Version   int64 `json:"version"`
 	Timestamp int64 `json:"timestamp"`
@@ -288,7 +288,7 @@ func resolveDiffRange(versions []int64, from, to int64, historyCmd string) (int6
 }
 
 // ListEntryRevisions lists an entry's retained versions, newest first.
-// Knowledge revisions carry no actor: the entry file has no author field, and
+// Entry revisions carry no actor: the entry file has no author field, and
 // a direct edit has no Trellis actor at all.
 func (c *Core) ListEntryRevisions(ctx context.Context, projectID, slug string) ([]RevisionInfo, error) {
 	entry, err := c.LoadEntry(ctx, projectID, slug)

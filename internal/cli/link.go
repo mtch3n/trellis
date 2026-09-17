@@ -11,16 +11,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newLinkCmd is the structured card-to-doc relationship (§10.2). Wikilinks
-// cover doc-to-doc; this is how a card says which entry it cites.
+// newLinkCmd is the structured card-to-entry relationship (§10.2). Wikilinks
+// cover entry-to-entry; this is how a card says which entry it cites.
 //
-// The spec allows link to cross projects on purpose ("trellis link <card>
-// <doc> may link a card to another project's document"), so doc is not a
+// The spec allows link to cross projects on purpose (`trellis link <card>
+// <entry>` may link a card to another project's entry), so the entry is not a
 // second refArg: that would make withTargets reject the very thing this
-// command exists to do, any time doc is given as an address naming a
+// command exists to do, any time the entry is given as an address naming a
 // different project than the card. What must not happen instead is a
-// *relative* doc silently reading the card's project when a current project
-// actually resolves and disagrees -- conflictIfDocElsewhere covers that case
+// *relative* entry silently reading the card's project when a current project
+// actually resolves and disagrees -- conflictIfEntryElsewhere covers that case
 // alone, the same way a relative reference conflicts with a named one
 // everywhere else in the CLI.
 func newLinkCmd() *cobra.Command {
@@ -44,7 +44,7 @@ func newLinkCmd() *cobra.Command {
 	}
 }
 
-// conflictIfEntryElsewhere refuses a relative doc argument that would silently
+// conflictIfEntryElsewhere refuses a relative entry argument that would silently
 // resolve in another project than the one standing in the working directory:
 // a relative reference means the current project everywhere else in the CLI,
 // so "design" must not quietly become the card's project's design when they
@@ -69,7 +69,7 @@ func conflictIfEntryElsewhere(app *appCtx, cardArg, entry string) error {
 
 // keyNamesProject reports whether key names a project this database has,
 // including one that was merged away. A qualified card ref routes to the
-// card path only then; a knowledge slug that merely looks like PREFIX-N
+// card path only then; an entry slug that merely looks like PREFIX-N
 // (release-2026, adr-12) is not a card ref just because it matches the
 // grammar, and falls through to the relative lookup instead, which tries an
 // entry first.
@@ -130,7 +130,7 @@ func newGraphCmd() *cobra.Command {
 				return withTarget(refArg{Collection: p.Collection, Value: arg, NoProject: true}, run(p.Collection))
 			case address.ValidCardRef(strings.ToUpper(arg)) && keyNamesProject(core.ParseCardRef(arg).ProjectKey):
 				// KEY-N is a card ref everywhere, but only once KEY actually
-				// names a project (existing or merged): a knowledge slug that
+				// names a project (existing or merged): an entry slug that
 				// merely looks like PREFIX-N, such as release-2026, is not a
 				// card ref just because it matches the grammar, and falls
 				// through to the relative lookup below, which tries an entry
@@ -167,7 +167,7 @@ func resolveEntity(cmd *cobra.Command, app *appCtx, collection, ref string) (str
 	}
 	card, err := app.Core.GetCard(ctx, app.Project.ID, core.ParseCardRef(ref))
 	if err != nil {
-		return "", core.ErrNotFound("not_found", "no card or knowledge entry "+ref,
+		return "", core.ErrNotFound("not_found", "no card or entry "+ref,
 			"trellis card ls   # or: trellis knowledge ls")
 	}
 	return card.ID, nil

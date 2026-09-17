@@ -24,11 +24,11 @@ func entryNaming(t *testing.T, c *Core, projectID, title string, names ...string
 	t.Helper()
 	entry, err := c.CreateEntry(t.Context(), projectID, NewEntry{Title: title})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	setArtifactsInFile(t, entry.Path, names...)
 	if _, err := c.LoadEntry(t.Context(), projectID, entry.Slug); err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	return entry
 }

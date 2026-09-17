@@ -44,7 +44,7 @@ func newKnowledgeNewCmd() *cobra.Command {
 		Short: "Create a knowledge entry",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !title.Changed() {
-				return core.ErrUsage("missing_title", "a knowledge entry needs a title",
+				return core.ErrUsage("missing_title", "an entry needs a title",
 					`trellis knowledge new --title "Concurrency model"`)
 			}
 			fields, err := parseSetFlags(setFlags)
@@ -135,8 +135,8 @@ func newKnowledgeShowCmd() *cobra.Command {
 // every entry in the vault to the model at once, and `knowledge show` is where
 // a body is read. A private entry loses its summary and recap as well.
 //
-// docs must carry a Private flag refreshed from the file, as ListKnowledge and
-// ColdKnowledge both provide. The mirror alone is one read stale after a hand
+// entries must carry a Private flag refreshed from the file, as ListEntries and
+// ColdEntries both provide. The mirror alone is one read stale after a hand
 // edit, which is exactly when this matters.
 func withholdContent(entries []core.Entry) {
 	for i := range entries {
@@ -198,7 +198,7 @@ func newKnowledgeDiffCmd() *cobra.Command {
 // rather than a closure so it can be tested directly: Emit selects JSON
 // whenever stdout is captured.
 // renderEntryList is the text form of `knowledge ls`: a tree grouped by
-// directory, since a knowledge slug may now be path-shaped. A root-level
+// directory, since an entry slug may now be path-shaped. A root-level
 // entry — the majority of any small vault — renders exactly as it always
 // has; an entry under a directory gets a header line for that directory the
 // first time it appears. JSON output (Emit's other branch) stays a flat
@@ -461,8 +461,8 @@ func newKnowledgeMvCmd() *cobra.Command {
 	return cmd
 }
 
-// entrySlugArg reduces a knowledge reference to the bare slug
-// MoveKnowledge takes: unlike LoadKnowledge, it resolves a slug directly and
+// entrySlugArg reduces an entry reference to the bare slug
+// MoveEntry takes: unlike LoadEntry, it resolves a slug directly and
 // does not parse an address itself. withTarget has already decided which
 // project an address names, so only the address's own name segment is still
 // needed here.

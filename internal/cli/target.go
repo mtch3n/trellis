@@ -15,7 +15,7 @@ import (
 // refArg is one reference a command takes, positional or from a flag, and
 // the collection it names.
 type refArg struct {
-	Collection string // address.CollectionCards, CollectionKnowledge, CollectionBoards or CollectionArtifacts
+	Collection string // address.CollectionCards, CollectionVault, CollectionBoards or CollectionArtifacts
 	Value      string // "" when an optional flag was not given
 	// NoProject lets a /GLOBAL/vault address run with no project at all:
 	// reading, editing or walking from a vault entry needs none. fn then
@@ -27,7 +27,7 @@ type refArg struct {
 // address or, for a card, a qualified ref such as OTHER-12 -- and returns ""
 // when the reference is relative or is a vault address. ref is the reference
 // in the form core takes: a board address becomes its slug. Everything else
-// passes through whole, because core reads card, knowledge and artifact
+// passes through whole, because core reads card, entry and artifact
 // addresses itself, and a card address must reach core with its project.
 //
 // A qualified card ref names the project that actually holds the card, via

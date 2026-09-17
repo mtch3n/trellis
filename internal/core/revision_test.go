@@ -13,7 +13,7 @@ func TestCreateEntryCapturesVersionOne(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Standup", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	rev, err := os.ReadFile(revisionFilePath(entry.Path, 1))
 	if err != nil {
@@ -32,7 +32,7 @@ func TestEditKeepsBothVersions(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	v1, err := os.ReadFile(revisionFilePath(entry.Path, 1))
 	if err != nil {
@@ -41,7 +41,7 @@ func TestEditKeepsBothVersions(t *testing.T) {
 
 	edited, err := c.EditEntry(t.Context(), p.ID, entry.Slug, "v2\n", &entry.Version)
 	if err != nil {
-		t.Fatalf("EditKnowledge: %v", err)
+		t.Fatalf("EditEntry: %v", err)
 	}
 	if edited.Version != 2 {
 		t.Fatalf("version = %d, want 2", edited.Version)
@@ -69,7 +69,7 @@ func TestFirstEditCapturesAPredatingVersion(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Old", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if err := os.RemoveAll(revisionDir(entry.Path)); err != nil {
 		t.Fatal(err)
@@ -81,7 +81,7 @@ func TestFirstEditCapturesAPredatingVersion(t *testing.T) {
 
 	edited, err := c.EditEntry(t.Context(), p.ID, entry.Slug, "v2\n", &entry.Version)
 	if err != nil {
-		t.Fatalf("EditKnowledge: %v", err)
+		t.Fatalf("EditEntry: %v", err)
 	}
 	pre, err := os.ReadFile(revisionFilePath(entry.Path, 1))
 	if err != nil || string(pre) != string(original) {
@@ -99,11 +99,11 @@ func TestADirectEditAfterATrellisWriteKeepsBothVersions(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Race", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	trellisEdit, err := c.EditEntry(t.Context(), p.ID, entry.Slug, "v2 via trellis\n", &entry.Version)
 	if err != nil {
-		t.Fatalf("EditKnowledge: %v", err)
+		t.Fatalf("EditEntry: %v", err)
 	}
 
 	raw, err := os.ReadFile(entry.Path)
@@ -121,7 +121,7 @@ func TestADirectEditAfterATrellisWriteKeepsBothVersions(t *testing.T) {
 
 	reloaded, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if reloaded.Version != trellisEdit.Version+1 {
 		t.Fatalf("version = %d, want %d after the direct edit", reloaded.Version, trellisEdit.Version+1)
@@ -147,11 +147,11 @@ func TestRepeatedReadsWriteNoNewRevision(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Stable", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	for i := 0; i < 3; i++ {
 		if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
-			t.Fatalf("LoadKnowledge: %v", err)
+			t.Fatalf("LoadEntry: %v", err)
 		}
 	}
 	entries, err := os.ReadDir(revisionDir(entry.Path))
@@ -171,7 +171,7 @@ func TestPrivateMirrorDriftWritesNoRevision(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Quiet", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.db.Exec(`UPDATE entry SET private = 1 WHERE id = ?`, entry.ID); err != nil {
 		t.Fatal(err)
@@ -179,7 +179,7 @@ func TestPrivateMirrorDriftWritesNoRevision(t *testing.T) {
 
 	reloaded, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if reloaded.Version != entry.Version+1 {
 		t.Fatalf("version = %d, want %d: the drift must still bump the version", reloaded.Version, entry.Version+1)
@@ -204,13 +204,13 @@ func TestEditTrimsToHistoryKeep(t *testing.T) {
 	c.historyKeep = 3
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Busy", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	version := entry.Version
 	for i := 2; i <= 4; i++ {
 		edited, err := c.EditEntry(t.Context(), p.ID, entry.Slug, fmt.Sprintf("v%d\n", i), &version)
 		if err != nil {
-			t.Fatalf("EditKnowledge v%d: %v", i, err)
+			t.Fatalf("EditEntry v%d: %v", i, err)
 		}
 		version = edited.Version
 	}
@@ -236,13 +236,13 @@ func TestHistoryKeepZeroCapturesNothing(t *testing.T) {
 	c.historyKeep = 0
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Off", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := os.Stat(revisionDir(entry.Path)); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("a revision directory was created despite historyKeep = 0")
 	}
 	if _, err := c.EditEntry(t.Context(), p.ID, entry.Slug, "v2\n", &entry.Version); err != nil {
-		t.Fatalf("EditKnowledge: %v", err)
+		t.Fatalf("EditEntry: %v", err)
 	}
 	if _, err := os.Stat(revisionDir(entry.Path)); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("a revision directory was created by an edit despite historyKeep = 0")
@@ -251,12 +251,12 @@ func TestHistoryKeepZeroCapturesNothing(t *testing.T) {
 
 // A revision write that cannot land must fail the edit and leave the entry
 // file exactly as it was: revision capture rides the same undo path as every
-// other failure in EditKnowledgeFields.
+// other failure in EditEntryFields.
 func TestAFailedRevisionWriteFailsTheEdit(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Blocked", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	original, err := os.ReadFile(entry.Path)
 	if err != nil {
@@ -273,7 +273,7 @@ func TestAFailedRevisionWriteFailsTheEdit(t *testing.T) {
 
 	_, err = c.EditEntry(t.Context(), p.ID, entry.Slug, "v2\n", &entry.Version)
 	if err == nil {
-		t.Fatal("EditKnowledge succeeded despite a blocked revision directory")
+		t.Fatal("EditEntry succeeded despite a blocked revision directory")
 	}
 
 	raw, err := os.ReadFile(entry.Path)
@@ -285,7 +285,7 @@ func TestAFailedRevisionWriteFailsTheEdit(t *testing.T) {
 	}
 }
 
-// review-knowledge #5: EditKnowledgeFields captures the new version's
+// review-knowledge #5: EditEntryFields captures the new version's
 // content before the transaction is known to have landed. If the commit
 // itself then fails -- an ambiguous outcome, not a statement error -- that
 // speculative capture must be discarded along with the file write it goes
@@ -303,7 +303,7 @@ func TestEditEntryFieldsCommitFailureDiscardsTheSpeculativeRevision(t *testing.T
 		t.Fatal(err)
 	}
 
-	// A canary that turns EditKnowledgeFields's own row update into a
+	// A canary that turns EditEntryFields's own row update into a
 	// foreign key violation SQLite defers to COMMIT: the closure completes
 	// normally (done = true), the speculative version-2 capture happens,
 	// and only the commit itself then fails.
@@ -320,7 +320,7 @@ func TestEditEntryFieldsCommitFailureDiscardsTheSpeculativeRevision(t *testing.T
 
 	body := "v2\n"
 	if _, err := c.EditEntryFields(ctx, p.ID, entry.Slug, EntryEdit{Body: &body, IfVersion: &entry.Version}); err == nil {
-		t.Fatal("EditKnowledgeFields succeeded; the deferred foreign key violation should have failed its commit")
+		t.Fatal("EditEntryFields succeeded; the deferred foreign key violation should have failed its commit")
 	}
 
 	raw, err := os.ReadFile(entry.Path)
@@ -342,7 +342,7 @@ func TestEditEntryFieldsCommitFailureDiscardsTheSpeculativeRevision(t *testing.T
 	// skip it as "already retained" because of the discarded phantom.
 	edited, err := c.EditEntryFields(ctx, p.ID, entry.Slug, EntryEdit{Body: &body, IfVersion: &entry.Version})
 	if err != nil {
-		t.Fatalf("EditKnowledgeFields (retry): %v", err)
+		t.Fatalf("EditEntryFields (retry): %v", err)
 	}
 	v2, err := os.ReadFile(revisionFilePath(entry.Path, edited.Version))
 	if err != nil {
@@ -361,10 +361,10 @@ func TestEscalateMovesTheRevisionDirectory(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Shared", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.EditEntry(t.Context(), p.ID, entry.Slug, "v2\n", &entry.Version); err != nil {
-		t.Fatalf("EditKnowledge: %v", err)
+		t.Fatalf("EditEntry: %v", err)
 	}
 	oldDir := revisionDir(entry.Path)
 
@@ -385,7 +385,7 @@ func TestEscalateMovesTheRevisionDirectory(t *testing.T) {
 
 	back, err := c.DemoteEntry(t.Context(), escalated.Slug, "back to project")
 	if err != nil {
-		t.Fatalf("DemoteKnowledge: %v", err)
+		t.Fatalf("DemoteEntry: %v", err)
 	}
 	if _, err := os.Stat(newDir); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the global revision directory still exists after demote")
@@ -401,7 +401,7 @@ func TestAFailedEscalateMovesTheRevisionDirectoryBack(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	oldDir := revisionDir(entry.Path)
 
@@ -430,12 +430,12 @@ func TestDeletingAnEntryRemovesItsRevisionDirectory(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Gone", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	dir := revisionDir(entry.Path)
 
 	if err := c.DeleteEntry(t.Context(), p.ID, entry.Slug); err != nil {
-		t.Fatalf("DeleteKnowledge: %v", err)
+		t.Fatalf("DeleteEntry: %v", err)
 	}
 	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("revision directory still exists after delete")
@@ -446,7 +446,7 @@ func TestAFailedDeleteRestoresTheRevisionDirectory(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	dir := revisionDir(entry.Path)
 
@@ -460,7 +460,7 @@ func TestAFailedDeleteRestoresTheRevisionDirectory(t *testing.T) {
 	}()
 
 	if err := c.DeleteEntry(t.Context(), p.ID, entry.Slug); err == nil {
-		t.Fatal("DeleteKnowledge succeeded despite the trigger")
+		t.Fatal("DeleteEntry succeeded despite the trigger")
 	}
 	if _, err := os.Stat(revisionFilePath(entry.Path, 1)); err != nil {
 		t.Errorf("revision directory not restored at %s: %v", dir, err)
@@ -471,19 +471,19 @@ func TestListEntryRevisionsNewestFirst(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Log", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	version := entry.Version
 	for i := 2; i <= 3; i++ {
 		edited, err := c.EditEntry(t.Context(), p.ID, entry.Slug, fmt.Sprintf("v%d\n", i), &version)
 		if err != nil {
-			t.Fatalf("EditKnowledge v%d: %v", i, err)
+			t.Fatalf("EditEntry v%d: %v", i, err)
 		}
 		version = edited.Version
 	}
 	revs, err := c.ListEntryRevisions(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("ListKnowledgeRevisions: %v", err)
+		t.Fatalf("ListEntryRevisions: %v", err)
 	}
 	if len(revs) != 3 {
 		t.Fatalf("%d revisions, want 3", len(revs))
@@ -499,14 +499,14 @@ func TestDiffEntryDefaultsToPreviousAgainstLatest(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Notes", Body: "line one\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.EditEntry(t.Context(), p.ID, entry.Slug, "line one\nline two\n", &entry.Version); err != nil {
-		t.Fatalf("EditKnowledge: %v", err)
+		t.Fatalf("EditEntry: %v", err)
 	}
 	diff, err := c.DiffEntry(t.Context(), p.ID, entry.Slug, 0, 0)
 	if err != nil {
-		t.Fatalf("DiffKnowledge: %v", err)
+		t.Fatalf("DiffEntry: %v", err)
 	}
 	if diff.From != 1 || diff.To != 2 {
 		t.Errorf("from/to = %d/%d, want 1/2", diff.From, diff.To)
@@ -521,10 +521,10 @@ func TestDiffEntryRejectsAnUnretainedVersion(t *testing.T) {
 	c.historyKeep = 1
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Tight", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.EditEntry(t.Context(), p.ID, entry.Slug, "v2\n", &entry.Version); err != nil {
-		t.Fatalf("EditKnowledge: %v", err)
+		t.Fatalf("EditEntry: %v", err)
 	}
 	_, err = c.DiffEntry(t.Context(), p.ID, entry.Slug, 1, 2)
 	e, ok := errors.AsType[*Error](err)

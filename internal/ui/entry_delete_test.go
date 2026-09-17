@@ -40,10 +40,10 @@ func TestDeleteEntry(t *testing.T) {
 		return rec
 	}
 
-	// Create a knowledge entry
-	createResp := request(http.MethodPost, "/api/p/KDEL/b/board1/knowledge", `{"title":"Test Doc","body":"content"}`)
+	// Create an entry
+	createResp := request(http.MethodPost, "/api/p/KDEL/b/board1/knowledge", `{"title":"Test Entry","body":"content"}`)
 	if createResp.Code != http.StatusCreated {
-		t.Fatalf("create knowledge status = %d, body = %s", createResp.Code, createResp.Body)
+		t.Fatalf("create entry status = %d, body = %s", createResp.Code, createResp.Body)
 	}
 
 	var entry core.Entry
@@ -51,16 +51,16 @@ func TestDeleteEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Test deleting the knowledge entry
+	// Test deleting the entry
 	deleteResp := request(http.MethodDelete, "/api/p/KDEL/b/board1/knowledge/"+entry.Slug, "")
 	if deleteResp.Code != http.StatusNoContent {
-		t.Fatalf("delete knowledge status = %d, expected 204, body = %s", deleteResp.Code, deleteResp.Body)
+		t.Fatalf("delete entry status = %d, expected 204, body = %s", deleteResp.Code, deleteResp.Body)
 	}
 
 	// Verify it's deleted by trying to get it
 	getResp := request(http.MethodGet, "/api/p/KDEL/b/board1/knowledge", "")
 	if getResp.Code != http.StatusOK {
-		t.Fatalf("list knowledge status = %d", getResp.Code)
+		t.Fatalf("list entry status = %d", getResp.Code)
 	}
 
 	var entries []core.Entry
@@ -69,12 +69,12 @@ func TestDeleteEntry(t *testing.T) {
 	}
 
 	if len(entries) != 0 {
-		t.Fatalf("expected 0 knowledge entries after deletion, got %d", len(entries))
+		t.Fatalf("expected 0 entries after deletion, got %d", len(entries))
 	}
 
-	// Test deleting non-existent knowledge returns 404
+	// Test deleting non-existent entry returns 404
 	deleteNotFoundResp := request(http.MethodDelete, "/api/p/KDEL/b/board1/knowledge/nonexistent", "")
 	if deleteNotFoundResp.Code != http.StatusNotFound {
-		t.Fatalf("delete nonexistent knowledge status = %d, expected 404", deleteNotFoundResp.Code)
+		t.Fatalf("delete nonexistent entry status = %d, expected 404", deleteNotFoundResp.Code)
 	}
 }

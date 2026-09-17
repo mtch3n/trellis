@@ -68,13 +68,13 @@ func TestEntryArtifactResolves(t *testing.T) {
 	a := addArtifact(t, c, p.ID, "standup.mp3", "ID3 recording")
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Standup"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	setArtifactsInFile(t, entry.Path, a.Name)
 
 	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if len(got.Artifacts) != 1 {
 		t.Fatalf("Artifacts = %+v, want one", got.Artifacts)
@@ -89,13 +89,13 @@ func TestEntryArtifactThatDoesNotExistIsAStub(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Research"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	setArtifactsInFile(t, entry.Path, "not-yet.pdf")
 
 	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if len(got.Artifacts) != 1 || !got.Artifacts[0].Missing || got.Artifacts[0].Name != "not-yet.pdf" {
 		t.Fatalf("Artifacts = %+v, want one missing entry named not-yet.pdf", got.Artifacts)
@@ -110,17 +110,17 @@ func TestRemovingANameFromTheFileRemovesTheLink(t *testing.T) {
 	a := addArtifact(t, c, p.ID, "clip.mp3", "ID3 clip")
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Clip"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	setArtifactsInFile(t, entry.Path, a.Name)
 	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 
 	setArtifactsInFile(t, entry.Path)
 	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if len(got.Artifacts) != 0 {
 		t.Errorf("Artifacts = %+v after the name was removed from the file", got.Artifacts)
@@ -147,13 +147,13 @@ func TestArtifactNamesKeepCaseAndOrder(t *testing.T) {
 	}
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Album"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	setArtifactsInFile(t, entry.Path, notes.Name, upper.Name, notes.Name)
 
 	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if names := artifactNamesOf(got); !slices.Equal(names, []string{notes.Name, upper.Name}) {
 		t.Errorf("names = %v, want %v", names, []string{notes.Name, upper.Name})
@@ -170,23 +170,23 @@ func TestEditingTheBodyKeepsTheArtifactList(t *testing.T) {
 	a := addArtifact(t, c, p.ID, "report.pdf", "%PDF-1.7\n")
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Report"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	setArtifactsInFile(t, entry.Path, a.Name)
 	loaded, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 
 	if _, err := c.EditEntry(t.Context(), p.ID, entry.Slug, "a new body\n", &loaded.Version); err != nil {
-		t.Fatalf("EditKnowledge: %v", err)
+		t.Fatalf("EditEntry: %v", err)
 	}
 	if got := artifactsInFile(t, entry.Path); !slices.Equal(got, []string{a.Name}) {
 		t.Errorf("file lists %v after a body edit, want [%s]", got, a.Name)
 	}
 	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if len(got.Artifacts) != 1 || got.Artifacts[0].Missing {
 		t.Errorf("Artifacts = %+v after a body edit", got.Artifacts)
@@ -213,13 +213,13 @@ func TestCreatingAnArtifactResolvesAnEarlierStub(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Later"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	setArtifactsInFile(t, entry.Path, "later.pdf")
 	// This read writes the stub row. Without it there would be nothing to
 	// backfill, and the resync on the next read would hide a missing backfill.
 	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 
 	a := addArtifact(t, c, p.ID, "later.pdf", "%PDF-1.7\n")
@@ -228,7 +228,7 @@ func TestCreatingAnArtifactResolvesAnEarlierStub(t *testing.T) {
 	// can only have come from the backfill.
 	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if len(got.Artifacts) != 1 || got.Artifacts[0].Missing || got.Artifacts[0].Kind != a.Kind {
 		t.Errorf("Artifacts = %+v, want later.pdf resolved by the backfill", got.Artifacts)
@@ -240,11 +240,11 @@ func TestDeletingAnArtifactLeavesEntryLinksAsStubs(t *testing.T) {
 	a := addArtifact(t, c, p.ID, "evidence.png", "\x89PNG\r\n\x1a\nx")
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Evidence"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	setArtifactsInFile(t, entry.Path, a.Name)
 	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "attach"})
 	if err != nil {
@@ -260,7 +260,7 @@ func TestDeletingAnArtifactLeavesEntryLinksAsStubs(t *testing.T) {
 
 	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if len(got.Artifacts) != 1 || !got.Artifacts[0].Missing || got.Artifacts[0].Name != a.Name {
 		t.Errorf("Artifacts = %+v, want the entry's link kept as a stub", got.Artifacts)
@@ -283,16 +283,16 @@ func TestUnlinkArtifactFromEntryByID(t *testing.T) {
 	b := addArtifact(t, c, p.ID, "b.png", "\x89PNG\r\n\x1a\nb")
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "ByID"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	setArtifactsInFile(t, entry.Path, a.Name, b.Name)
 	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 
 	got, err := c.UnlinkArtifactFromEntry(t.Context(), p.ID, entry.Slug, a.ID)
 	if err != nil {
-		t.Fatalf("UnlinkArtifactFromDoc: %v", err)
+		t.Fatalf("UnlinkArtifactFromEntry: %v", err)
 	}
 	if names := artifactNamesOf(got); !slices.Equal(names, []string{b.Name}) {
 		t.Errorf("names = %v, want [%s]", names, b.Name)
@@ -331,12 +331,12 @@ func TestLinkArtifactToEntry(t *testing.T) {
 	a := addArtifact(t, c, p.ID, "meeting.mp3", "ID3 meeting")
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Meeting"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	got, err := c.LinkArtifactToEntry(t.Context(), p.ID, entry.Slug, a.Name)
 	if err != nil {
-		t.Fatalf("LinkArtifactToDoc: %v", err)
+		t.Fatalf("LinkArtifactToEntry: %v", err)
 	}
 	if names := artifactNamesOf(got); !slices.Equal(names, []string{a.Name}) || got.Artifacts[0].Missing {
 		t.Errorf("Artifacts = %+v", got.Artifacts)
@@ -356,7 +356,7 @@ func TestLinkArtifactToEntry(t *testing.T) {
 
 	again, err := c.LinkArtifactToEntry(t.Context(), p.ID, entry.Slug, a.ID)
 	if err != nil {
-		t.Fatalf("LinkArtifactToDoc again: %v", err)
+		t.Fatalf("LinkArtifactToEntry again: %v", err)
 	}
 	if again.Version != got.Version {
 		t.Errorf("version %d -> %d: linking an already-listed artifact must not rewrite the file",
@@ -373,18 +373,18 @@ func TestLinkKeepsNamesTheDatabaseHasLost(t *testing.T) {
 	second := addArtifact(t, c, p.ID, "second.png", "\x89PNG\r\n\x1a\n2")
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Pair"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	setArtifactsInFile(t, entry.Path, first.Name)
 	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if _, err := c.db.Exec(`DELETE FROM link WHERE from_id = ? AND rel = 'artifact'`, entry.ID); err != nil {
 		t.Fatal(err)
 	}
 
 	if _, err := c.LinkArtifactToEntry(t.Context(), p.ID, entry.Slug, second.Name); err != nil {
-		t.Fatalf("LinkArtifactToDoc: %v", err)
+		t.Fatalf("LinkArtifactToEntry: %v", err)
 	}
 	if file := artifactsInFile(t, entry.Path); !slices.Equal(file, []string{first.Name, second.Name}) {
 		t.Errorf("file lists %v, want [%s %s]", file, first.Name, second.Name)
@@ -397,16 +397,16 @@ func TestUnlinkArtifactFromEntry(t *testing.T) {
 	b := addArtifact(t, c, p.ID, "b.png", "\x89PNG\r\n\x1a\nb")
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Two"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	setArtifactsInFile(t, entry.Path, a.Name, b.Name)
 	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 
 	got, err := c.UnlinkArtifactFromEntry(t.Context(), p.ID, entry.Slug, a.Name)
 	if err != nil {
-		t.Fatalf("UnlinkArtifactFromDoc: %v", err)
+		t.Fatalf("UnlinkArtifactFromEntry: %v", err)
 	}
 	if names := artifactNamesOf(got); !slices.Equal(names, []string{b.Name}) {
 		t.Errorf("names = %v, want [%s]", names, b.Name)
@@ -426,7 +426,7 @@ func TestUnlinkArtifactFromEntry(t *testing.T) {
 
 	again, err := c.UnlinkArtifactFromEntry(t.Context(), p.ID, entry.Slug, a.Name)
 	if err != nil {
-		t.Fatalf("UnlinkArtifactFromDoc again: %v", err)
+		t.Fatalf("UnlinkArtifactFromEntry again: %v", err)
 	}
 	if again.Version != got.Version {
 		t.Errorf("unlinking a name that is not listed rewrote the file")
@@ -439,16 +439,16 @@ func TestUnlinkClearsANameWhoseArtifactIsGone(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Gone"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	setArtifactsInFile(t, entry.Path, "deleted.pdf")
 	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 
 	got, err := c.UnlinkArtifactFromEntry(t.Context(), p.ID, entry.Slug, "deleted.pdf")
 	if err != nil {
-		t.Fatalf("UnlinkArtifactFromDoc: %v", err)
+		t.Fatalf("UnlinkArtifactFromEntry: %v", err)
 	}
 	if len(got.Artifacts) != 0 || len(artifactsInFile(t, entry.Path)) != 0 {
 		t.Errorf("stub not cleared: Artifacts = %+v, file = %v", got.Artifacts, artifactsInFile(t, entry.Path))
@@ -487,11 +487,11 @@ func TestListArtifactsForAnEntry(t *testing.T) {
 	b := addArtifact(t, c, p.ID, "two.png", "\x89PNG\r\n\x1a\n2")
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Listed"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	setArtifactsInFile(t, entry.Path, b.Name, a.Name)
 	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 
 	items, err := c.ListArtifacts(t.Context(), p.ID, "", entry.ID)

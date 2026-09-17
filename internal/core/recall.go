@@ -31,7 +31,7 @@ type RecallOpts struct {
 	Terms   int      // terms lifted from the text; default 4
 	Exclude []string // refs the caller already holds, so they are not resent
 
-	// Narrowing to a knowledge dimension drops cards from the result, because
+	// Narrowing to an entry dimension drops cards from the result, because
 	// a card carries neither of these and silently keeping them would make a
 	// filtered recall answer a question nobody asked.
 	Templates   []string
@@ -122,7 +122,7 @@ func recallTerms(text string, limit int) []string {
 	return terms
 }
 
-// Recall finds knowledge entries and cards bearing on a passage of free text.
+// Recall finds entries and cards bearing on a passage of free text.
 //
 // Search quotes its caller's text into one phrase, which is right for someone
 // who means the words they typed. A prompt is not that: matched as a phrase it
@@ -197,7 +197,7 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 		rankRecall(entries, boost)
 		rankRecall(cards, boost)
 
-		// Knowledge outranks cards: recall exists to surface what was written
+		// Entries outrank cards: recall exists to surface what was written
 		// down, and open cards already reach the agent through the brief.
 		// A labelled break, not a return: returning here skipped everything
 		// below, which is how recording silently stopped whenever the limit

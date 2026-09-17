@@ -11,8 +11,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Frontmatter is the YAML header of a knowledge file. Everything else about a
-// doc — which project, which links, when it was read — lives in the database;
+// Frontmatter is the YAML header of an entry file. Everything else about an
+// entry — which project, which links, when it was read — lives in the database;
 // these are the fields a human editing the file in Obsidian would expect to own.
 type Frontmatter struct {
 	Title    string `yaml:"title"`
@@ -105,7 +105,7 @@ func RenderEntry(fm Frontmatter, body string) string {
 }
 
 // ContentHash is what detects an external edit (§5). It covers the whole file,
-// frontmatter included: retagging a doc is a change.
+// frontmatter included: retagging an entry is a change.
 func ContentHash(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
@@ -203,7 +203,7 @@ func FirstParagraph(body string) string {
 //
 // A relative target is path-shaped (normalizeSlugPath) instead of flattened
 // by a single Slugify call, per the knowledge-paths layer. An absolute target
-// that names no knowledge entry -- a card address, or a malformed one -- keeps
+// that names no entry -- a card address, or a malformed one -- keeps
 // its text as the slug. No row can match that, so the link stays a stub and
 // lint says why.
 func ParseReference(raw string) Reference {

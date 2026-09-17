@@ -201,9 +201,9 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 // knownExtraFields is every field name any template on disk currently
 // names, in required or choices. A frontmatter key outside this set, and
 // outside the Frontmatter struct's own fields, is unrecognised no matter
-// which template, if any, produced the document — a document does not
+// which template, if any, produced the entry — an entry does not
 // remember which template created it. A template that fails to parse
-// names nothing here; Lint reports the document's key regardless, which is
+// names nothing here; Lint reports the entry's key regardless, which is
 // the safer default when a template is broken.
 func (c *Core) knownExtraFields(ctx context.Context) (map[string]bool, error) {
 	dir, err := c.templatesDir()
@@ -322,7 +322,7 @@ func anchorSet(body string) map[string]bool {
 	return set
 }
 
-// addressFinding explains an absolute link target that names no knowledge
+// addressFinding explains an absolute link target that names no
 // entry: a malformed address, or one in another collection.
 func addressFinding(e Entry, raw, target string) LintFinding {
 	f := LintFinding{Kind: "wrong_collection", Entry: e.Ref, Ref: raw,

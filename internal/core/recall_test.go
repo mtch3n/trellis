@@ -16,7 +16,7 @@ func TestRecallFindsWhatAPhraseSearchCannot(t *testing.T) {
 		Title:   "Lease renewal on claim",
 		Summary: "A claim starts the lease and a note renews it.",
 	}); err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	sentence := "why does the lease expire when an agent goes quiet halfway through"
@@ -50,7 +50,7 @@ func TestRecallCarriesTheLineThatDecidesWhetherToOpen(t *testing.T) {
 		Summary: "Rebuilds on every write above ten thousand rows",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	hits, err := c.Recall(ctx, p.ID, "vector rebuild cost", RecallOpts{})
@@ -83,7 +83,7 @@ func TestRecallOmitsRefsTheCallerAlreadyHolds(t *testing.T) {
 		Title: "Staleness and leases", Summary: "When a quiet lease may be taken over",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	hits, err := c.Recall(ctx, p.ID, "staleness", RecallOpts{})
@@ -113,7 +113,7 @@ func TestRecallPutsEntriesBeforeCards(t *testing.T) {
 	if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 		Title: "Telemetry pipeline decision", Summary: "Why batching beat streaming",
 	}); err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	hits, err := c.Recall(ctx, p.ID, "the telemetry pipeline keeps dropping spans", RecallOpts{})
@@ -134,7 +134,7 @@ func TestRecallHonoursLimit(t *testing.T) {
 
 	for _, title := range []string{"Retry budget", "Retry jitter", "Retry ceiling"} {
 		if _, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: title, Summary: "retry"}); err != nil {
-			t.Fatalf("CreateKnowledge: %v", err)
+			t.Fatalf("CreateEntry: %v", err)
 		}
 	}
 
@@ -194,7 +194,7 @@ func TestRecallLiftsHitsConnectedToOtherHits(t *testing.T) {
 		if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 			Title: title, Summary: "retry budget", Body: body,
 		}); err != nil {
-			t.Fatalf("CreateKnowledge %s: %v", title, err)
+			t.Fatalf("CreateEntry %s: %v", title, err)
 		}
 	}
 	mk("Retry alpha", "retry budget notes")
@@ -223,7 +223,7 @@ func TestRecallCountsALinkToAHubForLessThanALinkToARarity(t *testing.T) {
 		if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 			Title: title, Summary: "retry budget", Body: body,
 		}); err != nil {
-			t.Fatalf("CreateKnowledge %s: %v", title, err)
+			t.Fatalf("CreateEntry %s: %v", title, err)
 		}
 	}
 	mk("Retry hub", "retry budget, the index everything points at")
@@ -235,7 +235,7 @@ func TestRecallCountsALinkToAHubForLessThanALinkToARarity(t *testing.T) {
 			Summary: "nothing to do with the query",
 			Body:    "points at [[retry-hub]]",
 		}); err != nil {
-			t.Fatalf("CreateKnowledge unrelated: %v", err)
+			t.Fatalf("CreateEntry unrelated: %v", err)
 		}
 	}
 	mk("Retry alpha", "retry budget, see [[retry-hub]]")
@@ -268,7 +268,7 @@ func TestRecallWithoutLinksKeepsFTSOrder(t *testing.T) {
 		if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 			Title: title, Summary: "retry", Body: "no links here",
 		}); err != nil {
-			t.Fatalf("CreateKnowledge: %v", err)
+			t.Fatalf("CreateEntry: %v", err)
 		}
 	}
 	first, err := c.Recall(ctx, p.ID, "retry", RecallOpts{Limit: 3})
@@ -299,7 +299,7 @@ func TestRecallNarrowedToAnEntryDimensionDropsCards(t *testing.T) {
 	if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 		Title: "Retry budget decision", Summary: "retry budget", Provenance: "extracted",
 	}); err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	wide, err := c.Recall(ctx, p.ID, "retry budget", RecallOpts{})
@@ -329,7 +329,7 @@ func TestRecallHoldsOutAnIngestionPath(t *testing.T) {
 		if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 			Title: "Retry budget " + prov, Summary: "retry budget", Provenance: prov,
 		}); err != nil {
-			t.Fatalf("CreateKnowledge: %v", err)
+			t.Fatalf("CreateEntry: %v", err)
 		}
 	}
 	// Holding one path out is what makes a comparison possible at all.

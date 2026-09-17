@@ -79,7 +79,7 @@ func TestVerifyAcceptsAResolvedCardEntryAndArtifact(t *testing.T) {
 	}
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Referenced entry"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	art := addArtifact(t, c, p.ID, "evidence.png", "\x89PNG\r\n\x1a\nx")
 
@@ -183,8 +183,8 @@ func TestVerifyRejectsACardAddressWhoseRefPrefixDoesNotMatch(t *testing.T) {
 	}
 }
 
-// A knowledge address counted an escalated row because it had no
-// "global = 0" filter, while resolveDocRef's own address branch excludes
+// An entry address counted an escalated row because it had no
+// "global = 0" filter, while resolveEntryRef's own address branch excludes
 // exactly that row -- an entry's old project address becomes a stub, not a
 // hit, once it lives in the global vault instead.
 func TestVerifyRejectsAnEscalatedEntrysOldProjectAddress(t *testing.T) {
@@ -192,7 +192,7 @@ func TestVerifyRejectsAnEscalatedEntrysOldProjectAddress(t *testing.T) {
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 	target, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Shared"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.EscalateKnowledge(t.Context(), p.ID, target.Slug, "reason"); err != nil {
 		t.Fatalf("EscalateKnowledge: %v", err)

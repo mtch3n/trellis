@@ -9,7 +9,7 @@ import (
 )
 
 func TestEventFeedOrdersBySeqAndPages(t *testing.T) {
-	// kbCore's project and board setup already recorded a "board created"
+	// vaultCore's project and board setup already recorded a "board created"
 	// event before either card exists, so every query here is filtered to
 	// Kinds: []string{"card"} — otherwise the very first page would return
 	// that board event, not "one".
@@ -57,7 +57,7 @@ func TestEventFeedDefaultAndMaxLimit(t *testing.T) {
 	// Driving that many writes through CreateCard would make this the
 	// slowest test in the suite for no benefit -- the limit logic does not
 	// care how a row got there -- so the events are inserted directly.
-	// Kinds: []string{"card"} below excludes kbCore's own "board created"
+	// Kinds: []string{"card"} below excludes vaultCore's own "board created"
 	// event, so every one of these rows, and only these, is in scope.
 	const bulk = 5100
 	var sb strings.Builder
@@ -131,10 +131,10 @@ func TestEventFeedExcludesReadByDefaultButNotWhenAsked(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Runbook"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.ReadEntry(t.Context(), p.ID, entry.Slug); err != nil {
-		t.Fatalf("ReadKnowledge: %v", err)
+		t.Fatalf("ReadEntry: %v", err)
 	}
 
 	byDefault, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
@@ -164,10 +164,10 @@ func TestEventFeedFiltersByTemplate(t *testing.T) {
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Bug", Template: "finding", Sources: []string{"https://example.com/report"},
 	}); err != nil {
-		t.Fatalf("CreateKnowledge finding: %v", err)
+		t.Fatalf("CreateEntry finding: %v", err)
 	}
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Notes", Template: ""}); err != nil {
-		t.Fatalf("CreateKnowledge note: %v", err)
+		t.Fatalf("CreateEntry note: %v", err)
 	}
 
 	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Templates: []string{"finding"}})
@@ -204,7 +204,7 @@ func TestEventFeedScopesByProject(t *testing.T) {
 		t.Fatalf("CreateCard p2: %v", err)
 	}
 
-	// Filtered to Kinds: []string{"card"} throughout: kbCore and
+	// Filtered to Kinds: []string{"card"} throughout: vaultCore and
 	// seededBoard each already record a "board created" event for their own
 	// project, and this test is about project scoping, not board noise.
 	scoped, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"card"}})
@@ -304,7 +304,7 @@ func TestEventFeedDeletedCardHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *test
 		t.Fatalf("project-scoped events = %+v, want created + deleted", scoped)
 	}
 
-	// Kinds: []string{"card"} excludes kbCore's own "board created" event,
+	// Kinds: []string{"card"} excludes vaultCore's own "board created" event,
 	// whose ref is still the (undeleted) board's name and would otherwise
 	// trip the loop below, which assumes every returned event is this card's.
 	events, _, err := c.EventFeed(t.Context(), EventQuery{Kinds: []string{"card"}})
@@ -331,15 +331,15 @@ func TestEventFeedDeletedEntryHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *tes
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Temporary"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if err := c.DeleteEntry(t.Context(), p.ID, entry.Slug); err != nil {
-		t.Fatalf("DeleteKnowledge: %v", err)
+		t.Fatalf("DeleteEntry: %v", err)
 	}
 
 	// A project-scoped read now reaches a hard-deleted entity's history
 	// because the event table carries project_id.
-	// Kinds: []string{"entry"} excludes kbCore's own "board created"
+	// Kinds: []string{"entry"} excludes vaultCore's own "board created"
 	// event, whose ref and title are still the (undeleted) board's — the
 	// loop below assumes every returned event is this entry's.
 	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"entry"}})
@@ -369,14 +369,14 @@ func TestEventFeedPrivateEntryCarriesRefAndTitleOnly(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Prod credentials", Private: true})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	body := "the actual secret body"
 	if _, err := c.EditEntryFields(t.Context(), p.ID, entry.Slug, EntryEdit{Body: &body, IfVersion: &entry.Version}); err != nil {
-		t.Fatalf("EditKnowledgeFields: %v", err)
+		t.Fatalf("EditEntryFields: %v", err)
 	}
 
-	// Kinds: []string{"entry"} excludes kbCore's own "board created"
+	// Kinds: []string{"entry"} excludes vaultCore's own "board created"
 	// event, whose title is the board's name, not this entry's.
 	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"entry"}})
 	if err != nil {
@@ -421,13 +421,13 @@ func TestEventFeedEntryRefUsesGlobalForAnEscalatedEntry(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Widely useful"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "applies everywhere"); err != nil {
 		t.Fatalf("EscalateKnowledge: %v", err)
 	}
 
-	// Kinds: []string{"entry"} excludes kbCore's own "board created"
+	// Kinds: []string{"entry"} excludes vaultCore's own "board created"
 	// event, which also has action "created".
 	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"entry"}, Actions: []string{"created"}})
 	if err != nil {

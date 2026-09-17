@@ -309,7 +309,7 @@ const (
 	projectEventsPageMax = 5000
 )
 
-// handleProjectEvents returns the events of a project's cards and knowledge,
+// handleProjectEvents returns the events of a project's cards and entries,
 // oldest first, a page at a time. The event log only shrinks through
 // maintenance, so the caller pages forward with ?after=<next> and can poll the
 // same way for what is new.
@@ -1125,7 +1125,7 @@ func (s *Server) handleEntryLinks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, links)
 }
 
-// handleTemplates lists every knowledge template, built-in and the user's.
+// handleTemplates lists every entry template, built-in and the user's.
 // Templates belong to the Trellis home, not to a project.
 func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
@@ -1271,7 +1271,7 @@ func (s *Server) handleGetEntry(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
-	// Build the knowledgeItem response with artifacts
+	// Build the entryItem response with artifacts
 	item := entryItem{Entry: entry}
 	for _, a := range entry.Artifacts {
 		artifactItem := artifactItem{ArtifactRef: a}
@@ -1293,7 +1293,7 @@ func (s *Server) handleEntryCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	var in entryRequest
 	if !decodeJSON(w, r, &in) || strings.TrimSpace(in.Title) == "" {
-		s.error(w, http.StatusBadRequest, "knowledge title required")
+		s.error(w, http.StatusBadRequest, "entry title required")
 		return
 	}
 	entry, err := s.write.CreateEntry(ctx, p.ID, core.NewEntry{
@@ -1334,7 +1334,7 @@ func (s *Server) handleEntryEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	var in entryPatch
 	if !decodeJSON(w, r, &in) {
-		s.error(w, http.StatusBadRequest, "invalid knowledge JSON")
+		s.error(w, http.StatusBadRequest, "invalid entry JSON")
 		return
 	}
 	entry, err := s.write.EditEntryFields(ctx, p.ID, r.PathValue("slug"), core.EntryEdit{
@@ -1600,7 +1600,7 @@ func (s *Server) error(w http.ResponseWriter, status int, msg string) {
 	w.Write(b)
 }
 
-// withoutContent removes body and (for private entries) summary/recap from knowledge
+// withoutContent removes body and (for private entries) summary/recap from
 // entries, matching the CLI's withholdContent behavior for listings.
 func withoutContent(entries []core.Entry) {
 	for i := range entries {

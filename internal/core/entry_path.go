@@ -15,7 +15,7 @@ import (
 // of the three platforms Trellis supports; Windows MAX_PATH (260) is. The
 // storage root plus username reserves roughly 80 of it, leaving 180 for the
 // slug. 96 per segment is chosen against the live vault: its longest slug is
-// 65 characters, so a lower ceiling would reject a document that already
+// 65 characters, so a lower ceiling would reject an entry that already
 // exists.
 const (
 	maxPathSegmentLen = 96
@@ -86,7 +86,7 @@ func SlugifyPath(raw string) (string, error) {
 	joined := strings.Join(segs, "/")
 	if len(joined) > maxRelSlugLen {
 		return "", ErrUsage("path_too_long",
-			fmt.Sprintf("%q is %d characters; a knowledge path is limited to %d", joined, len(joined), maxRelSlugLen), "")
+			fmt.Sprintf("%q is %d characters; an entry slug is limited to %d", joined, len(joined), maxRelSlugLen), "")
 	}
 	return joined, nil
 }
@@ -250,8 +250,8 @@ func (c *Core) refuseResemblingDir(tx *sqlx.Tx, projectID, dir string, allowNew 
 // slug. input may be the full path ("deployment/rollback") or a bare leaf
 // ("rollback"): a bare leaf matches any directory and is a permanent
 // addressing mode, not a compatibility shim. includeGlobal widens matching
-// to the vault, which loadDoc's callers want (show, edit, pin, escalate...)
-// and DeleteKnowledge does not: rm only ever removes this project's own row.
+// to the vault, which loadEntry's callers want (show, edit, pin, escalate...)
+// and DeleteEntry does not: rm only ever removes this project's own row.
 func (c *Core) resolveSlug(tx *sqlx.Tx, projectID, input string, includeGlobal bool) (string, error) {
 	norm := normalizeSlugPath(input)
 	// For exact matches, prefer project-local entries over global ones.
@@ -311,5 +311,5 @@ func (c *Core) resolveSlug(tx *sqlx.Tx, projectID, input string, includeGlobal b
 }
 
 func notFoundSlug(input string) error {
-	return ErrNotFound("knowledge_not_found", "no knowledge entry "+input, "trellis knowledge ls")
+	return ErrNotFound("knowledge_not_found", "no entry "+input, "trellis knowledge ls")
 }

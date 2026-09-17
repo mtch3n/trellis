@@ -90,7 +90,7 @@ func TestEntryEditWritesTitleAndSummary(t *testing.T) {
 	}
 }
 
-// EditKnowledgeMetadata tests changing type, private, tags, and labels via PATCH.
+// EditEntryMetadata tests changing type, private, tags, and labels via PATCH.
 func TestEntryEditMetadata(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
@@ -200,7 +200,7 @@ func TestEntryCreateCarriesSources(t *testing.T) {
 // entry private from the web is to create it ordinary and PATCH it private
 // afterward -- a window in which the body already reached an embedder under
 // vector search. A private entry created over HTTP must be private from its
-// first write: the file on disk must say so from the moment CreateKnowledge
+// first write: the file on disk must say so from the moment CreateEntry
 // returns, not after a follow-up request.
 func TestEntryCreatePrivateOverHTTPIsPrivateFromFirstWrite(t *testing.T) {
 	dir := t.TempDir()
@@ -252,6 +252,6 @@ func TestEntryCreatePrivateOverHTTPIsPrivateFromFirstWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !entry.Private {
-		t.Fatal("reloaded doc Private = false, want true")
+		t.Fatal("reloaded entry Private = false, want true")
 	}
 }

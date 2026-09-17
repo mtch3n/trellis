@@ -34,10 +34,10 @@ func TestPrivateRoundTripsThroughTheFile(t *testing.T) {
 		Title: "Staging credentials", Private: true,
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if !entry.Private {
-		t.Fatal("Private = false on the returned doc, want true")
+		t.Fatal("Private = false on the returned entry, want true")
 	}
 
 	raw, err := os.ReadFile(entry.Path)
@@ -50,7 +50,7 @@ func TestPrivateRoundTripsThroughTheFile(t *testing.T) {
 
 	reread, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if !reread.Private {
 		t.Error("Private = false after reload, want true")
@@ -64,7 +64,7 @@ func TestPrivateFollowsTheFileInBothDirections(t *testing.T) {
 
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy log"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if entry.Private {
 		t.Fatal("Private = true by default, want false")
@@ -73,7 +73,7 @@ func TestPrivateFollowsTheFileInBothDirections(t *testing.T) {
 	setPrivateInFile(t, entry.Path, true)
 	on, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge after setting: %v", err)
+		t.Fatalf("LoadEntry after setting: %v", err)
 	}
 	if !on.Private {
 		t.Fatal("Private = false after the file set it, want true")
@@ -82,7 +82,7 @@ func TestPrivateFollowsTheFileInBothDirections(t *testing.T) {
 	setPrivateInFile(t, entry.Path, false)
 	off, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge after clearing: %v", err)
+		t.Fatalf("LoadEntry after clearing: %v", err)
 	}
 	if off.Private {
 		t.Error("Private = true after the file cleared it, want false")
@@ -100,7 +100,7 @@ func TestMirrorDriftIsCorrectedFromTheFile(t *testing.T) {
 		Title: "Staging credentials", Private: true,
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.db.Exec(`UPDATE entry SET private = 0 WHERE id = ?`, entry.ID); err != nil {
 		t.Fatalf("drift the mirror: %v", err)
@@ -108,7 +108,7 @@ func TestMirrorDriftIsCorrectedFromTheFile(t *testing.T) {
 
 	reread, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if !reread.Private {
 		t.Fatal("the stale mirror won over the file")
@@ -142,7 +142,7 @@ func TestABadPrivateValueNamesTheFile(t *testing.T) {
 
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Staging credentials"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	raw, err := os.ReadFile(entry.Path)
 	if err != nil {
@@ -179,18 +179,18 @@ func TestVectorCorpusExcludesPrivate(t *testing.T) {
 
 	open, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Recall ranking"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	secret, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Staging credentials", Private: true,
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	entries, err := c.ListSearchEntries(t.Context(), p.ID)
 	if err != nil {
-		t.Fatalf("ListSearchKnowledge: %v", err)
+		t.Fatalf("ListSearchEntries: %v", err)
 	}
 	var sawOpen, sawSecret bool
 	for _, e := range entries {
@@ -217,14 +217,14 @@ func TestVectorCorpusFollowsTheFileOnTheNextRead(t *testing.T) {
 
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Env staging"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	inCorpus := func() bool {
 		t.Helper()
 		entries, err := c.ListSearchEntries(t.Context(), p.ID)
 		if err != nil {
-			t.Fatalf("ListSearchKnowledge: %v", err)
+			t.Fatalf("ListSearchEntries: %v", err)
 		}
 		for _, e := range entries {
 			if e.Slug == entry.Slug {
@@ -257,18 +257,18 @@ func TestListEntriesStillReturnsPrivate(t *testing.T) {
 		Title: "Staging credentials", Private: true,
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	entries, err := c.ListEntries(t.Context(), p.ID, EntryFilter{})
 	if err != nil {
-		t.Fatalf("ListKnowledge: %v", err)
+		t.Fatalf("ListEntries: %v", err)
 	}
 	for _, e := range entries {
 		if e.Slug == secret.Slug {
 			return
 		}
 	}
-	t.Errorf("ListKnowledge dropped the private entry %q; it is local and must stay listed", secret.Slug)
+	t.Errorf("ListEntries dropped the private entry %q; it is local and must stay listed", secret.Slug)
 }
 
 // A private entry has no recap. Recall and the pin list blank one anyway, so a
@@ -285,7 +285,7 @@ func TestPinOnPrivateStoresNoRecap(t *testing.T) {
 		Body:    "hunter2 is the staging database password.\n",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	storesNothing := func(step string) {
@@ -333,7 +333,7 @@ func TestPinOnPrivateStoresNoRecap(t *testing.T) {
 
 	pin, err := c.PinEntry(t.Context(), p.ID, entry.Slug, "", "")
 	if err != nil {
-		t.Fatalf("PinKnowledge with no recap: %v", err)
+		t.Fatalf("PinEntry with no recap: %v", err)
 	}
 	if pin.Recap != "" || pin.Title != title {
 		t.Errorf("pin = %+v, want an empty recap and the title", pin)
@@ -342,7 +342,7 @@ func TestPinOnPrivateStoresNoRecap(t *testing.T) {
 
 	pin, err = c.PinEntry(t.Context(), p.ID, entry.Slug, "staging DB access, rotated quarterly", "")
 	if err != nil {
-		t.Fatalf("PinKnowledge with an explicit recap: %v", err)
+		t.Fatalf("PinEntry with an explicit recap: %v", err)
 	}
 	if pin.Recap != "" {
 		t.Errorf("pin.Recap = %q, want the supplied recap discarded", pin.Recap)
@@ -375,11 +375,11 @@ func TestPinOnNormalStillFallsBack(t *testing.T) {
 		Title: "Recall ranking", Body: "Ranks are fused, not scored.\n",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	pin, err := c.PinEntry(t.Context(), p.ID, entry.Slug, "", "")
 	if err != nil {
-		t.Fatalf("PinKnowledge: %v", err)
+		t.Fatalf("PinEntry: %v", err)
 	}
 	if !strings.Contains(pin.Recap, "fused") {
 		t.Errorf("recap = %q, want the first paragraph", pin.Recap)
@@ -387,10 +387,10 @@ func TestPinOnNormalStillFallsBack(t *testing.T) {
 }
 
 // Recall keeps returning private entries — an agent that cannot see that an env
-// document exists cannot ask for it — but returns the identifier, not content.
+// entry exists cannot ask for it — but returns the identifier, not content.
 //
 // The flag is set by editing the file and recall is the VERY NEXT call. Setting
-// it through the API, or loading the document first, refreshes the row as a side
+// it through the API, or loading the entry first, refreshes the row as a side
 // effect and hides exactly the bug this guards.
 func TestRecallRedactsAPrivateEntryWithNoPriorRead(t *testing.T) {
 	c, p, _ := vaultCore(t)
@@ -401,7 +401,7 @@ func TestRecallRedactsAPrivateEntryWithNoPriorRead(t *testing.T) {
 		Body:    "The staging cluster password is hunter2.\n",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	setPrivateInFile(t, entry.Path, true)
@@ -437,7 +437,7 @@ func TestRecallStillCarriesAnOrdinaryRecap(t *testing.T) {
 		Title: "Recall ranking", Summary: "ranks are fused, not scored",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	hits, err := c.Recall(t.Context(), p.ID, "recall ranking", RecallOpts{})
@@ -472,13 +472,13 @@ func TestPrivateAfterRefreshTreatsAMissingFileAsPrivate(t *testing.T) {
 		Title: "Deleted after the fact",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	present, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Still on disk",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	if err := os.Remove(gone.Path); err != nil {
@@ -508,7 +508,7 @@ func TestPrivateAfterRefreshTreatsAMissingFileAsPrivate(t *testing.T) {
 	// one's, but says why.
 	cold, err := c.ColdEntries(t.Context(), p.ID)
 	if err != nil {
-		t.Fatalf("ColdKnowledge: %v", err)
+		t.Fatalf("ColdEntries: %v", err)
 	}
 	for _, e := range cold {
 		if e.Missing != (e.ID == gone.ID) {
@@ -526,10 +526,10 @@ func TestEditOnPrivateRecordsNoContent(t *testing.T) {
 		Title: "Staging credentials", Private: true, Body: "initial\n",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.EditEntry(t.Context(), p.ID, entry.Slug, "hunter2 is the password\n", &entry.Version); err != nil {
-		t.Fatalf("EditKnowledge: %v", err)
+		t.Fatalf("EditEntry: %v", err)
 	}
 
 	var leaked int
@@ -554,7 +554,7 @@ func TestEditOnPrivateRecordsNoContent(t *testing.T) {
 	// Titles are disclosed on purpose, as the created and deleted events
 	// show, so an edited event keeps the new one.
 	if _, err := c.EditEntryFields(t.Context(), p.ID, entry.Slug, EntryEdit{Title: new("Staging access"), IfVersion: new(entry.Version + 1)}); err != nil {
-		t.Fatalf("EditKnowledgeFields: %v", err)
+		t.Fatalf("EditEntryFields: %v", err)
 	}
 	var title string
 	if err := c.db.Get(&title,
@@ -568,8 +568,8 @@ func TestEditOnPrivateRecordsNoContent(t *testing.T) {
 }
 
 // Marking an existing entry private has to clean up behind itself. The event
-// log is the copy that gets forgotten: PinKnowledge writes the recap into
-// new_value and EditKnowledgeFields writes the whole body there.
+// log is the copy that gets forgotten: PinEntry writes the recap into
+// new_value and EditEntryFields writes the whole body there.
 func TestMarkingPrivatePurgesEveryLocalCopy(t *testing.T) {
 	c, p, _ := vaultCore(t)
 
@@ -577,13 +577,13 @@ func TestMarkingPrivatePurgesEveryLocalCopy(t *testing.T) {
 		Title: "Staging cluster access", Body: "initial\n",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.EditEntry(t.Context(), p.ID, entry.Slug, "the password is hunter2\n", &entry.Version); err != nil {
-		t.Fatalf("EditKnowledge: %v", err)
+		t.Fatalf("EditEntry: %v", err)
 	}
 	if _, err := c.PinEntry(t.Context(), p.ID, entry.Slug, "hunter2 opens staging", ""); err != nil {
-		t.Fatalf("PinKnowledge: %v", err)
+		t.Fatalf("PinEntry: %v", err)
 	}
 
 	countLeaks := func(action string) int {
@@ -608,7 +608,7 @@ func TestMarkingPrivatePurgesEveryLocalCopy(t *testing.T) {
 	setPrivateInFile(t, entry.Path, true)
 	reread, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if !reread.Private {
 		t.Fatal("the external edit was not picked up")
@@ -629,7 +629,7 @@ func TestMarkingPrivatePurgesEveryLocalCopy(t *testing.T) {
 
 	// The pin itself is not content — it is (id, entry_id, board_id,
 	// created_at) — so the purge leaves it alone. Deleting it here would also
-	// make UnpinKnowledge fail right after a privatise (see
+	// make UnpinEntry fail right after a privatise (see
 	// TestUnpinningAJustPrivatisedEntrySucceeds). The pin must survive and
 	// inject only a title/ref pointer, with an empty recap.
 	pins, err := c.Pins(t.Context(), p.ID, "", 0)
@@ -652,9 +652,9 @@ func TestMarkingPrivatePurgesEveryLocalCopy(t *testing.T) {
 }
 
 // The purge runs inside the caller's transaction. If it also deleted the pin,
-// UnpinKnowledge's own DELETE (which runs right after loadDoc triggers the
+// UnpinEntry's own DELETE (which runs right after loadEntry triggers the
 // purge) would find zero rows, return not_pinned, and Core.Tx would roll back
-// the whole transaction — including the purge. An author who marks a document
+// the whole transaction — including the purge. An author who marks an entry
 // private and immediately unpins it must not see that.
 func TestUnpinningAJustPrivatisedEntrySucceeds(t *testing.T) {
 	c, p, _ := vaultCore(t)
@@ -663,16 +663,16 @@ func TestUnpinningAJustPrivatisedEntrySucceeds(t *testing.T) {
 		Title: "Staging cluster access", Body: "initial\n",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.PinEntry(t.Context(), p.ID, entry.Slug, "hunter2 opens staging", ""); err != nil {
-		t.Fatalf("PinKnowledge: %v", err)
+		t.Fatalf("PinEntry: %v", err)
 	}
 
 	setPrivateInFile(t, entry.Path, true)
 
 	if err := c.UnpinEntry(t.Context(), p.ID, entry.Slug, ""); err != nil {
-		t.Fatalf("UnpinKnowledge right after privatising: %v", err)
+		t.Fatalf("UnpinEntry right after privatising: %v", err)
 	}
 
 	pins, err := c.Pins(t.Context(), p.ID, "", 0)
@@ -681,13 +681,13 @@ func TestUnpinningAJustPrivatisedEntrySucceeds(t *testing.T) {
 	}
 	for _, pin := range pins {
 		if pin.Slug == entry.Slug {
-			t.Error("still pinned after UnpinKnowledge succeeded")
+			t.Error("still pinned after UnpinEntry succeeded")
 		}
 	}
 }
 
 // The session brief reads pins. Making Pins the very first call after the file
-// changed is the whole point: any test that loads the document first refreshes
+// changed is the whole point: any test that loads the entry first refreshes
 // the row as a side effect and proves nothing.
 func TestPinsRedactAPrivateEntryWithNoPriorRead(t *testing.T) {
 	c, p, _ := vaultCore(t)
@@ -696,10 +696,10 @@ func TestPinsRedactAPrivateEntryWithNoPriorRead(t *testing.T) {
 		Title: "Staging cluster access", Body: "initial\n",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.PinEntry(t.Context(), p.ID, entry.Slug, "hunter2 opens staging", ""); err != nil {
-		t.Fatalf("PinKnowledge: %v", err)
+		t.Fatalf("PinEntry: %v", err)
 	}
 
 	setPrivateInFile(t, entry.Path, true)
@@ -729,10 +729,10 @@ func TestPinsStillCarryAnOrdinaryRecap(t *testing.T) {
 
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Recall ranking"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.PinEntry(t.Context(), p.ID, entry.Slug, "ranks are fused", ""); err != nil {
-		t.Fatalf("PinKnowledge: %v", err)
+		t.Fatalf("PinEntry: %v", err)
 	}
 
 	pins, err := c.Pins(t.Context(), p.ID, "", 0)
@@ -764,10 +764,10 @@ func TestMarkingPrivatePurgesArtifactLinkEvents(t *testing.T) {
 	a := addArtifact(t, c, p.ID, "evidence.png", "\x89PNG\r\n\x1a\nx")
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Staging cluster access"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.LinkArtifactToEntry(t.Context(), p.ID, entry.Slug, a.Name); err != nil {
-		t.Fatalf("LinkArtifactToDoc: %v", err)
+		t.Fatalf("LinkArtifactToEntry: %v", err)
 	}
 
 	var before string
@@ -783,7 +783,7 @@ func TestMarkingPrivatePurgesArtifactLinkEvents(t *testing.T) {
 	setPrivateInFile(t, entry.Path, true)
 	reread, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if !reread.Private {
 		t.Fatal("the external edit was not picked up")
@@ -801,10 +801,10 @@ func TestMarkingPrivatePurgesArtifactLinkEvents(t *testing.T) {
 }
 
 // The purge runs inside its caller's transaction, so any caller that fails
-// after loadDoc rolls the purge back, and the private mirror with it.
-// UnpinKnowledge naming a board that does not exist is one such caller: loadDoc
+// after loadEntry rolls the purge back, and the private mirror with it.
+// UnpinEntry naming a board that does not exist is one such caller: loadEntry
 // purges, then boardByName fails. The old recap is back in the column and
-// nothing has read the document successfully since. If Pins ever went back to
+// nothing has read the entry successfully since. If Pins ever went back to
 // reading entry.recap directly, this is the sequence that would leak it.
 func TestPinsDoNotDiscloseAfterARolledBackPurge(t *testing.T) {
 	c, p, _ := vaultCore(t)
@@ -814,17 +814,17 @@ func TestPinsDoNotDiscloseAfterARolledBackPurge(t *testing.T) {
 		Title: "Staging cluster access", Body: "initial\n",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.PinEntry(t.Context(), p.ID, entry.Slug, recap, ""); err != nil {
-		t.Fatalf("PinKnowledge: %v", err)
+		t.Fatalf("PinEntry: %v", err)
 	}
 
 	setPrivateInFile(t, entry.Path, true)
 
 	err = c.UnpinEntry(t.Context(), p.ID, entry.Slug, "no-such-board")
 	if coreErr, ok := errors.AsType[*Error](err); !ok || coreErr.Code != "board_not_found" {
-		t.Fatalf("UnpinKnowledge = %v, want board_not_found", err)
+		t.Fatalf("UnpinEntry = %v, want board_not_found", err)
 	}
 
 	type stored struct {
@@ -880,15 +880,15 @@ func TestColdEntriesReadsTheFlagFromTheFile(t *testing.T) {
 
 	marked, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Staging cluster access"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	gone, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deleted by hand"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	open, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Recall ranking"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	setPrivateInFile(t, marked.Path, true)
 	if err := os.Remove(gone.Path); err != nil {
@@ -897,7 +897,7 @@ func TestColdEntriesReadsTheFlagFromTheFile(t *testing.T) {
 
 	cold, err := c.ColdEntries(t.Context(), p.ID)
 	if err != nil {
-		t.Fatalf("ColdKnowledge: %v, want no error for a missing file", err)
+		t.Fatalf("ColdEntries: %v, want no error for a missing file", err)
 	}
 	want := map[string]bool{marked.Slug: true, gone.Slug: true, open.Slug: false}
 	for _, e := range cold {
@@ -926,10 +926,10 @@ func TestAPrivatePinIsNeverStale(t *testing.T) {
 		Title: "Staging cluster access", Body: "initial\n",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.PinEntry(t.Context(), p.ID, entry.Slug, "hunter2 opens staging", ""); err != nil {
-		t.Fatalf("PinKnowledge: %v", err)
+		t.Fatalf("PinEntry: %v", err)
 	}
 	setPrivateInFile(t, entry.Path, true)
 
@@ -964,7 +964,7 @@ func TestAPrivatePinIsNeverStale(t *testing.T) {
 	}
 }
 
-// Ordinary documents keep the audit fidelity they have today.
+// Ordinary entries keep the audit fidelity they have today.
 func TestEditOnNormalStillRecordsContent(t *testing.T) {
 	c, p, _ := vaultCore(t)
 
@@ -972,10 +972,10 @@ func TestEditOnNormalStillRecordsContent(t *testing.T) {
 		Title: "Recall ranking", Body: "initial\n",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if _, err := c.EditEntry(t.Context(), p.ID, entry.Slug, "ranks are fused\n", &entry.Version); err != nil {
-		t.Fatalf("EditKnowledge: %v", err)
+		t.Fatalf("EditEntry: %v", err)
 	}
 
 	var recorded int

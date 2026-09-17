@@ -319,11 +319,11 @@ type merger struct {
 
 	boardSlug      map[string]string // SRC board slug -> its slug in DST
 	srcDefaultSlug string            // DST slug of SRC's default board, or ""
-	entryPath      map[string]string // document id -> where its file is now
-	fromSrc        map[string]bool   // documents that came from SRC and still exist
-	addr           map[string]string // SRC document address -> its address now
+	entryPath      map[string]string // entry id -> where its file is now
+	fromSrc        map[string]bool   // entries that came from SRC and still exist
+	addr           map[string]string // SRC entry address -> its address now
 	renamed        map[string]string // SRC slug -> its slug in DST, for renamed entries
-	origPath       map[string]string // SRC document id -> its file path before the merge
+	origPath       map[string]string // SRC entry id -> its file path before the merge
 	artRenamed     map[string]string // SRC artifact name -> its name in DST, for renamed artifacts
 	entryMoves     []entryMove
 	artMoves       []artifactMove

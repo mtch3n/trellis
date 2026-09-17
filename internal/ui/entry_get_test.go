@@ -47,10 +47,10 @@ func TestGetSingleEntry(t *testing.T) {
 		return rec
 	}
 
-	// Create a knowledge entry
-	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/knowledge", `{"title":"Test Doc","body":"Test content"}`)
+	// Create an entry
+	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/knowledge", `{"title":"Test Entry","body":"Test content"}`)
 	if createResp.Code != http.StatusCreated {
-		t.Fatalf("create knowledge status = %d, body = %s", createResp.Code, createResp.Body)
+		t.Fatalf("create entry status = %d, body = %s", createResp.Code, createResp.Body)
 	}
 
 	var entry core.Entry
@@ -58,10 +58,10 @@ func TestGetSingleEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Test GET single knowledge returns body
+	// Test GET single entry returns body
 	getResp := request(http.MethodGet, "/api/p/"+projKey+"/knowledge/"+entry.Slug, "")
 	if getResp.Code != http.StatusOK {
-		t.Fatalf("get single knowledge status = %d, expected 200, body = %s", getResp.Code, getResp.Body)
+		t.Fatalf("get single entry status = %d, expected 200, body = %s", getResp.Code, getResp.Body)
 	}
 
 	var gotEntry entryItem
@@ -70,16 +70,16 @@ func TestGetSingleEntry(t *testing.T) {
 	}
 
 	if gotEntry.Entry.BodyMD == "" {
-		t.Fatalf("expected body in single-knowledge response, got empty body")
+		t.Fatalf("expected body in single-entry response, got empty body")
 	}
-	if gotEntry.Entry.Title != "Test Doc" {
-		t.Fatalf("expected title 'Test Doc', got %q", gotEntry.Entry.Title)
+	if gotEntry.Entry.Title != "Test Entry" {
+		t.Fatalf("expected title 'Test Entry', got %q", gotEntry.Entry.Title)
 	}
 
-	// Test GET non-existent knowledge returns 404
+	// Test GET non-existent entry returns 404
 	notFoundResp := request(http.MethodGet, "/api/p/"+projKey+"/knowledge/nonexistent", "")
 	if notFoundResp.Code != http.StatusNotFound {
-		t.Fatalf("get nonexistent knowledge status = %d, expected 404", notFoundResp.Code)
+		t.Fatalf("get nonexistent entry status = %d, expected 404", notFoundResp.Code)
 	}
 }
 
@@ -112,7 +112,7 @@ func TestGetSingleEntryWithEncodedSlug(t *testing.T) {
 		return rec
 	}
 
-	// Create a knowledge entry with slash in title (becomes slash in slug)
+	// Create an entry with slash in title (becomes slash in slug)
 	ctx := context.Background()
 	entry, err := c.CreateEntry(ctx, p.ID, core.NewEntry{
 		Title: "Deployment/Steps",
@@ -120,7 +120,7 @@ func TestGetSingleEntryWithEncodedSlug(t *testing.T) {
 		Board: "board1",
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	// Test GET with percent-encoded slug
@@ -169,10 +169,10 @@ func TestListEntriesExcludesBody(t *testing.T) {
 		return rec
 	}
 
-	// Create a knowledge entry
-	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/knowledge", `{"title":"Test Doc","body":"Test content"}`)
+	// Create an entry
+	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/knowledge", `{"title":"Test Entry","body":"Test content"}`)
 	if createResp.Code != http.StatusCreated {
-		t.Fatalf("create knowledge status = %d, body = %s", createResp.Code, createResp.Body)
+		t.Fatalf("create entry status = %d, body = %s", createResp.Code, createResp.Body)
 	}
 
 	var createdEntry core.Entry
@@ -180,7 +180,7 @@ func TestListEntriesExcludesBody(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Test board knowledge list excludes body
+	// Test board entry list excludes body
 	boardListResp := request(http.MethodGet, "/api/p/"+projKey+"/b/board1/knowledge", "")
 	if boardListResp.Code != http.StatusOK {
 		t.Fatalf("board list status = %d", boardListResp.Code)
@@ -192,16 +192,16 @@ func TestListEntriesExcludesBody(t *testing.T) {
 	}
 
 	if len(boardEntries) == 0 {
-		t.Fatal("expected at least one knowledge entry")
+		t.Fatal("expected at least one entry")
 	}
 
 	for i, entry := range boardEntries {
 		if entry.Entry.BodyMD != "" {
-			t.Fatalf("board list doc[%d] should not have body, got: %q", i, entry.Entry.BodyMD)
+			t.Fatalf("board list entry[%d] should not have body, got: %q", i, entry.Entry.BodyMD)
 		}
 	}
 
-	// Test project knowledge list excludes body
+	// Test project entry list excludes body
 	projListResp := request(http.MethodGet, "/api/p/"+projKey+"/knowledge", "")
 	if projListResp.Code != http.StatusOK {
 		t.Fatalf("project list status = %d", projListResp.Code)
@@ -213,12 +213,12 @@ func TestListEntriesExcludesBody(t *testing.T) {
 	}
 
 	if len(projEntries) == 0 {
-		t.Fatal("expected at least one knowledge entry in project list")
+		t.Fatal("expected at least one entry in project list")
 	}
 
 	for i, entry := range projEntries {
 		if entry.Entry.BodyMD != "" {
-			t.Fatalf("project list doc[%d] should not have body, got: %q", i, entry.Entry.BodyMD)
+			t.Fatalf("project list entry[%d] should not have body, got: %q", i, entry.Entry.BodyMD)
 		}
 	}
 }
@@ -252,7 +252,7 @@ func TestPrivateEntryListExcludesSummaryRecap(t *testing.T) {
 		return rec
 	}
 
-	// Create a private knowledge entry with summary
+	// Create a private entry with summary
 	privateEntry, err := c.CreateEntry(ctx, p.ID, core.NewEntry{
 		Title:   "Private Doc",
 		Summary: "Private summary",
@@ -264,7 +264,7 @@ func TestPrivateEntryListExcludesSummaryRecap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// PinKnowledge never stores a recap for a private entry (core's
+	// PinEntry never stores a recap for a private entry (core's
 	// TestPinOnPrivateStoresNoRecap covers that invariant directly), so
 	// nothing in the normal lifecycle ever puts one on this row: asserting
 	// Recap == nil below would hold no matter what the list handler does.
@@ -274,7 +274,7 @@ func TestPrivateEntryListExcludesSummaryRecap(t *testing.T) {
 		t.Fatalf("seed recap: %v", err)
 	}
 
-	// Create a public knowledge entry with summary
+	// Create a public entry with summary
 	publicEntry, err := c.CreateEntry(ctx, p.ID, core.NewEntry{
 		Title:   "Public Doc",
 		Summary: "Public summary",
@@ -286,7 +286,7 @@ func TestPrivateEntryListExcludesSummaryRecap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Test board knowledge list
+	// Test board entry list
 	boardListResp := request(http.MethodGet, "/api/p/PRIVLIST/b/board1/knowledge", "")
 	if boardListResp.Code != http.StatusOK {
 		t.Fatalf("board list status = %d", boardListResp.Code)
@@ -297,7 +297,7 @@ func TestPrivateEntryListExcludesSummaryRecap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Find the private and public docs in the list
+	// Find the private and public entries in the list
 	var foundPrivate, foundPublic entryItem
 	for _, entry := range boardEntries {
 		if entry.Entry.Slug == privateEntry.Slug {
@@ -309,33 +309,33 @@ func TestPrivateEntryListExcludesSummaryRecap(t *testing.T) {
 	}
 
 	if foundPrivate.Entry.ID == "" {
-		t.Fatal("private doc not found in list")
+		t.Fatal("private entry not found in list")
 	}
 	if foundPublic.Entry.ID == "" {
-		t.Fatal("public doc not found in list")
+		t.Fatal("public entry not found in list")
 	}
 
 	// Private entry should have no summary/recap/body in list
 	if foundPrivate.Entry.Summary != "" {
-		t.Fatalf("private doc in list should not have summary, got: %q", foundPrivate.Entry.Summary)
+		t.Fatalf("private entry in list should not have summary, got: %q", foundPrivate.Entry.Summary)
 	}
 	if foundPrivate.Entry.Recap != nil {
-		t.Fatalf("private doc in list should not have recap, got: %v", foundPrivate.Entry.Recap)
+		t.Fatalf("private entry in list should not have recap, got: %v", foundPrivate.Entry.Recap)
 	}
 	if foundPrivate.Entry.BodyMD != "" {
-		t.Fatalf("private doc in list should not have body, got: %q", foundPrivate.Entry.BodyMD)
+		t.Fatalf("private entry in list should not have body, got: %q", foundPrivate.Entry.BodyMD)
 	}
 
 	// Public entry should have no body but should have summary in list
 	if foundPublic.Entry.BodyMD != "" {
-		t.Fatalf("public doc in list should not have body, got: %q", foundPublic.Entry.BodyMD)
+		t.Fatalf("public entry in list should not have body, got: %q", foundPublic.Entry.BodyMD)
 	}
 	if foundPublic.Entry.Summary == "" {
-		t.Fatalf("public doc in list should have summary")
+		t.Fatalf("public entry in list should have summary")
 	}
 }
 
-// TestGlobalEntryListExcludesBody tests that global knowledge list excludes body
+// TestGlobalEntryListExcludesBody tests that global entry list excludes body
 func TestGlobalEntryListExcludesBody(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
@@ -500,9 +500,9 @@ func TestGetEntryFields(t *testing.T) {
 		return rec
 	}
 
-	// Create a knowledge entry with Set fields
+	// Create an entry with Set fields
 	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/knowledge",
-		`{"title":"Test Doc","body":"Content","set":{"owner":"alice","severity":"high"}}`)
+		`{"title":"Test Entry","body":"Content","set":{"owner":"alice","severity":"high"}}`)
 	if createResp.Code != http.StatusCreated {
 		t.Fatalf("create status = %d, body = %s", createResp.Code, createResp.Body)
 	}
@@ -564,7 +564,7 @@ func TestGetEntryFieldsPrivateList(t *testing.T) {
 		return rec
 	}
 
-	// Create a private knowledge entry with Set fields
+	// Create a private entry with Set fields
 	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/knowledge",
 		`{"title":"Private Doc","body":"Content","private":true,"set":{"owner":"alice"}}`)
 	if createResp.Code != http.StatusCreated {

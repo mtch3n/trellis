@@ -18,9 +18,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// TemplateRules is a template file's own frontmatter — the rules a document
-// created from it must satisfy. It is a different shape from Frontmatter (a
-// document's metadata), so it gets its own type rather than reusing it.
+// TemplateRules is a template file's own frontmatter — the rules an entry
+// created from it must satisfy. It is a different shape from Frontmatter (an
+// entry's metadata), so it gets its own type rather than reusing it.
 type TemplateRules struct {
 	// Enforce is "reject" or "warn". Empty means warn.
 	Enforce string `yaml:"enforce,omitempty"`
@@ -53,7 +53,7 @@ type Template struct {
 }
 
 // TemplateSection is one "## " heading a template's skeleton declares, and
-// whether a document must have it to satisfy the template.
+// whether an entry must have it to satisfy the template.
 type TemplateSection struct {
 	Heading  string
 	Optional bool
@@ -86,7 +86,7 @@ func templateSections(body string) []TemplateSection {
 	return out
 }
 
-// requiredSections is the subset of a skeleton's sections a document must
+// requiredSections is the subset of a skeleton's sections an entry must
 // have to satisfy the template — every one not marked <!-- optional -->.
 func requiredSections(body string) []string {
 	var out []string
@@ -98,7 +98,7 @@ func requiredSections(body string) []string {
 	return out
 }
 
-// presentSections is the set of "## " headings an actual document body has.
+// presentSections is the set of "## " headings an actual entry body has.
 func presentSections(body string) map[string]bool {
 	set := map[string]bool{}
 	for _, s := range templateSections(body) {
@@ -108,7 +108,7 @@ func presentSections(body string) map[string]bool {
 }
 
 // stripOptionalMarkers removes the <!-- optional --> marker from a rendered
-// document's headings. Only the skeleton carries the marker; the document it
+// entry's headings. Only the skeleton carries the marker; the entry it
 // produces must not.
 func stripOptionalMarkers(body string) string {
 	lines := strings.Split(body, "\n")
@@ -319,7 +319,7 @@ func (c *Core) templateNamed(name string) (Template, error) {
 	return loadTemplate(dir, name)
 }
 
-// templateProblems is every way a document falls short of its template: the
+// templateProblems is every way an entry falls short of its template: the
 // field and section rules, then the verify rule, read in the caller's
 // transaction.
 func (c *Core) templateProblems(tx *sqlx.Tx, projectID string, t Template, fields map[string][]string,
@@ -329,7 +329,7 @@ func (c *Core) templateProblems(tx *sqlx.Tx, projectID string, t Template, field
 	return append(problems, unresolved...), err
 }
 
-// enforceTemplate refuses a document under a reject template that has
+// enforceTemplate refuses an entry under a reject template that has
 // problems. Under warn the problems are the caller's warnings.
 func enforceTemplate(t Template, problems []string) error {
 	if len(problems) == 0 || t.Enforce != "reject" {
@@ -340,7 +340,7 @@ func enforceTemplate(t Template, problems []string) error {
 		Fix: templateViolationFix(t.Name, problems)}
 }
 
-// frontmatterFields is a document's frontmatter as template fields: every
+// frontmatterFields is an entry's frontmatter as template fields: every
 // value a required or choices rule can name. A list contributes each item.
 func frontmatterFields(fm Frontmatter) map[string][]string {
 	fields := map[string][]string{
@@ -519,7 +519,7 @@ func (c *Core) ReinstallTemplate(ctx context.Context, name string) (Template, er
 
 // CheckTemplate reports name's violations against slug's current fields and
 // sections, plus its verify rule — the same three lint and edit check. It
-// never blocks and never errors because of a violation — the document
+// never blocks and never errors because of a violation — the entry
 // already exists.
 func (c *Core) CheckTemplate(ctx context.Context, projectID, name, slug string) ([]string, error) {
 	dir, err := c.templatesDir()

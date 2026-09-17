@@ -186,12 +186,12 @@ func TestCreateEntryRefusesPathTraversalTemplateName(t *testing.T) {
 		Title: "Secret", Body: "the private body must never leak\n", Private: true,
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge secret: %v", err)
+		t.Fatalf("CreateEntry secret: %v", err)
 	}
 	traversal := "../projects/" + p.Key + "/vault/" + secret.Slug
 	_, err = c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Copy", Template: traversal})
 	if !isCode(err, "bad_template_name") {
-		t.Fatalf("CreateKnowledge --template %s: err = %v, want bad_template_name", traversal, err)
+		t.Fatalf("CreateEntry --template %s: err = %v, want bad_template_name", traversal, err)
 	}
 }
 
@@ -213,7 +213,7 @@ func TestCheckTemplateSeesBuiltInFields(t *testing.T) {
 		Title: "Has both", Summary: "a summary", Sources: []string{"https://example.com"},
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	violations, err := c.CheckTemplate(t.Context(), p.ID, "strict", entry.Slug)
@@ -227,7 +227,7 @@ func TestCheckTemplateSeesBuiltInFields(t *testing.T) {
 	}
 }
 
-// review-knowledge #10: CreateKnowledge's template check only ever looked at
+// review-knowledge #10: CreateEntry's template check only ever looked at
 // summary, sources and --set values, so title, tags, labels, board and
 // provenance were never checked at creation even though the edit path
 // checks all of them via frontmatterFields.
@@ -243,7 +243,7 @@ func TestCreateEntryTemplateChecksTags(t *testing.T) {
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Tagged", Template: "needs-tag", Tags: []string{"ops"},
 	}); err != nil {
-		t.Fatalf("CreateKnowledge with --tag should satisfy required: [tags]: %v", err)
+		t.Fatalf("CreateEntry with --tag should satisfy required: [tags]: %v", err)
 	}
 }
 
@@ -261,7 +261,7 @@ func TestCreateEntryTemplateChecksProvenanceChoices(t *testing.T) {
 	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Authored", Template: "extracted-only", Provenance: "authored",
 	}); err == nil {
-		t.Fatal("CreateKnowledge should be refused: provenance \"authored\" is not in choices [extracted]")
+		t.Fatal("CreateEntry should be refused: provenance \"authored\" is not in choices [extracted]")
 	}
 }
 

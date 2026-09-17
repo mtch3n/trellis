@@ -6,13 +6,13 @@ import "github.com/jmoiron/sqlx"
 // its author declared it private. Three exist locally:
 //
 //	entry.recap / recap_hash       the stored recap
-//	event.new_value  pinned        PinKnowledge writes the recap text there
+//	event.new_value  pinned        PinEntry writes the recap text there
 //	                               while the entry is still ordinary
-//	event.new_value  edited        EditKnowledgeFields writes the whole body
+//	event.new_value  edited        EditEntryFields writes the whole body
 //	                               there, which is the largest copy and the one
 //	                               nobody thinks to look for
 //	event.new_value  artifact_linked / artifact_unlinked
-//	                               EditKnowledgeFields records the artifact's
+//	                               EditEntryFields records the artifact's
 //	                               name unconditionally, because presence of a
 //	                               name is metadata, not content — but once the
 //	                               entry is private that name still identifies
@@ -26,17 +26,17 @@ import "github.com/jmoiron/sqlx"
 // only its ref and title.
 //
 // Leaving the pin also keeps this transaction-safe. This runs inside the
-// caller's transaction, from refreshFromFile via loadDoc. UnpinKnowledge
-// calls loadDoc and then runs its own DELETE FROM pin; if the purge had
-// already deleted the row, that DELETE would affect zero rows, UnpinKnowledge
+// caller's transaction, from refreshFromFile via loadEntry. UnpinEntry
+// calls loadEntry and then runs its own DELETE FROM pin; if the purge had
+// already deleted the row, that DELETE would affect zero rows, UnpinEntry
 // would return not_pinned, and Core.Tx would roll back the whole
 // transaction — undoing the purge along with everything else. An author who
-// marks a document private and then immediately unpins it must not see that.
+// marks an entry private and then immediately unpins it must not see that.
 //
 // The purge is self-healing, so this is not the only place it runs. Any
 // caller that returns an error after the purge rolls it back along with
-// everything else in its transaction — UnpinKnowledge naming a board that does
-// not exist is one, since loadDoc has already purged when boardByName fails —
+// everything else in its transaction — UnpinEntry naming a board that does
+// not exist is one, since loadEntry has already purged when boardByName fails —
 // and that includes the private mirror this function does not touch directly
 // (refreshFromFile sets it just before calling in). The next
 // successful read recomputes the false-to-true transition from the file and
@@ -46,7 +46,7 @@ import "github.com/jmoiron/sqlx"
 // again, but that stale value never reaches an agent.
 //
 // The vector index needs nothing here. Private entries are absent from the
-// corpus ListSearchKnowledge returns, and Reconcile builds both its upsert set
+// corpus ListSearchEntries returns, and Reconcile builds both its upsert set
 // and its prune keep-list from that one list, so the next reconcile evicts the
 // chunks as a side effect of not re-embedding them.
 //

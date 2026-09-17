@@ -20,7 +20,7 @@ func TestEntryEditRequiresAVersion(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	before, err := os.ReadFile(entry.Path)
 	if err != nil {
@@ -44,12 +44,12 @@ func TestEntryEditRequiresAVersion(t *testing.T) {
 
 // TestConcurrentEntryEditsFirstToFinishWins races eight independent
 // *Core connections, each standing in for a separate writer process, against
-// the same database file and KB root. The first to finish must win; every
+// the same database file and storage root. The first to finish must win; every
 // other writer must see a conflict, not a silently discarded edit.
 func TestConcurrentEntryEditsFirstToFinishWins(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "t.db")
-	root := filepath.Join(dir, "kb")
+	root := filepath.Join(dir, "root")
 
 	const n = 8
 	cores := make([]*Core, n)
@@ -65,7 +65,7 @@ func TestConcurrentEntryEditsFirstToFinishWins(t *testing.T) {
 	p := seededProject(t, cores[0])
 	entry, err := cores[0].CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy", Body: "v0\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	start := make(chan struct{})
@@ -104,7 +104,7 @@ func TestConcurrentEntryEditsFirstToFinishWins(t *testing.T) {
 
 	reloaded, err := cores[0].LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if reloaded.Version != 2 {
 		t.Errorf("Version = %d, want 2", reloaded.Version)
@@ -120,7 +120,7 @@ func TestConcurrentEntryEditsFirstToFinishWins(t *testing.T) {
 }
 
 // externalWriter simulates a program outside Trellis -- an editor -- writing
-// straight to a knowledge file while a Trellis write is in flight. Attaching
+// straight to an entry file while a Trellis write is in flight. Attaching
 // it as a Policy runs it from inside checkWrite, which is exactly where the
 // real defect let an outside write get silently discarded.
 type externalWriter struct{ path string }
@@ -144,7 +144,7 @@ func TestADirectEditDuringAWriteIsNotOverwritten(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	c.WithPolicies(externalWriter{path: entry.Path})
 
@@ -176,7 +176,7 @@ func TestADirectEditDuringAWriteIsNotOverwritten(t *testing.T) {
 // TestReplaceIfUnchanged is R3's direct unit test.
 func TestReplaceIfUnchanged(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "doc.md")
+	path := filepath.Join(dir, "entry.md")
 	if err := os.WriteFile(path, []byte("original\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestAFailedEditPutsTheFileBack(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	original, err := os.ReadFile(entry.Path)
 	if err != nil {
@@ -270,11 +270,11 @@ func TestEscalateRefusesASlugTheGlobalVaultHas(t *testing.T) {
 
 	first, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge (first): %v", err)
+		t.Fatalf("CreateEntry (first): %v", err)
 	}
 	second, err := c.CreateEntry(t.Context(), other.ID, NewEntry{Title: "Deploy"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge (second): %v", err)
+		t.Fatalf("CreateEntry (second): %v", err)
 	}
 
 	escalated, err := c.EscalateKnowledge(t.Context(), p.ID, first.Slug, "shared across projects")
@@ -302,7 +302,7 @@ func TestEscalateRefusesASlugTheGlobalVaultHas(t *testing.T) {
 
 	reloaded, err := c.LoadEntry(t.Context(), other.ID, second.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge for the second project's entry: %v", err)
+		t.Fatalf("LoadEntry for the second project's entry: %v", err)
 	}
 	if reloaded.Global {
 		t.Error("second entry became global despite the refusal")
@@ -317,7 +317,7 @@ func TestAFailedEscalateMovesTheFileBack(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	original := entry.Path
 
@@ -343,19 +343,19 @@ func TestAFailedEscalateMovesTheFileBack(t *testing.T) {
 
 	reloaded, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge after dropping the trigger: %v", err)
+		t.Fatalf("LoadEntry after dropping the trigger: %v", err)
 	}
 	if reloaded.Global {
 		t.Error("entry became global despite the failed escalate")
 	}
 }
 
-// TestAFailedDemoteMovesTheFileBack is R8 for DemoteKnowledge.
+// TestAFailedDemoteMovesTheFileBack is R8 for DemoteEntry.
 func TestAFailedDemoteMovesTheFileBack(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	escalated, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason")
 	if err != nil {
@@ -368,7 +368,7 @@ func TestAFailedDemoteMovesTheFileBack(t *testing.T) {
 	}
 
 	if _, err := c.DemoteEntry(t.Context(), entry.Slug, "wrong call"); err == nil {
-		t.Fatal("DemoteKnowledge succeeded despite the trigger")
+		t.Fatal("DemoteEntry succeeded despite the trigger")
 	}
 
 	if _, err := os.Stat(original); err != nil {
@@ -381,7 +381,7 @@ func TestAFailedDemoteMovesTheFileBack(t *testing.T) {
 
 	reloaded, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge after dropping the trigger: %v", err)
+		t.Fatalf("LoadEntry after dropping the trigger: %v", err)
 	}
 	if !reloaded.Global {
 		t.Error("entry demoted despite the failed call")
@@ -429,7 +429,7 @@ func TestAFailedDeletePutsTheFileBack(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	original, err := os.ReadFile(entry.Path)
 	if err != nil {
@@ -446,7 +446,7 @@ func TestAFailedDeletePutsTheFileBack(t *testing.T) {
 	}()
 
 	if err := c.DeleteEntry(t.Context(), p.ID, entry.Slug); err == nil {
-		t.Fatal("DeleteKnowledge succeeded despite the trigger")
+		t.Fatal("DeleteEntry succeeded despite the trigger")
 	}
 
 	raw, err := os.ReadFile(entry.Path)
@@ -520,7 +520,7 @@ func mustPanic(t *testing.T, fn func()) {
 	fn()
 }
 
-// TestAPanicAfterTheEditWritePutsTheFileBack is Fix 2 for EditKnowledgeFields:
+// TestAPanicAfterTheEditWritePutsTheFileBack is Fix 2 for EditEntryFields:
 // a panic after replaceIfUnchanged has already renamed the new bytes into
 // place must still restore the old ones, even though the panic never
 // reaches the closure's own return and so never sets the named error result.
@@ -528,14 +528,14 @@ func TestAPanicAfterTheEditWritePutsTheFileBack(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	original, err := os.ReadFile(entry.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// loadDoc's refresh and the pre-write "now" each spend one call; the
+	// loadEntry's refresh and the pre-write "now" each spend one call; the
 	// panic lands on the third, spent recording the "edited" event -- after
 	// the write already replaced the file.
 	pc := New(c.db, &panicClock{calls: 2}, c.actor, c.root)
@@ -560,21 +560,21 @@ func TestAPanicAfterTheEditWritePutsTheFileBack(t *testing.T) {
 	}
 }
 
-// TestAPanicAfterTheDeleteWritePutsTheFileBack is Fix 2 for DeleteKnowledge:
+// TestAPanicAfterTheDeleteWritePutsTheFileBack is Fix 2 for DeleteEntry:
 // a panic after stageRemoval has already moved the file aside must still
 // restore it.
 func TestAPanicAfterTheDeleteWritePutsTheFileBack(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	original, err := os.ReadFile(entry.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Nothing in DeleteKnowledge spends a clock call before recordEvent,
+	// Nothing in DeleteEntry spends a clock call before recordEvent,
 	// which runs last -- after stageRemoval has already moved the file
 	// aside -- so the very first call is the one to panic on.
 	pc := New(c.db, &panicClock{calls: 0}, c.actor, c.root)
@@ -605,11 +605,11 @@ func TestAPanicAfterTheEscalateMoveMovesTheFileBack(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	original := entry.Path
 
-	// loadDoc's refresh spends the one call before the move; the panic
+	// loadEntry's refresh spends the one call before the move; the panic
 	// lands on the next, which computes reviewBy right after the move.
 	pc := New(c.db, &panicClock{calls: 1}, c.actor, c.root)
 	mustPanic(t, func() {
@@ -625,20 +625,20 @@ func TestAPanicAfterTheEscalateMoveMovesTheFileBack(t *testing.T) {
 	}
 	reloaded, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if reloaded.Global {
 		t.Error("entry became global despite the panic")
 	}
 }
 
-// TestAPanicAfterTheDemoteMoveMovesTheFileBack is Fix 2 for DemoteKnowledge:
+// TestAPanicAfterTheDemoteMoveMovesTheFileBack is Fix 2 for DemoteEntry:
 // a panic right after moveFile succeeds must still move the file back.
 func TestAPanicAfterTheDemoteMoveMovesTheFileBack(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	escalated, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason")
 	if err != nil {
@@ -646,7 +646,7 @@ func TestAPanicAfterTheDemoteMoveMovesTheFileBack(t *testing.T) {
 	}
 	original := escalated.Path
 
-	// DemoteKnowledge looks its row up directly, without loadDoc, so the
+	// DemoteEntry looks its row up directly, without loadEntry, so the
 	// very first clock call is the one right after the move.
 	pc := New(c.db, &panicClock{calls: 0}, c.actor, c.root)
 	mustPanic(t, func() {
@@ -658,7 +658,7 @@ func TestAPanicAfterTheDemoteMoveMovesTheFileBack(t *testing.T) {
 	}
 	reloaded, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
+		t.Fatalf("LoadEntry: %v", err)
 	}
 	if !reloaded.Global {
 		t.Error("entry demoted despite the panic")
@@ -667,7 +667,7 @@ func TestAPanicAfterTheDemoteMoveMovesTheFileBack(t *testing.T) {
 
 // TestPrivateArtifactEventsCarryNoName is Fix 3: a private entry's
 // artifact_linked/artifact_unlinked events must carry the field alone, the
-// same rule the body/title/summary loop in EditKnowledgeFields already
+// same rule the body/title/summary loop in EditEntryFields already
 // applies. An artifact name is content the same way a body is; it is not
 // exempt just because it lives in metadata.
 func TestPrivateArtifactEventsCarryNoName(t *testing.T) {
@@ -676,10 +676,10 @@ func TestPrivateArtifactEventsCarryNoName(t *testing.T) {
 
 	private, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Private", Private: true})
 	if err != nil {
-		t.Fatalf("CreateKnowledge (private): %v", err)
+		t.Fatalf("CreateEntry (private): %v", err)
 	}
 	if _, err := c.LinkArtifactToEntry(t.Context(), p.ID, private.Slug, secret.Name); err != nil {
-		t.Fatalf("LinkArtifactToDoc (private): %v", err)
+		t.Fatalf("LinkArtifactToEntry (private): %v", err)
 	}
 	var value string
 	if err := c.db.Get(&value,
@@ -694,10 +694,10 @@ func TestPrivateArtifactEventsCarryNoName(t *testing.T) {
 	public := addArtifact(t, c, p.ID, "public.mp3", "ID3 public")
 	open, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Open"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge (open): %v", err)
+		t.Fatalf("CreateEntry (open): %v", err)
 	}
 	if _, err := c.LinkArtifactToEntry(t.Context(), p.ID, open.Slug, public.Name); err != nil {
-		t.Fatalf("LinkArtifactToDoc (open): %v", err)
+		t.Fatalf("LinkArtifactToEntry (open): %v", err)
 	}
 	if err := c.db.Get(&value,
 		`SELECT COALESCE(new_value, '') FROM event WHERE entity_id = ? AND action = 'artifact_linked'`,

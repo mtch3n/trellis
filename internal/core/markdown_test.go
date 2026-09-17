@@ -120,7 +120,7 @@ func TestFrontmatterWithNoExtraKeysIsUnchanged(t *testing.T) {
 	got := RenderEntry(fm, "body\n")
 	want := "---\ntitle: Plain\ntemplate: decision\n---\n\nbody\n"
 	if got != want {
-		t.Errorf("RenderDoc with no Extra = %q, want %q", got, want)
+		t.Errorf("RenderEntry with no Extra = %q, want %q", got, want)
 	}
 }
 

@@ -21,7 +21,7 @@ func newDecision(t *testing.T, c *Core, projectID string) Entry {
 		Sources: []string{"https://sqlite.org/whentouse.html"},
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	return entry
 }
@@ -83,7 +83,7 @@ func TestEditUnderAWarnTemplateWarns(t *testing.T) {
 		Body: new("# Latency\n\n## Question\n\nq\n"), IfVersion: &entry.Version,
 	})
 	if err != nil {
-		t.Fatalf("EditKnowledgeFields: %v", err)
+		t.Fatalf("EditEntryFields: %v", err)
 	}
 	if !slices.Contains(got.Warnings, "missing section Conclusion") {
 		t.Errorf("warnings = %v", got.Warnings)

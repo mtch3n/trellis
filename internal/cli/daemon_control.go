@@ -27,7 +27,7 @@ const (
 )
 
 // daemonSpawnWait bounds how long start waits for a freshly spawned daemon to
-// answer on its IPC socket. The first start of a large knowledge base rebuilds
+// answer on its IPC socket. The first start of a large vault rebuilds
 // the search index before it listens.
 const daemonSpawnWait = 30 * time.Second
 

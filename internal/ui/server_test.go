@@ -129,31 +129,31 @@ func TestServerVaultGraphLabelsAndStealRoutes(t *testing.T) {
 
 	created := request(http.MethodPost, "/api/p/P5TEST/b/default/knowledge", `{"title":"Concurrency","summary":"leases","body":"first"}`)
 	if created.Code != http.StatusCreated {
-		t.Fatalf("knowledge create status = %d, body = %s", created.Code, created.Body)
+		t.Fatalf("entry create status = %d, body = %s", created.Code, created.Body)
 	}
 	var entry core.Entry
 	if err := json.Unmarshal(created.Body.Bytes(), &entry); err != nil {
 		t.Fatal(err)
 	}
 	if entry.Slug == "" || entry.Version == 0 {
-		t.Fatalf("created knowledge = %+v", entry)
+		t.Fatalf("created entry = %+v", entry)
 	}
 
 	listed := request(http.MethodGet, "/api/p/P5TEST/b/default/knowledge", "")
 	if listed.Code != http.StatusOK || !bytes.Contains(listed.Body.Bytes(), []byte(`"slug":"`+entry.Slug+`"`)) {
-		t.Fatalf("knowledge list status = %d, body = %s", listed.Code, listed.Body)
+		t.Fatalf("entry list status = %d, body = %s", listed.Code, listed.Body)
 	}
 	projectEntries := request(http.MethodGet, "/api/p/P5TEST/knowledge", "")
 	if projectEntries.Code != http.StatusOK || !bytes.Contains(projectEntries.Body.Bytes(), []byte(`"slug":"`+entry.Slug+`"`)) {
-		t.Fatalf("project knowledge status = %d, body = %s", projectEntries.Code, projectEntries.Body)
+		t.Fatalf("project entry status = %d, body = %s", projectEntries.Code, projectEntries.Body)
 	}
 	globalEntries := request(http.MethodGet, "/api/global/knowledge", "")
 	if globalEntries.Code != http.StatusOK {
-		t.Fatalf("global knowledge status = %d, body = %s", globalEntries.Code, globalEntries.Body)
+		t.Fatalf("global entry status = %d, body = %s", globalEntries.Code, globalEntries.Body)
 	}
 	edited := request(http.MethodPatch, "/api/p/P5TEST/b/default/knowledge/"+entry.Slug, `{"body":"second","version":1}`)
 	if edited.Code != http.StatusOK || !bytes.Contains(edited.Body.Bytes(), []byte("second")) {
-		t.Fatalf("knowledge edit status = %d, body = %s", edited.Code, edited.Body)
+		t.Fatalf("entry edit status = %d, body = %s", edited.Code, edited.Body)
 	}
 	graph := request(http.MethodGet, "/api/p/P5TEST/b/default/graph/"+entry.Slug, "")
 	if graph.Code != http.StatusOK || !bytes.Contains(graph.Body.Bytes(), []byte(`"nodes"`)) {

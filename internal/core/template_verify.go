@@ -25,7 +25,7 @@ func wikilinkTarget(s string) (string, bool) {
 // addressPattern is the shape of an absolute Trellis address: a slash, a
 // project key, one of the three known collections, and a name. It is
 // deliberately loose about the key and name — address.Parse validates those
-// — so this only decides which values, or substrings of a document body,
+// — so this only decides which values, or substrings of an entry body,
 // are worth attempting to resolve as an address at all.
 const addressPattern = `/[A-Za-z][A-Za-z0-9-]*/(?:cards|vault|artifacts)/\S+`
 
@@ -120,7 +120,7 @@ func (c *Core) resolvesInternalReference(tx *sqlx.Tx, projectID, s string) (ok, 
 		return n > 0, true, nil
 	case address.CollectionVault:
 		// An entry that escalated out of this project keeps its project_id;
-		// resolveDocRef's own address branch excludes it (k.global = 0) so
+		// resolveEntryRef's own address branch excludes it (k.global = 0) so
 		// the old project address becomes a stub, not a hit. Match that here.
 		var n int
 		if err := tx.Get(&n, `SELECT COUNT(*) FROM entry WHERE slug = ? AND project_id = ? AND global = 0`, p.Name, destProjectID); err != nil {
@@ -160,8 +160,8 @@ func (c *Core) verifyFieldValues(tx *sqlx.Tx, projectID string, values []string)
 	return unresolved, nil
 }
 
-// verifyBody checks every wikilink and absolute address written in a
-// document body. Wikilinks resolve exactly as resolveDocRef does today —
+// verifyBody checks every wikilink and absolute address written in an
+// entry body. Wikilinks resolve exactly as resolveEntryRef does today —
 // today's project-and-vault scope, not the cross-project resolution a
 // later address layer adds.
 func (c *Core) verifyBody(tx *sqlx.Tx, projectID, body string) ([]string, error) {

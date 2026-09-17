@@ -13,7 +13,7 @@ func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
 
 	pin, err := c.PinEntry(t.Context(), p.ID, "concurrency-model", "", "")
 	if err != nil {
-		t.Fatalf("PinKnowledge: %v", err)
+		t.Fatalf("PinEntry: %v", err)
 	}
 	if pin.Recap != "Leases, not locks" {
 		t.Errorf("Recap = %q, want the frontmatter summary", pin.Recap)
@@ -58,12 +58,12 @@ func TestPinWithoutBoardUpdatesExistingPin(t *testing.T) {
 	// Pin the same entry twice without a board
 	_, err = c.PinEntry(t.Context(), p.ID, "concurrency-model", "", "")
 	if err != nil {
-		t.Fatalf("First PinKnowledge: %v", err)
+		t.Fatalf("First PinEntry: %v", err)
 	}
 
 	pin2, err := c.PinEntry(t.Context(), p.ID, "concurrency-model", "Updated recap", "")
 	if err != nil {
-		t.Fatalf("Second PinKnowledge: %v", err)
+		t.Fatalf("Second PinEntry: %v", err)
 	}
 
 	// Should have only one pin
@@ -99,7 +99,7 @@ func TestPinCreatedWhilePrivateThenUnprivateShowsStale(t *testing.T) {
 	// Pin while private (creates pin with NULL recap)
 	pin, err := c.PinEntry(t.Context(), p.ID, entry.Slug, "", "")
 	if err != nil {
-		t.Fatalf("PinKnowledge: %v", err)
+		t.Fatalf("PinEntry: %v", err)
 	}
 	if pin.Recap != "" {
 		t.Errorf("Private pin recap = %q, want empty", pin.Recap)
@@ -185,7 +185,7 @@ func TestEscalateMovesTheEntryAndKeepsReferences(t *testing.T) {
 		t.Fatalf("EscalateKnowledge: %v", err)
 	}
 	if !moved.Global || moved.Ref != "/GLOBAL/vault/postgres-conventions" {
-		t.Errorf("escalated doc = %+v, want a global ref", moved)
+		t.Errorf("escalated entry = %+v, want a global ref", moved)
 	}
 	if moved.Path == target.Path {
 		t.Error("the file should have moved, not been copied")
@@ -204,6 +204,6 @@ func TestEscalateMovesTheEntryAndKeepsReferences(t *testing.T) {
 	}
 
 	if _, err := c.DemoteEntry(t.Context(), target.Slug, "wrong call"); err != nil {
-		t.Fatalf("DemoteKnowledge: %v", err)
+		t.Fatalf("DemoteEntry: %v", err)
 	}
 }

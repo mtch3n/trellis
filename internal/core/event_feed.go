@@ -23,7 +23,7 @@ type EventQuery struct {
 	Limit     int      // default 1000, max 5000
 	Kinds     []string // card | entry | board | label | comment; empty = all
 	Actions   []string // created, edited, moved, ...; empty = all but read
-	Templates []string // knowledge only: finding, decision, ...
+	Templates []string // entries only: finding, decision, ...
 	NotActor  string   // skip events written by this actor
 }
 

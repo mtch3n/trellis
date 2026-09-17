@@ -65,10 +65,10 @@ func (c *Core) Compact(ctx context.Context) error {
 	return nil
 }
 
-// entriesWithPaths returns knowledge rows with Path derived and filled in,
+// entriesWithPaths returns entry rows with Path derived and filled in,
 // scoped to projectID (empty means every project). It exists for maintenance
 // and health code that walks a file directly rather than through
-// loadDoc/refreshFromFile, which set Path as a side effect of reading one
+// loadEntry/refreshFromFile, which set Path as a side effect of reading one
 // entry's own file.
 func (c *Core) entriesWithPaths(tx *sqlx.Tx, projectID string) ([]Entry, error) {
 	q := `SELECT k.*, p.key AS pkey FROM entry k JOIN project p ON p.id = k.project_id`
@@ -92,7 +92,7 @@ func (c *Core) entriesWithPaths(tx *sqlx.Tx, projectID string) ([]Entry, error) 
 	return entries, nil
 }
 
-// PruneRevisions trims every knowledge entry's and every card's revisions
+// PruneRevisions trims every entry's and every card's revisions
 // down to history.keep. Capture already enforces the limit going forward;
 // this is for after lowering it, when the excess would otherwise wait for
 // the next write. It returns the number of revisions removed.
@@ -206,7 +206,7 @@ func (c *Core) PruneOrphanHistory(ctx context.Context) (int64, error) {
 }
 
 // orphanRevisionDirs lists every ".<name>/" directory in the vaults that no
-// knowledge row accounts for, sorted. An empty projectID covers every project
+// entry row accounts for, sorted. An empty projectID covers every project
 // and the global vault; otherwise it covers that project's vault and the
 // directories its own entries live in. Liveness is always checked against
 // every project's rows, never just the ones a project filter selects: the
@@ -282,8 +282,8 @@ func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]stri
 }
 
 // looksLikeRevisionDir reports whether the directory at path, whose name is
-// name, could be a knowledge entry's revision directory: its name must be a
-// dot followed by something ending in ".md" (the only extension a knowledge
+// name, could be an entry's revision directory: its name must be a
+// dot followed by something ending in ".md" (the only extension an
 // entry file has), and every entry inside it must be a regular file whose
 // name parseRevisionVersion accepts. Anything else — ".git", ".obsidian", a
 // user's own dot-directory — is left alone, never walked into and never

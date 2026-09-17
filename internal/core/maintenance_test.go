@@ -13,13 +13,13 @@ func TestPruneRevisionsTrimsEntriesAndCards(t *testing.T) {
 	c, p, b := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Log", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	version := entry.Version
 	for i := 2; i <= 4; i++ {
 		edited, err := c.EditEntry(t.Context(), p.ID, entry.Slug, fmt.Sprintf("v%d\n", i), &version)
 		if err != nil {
-			t.Fatalf("EditKnowledge v%d: %v", i, err)
+			t.Fatalf("EditEntry v%d: %v", i, err)
 		}
 		version = edited.Version
 	}
@@ -50,7 +50,7 @@ func TestPruneRevisionsTrimsEntriesAndCards(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(entries) != 2 {
-		t.Errorf("%d knowledge revisions after pruning to keep=2, want 2", len(entries))
+		t.Errorf("%d entry revisions after pruning to keep=2, want 2", len(entries))
 	}
 	var cardRevs int
 	if err := c.db.Get(&cardRevs, `SELECT COUNT(*) FROM card_revision WHERE card_id = ?`, card.ID); err != nil {
@@ -65,7 +65,7 @@ func TestPruneOrphanHistoryRemovesADirectoryNoEntryAccountsFor(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Kept", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	// What removing a file and its row outside Trellis leaves behind.
 	stray := filepath.Join(filepath.Dir(entry.Path), ".removed-by-hand.md")
@@ -97,7 +97,7 @@ func TestPruneOrphanHistoryKeepsTheHistoryOfAnEntryWhoseFileIsGone(t *testing.T)
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Gone", Body: "the only copy\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if err := os.Remove(entry.Path); err != nil {
 		t.Fatal(err)
@@ -127,7 +127,7 @@ func TestPruneOrphanHistoryLeavesGitAndObsidianAlone(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Kept", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	vault := filepath.Dir(entry.Path)
 
@@ -186,7 +186,7 @@ func TestHealthAndPruneDoNotOverCount(t *testing.T) {
 	// p2 escalates an entry into the shared global vault.
 	entry, err := c.CreateEntry(t.Context(), p2.ID, NewEntry{Title: "Shared", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	escalated, err := c.EscalateKnowledge(t.Context(), p2.ID, entry.Slug, "shared runbook")
 	if err != nil {
@@ -198,7 +198,7 @@ func TestHealthAndPruneDoNotOverCount(t *testing.T) {
 	// parent vault.
 	nested, err := c.CreateEntry(t.Context(), p1.ID, NewEntry{Title: "Rollback", Body: "v1\n", Dir: "deployment"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge nested: %v", err)
+		t.Fatalf("CreateEntry nested: %v", err)
 	}
 	stray := filepath.Join(filepath.Dir(nested.Path), ".orphan.md")
 	if err := os.MkdirAll(stray, 0o700); err != nil {
@@ -235,7 +235,7 @@ func TestOrphanHistoryCountMatchesWhatPruneRemoves(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Kept", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	if n, err := c.OrphanHistoryCount(t.Context()); err != nil || n != 0 {
 		t.Fatalf("OrphanHistoryCount = %d, err = %v, want 0 before any stray directory exists", n, err)
@@ -307,11 +307,11 @@ func TestHealthReportsRevisionsAndOrphans(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry1, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Watched", Body: "v1\n"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	// Create and edit to get multiple revisions
 	if _, err := c.EditEntry(t.Context(), p.ID, entry1.Slug, "v2\n", &entry1.Version); err != nil {
-		t.Fatalf("EditKnowledge: %v", err)
+		t.Fatalf("EditEntry: %v", err)
 	}
 
 	// A revision directory no row accounts for.

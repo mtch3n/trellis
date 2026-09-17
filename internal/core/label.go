@@ -82,7 +82,7 @@ func (c *Core) GetLabel(ctx context.Context, projectID, name string) (Label, err
 	return label, err
 }
 
-// DeleteLabel removes a label. If any cards or docs still use it, returns a
+// DeleteLabel removes a label. If any cards or entries still use it, returns a
 // hard reject with exit 4 and instructions to use merge instead.
 func (c *Core) DeleteLabel(ctx context.Context, projectID, name string) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {

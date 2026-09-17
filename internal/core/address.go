@@ -9,7 +9,7 @@ import (
 	"github.com/mtch3n/trellis/internal/address"
 )
 
-// EntryAddress is a knowledge entry's canonical address: /KEY/vault/<slug>,
+// EntryAddress is an entry's canonical address: /KEY/vault/<slug>,
 // or /GLOBAL/vault/<slug> once it is in the vault. key is ignored for a
 // vault entry.
 func EntryAddress(key string, global bool, slug string) string {
@@ -19,7 +19,7 @@ func EntryAddress(key string, global bool, slug string) string {
 	return address.Entry(key, slug).String()
 }
 
-// entryAddressSQL is DocAddress in SQL, for queries that alias knowledge as k
+// entryAddressSQL is EntryAddress in SQL, for queries that alias entry as k
 // and project as p. TestEntryAddressSQLMatchesGo holds the two together.
 const entryAddressSQL = `'/' || CASE WHEN k.global = 1 THEN '` + address.GlobalKey +
 	`' ELSE p.key END || '/vault/' || k.slug`

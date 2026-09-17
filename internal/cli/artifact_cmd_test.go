@@ -98,10 +98,10 @@ func TestArtifactRmAcceptsAName(t *testing.T) {
 func TestArtifactAddCleansUpOnBadEntryLink(t *testing.T) {
 	projectEnv(t)
 
-	// Try to add artifact with bad doc reference
+	// Try to add artifact with bad entry reference
 	_, err := runCmdErr(t, "artifact", "add", writeFile(t, "test.txt", "content"), "--doc", "no-such-entry")
 	if err == nil {
-		t.Fatal("expected error when linking to non-existent doc")
+		t.Fatal("expected error when linking to non-existent entry")
 	}
 
 	// Verify no artifacts are listed

@@ -110,7 +110,7 @@ func newVectorStatusCmd() *cobra.Command {
 		if staleCount < 0 {
 			staleCount = 0
 		}
-		return Emit(cmd, map[string]any{"enabled": true, "configured_documents": len(entries), "indexed_documents": count, "stale_documents": staleCount}, func() string { return fmt.Sprintf("vector enabled; %d/%d documents indexed", count, len(entries)) })
+		return Emit(cmd, map[string]any{"enabled": true, "configured_documents": len(entries), "indexed_documents": count, "stale_documents": staleCount}, func() string { return fmt.Sprintf("vector enabled; %d/%d entries indexed", count, len(entries)) })
 	}}
 }
 
@@ -145,7 +145,7 @@ func newVectorRebuildCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return Emit(cmd, map[string]any{"rebuilt": n}, func() string { return fmt.Sprintf("rebuilt %d document vectors", n) })
+		return Emit(cmd, map[string]any{"rebuilt": n}, func() string { return fmt.Sprintf("rebuilt %d entry vectors", n) })
 	}}
 	cmd.Flags().BoolVar(&useDaemon, "daemon", false, "run through the application daemon")
 	return cmd
@@ -178,7 +178,7 @@ func newVectorPruneCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return Emit(cmd, map[string]any{"pruned": n}, func() string { return fmt.Sprintf("pruned %d stale document vectors", n) })
+		return Emit(cmd, map[string]any{"pruned": n}, func() string { return fmt.Sprintf("pruned %d stale entry vectors", n) })
 	}}
 	cmd.Flags().BoolVar(&useDaemon, "daemon", false, "run through the application daemon")
 	return cmd

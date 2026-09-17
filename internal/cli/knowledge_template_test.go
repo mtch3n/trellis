@@ -39,7 +39,7 @@ func TestTemplateNewRefusesAnExistingName(t *testing.T) {
 // review-knowledge #2 / review-cli #1: a template name is joined straight
 // into a filesystem path under <root>/templates. "../" in the name must
 // never let template new/edit/rm read, overwrite or delete a file outside
-// that directory -- in particular, a knowledge entry's own file.
+// that directory -- in particular, an entry's own file.
 func TestTemplateNewEditRmRefusePathTraversalNames(t *testing.T) {
 	projectEnv(t)
 	entryPath := newEntry(t, "--title", "Runbook")

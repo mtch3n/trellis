@@ -66,8 +66,8 @@ const ownedEntities = `SELECT id FROM card WHERE project_id = ?
 	UNION ALL SELECT id FROM artifact WHERE project_id = ?`
 
 // DeleteProject removes a project and everything it owns: boards, cards,
-// notes, labels, knowledge rows, and the project's directory under the
-// Trellis home, which holds its knowledge files, artifacts and vectors. The
+// comments, labels, entry rows, and the project's directory under the
+// Trellis home, which holds its entry files, artifacts and vectors. The
 // event log is kept; it is the change feed.
 //
 // Two things refuse rather than proceed. A card an agent holds right now,
@@ -191,7 +191,7 @@ func checkNewKey(key string) error {
 			"trellis init --key <KEY>")
 	}
 	if key == GlobalKey {
-		return ErrUsage("reserved_key", "GLOBAL is the global knowledge vault and cannot name a project",
+		return ErrUsage("reserved_key", "GLOBAL is the global vault and cannot name a project",
 			"trellis init --key <OTHER-KEY>")
 	}
 	return nil

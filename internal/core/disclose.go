@@ -12,7 +12,7 @@ import (
 // It exists because the private column is a mirror and is one read stale after
 // a file changes. Recall and the pin list put text in front of a model without
 // being asked, and the cold listing feeds `knowledge ls --cold`, whose JSON an
-// agent reads. Deciding from the mirror on any of them means a document can be
+// agent reads. Deciding from the mirror on any of them means an entry can be
 // disclosed after its author marked it private and before anything happened to
 // refresh the row.
 //

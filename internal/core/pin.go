@@ -19,7 +19,7 @@ import (
 // injection budget, and an injection nobody reads is no injection at all (§13.1).
 const MaxInjectedPins = 5
 
-// Pin is a knowledge entry whose recap is injected at session start (§10.5).
+// Pin is an entry whose recap is injected at session start (§10.5).
 // An empty Recap makes the pin a pointer, ref and title, which is all a private
 // entry ever injects. A pointer is never Stale: there is no recap to be wrong.
 type Pin struct {

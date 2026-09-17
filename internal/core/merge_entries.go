@@ -15,12 +15,12 @@ type entryRow struct {
 	ID     string `db:"id"`
 	Slug   string `db:"slug"`
 	Global bool   `db:"global"`
-	// Path is derived, not scanned: see planDocs, which fills it in for every
+	// Path is derived, not scanned: see planEntries, which fills it in for every
 	// row it selects.
 	Path string `db:"-"`
 }
 
-// entryMove is what happens to one SRC document: it moves under slug, or, when
+// entryMove is what happens to one SRC entry: it moves under slug, or, when
 // into is set, it collapses into DST's identical entry.
 type entryMove struct {
 	entry      entryRow
@@ -29,7 +29,7 @@ type entryMove struct {
 	intoGlobal bool
 }
 
-// planEntries decides every SRC document's fate before anything changes.
+// planEntries decides every SRC entry's fate before anything changes.
 // Identical bytes under one slug collapse; different content is a conflict,
 // renamed only on request and never for a vault entry.
 func (m *merger) planEntries() error {
@@ -110,7 +110,7 @@ func (m *merger) planEntries() error {
 	return nil
 }
 
-// moveEntries carries out planDocs. A project entry's file moves into DST's
+// moveEntries carries out planEntries. A project entry's file moves into DST's
 // vault directory; a vault entry stays where it is and only changes origin.
 func (m *merger) moveEntries() error {
 	for _, mv := range m.entryMoves {
@@ -189,7 +189,7 @@ func (m *merger) collapseEntry(e entryRow, into string) error {
 			return err
 		}
 	}
-	// recordEvent looks up its project_id from the knowledge row itself, so it
+	// recordEvent looks up its project_id from the entry row itself, so it
 	// must run before that row is gone -- otherwise the event lands with a
 	// NULL project_id, which retire()'s later re-homing (WHERE project_id =
 	// src) does not match either, and it never reaches SRC's or DST's feed.
@@ -206,8 +206,8 @@ func (m *merger) collapseEntry(e entryRow, into string) error {
 	return nil
 }
 
-// references rewrites every link that named a SRC document by address, in
-// any project, and every relative link from a SRC document to one that was
+// references rewrites every link that named a SRC entry by address, in
+// any project, and every relative link from a SRC entry to one that was
 // renamed. Then it resolves the stubs the merge satisfied.
 func (m *merger) references() error {
 	// A SRC with no entries still has artifacts and cards that sources:
@@ -233,10 +233,10 @@ func (m *merger) references() error {
 	return m.resolveStubs()
 }
 
-// entriesCiting lists every document whose file, as it is on disk now, holds a
+// entriesCiting lists every entry whose file, as it is on disk now, holds a
 // wikilink into project key, or a sources: address under it. The files are
 // the source of truth; link rows lag behind an edit made outside Trellis
-// until that document is next read, and sources: addresses have no row at
+// until that entry is next read, and sources: addresses have no row at
 // all.
 func (m *merger) entriesCiting(key string) ([]string, error) {
 	var entries []struct {
@@ -282,7 +282,7 @@ func (m *merger) entriesCiting(key string) ([]string, error) {
 // rewriteSourceAddress rewrites one sources: item that names something under
 // SRC by absolute address -- the same objects a wikilink, a card's
 // `cites` link, or an artifacts: entry already follow through the merge:
-// a knowledge entry (moved, renamed, or collapsed into DST's identical
+// an entry (moved, renamed, or collapsed into DST's identical
 // entry), an artifact (moved, or renamed on conflict), or a card, whose
 // stored ref never changes. Anything else -- a URL, prose, a path:lines
 // pointer, a wikilink, or an address elsewhere -- is left alone.
@@ -315,7 +315,7 @@ func (m *merger) rewriteSourceAddress(raw string) (string, bool) {
 	}
 }
 
-// rewriteSources rewrites a document's sources: frontmatter through
+// rewriteSources rewrites an entry's sources: frontmatter through
 // rewriteSourceAddress. It runs on text, not raw, so it composes with
 // whatever the wikilink and artifact-name rewrites already applied to this
 // pass.
@@ -337,7 +337,7 @@ func (m *merger) rewriteSources(path, text string) (string, error) {
 	return RenderEntry(fm, body), nil
 }
 
-// rewriteEntry rewrites one document's links through RewriteWikilinks, then
+// rewriteEntry rewrites one entry's links through RewriteWikilinks, then
 // reloads its row so the link table follows the new text.
 func (m *merger) rewriteEntry(id string) error {
 	var d struct {
@@ -435,7 +435,7 @@ func (m *merger) rewriteEntry(id string) error {
 	return m.c.refreshFromFile(m.tx, &entry)
 }
 
-// rewriteCardTargets updates `trellis link` targets that named a SRC document
+// rewriteCardTargets updates `trellis link` targets that named a SRC entry
 // by address. Their text is all the link keeps of what was typed.
 func (m *merger) rewriteCardTargets(prefix string) error {
 	var links []struct {

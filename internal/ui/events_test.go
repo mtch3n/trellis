@@ -13,7 +13,7 @@ import (
 )
 
 // The timeline reads the same feed an extension does: every event carries a
-// title, knowledge carries its type, and reads stay out.
+// title, an entry carries its template, and reads stay out.
 func TestProjectEventsComeFromTheFeed(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
@@ -73,7 +73,7 @@ func TestProjectEventsComeFromTheFeed(t *testing.T) {
 		if ev.Kind == "entry" && ev.Action == "created" {
 			sawFinding = true
 			if ev.Template != "finding" || ev.Title != "Cache stampede" || ev.Ref != entry.Ref {
-				t.Errorf("knowledge event = %+v, want template, title and ref", ev)
+				t.Errorf("entry event = %+v, want template, title and ref", ev)
 			}
 		}
 	}

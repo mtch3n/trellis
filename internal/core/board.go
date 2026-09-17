@@ -24,7 +24,7 @@ type Board struct {
 
 // slugify lowercases name, collapses every run of non-letter-non-digit
 // characters into a single "-", and trims leading/trailing "-". The slug is
-// the KB directory name and a URL segment (/p/<KEY>/b/<slug>), and it never
+// the vault directory name and a URL segment (/p/<KEY>/b/<slug>), and it never
 // changes on rename, so it must be a stable, filesystem-and-URL-safe
 // derivation of the name at creation time only.
 //

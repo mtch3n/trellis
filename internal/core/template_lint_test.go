@@ -11,7 +11,7 @@ func TestLintReportsAnUnknownFrontmatterKey(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Typo'd"})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 	raw, err := os.ReadFile(entry.Path)
 	if err != nil {
@@ -51,7 +51,7 @@ func TestLintDoesNotReportAFieldATemplateNames(t *testing.T) {
 		Title: "Has an owner", Template: "owned", Set: map[string]string{"owner": "alice"},
 	})
 	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
+		t.Fatalf("CreateEntry: %v", err)
 	}
 
 	for _, f := range findingsFor(t, c, p.ID, entry) {

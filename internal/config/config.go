@@ -88,7 +88,7 @@ func (h HistoryConfig) EffectiveKeep() int {
 	return *h.Keep
 }
 
-// VectorSearchConfig controls the optional semantic document index. The
+// VectorSearchConfig controls the optional semantic entry index. The
 // embedding executable receives UTF-8 text on stdin and must print either a
 // JSON float array or {"embedding":[...]} on stdout.
 type VectorSearchConfig struct {
