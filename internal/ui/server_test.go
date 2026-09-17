@@ -432,8 +432,8 @@ func TestServerProjectEventsPageThroughCardAndKnowledgeHistory(t *testing.T) {
 
 	s := NewServer(c, db, "127.0.0.1:0")
 	type page struct {
-		Events []projectEvent `json:"events"`
-		Next   *int64         `json:"next"`
+		Events []core.FeedEvent `json:"events"`
+		Next   *int64           `json:"next"`
 	}
 	get := func(path string) (page, []byte) {
 		t.Helper()
@@ -509,5 +509,66 @@ func TestServerProjectEventsPageThroughCardAndKnowledgeHistory(t *testing.T) {
 	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/p/NOPE/events", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown project = %d", rec.Code)
+	}
+}
+
+func TestServerClaimCardValidatesJSON(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "claim-test")
+	p, err := c.CreateProject(context.Background(), "CLAIMTEST", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board, err := c.CreateBoard(context.Background(), p.ID, "default", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	card, err := c.CreateCard(context.Background(), p.ID, board.ID, core.NewCard{Title: "Test Card"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(c, db, "127.0.0.1:0")
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Test malformed JSON returns 400 and card remains unclaimed
+	malformed := request(http.MethodPost, "/api/p/CLAIMTEST/b/default/cards/"+card.Ref+"/claim", "{")
+	if malformed.Code != http.StatusBadRequest {
+		t.Fatalf("malformed JSON status = %d, want %d, body = %s", malformed.Code, http.StatusBadRequest, malformed.Body)
+	}
+	detail := request(http.MethodGet, "/api/p/CLAIMTEST/b/default/cards/"+card.Ref, "")
+	if detail.Code != http.StatusOK {
+		t.Fatalf("detail status = %d", detail.Code)
+	}
+	var cardDetail core.Card
+	if err := json.Unmarshal(detail.Body.Bytes(), &cardDetail); err != nil {
+		t.Fatal(err)
+	}
+	if cardDetail.LeaseUntil != nil {
+		t.Fatalf("card claimed after malformed JSON request; LeaseUntil = %v", cardDetail.LeaseUntil)
+	}
+
+	// Test empty body succeeds and claims the card
+	empty := request(http.MethodPost, "/api/p/CLAIMTEST/b/default/cards/"+card.Ref+"/claim", "")
+	if empty.Code != http.StatusOK {
+		t.Fatalf("empty body status = %d, want %d, body = %s", empty.Code, http.StatusOK, empty.Body)
+	}
+	var claimedCard core.Card
+	if err := json.Unmarshal(empty.Body.Bytes(), &claimedCard); err != nil {
+		t.Fatal(err)
+	}
+	if claimedCard.LeaseUntil == nil {
+		t.Fatalf("card not claimed after successful request")
 	}
 }

@@ -53,17 +53,7 @@ func openCore() (*core.Core, *sqlx.DB, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	actor := os.Getenv("TRELLIS_AGENT")
-	if actor == "" {
-		actor = fmt.Sprintf("cli:%d", os.Getpid())
-	}
-	// Every subagent in one Claude Code session shares the session id (§8.5),
-	// so without a suffix two of them are the same principal and can claim the
-	// same card twice. --as wins over TRELLIS_ACTOR because it is per command.
-	if sub := cmp.Or(actorSuffix, os.Getenv("TRELLIS_ACTOR")); sub != "" {
-		actor += "/" + sub
-	}
-	c := core.New(db, core.RealClock{}, actor)
+	c := core.New(db, core.RealClock{}, cliActor())
 	if err := c.SyncKnowledgeSearch(context.Background()); err != nil {
 		db.Close()
 		return nil, nil, fmt.Errorf("rebuild knowledge search: %w", err)
@@ -77,6 +67,21 @@ func openCore() (*core.Core, *sqlx.DB, error) {
 	c.SetKnowledgeChanged(search.ReconcileProject)
 	c.SetDropDerived(search.DropProject)
 	return c, db, nil
+}
+
+// cliActor is the principal a command writes as.
+func cliActor() string {
+	actor := os.Getenv("TRELLIS_AGENT")
+	if actor == "" {
+		actor = fmt.Sprintf("cli:%d", os.Getpid())
+	}
+	// Every subagent in one Claude Code session shares the session id (§8.5),
+	// so without a suffix two of them are the same principal and can claim the
+	// same card twice. --as wins over TRELLIS_ACTOR because it is per command.
+	if sub := cmp.Or(actorSuffix, os.Getenv("TRELLIS_ACTOR")); sub != "" {
+		actor += "/" + sub
+	}
+	return actor
 }
 
 // currentBoard resolves the project and then the board. Standing where no pin

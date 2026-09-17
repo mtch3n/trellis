@@ -14,7 +14,7 @@ type GraphNode struct {
 	Ref   string `db:"ref" json:"ref"`
 	Title string `db:"title" json:"title"`
 	Depth int    `db:"depth" json:"depth"`
-	Done  bool   `db:"done" json:"done,omitempty"` // cards only
+	Done  bool   `db:"done" json:"done,omitzero"` // cards only
 }
 
 // GraphEdge is one link traversed to reach a node.

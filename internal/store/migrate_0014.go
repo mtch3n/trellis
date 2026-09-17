@@ -229,6 +229,21 @@ func downMemoryGroundwork(ctx context.Context, db *sql.DB) error {
 		`ALTER TABLE project ADD COLUMN identity_kind TEXT NOT NULL DEFAULT 'pin'`,
 		`ALTER TABLE project ADD COLUMN identity_value TEXT`,
 		`ALTER TABLE project ADD COLUMN root_path TEXT`,
+		// Up recorded each project's binding as an unbound event. A binary
+		// from before 0014 looks projects up by these columns and creates a
+		// new project when none matches, so put them back, then drop the
+		// events: up records them again.
+		`UPDATE project SET
+		   identity_kind = COALESCE((SELECT substr(e.old_value, 1, instr(e.old_value, ':') - 1) FROM event e
+		       WHERE e.entity_type = 'project' AND e.entity_id = project.id AND e.action = 'unbound'
+		         AND e.actor = 'migration' AND e.field = 'identity' ORDER BY e.seq DESC LIMIT 1), identity_kind),
+		   identity_value = (SELECT substr(e.old_value, instr(e.old_value, ':') + 1) FROM event e
+		       WHERE e.entity_type = 'project' AND e.entity_id = project.id AND e.action = 'unbound'
+		         AND e.actor = 'migration' AND e.field = 'identity' ORDER BY e.seq DESC LIMIT 1),
+		   root_path = (SELECT e.old_value FROM event e
+		       WHERE e.entity_type = 'project' AND e.entity_id = project.id AND e.action = 'unbound'
+		         AND e.actor = 'migration' AND e.field = 'root_path' ORDER BY e.seq DESC LIMIT 1)`,
+		`DELETE FROM event WHERE entity_type = 'project' AND action = 'unbound' AND actor = 'migration'`,
 		`CREATE INDEX project_identity ON project(identity_value)`,
 		`CREATE UNIQUE INDEX project_root ON project(root_path)`,
 	} {

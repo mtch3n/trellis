@@ -5,6 +5,10 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/mtch3n/trellis/internal/core"
+	"github.com/mtch3n/trellis/internal/home"
+	"github.com/mtch3n/trellis/internal/store"
 )
 
 // logInvocation records what was run and how it exited. The adoption metric in
@@ -18,12 +22,19 @@ func logInvocation(args []string, exit int, started time.Time) {
 	if os.Getenv("TRELLIS_NO_LOG") != "" {
 		return
 	}
-	c, db, err := openCore()
+	// Logging never breaks a command, and never creates or migrates the
+	// database either: `trellis --help` from a newer build must not be what
+	// upgrades it.
+	path, err := home.DBPath()
 	if err != nil {
-		return // logging never breaks a command
+		return
+	}
+	db, err := store.OpenCurrent(path)
+	if err != nil {
+		return
 	}
 	defer db.Close()
-	_ = c.LogInvocation(context.Background(), redactArgv(args), exit,
+	_ = core.New(db, core.RealClock{}, cliActor()).LogInvocation(context.Background(), redactArgv(args), exit,
 		time.Since(started).Milliseconds())
 }
 
