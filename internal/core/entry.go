@@ -143,19 +143,13 @@ func Templates() []string {
 }
 
 // vaultDir is where a project's vault lives: one directory per project, plus
-// the reserved global one. It does not create the directory; a write that
-// needs it existing goes through makeVaultDir.
+// the reserved global one. It does not create the directory: the file writer
+// creates an entry's parent directories as it writes.
 func (c *Core) vaultDir(projectKey string, global bool) string {
 	if global {
 		return filepath.Join(c.root, "global", "vault")
 	}
 	return filepath.Join(c.root, "projects", projectKey, "vault")
-}
-
-// makeVaultDir is vaultDir, creating the directory: only a write needs that.
-func (c *Core) makeVaultDir(projectKey string, global bool) (string, error) {
-	dir := c.vaultDir(projectKey, global)
-	return dir, os.MkdirAll(dir, 0o700)
 }
 
 // entryPath is where one entry's file lives, derived from the storage root, its
