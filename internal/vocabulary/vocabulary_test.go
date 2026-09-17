@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -97,48 +99,62 @@ func isSkipped(rel string) bool {
 func scan(t *testing.T, root string) map[key][]int {
 	t.Helper()
 	hits := map[key][]int{}
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	for _, rel := range repositoryFiles(t, root) {
+		if isSkipped(rel) || !scanned[path.Ext(rel)] {
+			continue
 		}
-		if path == root {
-			return nil
+		if err := scanFile(filepath.Join(root, filepath.FromSlash(rel)), rel, hits); err != nil {
+			t.Fatal(err)
 		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-		if d.IsDir() {
-			if isSkipped(rel + "/") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if isSkipped(rel) || !scanned[filepath.Ext(path)] {
-			return nil
-		}
-		f, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		sc := bufio.NewScanner(f)
-		sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-		for line := 1; sc.Scan(); line++ {
-			for _, r := range Retired {
-				for range r.Pattern.FindAllStringIndex(sc.Text(), -1) {
-					k := key{rel, r.Name}
-					hits[k] = append(hits[k], line)
-				}
-			}
-		}
-		return sc.Err()
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 	return hits
+}
+
+// repositoryFiles lists the files git knows about -- tracked, plus new files
+// not yet committed and not ignored -- relative to root with forward slashes.
+// A walk of the directory would also read what each machine ignores (.serena/,
+// .claude/, build output), so the counts, and the allowlist, would differ
+// between a developer's checkout and CI.
+func repositoryFiles(t *testing.T, root string) []string {
+	t.Helper()
+	cmd := exec.Command("git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git ls-files: %v", err)
+	}
+	var files []string
+	for name := range strings.SplitSeq(strings.TrimSuffix(string(out), "\x00"), "\x00") {
+		if name != "" {
+			files = append(files, name)
+		}
+	}
+	slices.Sort(files)
+	return slices.Compact(files)
+}
+
+// scanFile records every retired-word hit in the file at abs under rel. A
+// tracked file deleted in the working tree has nothing to scan.
+func scanFile(abs, rel string, hits map[key][]int) error {
+	f, err := os.Open(abs)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	for line := 1; sc.Scan(); line++ {
+		for _, r := range Retired {
+			for range r.Pattern.FindAllStringIndex(sc.Text(), -1) {
+				k := key{rel, r.Name}
+				hits[k] = append(hits[k], line)
+			}
+		}
+	}
+	return sc.Err()
 }
 
 // allowlist.txt: one "path<TAB>rule<TAB>count[<TAB># why]" per line; lines
@@ -193,5 +209,39 @@ func writeAllowlist(t *testing.T, hits map[key][]int, old map[key]allowed) {
 	}
 	if err := os.WriteFile(allowlistFile, []byte(b.String()), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A machine's ignored files must not change the counts, but a new file must
+// be checked before anyone remembers to commit it.
+func TestRepositoryFilesSkipsIgnoredButKeepsNewFiles(t *testing.T) {
+	root := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q")
+	for name, body := range map[string]string{
+		"tracked.go":       "package x\n",
+		".gitignore":       "local/\n",
+		"new.md":           "not committed yet\n",
+		"local/editor.yml": "machine-local\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git("add", "tracked.go", ".gitignore")
+
+	got := repositoryFiles(t, root)
+	if want := []string{".gitignore", "new.md", "tracked.go"}; !slices.Equal(got, want) {
+		t.Errorf("files = %v, want %v", got, want)
 	}
 }
