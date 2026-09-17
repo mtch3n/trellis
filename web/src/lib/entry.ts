@@ -29,4 +29,23 @@ export interface Entry {
   sources?: string[]
   /** Frontmatter beyond what Trellis names: what templates and `set` write. Empty on private entries in lists. */
   fields?: FieldValues
+  /** The words the entry is filed under: the project's labels, and free tags. */
+  labels?: string[]
+  tags?: string[]
+  /** Which board's work the entry belongs with. Association only, never a claim. */
+  board?: string
+  /** How the entry was written down: authored, prompted or extracted. */
+  provenance?: string
+  /** What points here. Only the single-entry route carries them. */
+  backlinks?: Backlink[]
+}
+
+/** One inbound reference to an entry: a card that cites it, or another entry. */
+export interface Backlink {
+  from_type: 'card' | 'entry'
+  /** The card's ref, or the entry's address. */
+  ref: string
+  title: string
+  /** The heading inside this entry that was pointed at. */
+  anchor?: string
 }

@@ -124,6 +124,10 @@ type EntryEdit struct {
 	Private  *bool
 	Tags     *[]string
 	Labels   *[]string
+	// Board moves the entry's board association, by board name; "" clears
+	// it. Association only, never a claim (§10.1). A global entry belongs
+	// to the vault rather than to a project's board, so it has none.
+	Board *string
 	// Set writes these frontmatter fields, the ones a template may ask for;
 	// an empty value removes the field. Built-in fields have their own
 	// options and are refused here.
@@ -909,6 +913,23 @@ func (c *Core) EditEntryFields(ctx context.Context, projectID, slug string, in E
 		if in.Labels != nil {
 			fm.Labels = *in.Labels
 		}
+		if in.Board != nil {
+			if entry.Global && strings.TrimSpace(*in.Board) != "" {
+				return ErrUsage("global_has_no_board",
+					entry.Slug+" is in the global vault, which has no boards",
+					"trellis vault demote "+entry.Slug+" --reason \"...\"")
+			}
+			name := strings.TrimSpace(*in.Board)
+			entry.BoardID = nil
+			if name != "" {
+				b, err := c.boardByName(tx, projectID, name)
+				if err != nil {
+					return err
+				}
+				entry.BoardID = &b.ID
+			}
+			fm.Board = name
+		}
 		if in.Artifacts != nil {
 			fm.Artifacts = dedupeNames(*in.Artifacts)
 		}
@@ -984,8 +1005,8 @@ func (c *Core) EditEntryFields(ctx context.Context, projectID, slug string, in E
 		entry.UpdatedAt = now
 		if _, err := tx.Exec(
 			`UPDATE entry SET title = ?, summary = ?, content_hash = ?, mtime = ?, size = ?,
-			                      version = ?, updated_at = ?, template = ?, private = ? WHERE id = ?`,
-			entry.Title, entry.Summary, entry.ContentHash, entry.MTime, entry.Size, entry.Version, entry.UpdatedAt, entry.Template, entry.Private, entry.ID); err != nil {
+			                      version = ?, updated_at = ?, template = ?, private = ?, board_id = ? WHERE id = ?`,
+			entry.Title, entry.Summary, entry.ContentHash, entry.MTime, entry.Size, entry.Version, entry.UpdatedAt, entry.Template, entry.Private, entry.BoardID, entry.ID); err != nil {
 			return err
 		}
 		// Purge disclosed copies if changing from public to private

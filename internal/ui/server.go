@@ -154,6 +154,17 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/p/{key}/vault/{slug}/history", s.handleEntryHistory)
 	s.mux.HandleFunc("GET /api/p/{key}/vault/{slug}/diff", s.handleEntryDiff)
 	s.mux.HandleFunc("GET /api/p/{key}/vault/{slug}", s.handleGetEntry)
+	s.mux.HandleFunc("GET /api/p/{key}/pins", s.handlePins)
+	s.mux.HandleFunc("POST /api/p/{key}/vault/{slug}/pin", s.handlePinEntry)
+	s.mux.HandleFunc("DELETE /api/p/{key}/vault/{slug}/pin", s.handleUnpinEntry)
+	// Health is the project's, not one entry's, so it is not under /vault:
+	// a literal segment there would shadow an entry whose slug is "health".
+	s.mux.HandleFunc("GET /api/p/{key}/health", s.handleVaultHealth)
+	s.mux.HandleFunc("GET /api/p/{key}/nominations", s.handleNominations)
+	s.mux.HandleFunc("GET /api/p/{key}/uptake", s.handleUptake)
+	s.mux.HandleFunc("POST /api/p/{key}/vault/{slug}/promote", s.handlePromoteEntry)
+	s.mux.HandleFunc("POST /api/global/vault/{slug}/demote", s.handleDemoteEntry)
+	s.mux.HandleFunc("POST /api/global/vault/{slug}/verify", s.handleVerifyEntry)
 	s.mux.HandleFunc("GET /api/p/{key}/artifacts", s.handleProjectArtifacts)
 	s.mux.HandleFunc("POST /api/p/{key}/artifacts", s.handleArtifactUpload)
 	s.mux.HandleFunc("GET /api/p/{key}/artifacts/{name}", s.handleArtifact)
@@ -1310,8 +1321,16 @@ func (s *Server) handleGetEntry(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
+	// What points here: cards that cite the entry, and entries that link to
+	// it. The graph is built from the links route, but an entry's own page
+	// needs its inbound side without walking the whole graph.
+	backlinks, err := s.core.Backlinks(ctx, entry.ID)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
 	// Build the entryItem response with artifacts
-	item := entryItem{Entry: entry}
+	item := entryItem{Entry: entry, Backlinks: backlinks}
 	for _, a := range entry.Artifacts {
 		artifactItem := artifactItem{ArtifactRef: a}
 		if !a.Missing {

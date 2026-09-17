@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { FilePlus, Network, PanelRightClose, PanelRightOpen, Pencil } from 'lucide-react'
+import { FilePlus, Network, PanelRightClose, PanelRightOpen, Pencil, Pin } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -17,7 +17,15 @@ import { toast } from '@/components/ui/toast'
 import { ArtifactList } from '@/components/wrappers/ArtifactList'
 import { ActionRow } from '@/components/wrappers/ActionRow'
 import { EditActions } from '@/components/wrappers/EditInPlace'
+import { EntryMenu } from '@/components/wrappers/EntryMenu'
 import { EntryView, type EntryDraft } from '@/components/wrappers/EntryView'
+import { HistoryDialog } from '@/components/wrappers/HistoryDialog'
+import { LifecycleDialog, type Lifecycle } from '@/components/wrappers/LifecycleDialog'
+import { Badge } from '@/components/ui/badge'
+import { ChipEditor } from '@/components/wrappers/ChipEditor'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
+import { vaultActions, type EntryPatch } from '@/lib/vault-actions'
 import { FieldsEditor } from '@/components/wrappers/FieldsEditor'
 import { GraphDock } from '@/components/wrappers/GraphDock'
 import { GraphExplorer } from '@/components/wrappers/GraphExplorer'
@@ -35,8 +43,21 @@ import type { Entry } from '@/lib/entry'
 import { fieldRows, switchNeedsDialog, type TemplateInfo } from '@/lib/templates'
 import { cn } from '@/lib/utils'
 import { projectFolders } from '@/lib/vault-tree'
-import { readError, readRefusal, refusalText, type Refusal } from '@/lib/api'
+import { readError, refusalText, type Refusal } from '@/lib/api'
 
+
+/** A Select needs a value for "none"; the wire carries an empty string. */
+const NO_BOARD = 'none'
+
+/** One pinned entry, as the pins route returns it. */
+interface PinnedEntry {
+  slug: string
+  title: string
+  recap: string
+  board?: string
+  /** The entry changed after it was pinned, so the recap may no longer hold. */
+  stale: boolean
+}
 
 /** A template's warnings as a toast's words, one sentence each. */
 function warningText(warnings: string[]) {
@@ -89,6 +110,13 @@ export function VaultPage() {
   // A just-created entry opens with the cursor in its body.
   const [fresh, setFresh] = useState<string | null>(null)
   const [switching, setSwitching] = useState<TemplateInfo | null>(null)
+  // The project's boards and labels, for the facts an entry can change, and
+  // its pins, so the open entry knows whether it is one.
+  const [boards, setBoards] = useState<{ name: string; slug: string }[]>([])
+  const [labelOptions, setLabelOptions] = useState<string[]>([])
+  const [pins, setPins] = useState<PinnedEntry[]>([])
+  const [history, setHistory] = useState(false)
+  const [lifecycle, setLifecycle] = useState<Lifecycle | null>(null)
 
   const exploring = params.get('view') === 'graph'
   // The facts column can be put away for reading, and stays put away.
@@ -109,18 +137,23 @@ export function VaultPage() {
       return response.json()
     }
     try {
-      const [globalEntries, projectEntries, boards, resolved, known] = await Promise.all([
+      const [globalEntries, projectEntries, projectBoards, resolved, known, pinned, labels] = await Promise.all([
         read('/api/global/vault') as Promise<Entry[]>,
         read(`/api/p/${projectKey}/vault`) as Promise<Entry[]>,
-        read(`/api/p/${projectKey}/boards`) as Promise<{ slug: string }[]>,
+        read(`/api/p/${projectKey}/boards`) as Promise<{ name: string; slug: string }[]>,
         read(`/api/p/${projectKey}/links/vault`) as Promise<EntryLink[]>,
         read('/api/templates') as Promise<TemplateInfo[]>,
+        read(`/api/p/${projectKey}/pins`) as Promise<PinnedEntry[]>,
+        read(`/api/p/${projectKey}/labels`) as Promise<{ name: string }[]>,
       ])
       setVault(globalEntries ?? [])
       setProject(projectEntries ?? [])
       setLinks(resolved ?? [])
       setTemplates(known ?? [])
-      setBoard(boards?.[0]?.slug ?? null)
+      setBoards(projectBoards ?? [])
+      setBoard(projectBoards?.[0]?.slug ?? null)
+      setPins(pinned ?? [])
+      setLabelOptions((labels ?? []).map((label) => label.name))
       setError(null)
     } catch (err) {
       if (signal?.aborted) return
@@ -159,7 +192,17 @@ export function VaultPage() {
     if (slug) setDetail(await readEntry(slug))
   }
 
-  const entries = useMemo(() => [...(vault ?? []), ...(project ?? [])], [vault, project])
+  // An entry a project promoted is listed by both routes — the global vault
+  // holds it now, and the project can still find what it wrote — so the two
+  // lists are merged by id, the global copy first, or the tree would count
+  // and show it twice.
+  const entries = useMemo(() => {
+    const merged = new Map<string, Entry>()
+    for (const item of [...(vault ?? []), ...(project ?? [])]) {
+      if (!merged.has(item.id)) merged.set(item.id, item)
+    }
+    return [...merged.values()]
+  }, [vault, project])
   const entry = useMemo(() => entries.find((item) => item.slug === slug), [entries, slug])
   // The list's facts with the detail's body and artifacts, once they are in.
   const shown = useMemo(
@@ -173,6 +216,16 @@ export function VaultPage() {
     [shown, templates],
   )
   const graph = useMemo(() => buildGraph(entries, links), [entries, links])
+  // Where a wikilink in a body leads. The files spell links the way Obsidian
+  // does, so reading an entry here follows them; a target nobody has written
+  // yet is marked as the stub it is.
+  const wikilinks = useMemo(
+    () => ({
+      slugs: new Set(entries.map((item) => item.slug)),
+      pathOf: (target: string) => `/p/${projectKey}/vault/${encodeURIComponent(target)}`,
+    }),
+    [entries, projectKey],
+  )
   const folders = useMemo(() => projectFolders(project ?? []), [project])
   const activeNode = entry ? entryNodeId(entry) : undefined
   const editing = Boolean(slug) && editingSlug === slug
@@ -251,38 +304,60 @@ export function VaultPage() {
     } finally { setSaving(false) }
   }
 
+  // Every write an entry supports, shared with whatever else asks for one.
+  // A change to the facts carries the version on screen; the reload after it
+  // advances the version, so an open edit still saves over it.
+  const actions = useMemo(
+    () => vaultActions({ projectKey: projectKey ?? '', board, refresh: reload }),
+    // reload closes over the slug and the loader, both already dependencies here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [projectKey, board, slug, load],
+  )
+
   /**
-   * A change to the entry's facts, applied at once. It carries the version on
-   * screen, which the reload after it advances, so an open edit carries on
-   * and saves over the new version. Resolves null once saved, or with the
-   * server's refusal.
+   * A change to the entry's facts, applied at once. Resolves null once saved,
+   * or with the server's refusal.
    */
-  const patchEntry = async (
-    change: TemplateSwitch | { sources: string[] } | { set: Record<string, string> },
-    done: string,
-  ): Promise<Refusal | null> => {
-    if (!projectKey || !board || !entry) return { message: 'The entry is not loaded yet.', problems: [] }
-    try {
-      const response = await fetch(
-        `/api/p/${projectKey}/b/${board}/vault/${encodeURIComponent(entry.slug)}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...change, version: entry.version }),
-        },
-      )
-      if (!response.ok) return await readRefusal(response)
-      const saved = (await response.json()) as { warnings?: string[] }
-      await reload()
-      if (saved.warnings?.length) {
-        toast.add({ title: `${done}, with warnings`, description: warningText(saved.warnings), type: 'warning' })
-      } else {
-        toast.add({ title: done, type: 'success' })
-      }
-      return null
-    } catch (err) {
-      return { message: err instanceof Error ? err.message : 'Could not reach the daemon.', problems: [] }
-    }
+  const patchEntry = async (change: EntryPatch, done: string): Promise<Refusal | null> => {
+    if (!entry) return { message: 'The entry is not loaded yet.', problems: [] }
+    return actions.patch(entry.slug, entry.version, change, done)
+  }
+
+  const pinned = useMemo(() => pins.find((pin) => pin.slug === slug), [pins, slug])
+  // Cards that cite this entry. Entries that link to it are already in the
+  // graph, which the Linked group reads.
+  const citations = useMemo(
+    () => (detail && detail.slug === slug ? (detail.backlinks ?? []) : []).filter((link) => link.from_type === 'card'),
+    [detail, slug],
+  )
+
+  /** One label or tag added or removed. PATCH replaces the list, so it is rebuilt here. */
+  const changeChips = async (field: 'labels' | 'tags', current: string[], change: { add?: string; remove?: string }) => {
+    const next = change.remove
+      ? current.filter((value) => value !== change.remove)
+      : change.add && !current.includes(change.add) ? [...current, change.add] : current
+    const refusal = await patchEntry({ [field]: next }, change.add ? `Added ${change.add}` : `Removed ${change.remove}`)
+    if (refusal) refused(`Could not change the ${field}`, refusal)
+  }
+
+  const changePrivate = async (next: boolean) => {
+    const refusal = await patchEntry({ private: next }, next ? 'Marked private' : 'No longer private')
+    if (refusal) refused('Could not change private', refusal)
+  }
+
+  const changeBoard = async (name: string) => {
+    const board = name === NO_BOARD ? '' : name
+    const refusal = await patchEntry({ board }, board ? `Associated with ${board}` : 'Board association removed')
+    if (refusal) refused('Could not change the board', refusal)
+  }
+
+  // Deleting takes the file with the row, so the page steps back to the vault
+  // rather than staying on an entry that is gone.
+  const remove = async () => {
+    if (!entry) return false
+    const deleted = await actions.remove(entry.slug)
+    if (deleted) navigate(`/p/${projectKey}/vault`)
+    return deleted
   }
 
   const refused = (title: string, refusal: Refusal) => {
@@ -376,8 +451,10 @@ export function VaultPage() {
             vaultCount={vault.length}
             projectKey={projectKey}
             activeId={entry?.id}
+            templates={templates.map((template) => template.name)}
             dock={dock}
             onOpenGraph={() => setExploring(true)}
+            onOpenHealth={() => navigate(`/p/${projectKey}/health`)}
             onCreate={setCreatingIn}
           />
         }
@@ -448,6 +525,19 @@ export function VaultPage() {
                   <IconButton label={facts ? 'Hide details' : 'Show details'} onClick={toggleFacts}>
                     {facts ? <PanelRightClose /> : <PanelRightOpen />}
                   </IconButton>
+                  <EntryMenu
+                    slug={entry.slug}
+                    href={`/p/${projectKey}/vault/${encodeURIComponent(entry.slug)}`}
+                    global={Boolean(entry.global)}
+                    pinned={pinned !== undefined}
+                    onDelete={remove}
+                    onHistory={() => setHistory(true)}
+                    onPin={() => setLifecycle('pin')}
+                    onUnpin={() => void actions.unpin(entry.slug)}
+                    onPromote={() => setLifecycle('promote')}
+                    onDemote={() => setLifecycle('demote')}
+                    onVerify={() => setLifecycle('verify')}
+                  />
                 </div>
               </ActionRow>
 
@@ -465,6 +555,7 @@ export function VaultPage() {
                     editing={editing}
                     initialFocus={shown.slug === fresh ? 'body' : 'title'}
                     source={source}
+                    wikilinks={wikilinks}
                     onEditingChange={setEditing}
                     onSave={save}
                   />
@@ -507,6 +598,82 @@ export function VaultPage() {
                     {rows.length > 0 && (
                       <MetaGroup label="Fields" collapsible>
                         <FieldsEditor key={shown?.slug} rows={rows} onSet={setField} />
+                      </MetaGroup>
+                    )}
+
+                    {/* What the entry is filed under, and who may read it
+                        automatically. All of it applies the moment it
+                        changes, like the template above. */}
+                    <MetaGroup label="Labels">
+                      <ChipEditor
+                        name="label"
+                        values={shown?.labels ?? []}
+                        options={labelOptions}
+                        placeholder="Label"
+                        disabledReason={shown ? undefined : 'The entry is still loading.'}
+                        onChange={(change) => void changeChips('labels', shown?.labels ?? [], change)}
+                      />
+                    </MetaGroup>
+
+                    <MetaGroup label="Tags">
+                      <ChipEditor
+                        name="tag"
+                        values={shown?.tags ?? []}
+                        placeholder="Tag"
+                        disabledReason={shown ? undefined : 'The entry is still loading.'}
+                        onChange={(change) => void changeChips('tags', shown?.tags ?? [], change)}
+                      />
+                    </MetaGroup>
+
+                    <MetaGroup label="Private" collapsible>
+                      <div className="flex items-start gap-3">
+                        <Switch
+                          checked={Boolean(shown?.private ?? entry.private)}
+                          disabled={!shown}
+                          aria-label="Private"
+                          onCheckedChange={(next) => void changePrivate(next)}
+                        />
+                        <p className="text-xs text-pretty text-muted-foreground">
+                          A private entry is never sent anywhere automatically: no recall
+                          injection, no remote embedder. Reading it here is unaffected.
+                        </p>
+                      </div>
+                    </MetaGroup>
+
+                    {/* Association, never a claim: which board's work this
+                        entry belongs with. A global entry has none. */}
+                    {!entry.global && boards.length > 0 && (
+                      <MetaGroup label="Board" collapsible>
+                        <Select
+                          items={[{ value: NO_BOARD, label: 'No board' }, ...boards.map((item) => ({ value: item.name, label: item.name }))]}
+                          value={shown?.board || NO_BOARD}
+                          onValueChange={(value) => { if (value) void changeBoard(value) }}
+                        >
+                          <SelectTrigger aria-label="Board" className="w-full" disabled={!shown}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={NO_BOARD}>No board</SelectItem>
+                            {boards.map((item) => (
+                              <SelectItem key={item.slug} value={item.name}>{item.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </MetaGroup>
+                    )}
+
+                    {pinned && (
+                      <MetaGroup label="Pinned">
+                        <p className="flex items-start gap-2 text-sm text-pretty">
+                          <Pin aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                          <span>{pinned.recap}</span>
+                        </p>
+                        {pinned.stale && (
+                          <p className="mt-2 flex items-center gap-2">
+                            <Badge variant="outline">Stale</Badge>
+                            <span className="text-xs text-muted-foreground">The entry changed after it was pinned.</span>
+                          </p>
+                        )}
                       </MetaGroup>
                     )}
 
@@ -557,6 +724,30 @@ export function VaultPage() {
                       )}
                     </MetaGroup>
 
+                    {/* What points here from outside the vault's own links:
+                        the cards that cite this entry. */}
+                    <MetaGroup label="Cited by" count={citations.length || undefined} collapsible>
+                      {citations.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No card cites this entry.</p>
+                      ) : (
+                        <ul className="-mx-2 flex flex-col">
+                          {citations.map((citation) => (
+                            <li key={`${citation.ref}${citation.anchor ?? ''}`}>
+                              <Link
+                                to={`/p/${projectKey}/card/${encodeURIComponent(citation.ref)}`}
+                                className="flex flex-col gap-0.5 px-2 py-1.5 transition-colors hover:bg-accent/50"
+                              >
+                                <span className="truncate text-sm">{citation.title}</span>
+                                <span className="text-meta text-muted-foreground">
+                                  {citation.ref}{citation.anchor ? `#${citation.anchor}` : ''}
+                                </span>
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </MetaGroup>
+
                     {entry.path && (
                       <MetaGroup label="File" collapsible>
                         <p className="text-meta break-all text-muted-foreground">{entry.path}</p>
@@ -591,6 +782,31 @@ export function VaultPage() {
           editing={editing}
           onOpenChange={(open) => { if (!open) setSwitching(null) }}
           onSwitch={switchTemplate}
+        />
+      )}
+
+      {entry && (
+        <HistoryDialog
+          open={history}
+          title={entry.slug}
+          base={`/api/p/${projectKey}/vault/${encodeURIComponent(entry.slug)}`}
+          onOpenChange={setHistory}
+        />
+      )}
+
+      {entry && (
+        <LifecycleDialog
+          act={lifecycle}
+          slug={entry.slug}
+          onOpenChange={(open) => { if (!open) setLifecycle(null) }}
+          onConfirm={(act, values) => {
+            switch (act) {
+              case 'pin': return actions.pin(entry.slug, values.reason)
+              case 'promote': return actions.promote(entry.slug, values.confirm, values.reason)
+              case 'demote': return actions.demote(entry.slug, values.confirm, values.reason)
+              case 'verify': return actions.verify(entry.slug, values.confirm)
+            }
+          }}
         />
       )}
 

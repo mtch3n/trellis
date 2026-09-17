@@ -5,6 +5,7 @@ import { MarkdownContent } from '@/components/wrappers/MarkdownContent'
 import { MarkdownEditor } from '@/components/wrappers/MarkdownEditor'
 import { joinTitleHeading, splitTitleHeading } from '@/lib/title-heading'
 import type { Entry } from '@/lib/entry'
+import type { WikilinkTargets } from '@/lib/wikilinks'
 
 export interface EntryDraft { title: string; summary: string; body: string }
 
@@ -27,11 +28,14 @@ export function EntryView({
   editing,
   initialFocus = 'title',
   source,
+  wikilinks,
   onEditingChange,
   onSave,
 }: {
   entry: Entry
   editing: boolean
+  /** Where the body's `[[wikilinks]]` lead, so reading one follows it. */
+  wikilinks?: WikilinkTargets
   /** Which field takes the cursor when the entry opens already editing. */
   initialFocus?: 'title' | 'body'
   /** Show the body as markdown source. The page owns the toggle, which sits with Save. */
@@ -119,7 +123,7 @@ export function EntryView({
         />
       ) : (
         <div className="edit-hint" onClick={startEdit('body')}>
-          <MarkdownContent content={body.rest} />
+          <MarkdownContent content={body.rest} wikilinks={wikilinks} />
         </div>
       )}
     </>

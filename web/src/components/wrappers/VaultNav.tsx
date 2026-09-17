@@ -9,21 +9,25 @@ import {
   type ReactNode,
 } from 'react'
 import { NavLink } from 'react-router-dom'
-import { ArrowUpDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, FilePlus, Lock, Network, Search } from 'lucide-react'
+import { ArrowUpDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, FilePlus, ListFilter, Lock, Network, Search, Stethoscope } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { IconButton } from '@/components/wrappers/IconButton'
+import { sentence } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import {
   GLOBAL_SCOPE,
@@ -32,6 +36,7 @@ import {
   folderDir,
   folderPaths,
   type TreeFolder,
+  type TreeGroup,
   type TreeNode,
   type TreeSort,
 } from '@/lib/vault-tree'
@@ -39,6 +44,10 @@ import type { Entry } from '@/lib/entry'
 
 const CLOSED_KEY = 'trellis.vault-tree.closed'
 const SORT_KEY = 'trellis.vault-tree.sort'
+const GROUP_KEY = 'trellis.vault-tree.group'
+
+/** How an entry was written down. A closed set, so it can be offered as one. */
+const PROVENANCES = ['authored', 'prompted', 'extracted'] as const
 
 const SORTS: ReadonlyArray<{ value: TreeSort; label: string }> = [
   { value: 'title', label: 'Title, A to Z' },
@@ -75,17 +84,23 @@ export function VaultNav({
   vaultCount,
   projectKey = 'Project',
   activeId,
+  templates = [],
   dock,
   onOpenGraph,
+  onOpenHealth,
   onCreate,
 }: {
   entries: Entry[]
   vaultCount: number
   projectKey?: string
   activeId?: string
+  /** The templates on this machine, for the template filter. */
+  templates?: string[]
   dock: ReactNode
   /** Below the dock's breakpoint the graph is reached from the toolbar. */
   onOpenGraph: () => void
+  /** Opens the vault's health, nominations and uptake. */
+  onOpenHealth: () => void
   /** Start a new entry in a project folder; "" is the top level. */
   onCreate: (dir: string) => void
 }) {
@@ -93,6 +108,13 @@ export function VaultNav({
   const [sort, setSort] = useState<TreeSort>(() =>
     stored(SORT_KEY, 'title', (raw) => (SORTS.some((option) => option.value === raw) ? (raw as TreeSort) : 'title')),
   )
+  const [group, setGroup] = useState<TreeGroup>(() =>
+    stored(GROUP_KEY, 'directory', (raw) => (raw === 'template' ? 'template' : 'directory')),
+  )
+  // Which templates and provenances are being kept. Empty means every one,
+  // so a filter starts by saying nothing rather than by listing everything.
+  const [keptTemplates, setKeptTemplates] = useState<string[]>([])
+  const [keptProvenances, setKeptProvenances] = useState<string[]>([])
   const [closed, setClosed] = useState<Set<string>>(() =>
     stored(CLOSED_KEY, new Set<string>(), (raw) => new Set(JSON.parse(raw) as string[])),
   )
@@ -105,19 +127,22 @@ export function VaultNav({
   useEffect(() => {
     try { localStorage.setItem(SORT_KEY, sort) } catch { /* private mode */ }
   }, [sort])
+  useEffect(() => {
+    try { localStorage.setItem(GROUP_KEY, group) } catch { /* private mode */ }
+  }, [group])
 
   const tree = useMemo(() => {
     const needle = filter.trim().toLowerCase()
-    const matching = needle
-      ? entries.filter(
-          (entry) =>
-            entry.title.toLowerCase().includes(needle) ||
-            entry.slug.toLowerCase().includes(needle) ||
-            (entry.template ?? '').toLowerCase().includes(needle),
-        )
-      : entries
-    return buildVaultTree(matching, { projectKey, sort })
-  }, [entries, filter, projectKey, sort])
+    const matching = entries.filter((entry) => {
+      if (keptTemplates.length > 0 && !keptTemplates.includes(entry.template ?? '')) return false
+      if (keptProvenances.length > 0 && !keptProvenances.includes(entry.provenance ?? '')) return false
+      if (!needle) return true
+      return entry.title.toLowerCase().includes(needle) ||
+        entry.slug.toLowerCase().includes(needle) ||
+        (entry.template ?? '').toLowerCase().includes(needle)
+    })
+    return buildVaultTree(matching, { projectKey, sort, group })
+  }, [entries, filter, projectKey, sort, group, keptTemplates, keptProvenances])
   const folders = useMemo(() => folderPaths(tree), [tree])
   const allClosed = folders.length > 0 && folders.every((path) => closed.has(path))
 
@@ -172,7 +197,7 @@ export function VaultNav({
   }, [place])
 
   const base = `/p/${projectKey}/vault`
-  const filtering = filter.trim() !== ''
+  const filtering = filter.trim() !== '' || keptTemplates.length > 0 || keptProvenances.length > 0
 
   return (
     <nav aria-label="Vault" className="flex flex-col border-border max-lg:border-b lg:h-full lg:border-t">
@@ -191,6 +216,15 @@ export function VaultNav({
         <IconButton label="New entry" onClick={() => onCreate('')}>
           <FilePlus />
         </IconButton>
+        <FilterMenu
+          templates={templates}
+          keptTemplates={keptTemplates}
+          keptProvenances={keptProvenances}
+          group={group}
+          onTemplates={setKeptTemplates}
+          onProvenances={setKeptProvenances}
+          onGroup={setGroup}
+        />
         <SortMenu sort={sort} onSort={setSort} />
         <IconButton
           label={allClosed ? 'Expand all' : 'Collapse all'}
@@ -198,6 +232,9 @@ export function VaultNav({
           onClick={() => setClosed(allClosed ? new Set() : new Set(folders))}
         >
           {allClosed ? <ChevronsUpDown /> : <ChevronsDownUp />}
+        </IconButton>
+        <IconButton label="Vault health" onClick={onOpenHealth}>
+          <Stethoscope />
         </IconButton>
         <IconButton label="Open the graph" className="lg:hidden" onClick={onOpenGraph}>
           <Network />
@@ -280,6 +317,102 @@ function walk(event: KeyboardEvent<HTMLElement>) {
       return
   }
   event.preventDefault()
+}
+
+/**
+ * What the tree shows and how it is grouped: the templates and provenances
+ * kept, and whether the files sit in the directories their slugs spell out or
+ * under the template they follow. Nothing chosen means everything, so the
+ * menu opens saying nothing rather than listing the whole vault back.
+ *
+ * Grouping by template is how a reader asks "what decisions do we have?"
+ * without a decisions directory, which the vault-paths design rules out.
+ */
+function FilterMenu({ templates, keptTemplates, keptProvenances, group, onTemplates, onProvenances, onGroup }: {
+  templates: string[]
+  keptTemplates: string[]
+  keptProvenances: string[]
+  group: TreeGroup
+  onTemplates: (templates: string[]) => void
+  onProvenances: (provenances: string[]) => void
+  onGroup: (group: TreeGroup) => void
+}) {
+  const active = keptTemplates.length + keptProvenances.length > 0
+  const toggle = (values: string[], value: string) =>
+    values.includes(value) ? values.filter((kept) => kept !== value) : [...values, value]
+
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Filter and group"
+                  className={cn(active && 'bg-muted text-foreground')}
+                />
+              }
+            />
+          }
+        >
+          <ListFilter />
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Filter and group</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Group files by</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={group} onValueChange={(value: TreeGroup) => onGroup(value)}>
+            <DropdownMenuRadioItem value="directory">Directory</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="template">Template</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Template</DropdownMenuLabel>
+          <DropdownMenuCheckboxItem
+            checked={keptTemplates.includes('')}
+            onCheckedChange={() => onTemplates(toggle(keptTemplates, ''))}
+          >
+            No template
+          </DropdownMenuCheckboxItem>
+          {templates.map((template) => (
+            <DropdownMenuCheckboxItem
+              key={template}
+              checked={keptTemplates.includes(template)}
+              onCheckedChange={() => onTemplates(toggle(keptTemplates, template))}
+            >
+              {sentence(template)}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Written down as</DropdownMenuLabel>
+          {PROVENANCES.map((provenance) => (
+            <DropdownMenuCheckboxItem
+              key={provenance}
+              checked={keptProvenances.includes(provenance)}
+              onCheckedChange={() => onProvenances(toggle(keptProvenances, provenance))}
+            >
+              {sentence(provenance)}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuGroup>
+        {active && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => { onTemplates([]); onProvenances([]) }}>
+              Clear the filters
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
 }
 
 /** How files are ordered inside each folder. Folders always come first. */

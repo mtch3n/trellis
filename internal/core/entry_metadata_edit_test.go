@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -152,5 +153,67 @@ func TestATouchedFileKeepsItsVersion(t *testing.T) {
 	var mtime int64
 	if err := c.db.Get(&mtime, `SELECT mtime FROM entry WHERE id = ?`, entry.ID); err != nil || mtime != later.UnixMilli() {
 		t.Fatalf("stored mtime = %d (%v), want the new stat %d", mtime, err, later.UnixMilli())
+	}
+}
+
+// An entry's board association can move after creation, and clearing it is
+// the same edit with no name. The association lives in the frontmatter and in
+// the row, so both have to follow.
+func TestEditEntryBoardAssociation(t *testing.T) {
+	c, p, b := vaultCore(t)
+	ctx := t.Context()
+	second, err := c.CreateBoard(ctx, p.ID, "second board", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Rollout notes", Board: b.Name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.BoardName != b.Name {
+		t.Fatalf("created with board %q, want %q", entry.BoardName, b.Name)
+	}
+
+	moved, err := c.EditEntryFields(ctx, p.ID, entry.Slug, EntryEdit{
+		Board: &second.Name, IfVersion: &entry.Version,
+	})
+	if err != nil {
+		t.Fatalf("move the association: %v", err)
+	}
+	reread, err := c.ReadEntry(ctx, p.ID, entry.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reread.BoardName != second.Name {
+		t.Errorf("board = %q after the move, want %q", reread.BoardName, second.Name)
+	}
+	raw, err := os.ReadFile(reread.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "board: second board") {
+		t.Errorf("the file does not carry the new association:\n%s", raw)
+	}
+
+	none := ""
+	if _, err := c.EditEntryFields(ctx, p.ID, entry.Slug, EntryEdit{
+		Board: &none, IfVersion: &moved.Version,
+	}); err != nil {
+		t.Fatalf("clear the association: %v", err)
+	}
+	cleared, err := c.ReadEntry(ctx, p.ID, entry.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.BoardName != "" || cleared.BoardID != nil {
+		t.Errorf("board = %q / %v after clearing", cleared.BoardName, cleared.BoardID)
+	}
+
+	// A board that does not exist is a refusal, not a silent association.
+	absent := "no such board"
+	if _, err := c.EditEntryFields(ctx, p.ID, entry.Slug, EntryEdit{
+		Board: &absent, IfVersion: &cleared.Version,
+	}); !isCode(err, "board_not_found") {
+		t.Errorf("an unknown board = %v, want board_not_found", err)
 	}
 }

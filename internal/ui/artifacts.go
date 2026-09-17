@@ -27,6 +27,9 @@ type artifactItem struct {
 type entryItem struct {
 	core.Entry
 	Artifacts []artifactItem `json:"artifacts,omitempty"`
+	// Backlinks are what points at this entry: cards that cite it, and
+	// entries that link to it. Only the single-entry route fills them.
+	Backlinks []core.Backlink `json:"backlinks,omitempty"`
 }
 
 func entryItems(projectKey string, entries []core.Entry) []entryItem {

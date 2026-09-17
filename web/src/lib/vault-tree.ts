@@ -1,4 +1,5 @@
 import type { Entry } from '@/lib/entry'
+import { sentence } from '@/lib/format'
 
 /**
  * The vault as a file tree. The two scopes are the top folders, the global
@@ -27,11 +28,19 @@ export type TreeNode = TreeFolder | TreeFile
 
 export type TreeSort = 'title' | 'title-desc' | 'updated' | 'created'
 
+/**
+ * How the files are grouped inside each scope: by the directories their slugs
+ * spell out, or by the template they follow. Grouping by template is a second
+ * reading of the same tree, so a template never becomes a directory — the
+ * vault-paths design requires directories to come from slugs and nothing else.
+ */
+export type TreeGroup = 'directory' | 'template'
+
 export const GLOBAL_SCOPE = 'GLOBAL'
 
 export function buildVaultTree(
   entries: Entry[],
-  { projectKey, sort }: { projectKey: string; sort: TreeSort },
+  { projectKey, sort, group = 'directory' }: { projectKey: string; sort: TreeSort; group?: TreeGroup },
 ): TreeFolder[] {
   const roots: TreeFolder[] = [
     { kind: 'folder', path: GLOBAL_SCOPE, name: 'Global vault', children: [], count: 0 },
@@ -39,23 +48,37 @@ export function buildVaultTree(
   ]
 
   for (const entry of entries) {
-    let folder = entry.global ? roots[0] : roots[1]
+    const scope = entry.global ? roots[0] : roots[1]
     const segments = entry.slug.split('/')
-    for (const segment of segments.slice(0, -1)) {
-      const path = `${folder.path}/${segment}`
-      let next = folder.children.find((node): node is TreeFolder => node.kind === 'folder' && node.path === path)
-      if (!next) {
-        next = { kind: 'folder', path, name: segment, children: [], count: 0 }
-        folder.children.push(next)
-      }
-      folder = next
+    const leaf = segments[segments.length - 1]
+    if (group === 'template') {
+      // One folder per template the scope actually holds, and one for the
+      // entries that follow none, which is most of them.
+      const name = entry.template ? sentence(entry.template) : 'No template'
+      const folder = folderIn(scope, `${scope.path}#${entry.template ?? ''}`, name)
+      folder.children.push({ kind: 'file', path: `${folder.path}/${entry.slug}`, entry })
+      continue
     }
-    folder.children.push({ kind: 'file', path: `${folder.path}/${segments[segments.length - 1]}`, entry })
+    let folder = scope
+    for (const segment of segments.slice(0, -1)) {
+      folder = folderIn(folder, `${folder.path}/${segment}`, segment)
+    }
+    folder.children.push({ kind: 'file', path: `${folder.path}/${leaf}`, entry })
   }
 
   for (const root of roots) arrange(root, sort)
   return roots
 }
+
+/** The folder at this path inside a parent, made on first use. */
+function folderIn(parent: TreeFolder, path: string, name: string): TreeFolder {
+  const found = parent.children.find((node): node is TreeFolder => node.kind === 'folder' && node.path === path)
+  if (found) return found
+  const made: TreeFolder = { kind: 'folder', path, name, children: [], count: 0 }
+  parent.children.push(made)
+  return made
+}
+
 
 function arrange(folder: TreeFolder, sort: TreeSort): number {
   let count = 0

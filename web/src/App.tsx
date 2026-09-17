@@ -4,6 +4,7 @@ import { RootRedirect } from './pages/RootRedirect'
 import { ProjectsPage } from './pages/ProjectsPage'
 import { BoardPage } from './pages/BoardPage'
 import { VaultPage } from './pages/VaultPage'
+import { HealthPage } from './pages/HealthPage'
 import { OverviewPage } from './pages/OverviewPage'
 import { CardPage } from './pages/CardPage'
 import { SearchPage } from './pages/SearchPage'
@@ -57,6 +58,12 @@ function App() {
         <Route
           path="/p/:projectKey/vault/:slug"
           element={<Shelled section="vault"><VaultPage /></Shelled>}
+        />
+        {/* The vault's own state, under the Vault section: health, what wants
+            promoting, and whether recall is paying off. */}
+        <Route
+          path="/p/:projectKey/health"
+          element={<Shelled section="vault"><HealthPage /></Shelled>}
         />
 
         <Route path="/search" element={<AppShell><SearchPage /></AppShell>} />

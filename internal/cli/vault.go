@@ -332,7 +332,7 @@ func newVaultHealthCmd() *cobra.Command {
 func newVaultEditCmd() *cobra.Command {
 	var body TextValue
 	var sources, tags, labels, setFlags []string
-	var template, private string
+	var template, private, board string
 	var ifVersion int64
 	cmd := &cobra.Command{
 		Use:   "edit <entry>",
@@ -344,13 +344,14 @@ func newVaultEditCmd() *cobra.Command {
 			setLabels := cmd.Flags().Changed("label")
 			setTemplate := cmd.Flags().Changed("template")
 			setPrivate := cmd.Flags().Changed("private")
+			setBoard := cmd.Flags().Changed("board")
 			fields, err := parseSetFlags(setFlags)
 			if err != nil {
 				return err
 			}
-			if !body.Changed() && !setSources && !setTags && !setLabels && !setTemplate && !setPrivate && len(fields) == 0 {
+			if !body.Changed() && !setSources && !setTags && !setLabels && !setTemplate && !setPrivate && !setBoard && len(fields) == 0 {
 				return core.ErrUsage("missing_body",
-					"name what to change: --body, --source, --template, --tag, --label, --private or --set",
+					"name what to change: --body, --source, --template, --tag, --label, --private, --board or --set",
 					"trellis vault edit "+args[0]+" --body @notes.md")
 			}
 			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
@@ -394,6 +395,9 @@ func newVaultEditCmd() *cobra.Command {
 					}
 					edit.Private = &p
 				}
+				if setBoard {
+					edit.Board = &board
+				}
 				if ifVersion > 0 {
 					edit.IfVersion = &ifVersion
 				}
@@ -418,6 +422,7 @@ func newVaultEditCmd() *cobra.Command {
 	cmd.Flags().StringVar(&template, "template", "", "change the template; \"\" for none")
 	cmd.Flags().StringArrayVar(&setFlags, "set", nil, "name=value, repeatable; writes a field the template asks for (empty value removes it)")
 	cmd.Flags().StringVar(&private, "private", "", "mark private (true|false)")
+	cmd.Flags().StringVar(&board, "board", "", `associate the entry with a board; "" for none`)
 	cmd.Flags().Int64Var(&ifVersion, "if-version", 0, "the version you read; required (vault show --json)")
 	return cmd
 }

@@ -83,6 +83,9 @@ importers:
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
+      unist-util-visit:
+        specifier: ^5.1.0
+        version: 5.1.0
     devDependencies:
       '@tabler/icons-react':
         specifier: ^3.46.0
@@ -105,6 +108,9 @@ importers:
       '@types/d3-zoom':
         specifier: ^3.0.8
         version: 3.0.8
+      '@types/mdast':
+        specifier: ^4.0.4
+        version: 4.0.4
       '@types/node':
         specifier: ^24.13.3
         version: 24.13.4
