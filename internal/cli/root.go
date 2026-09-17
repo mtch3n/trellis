@@ -72,12 +72,7 @@ func openCore() (*core.Core, *sqlx.DB, error) {
 	if cfgErr != nil {
 		cfg = config.Defaults()
 	}
-	if ttl, err := time.ParseDuration(cfg.Lease.TTL); err == nil {
-		c.SetLeaseTTL(ttl.Milliseconds())
-	}
-	c.SetDefaultColumns(cfg.Board.DefaultColumns)
-	c.SetCardRequirements(cfg.Labels.RequireOnCard, cfg.Tags.RequireOnCard)
-	c.SetHistoryKeep(cfg.History.EffectiveKeep())
+	c.ApplyGlobalConfig(cfg)
 	search := retrieval.NewService(c, db, path, cfg)
 	c.SetKnowledgeChanged(search.ReconcileProject)
 	c.SetDropDerived(search.DropProject)

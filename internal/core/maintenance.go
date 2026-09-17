@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -107,6 +109,44 @@ func (c *Core) PruneRevisions(ctx context.Context) (int64, error) {
 		}
 	}
 	return total, nil
+}
+
+// ParseRetention parses a maintenance retention age: "90d", "12w", or any Go
+// duration string time.ParseDuration accepts. internal/cli's `maintenance
+// prune --before` and the settings API's prune route share this, so "90d"
+// means the same age from either caller.
+func ParseRetention(raw string) (time.Duration, error) {
+	raw = strings.TrimSpace(strings.ToLower(raw))
+	if raw == "" {
+		return 0, fmt.Errorf("retention is required")
+	}
+	if strings.HasSuffix(raw, "d") || strings.HasSuffix(raw, "w") {
+		unit := time.Hour * 24
+		if strings.HasSuffix(raw, "w") {
+			unit *= 7
+		}
+		n, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSuffix(raw, "d"), "w"), 64)
+		if err != nil || n <= 0 {
+			return 0, fmt.Errorf("invalid retention %q", raw)
+		}
+		return time.Duration(n * float64(unit)), nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("invalid retention %q", raw)
+	}
+	return d, nil
+}
+
+// OrphanHistoryCount reports how many revision directories no entry accounts
+// for, across every project and the global vault -- what the settings page's
+// maintenance stats show before a prune.
+func (c *Core) OrphanHistoryCount(ctx context.Context) (int, error) {
+	orphans, err := c.orphanRevisionDirs(ctx, "")
+	if err != nil {
+		return 0, err
+	}
+	return len(orphans), nil
 }
 
 // PruneOrphanHistory removes revision directories no entry accounts for --

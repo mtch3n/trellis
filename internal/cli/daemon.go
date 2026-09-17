@@ -107,17 +107,12 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 		cfg = config.Defaults()
 	}
 	// openCore (internal/cli/root.go) primes every CLI invocation's Core with
-	// these same three settings from the global config; the daemon's Core
-	// must get them too, before the server is built, or a web claim always
-	// gets the built-in 30-minute lease and web card creation skips
+	// these same settings from the global config; the daemon's Core must get
+	// them too, before the server is built, or a web claim always gets the
+	// built-in 30-minute lease and web card creation skips
 	// labels.require_on_card / tags.require_on_card, whatever the config
 	// file or a project override says.
-	if ttl, err := time.ParseDuration(cfg.Lease.TTL); err == nil {
-		c.SetLeaseTTL(ttl.Milliseconds())
-	}
-	c.SetDefaultColumns(cfg.Board.DefaultColumns)
-	c.SetCardRequirements(cfg.Labels.RequireOnCard, cfg.Tags.RequireOnCard)
-	c.SetHistoryKeep(cfg.History.EffectiveKeep())
+	c.ApplyGlobalConfig(cfg)
 	search := retrieval.NewService(c, db, dbPath, cfg)
 	c.SetKnowledgeChanged(search.ReconcileProject)
 	c.SetDropDerived(search.DropProject)

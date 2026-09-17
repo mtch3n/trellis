@@ -59,6 +59,12 @@ func DBPath() (string, error) {
 	return filepath.Join(root, "trellis.db"), nil
 }
 
+// DaemonLogPath returns the daemon's log file inside root. internal/cli
+// spawns the daemon with its output redirected here and points a failed
+// start at it; internal/ui's settings page logs route tails the same file,
+// so both name it once, here, rather than each keeping its own copy.
+func DaemonLogPath(root string) string { return filepath.Join(root, "daemon.log") }
+
 // ProjectRoot returns the private storage directory for one project.
 func ProjectRoot(projectKey string) (string, error) {
 	root, err := Root()

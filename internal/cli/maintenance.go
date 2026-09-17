@@ -2,8 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/mtch3n/trellis/internal/core"
@@ -36,7 +34,7 @@ func newMaintenancePruneCmd() *cobra.Command {
 			var total int64
 			var before int64
 			if events || invocations {
-				age, err := retentionDuration(retention)
+				age, err := core.ParseRetention(retention)
 				if err != nil {
 					return core.ErrUsage("invalid_retention", err.Error(), "trellis maintenance prune --before 90d --events")
 				}
@@ -88,27 +86,4 @@ func newMaintenanceCompactCmd() *cobra.Command {
 			return Emit(cmd, map[string]string{"status": "compacted"}, func() string { return "main database compacted" })
 		},
 	}
-}
-
-func retentionDuration(raw string) (time.Duration, error) {
-	raw = strings.TrimSpace(strings.ToLower(raw))
-	if raw == "" {
-		return 0, fmt.Errorf("retention is required")
-	}
-	if strings.HasSuffix(raw, "d") || strings.HasSuffix(raw, "w") {
-		unit := time.Hour * 24
-		if strings.HasSuffix(raw, "w") {
-			unit *= 7
-		}
-		n, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSuffix(raw, "d"), "w"), 64)
-		if err != nil || n <= 0 {
-			return 0, fmt.Errorf("invalid retention %q", raw)
-		}
-		return time.Duration(n * float64(unit)), nil
-	}
-	d, err := time.ParseDuration(raw)
-	if err != nil || d <= 0 {
-		return 0, fmt.Errorf("invalid retention %q", raw)
-	}
-	return d, nil
 }

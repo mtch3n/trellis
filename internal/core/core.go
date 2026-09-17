@@ -5,8 +5,10 @@ package core
 
 import (
 	"context"
+	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/config"
 )
 
 // Core is the entry point to all trellis operations.
@@ -72,6 +74,21 @@ func (c *Core) SetHistoryKeep(n int) {
 	if n >= 0 {
 		c.historyKeep = n
 	}
+}
+
+// ApplyGlobalConfig applies the settings the running daemon keeps live --
+// lease TTL, default columns, label/tag requirements, and history retention
+// -- to c. internal/cli's openCore, the daemon's own startup, and the
+// settings API's PATCH hook all call this instead of each keeping its own
+// copy of the block: config.Describe marks exactly these five keys
+// restart: false because this method exists.
+func (c *Core) ApplyGlobalConfig(cfg config.Config) {
+	if ttl, err := time.ParseDuration(cfg.Lease.TTL); err == nil {
+		c.SetLeaseTTL(ttl.Milliseconds())
+	}
+	c.SetDefaultColumns(cfg.Board.DefaultColumns)
+	c.SetCardRequirements(cfg.Labels.RequireOnCard, cfg.Tags.RequireOnCard)
+	c.SetHistoryKeep(cfg.History.EffectiveKeep())
 }
 
 func (c *Core) SetKnowledgeChanged(fn func(context.Context, string) error) {
