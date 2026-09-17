@@ -114,7 +114,7 @@ func runDoctor(ctx context.Context) []Check {
 	}
 	checks = append(checks, checkStorageRoot(root), checkDatabase())
 
-	cfg, cfgErr := config.Load()
+	cfg, cfgErr := config.Load(root)
 	if cfgErr != nil {
 		checks = append(checks, warn("config", "unreadable, using defaults: "+cfgErr.Error(), "trellis config ls"))
 		cfg = config.Defaults()

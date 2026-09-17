@@ -210,19 +210,15 @@ func mergeNotReady(p MergePlan) error {
 // file the backup does not hold as it is, so a change made in between stops
 // the merge instead of escaping the backup.
 func (c *Core) backupForMerge(ctx context.Context, plan MergePlan) (string, map[string]string, error) {
-	root, err := c.root()
-	if err != nil {
-		return "", nil, err
-	}
 	stamp := time.UnixMilli(c.clock.NowMS()).UTC().Format("20060102T150405Z")
-	dir := filepath.Join(root, "backups", fmt.Sprintf("merge-%s-into-%s-%s", plan.Src, plan.Dst, stamp))
+	dir := filepath.Join(c.root, "backups", fmt.Sprintf("merge-%s-into-%s-%s", plan.Src, plan.Dst, stamp))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", nil, err
 	}
 	if err := c.Backup(ctx, filepath.Join(dir, "trellis.db")); err != nil {
 		return "", nil, err
 	}
-	hashes, err := copyUnder(root, filepath.Join(dir, "files"), plan.files)
+	hashes, err := copyUnder(c.root, filepath.Join(dir, "files"), plan.files)
 	return dir, hashes, err
 }
 
@@ -267,9 +263,7 @@ func (c *Core) afterMerge(ctx context.Context, plan *MergePlan) {
 	warn := func(format string, args ...any) {
 		plan.Warnings = append(plan.Warnings, fmt.Sprintf(format, args...))
 	}
-	if root, err := c.root(); err != nil {
-		warn("locating the storage root: %v", err)
-	} else if srcDir := filepath.Join(root, "projects", plan.Src); dirExists(srcDir) {
+	if srcDir := filepath.Join(c.root, "projects", plan.Src); dirExists(srcDir) {
 		leftover := filepath.Join(plan.Backup, "leftover")
 		if err := os.MkdirAll(leftover, 0o700); err != nil {
 			warn("keeping %s with the backup: %v", srcDir, err)
@@ -320,7 +314,6 @@ type merger struct {
 	apply    bool
 	backedUp map[string]string // path -> hash of its backup copy; nil for a plan
 	stage    *fileStage
-	root     string
 
 	src, dst Project
 
@@ -370,9 +363,6 @@ func (m *merger) run(srcKey, dstKey string) error {
 
 // load reads both projects and decides whether the merge may run at all.
 func (m *merger) load(srcKey, dstKey string) (refused bool, err error) {
-	if m.root, err = m.c.root(); err != nil {
-		return false, err
-	}
 	if srcKey == dstKey {
 		m.plan.Refused = "a project cannot be merged into itself"
 		return true, nil

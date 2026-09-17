@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/mtch3n/trellis/internal/home"
 	"github.com/mtch3n/trellis/internal/vpath"
 )
 
@@ -28,12 +27,15 @@ const GlobalKey = vpath.GlobalKey
 // Knowledge is the cached row for one markdown file. The file always wins: every
 // read compares mtime and size and re-reads when they moved (§5).
 type Knowledge struct {
-	ID         string  `db:"id" json:"id"`
-	ProjectID  string  `db:"project_id" json:"-"`
-	BoardID    *string `db:"board_id" json:"-"`
-	Slug       string  `db:"slug" json:"slug"`
-	Title      string  `db:"title" json:"title"`
-	Path       string  `db:"path" json:"path"`
+	ID        string  `db:"id" json:"id"`
+	ProjectID string  `db:"project_id" json:"-"`
+	BoardID   *string `db:"board_id" json:"-"`
+	Slug      string  `db:"slug" json:"slug"`
+	Title     string  `db:"title" json:"title"`
+	// Path is derived from the storage root, the entry's project key (or the
+	// global vault), and its slug — see docPath. It is filled by docView and
+	// refreshFromFile, never scanned from a column.
+	Path       string  `db:"-" json:"path"`
 	Template   string  `db:"template" json:"template"`
 	Summary    string  `db:"summary" json:"summary,omitempty"`
 	Provenance string  `db:"provenance" json:"provenance,omitempty"`
@@ -139,32 +141,40 @@ func Templates() []string {
 	return names
 }
 
-// WithKBRoot overrides where knowledge files live. Tests use it; the CLI does
-// not, because the storage root is resolved once from TRELLIS_HOME (§5.1).
-func (c *Core) WithKBRoot(dir string) *Core {
-	c.kbRoot = dir
-	return c
-}
-
-func (c *Core) root() (string, error) {
-	if c.kbRoot != "" {
-		return c.kbRoot, nil
-	}
-	return home.Root()
-}
-
-// kbDir is where a project's vault lives: one directory per project, plus the
-// reserved global one.
-func (c *Core) kbDir(projectKey string, global bool) (string, error) {
-	root, err := c.root()
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Join(root, "projects", projectKey, "knowledge")
+// docDir is where a project's vault lives: one directory per project, plus
+// the reserved global one. It does not create the directory; a write that
+// needs it existing goes through kbDir.
+func (c *Core) docDir(projectKey string, global bool) string {
 	if global {
-		dir = filepath.Join(root, "global", "knowledge")
+		return filepath.Join(c.root, "global", "knowledge")
 	}
+	return filepath.Join(c.root, "projects", projectKey, "knowledge")
+}
+
+// kbDir is docDir, creating the directory: only a write needs that.
+func (c *Core) kbDir(projectKey string, global bool) (string, error) {
+	dir := c.docDir(projectKey, global)
 	return dir, os.MkdirAll(dir, 0o700)
+}
+
+// docPath is where one entry's file lives, derived from the storage root, its
+// project key (GlobalKey for a global entry) and its slug (§ TRELLIS-36). It
+// is never stored: a copied or moved storage root must not carry a stale
+// absolute path along with it.
+func (c *Core) docPath(projectKey string, global bool, slug string) string {
+	return filepath.Join(c.docDir(projectKey, global), filepath.FromSlash(slug)+".md")
+}
+
+// keyOfDoc resolves the project key a document's file and address are built
+// from: the global vault's reserved key for a global entry, or its owning
+// project's key otherwise.
+func (c *Core) keyOfDoc(tx *sqlx.Tx, doc *Knowledge) (string, error) {
+	if doc.Global {
+		return GlobalKey, nil
+	}
+	var key string
+	err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, doc.ProjectID)
+	return key, err
 }
 
 // CreateKnowledge writes the file first and the row second: the file is the
@@ -255,10 +265,6 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, projectID); err != nil {
 			return err
 		}
-		dir, err := c.kbDir(key, false)
-		if err != nil {
-			return err
-		}
 		if err := c.refuseResemblingDir(tx, projectID, dirSlug, in.NewDir); err != nil {
 			return err
 		}
@@ -306,7 +312,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 			}
 		}
 		raw := RenderDoc(fm, body)
-		path := filepath.Join(dir, filepath.FromSlash(slug)+".md")
+		path := c.docPath(key, false, slug)
 		// A revision directory can outlive the entry it belonged to when the
 		// file and row are removed outside Trellis -- exactly what
 		// `maintenance prune --orphan-history` exists for. Adopting it here
@@ -383,11 +389,11 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 
 func insertKnowledge(tx *sqlx.Tx, d Knowledge) error {
 	_, err := tx.Exec(
-		`INSERT INTO knowledge (id, project_id, board_id, slug, title, path, template, summary,
+		`INSERT INTO knowledge (id, project_id, board_id, slug, title, template, summary,
 		                        provenance, private, content_hash, mtime, size, global, version,
 		                        created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		d.ID, d.ProjectID, d.BoardID, d.Slug, d.Title, d.Path, d.Template, d.Summary,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		d.ID, d.ProjectID, d.BoardID, d.Slug, d.Title, d.Template, d.Summary,
 		d.Provenance, d.Private, d.ContentHash, d.MTime, d.Size, d.Global, d.Version,
 		d.CreatedAt, d.UpdatedAt)
 	return err
@@ -533,6 +539,11 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) (err error) {
 			}
 		}
 	}()
+	key, err := c.keyOfDoc(tx, doc)
+	if err != nil {
+		return err
+	}
+	doc.Path = c.docPath(key, doc.Global, doc.Slug)
 	st, err := os.Stat(doc.Path)
 	if errors.Is(err, os.ErrNotExist) {
 		return ErrNotFound("file_missing", "the file for "+doc.Slug+" is gone: "+doc.Path,
@@ -619,13 +630,12 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) (err error) {
 
 // docView fills the computed fields.
 func (c *Core) docView(tx *sqlx.Tx, doc *Knowledge) error {
-	key := GlobalKey
-	if !doc.Global {
-		if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, doc.ProjectID); err != nil {
-			return err
-		}
+	key, err := c.keyOfDoc(tx, doc)
+	if err != nil {
+		return err
 	}
 	doc.Ref = DocAddress(key, doc.Global, doc.Slug)
+	doc.Path = c.docPath(key, doc.Global, doc.Slug)
 	doc.BoardName = ""
 	if doc.BoardID != nil {
 		if err := tx.Get(&doc.BoardName, `SELECT name FROM board WHERE id = ?`, *doc.BoardID); err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -1103,6 +1113,7 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 			}
 			return err
 		}
+		doc.Path = c.docPath(key, doc.Global, doc.Slug)
 		var serr error
 		staged, serr = stageRemoval(doc.Path)
 		if serr != nil {
@@ -1204,19 +1215,23 @@ func (c *Core) SyncKnowledgeSearch(ctx context.Context) error {
 func (c *Core) rebuildKnowledgeFTS(tx *sqlx.Tx) error {
 	var docs []struct {
 		RowID   int64  `db:"rowid"`
-		Path    string `db:"path"`
+		Slug    string `db:"slug"`
+		Global  bool   `db:"global"`
+		Key     string `db:"pkey"`
 		Title   string `db:"title"`
 		Summary string `db:"summary"`
 		Stamp   int64  `db:"stamp"`
 		Size    int64  `db:"size"`
 	}
-	if err := tx.Select(&docs, `SELECT k.rowid, k.path, k.title, k.summary,
+	if err := tx.Select(&docs, `SELECT k.rowid, k.slug, k.global, p.key AS pkey, k.title, k.summary,
  COALESCE(s.mtime, -1) AS stamp, COALESCE(s.size, -1) AS size
- FROM knowledge k LEFT JOIN knowledge_search_state s ON s.rowid = k.rowid`); err != nil {
+ FROM knowledge k JOIN project p ON p.id = k.project_id
+ LEFT JOIN knowledge_search_state s ON s.rowid = k.rowid`); err != nil {
 		return err
 	}
 	for _, d := range docs {
-		st, err := os.Stat(d.Path)
+		path := c.docPath(d.Key, d.Global, d.Slug)
+		st, err := os.Stat(path)
 		if errors.Is(err, os.ErrNotExist) {
 			if _, err := tx.Exec("DELETE FROM knowledge_fts WHERE rowid = ?", d.RowID); err != nil {
 				return err
@@ -1232,11 +1247,11 @@ func (c *Core) rebuildKnowledgeFTS(tx *sqlx.Tx) error {
 		if st.ModTime().UnixNano() == d.Stamp && st.Size() == d.Size {
 			continue
 		}
-		raw, err := os.ReadFile(d.Path)
+		raw, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		fm, body, err := splitDocFile(d.Path, raw)
+		fm, body, err := splitDocFile(path, raw)
 		if err != nil {
 			return err
 		}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/store"
+	"github.com/mtch3n/trellis/internal/testhome"
 	_ "modernc.org/sqlite"
 )
 
@@ -19,7 +20,10 @@ import (
 // whole package because every test that indexes anything needs it.
 var fakeEmbed string
 
+// TestMain folds this package's own setup -- compiling fakeembed once -- into
+// testhome's hermetic-home setup: see internal/testhome.
 func TestMain(m *testing.M) {
+	cleanupHome := testhome.Setup()
 	dir, err := os.MkdirTemp("", "fakeembed")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -32,10 +36,12 @@ func TestMain(m *testing.M) {
 	if out, err := exec.Command("go", "build", "-o", fakeEmbed, "./testdata/fakeembed").CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "build fakeembed: %v\n%s", err, out)
 		os.RemoveAll(dir)
+		cleanupHome()
 		os.Exit(1)
 	}
 	code := m.Run()
 	os.RemoveAll(dir)
+	cleanupHome()
 	os.Exit(code)
 }
 

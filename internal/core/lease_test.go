@@ -24,7 +24,7 @@ func TestClaimContentionNamesTheHolderAndStealRecordsWhy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	holder := New(c.db, c.clock, "sess:holder")
+	holder := New(c.db, c.clock, "sess:holder", c.root)
 	if _, err := holder.RegisterAgent(t.Context(), "worker-1", "agent", "/tmp", "host", 1); err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestClaimContentionNamesTheHolderAndStealRecordsWhy(t *testing.T) {
 
 	// A second agent must be told who holds it, not left waiting on a
 	// connection the transaction is already holding.
-	other := New(c.db, c.clock, "sess:other")
+	other := New(c.db, c.clock, "sess:other", c.root)
 	done := make(chan error, 1)
 	go func() {
 		_, err := other.ClaimCard(t.Context(), card.ID, 60_000, false, "")
@@ -77,12 +77,12 @@ func TestUnregisteredHolderStillHoldsTheCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	// No RegisterAgent call: a hook may not have run, but the lease is real.
-	holder := New(c.db, c.clock, "sess:unregistered")
+	holder := New(c.db, c.clock, "sess:unregistered", c.root)
 	if _, err := holder.ClaimCard(t.Context(), card.ID, 60_000, false, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	other := New(c.db, c.clock, "sess:other")
+	other := New(c.db, c.clock, "sess:other", c.root)
 	_, err = other.ClaimCard(t.Context(), card.ID, 60_000, false, "")
 	var te *Error
 	if !errors.As(err, &te) || te.Exit != 4 {
@@ -114,7 +114,7 @@ func TestConcurrentClaimNoLostCards(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	core := New(db, FixedClock{MS: 1000000}, "test-setup")
+	core := New(db, FixedClock{MS: 1000000}, "test-setup", filepath.Dir(path))
 	ctx := context.Background()
 
 	// Create project and board.
@@ -228,7 +228,7 @@ func TestClaimSpecificCard(t *testing.T) {
 	}
 	defer db.Close()
 
-	core := New(db, FixedClock{MS: 1000000}, "test-actor")
+	core := New(db, FixedClock{MS: 1000000}, "test-actor", filepath.Dir(path))
 	ctx := context.Background()
 
 	proj, err := core.CreateProject(ctx, "CLAIMSPEC", false)
@@ -304,7 +304,7 @@ func TestReleaseCard(t *testing.T) {
 	}
 	defer db.Close()
 
-	core := New(db, FixedClock{MS: 1000000}, "test-actor")
+	core := New(db, FixedClock{MS: 1000000}, "test-actor", filepath.Dir(path))
 	ctx := context.Background()
 
 	proj, err := core.CreateProject(ctx, "RELEASE", false)
@@ -358,7 +358,7 @@ func TestMoveToDonereleaseLease(t *testing.T) {
 	}
 	defer db.Close()
 
-	core := New(db, FixedClock{MS: 1000000}, "test-actor")
+	core := New(db, FixedClock{MS: 1000000}, "test-actor", filepath.Dir(path))
 	ctx := context.Background()
 
 	proj, err := core.CreateProject(ctx, "DONEREL", false)
@@ -423,7 +423,7 @@ func runClaimChild(dbPath string) {
 	}
 
 	actor := fmt.Sprintf("child:%d", os.Getpid())
-	core := New(db, RealClock{}, actor)
+	core := New(db, RealClock{}, actor, filepath.Dir(dbPath))
 	ctx := context.Background()
 
 	// Claim cards until none remain.
@@ -450,11 +450,11 @@ func TestLeasedCardRejectsOtherWritesButAllowsNotes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := New(c.db, FixedClock{MS: 1000}, "owner")
+	owner := New(c.db, FixedClock{MS: 1000}, "owner", c.root)
 	if _, err := owner.ClaimCard(t.Context(), card.ID, 60_000, false, ""); err != nil {
 		t.Fatal(err)
 	}
-	other := New(c.db, FixedClock{MS: 1001}, "other")
+	other := New(c.db, FixedClock{MS: 1001}, "other", c.root)
 	priority := PriorityUrgent
 	if _, err := other.EditCard(t.Context(), p.ID, CardRef{Seq: card.Seq}, CardEdit{Priority: &priority}); err == nil {
 		t.Fatal("other actor edited an actively leased card")

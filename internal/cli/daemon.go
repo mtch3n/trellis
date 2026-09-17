@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -67,19 +68,16 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	if port < 0 || port > 65535 {
 		return fmt.Errorf("daemon port %d is out of range", port)
 	}
-	dbPath, err := home.DBPath()
+	root, err := home.Root()
 	if err != nil {
 		return err
 	}
+	dbPath := filepath.Join(root, "trellis.db")
 	db, err := store.Open(dbPath)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	root, err := home.Root()
-	if err != nil {
-		return err
-	}
 	lock := flock.New(root + "/daemon.lock")
 	ok, err := lock.TryLock()
 	if err != nil {
@@ -98,11 +96,11 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	if actor == "" {
 		actor = fmt.Sprintf("daemon:%d", os.Getpid())
 	}
-	c := core.New(db, core.RealClock{}, actor)
+	c := core.New(db, core.RealClock{}, actor, root)
 	if err := c.SyncKnowledgeSearch(parent); err != nil {
 		return err
 	}
-	cfg, cfgErr := config.Load()
+	cfg, cfgErr := config.Load(root)
 	if cfgErr != nil {
 		cfg = config.Defaults()
 	}
@@ -113,7 +111,7 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	// labels.require_on_card / tags.require_on_card, whatever the config
 	// file or a project override says.
 	c.ApplyConfig(cfg)
-	search := retrieval.NewService(c, db, dbPath, cfg)
+	search := retrieval.NewService(c, db, dbPath, cfg, root)
 	c.SetKnowledgeChanged(search.ReconcileProject)
 	c.SetDropDerived(search.DropProject)
 	address := net.JoinHostPort(bind, fmt.Sprint(port))
@@ -126,7 +124,7 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 		}
 		defer listener.Close()
 	}
-	server := ui.NewServerWithSearch(c, db, address, search)
+	server := ui.NewServerWithSearch(c, db, address, root, search)
 	ctx, cancel := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 	errorsCh := make(chan error, 2)

@@ -16,16 +16,16 @@ import (
 // agents and needs a TTY, so tests go through core.
 func escalateByHand(t *testing.T, key, slug string) {
 	t.Helper()
-	path, err := home.DBPath()
+	root, err := home.Root()
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := store.Open(path)
+	db, err := store.Open(filepath.Join(root, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	c := core.New(db, core.RealClock{}, "test")
+	c := core.New(db, core.RealClock{}, "test", root)
 	p, err := c.ProjectByKey(t.Context(), key)
 	if err != nil {
 		t.Fatal(err)
@@ -292,16 +292,16 @@ func TestTheWorkspaceStaysInItsProject(t *testing.T) {
 // until the merge layer stores refs.
 func TestTheWorkspaceLeavesPrefixesToCore(t *testing.T) {
 	targetEnv(t)
-	path, err := home.DBPath()
+	root, err := home.Root()
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := store.Open(path)
+	db, err := store.Open(filepath.Join(root, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	c := core.New(db, core.RealClock{}, "test")
+	c := core.New(db, core.RealClock{}, "test", root)
 	p, err := c.ProjectByKey(t.Context(), "ALPHA")
 	if err != nil {
 		t.Fatal(err)

@@ -14,13 +14,14 @@ import (
 )
 
 func TestDeleteKnowledge(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test")
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test", dir)
 	p, err := c.CreateProject(context.Background(), "KDEL", false)
 	if err != nil {
 		t.Fatal(err)
@@ -30,7 +31,7 @@ func TestDeleteKnowledge(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	request := func(method, path string, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")

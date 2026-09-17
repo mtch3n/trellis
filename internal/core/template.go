@@ -220,11 +220,7 @@ func loadTemplate(dir, name string) (Template, error) {
 // directory serves every project, and seeding never touches a directory
 // that already exists — a built-in the user deleted stays deleted.
 func (c *Core) templatesDir() (string, error) {
-	root, err := c.root()
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Join(root, "templates")
+	dir := filepath.Join(c.root, "templates")
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if err := seedTemplates(dir); err != nil {
 			return "", err

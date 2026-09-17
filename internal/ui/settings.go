@@ -60,17 +60,12 @@ func settingInfos(cfg config.Config, present map[string]bool) []SettingInfo {
 // handleGetSettings lists every setting in config.AllKeys order, grouped
 // implicitly by that order's first dotted segment.
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
-	cfg, present, err := config.LoadWithPresence()
+	cfg, present, err := config.LoadWithPresence(s.root)
 	if err != nil {
 		s.error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	path, err := config.Path()
-	if err != nil {
-		s.error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, settingsResponse{File: path, Settings: settingInfos(cfg, present)})
+	writeJSON(w, http.StatusOK, settingsResponse{File: config.Path(s.root), Settings: settingInfos(cfg, present)})
 }
 
 type patchSettingsRequest struct {
@@ -89,7 +84,7 @@ func (s *Server) handlePatchSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := config.SetGlobalValues(in.Set, in.Unset)
+	cfg, err := config.SetGlobalValues(s.root, in.Set, in.Unset)
 	if err != nil {
 		if ise, ok := errors.AsType[*config.InvalidSettingsError](err); ok {
 			writeJSON(w, http.StatusBadRequest, map[string]any{
@@ -107,12 +102,7 @@ func (s *Server) handlePatchSettings(w http.ResponseWriter, r *http.Request) {
 		s.liveConfig(cfg)
 	}
 
-	_, present, err := config.LoadWithPresence()
-	if err != nil {
-		s.error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	path, err := config.Path()
+	_, present, err := config.LoadWithPresence(s.root)
 	if err != nil {
 		s.error(w, http.StatusInternalServerError, err.Error())
 		return
@@ -133,6 +123,6 @@ func (s *Server) handlePatchSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, settingsPatchResponse{
-		File: path, Settings: settingInfos(cfg, present), Restart: restart,
+		File: config.Path(s.root), Settings: settingInfos(cfg, present), Restart: restart,
 	})
 }

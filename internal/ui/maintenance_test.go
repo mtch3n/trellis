@@ -122,10 +122,7 @@ func TestMaintenanceCompactReturnsStatus(t *testing.T) {
 
 func TestLogsTailsTheLastNLines(t *testing.T) {
 	s := settingsTestServer(t)
-	root, err := home.Root()
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := s.root
 	var lines []string
 	for i := 1; i <= 10; i++ {
 		lines = append(lines, fmt.Sprintf("line %d", i))
@@ -181,10 +178,7 @@ func TestLogsMissingFileReportsNotExists(t *testing.T) {
 
 func TestLogsLinesAboveMaxIsClamped(t *testing.T) {
 	s := settingsTestServer(t)
-	root, err := home.Root()
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := s.root
 	var lines []string
 	for i := 1; i <= 5001; i++ {
 		lines = append(lines, fmt.Sprintf("line %d", i))

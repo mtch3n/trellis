@@ -129,6 +129,7 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		if err := tx.Get(&doc, `SELECT * FROM knowledge WHERE project_id = ? AND slug = ?`, projectID, resolved); err != nil {
 			return err
 		}
+		doc.Path = c.docPath(key, doc.Global, doc.Slug)
 		if doc.Global {
 			return ErrUsage("global_entry", doc.Slug+" is in the global vault; demote it first",
 				"trellis knowledge demote "+doc.Slug)
@@ -152,12 +153,8 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		if err := c.refuseResemblingDir(tx, projectID, destDir, newDir); err != nil {
 			return err
 		}
-		vault, err := c.kbDir(key, false)
-		if err != nil {
-			return err
-		}
 		src = doc.Path
-		dest, err = moveFileTo(doc.Path, filepath.Join(vault, filepath.FromSlash(newSlug)+".md"))
+		dest, err = moveFileTo(doc.Path, c.docPath(key, false, newSlug))
 		if err != nil {
 			return err
 		}
@@ -167,8 +164,8 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		}
 		now := c.clock.NowMS()
 		oldSlug := doc.Slug
-		if _, err := tx.Exec(`UPDATE knowledge SET slug = ?, path = ?, updated_at = ? WHERE id = ?`,
-			newSlug, dest, now, doc.ID); err != nil {
+		if _, err := tx.Exec(`UPDATE knowledge SET slug = ?, updated_at = ? WHERE id = ?`,
+			newSlug, now, doc.ID); err != nil {
 			return err
 		}
 		doc.Slug, doc.Path, doc.UpdatedAt = newSlug, dest, now
@@ -195,8 +192,8 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		// durable state, not a guess, decides which side of the move the
 		// file belongs on, exactly as EscalateKnowledge already resolves this.
 		var landed string
-		qerr := c.db.Get(&landed, `SELECT path FROM knowledge WHERE id = ?`, doc.ID)
-		if writeLanded(landed == dest, qerr) {
+		qerr := c.db.Get(&landed, `SELECT slug FROM knowledge WHERE id = ?`, doc.ID)
+		if writeLanded(landed == newSlug, qerr) {
 			err = nil
 		} else {
 			// Newest first, mirroring the deferred undo above: a rewrite of

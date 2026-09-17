@@ -3,13 +3,14 @@ package retrieval
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/gofrs/flock"
 	"github.com/jmoiron/sqlx"
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/home"
 	"github.com/mtch3n/trellis/internal/vector"
 )
 
@@ -20,10 +21,35 @@ type Service struct {
 	db     *sqlx.DB
 	dbPath string
 	cfg    config.Config
+	// root is the storage root vector index files live under, injected by
+	// the caller rather than resolved here — see TRELLIS-48.
+	root string
 }
 
-func NewService(c *core.Core, db *sqlx.DB, dbPath string, cfg config.Config) *Service {
-	return &Service{core: c, db: db, dbPath: dbPath, cfg: cfg}
+func NewService(c *core.Core, db *sqlx.DB, dbPath string, cfg config.Config, root string) *Service {
+	return &Service{core: c, db: db, dbPath: dbPath, cfg: cfg, root: root}
+}
+
+// projectRoot is the private storage directory for one project's derived
+// state, creating it if it does not exist.
+func (s *Service) projectRoot(projectKey string) (string, error) {
+	dir := filepath.Join(s.root, "projects", projectKey)
+	return dir, os.MkdirAll(dir, 0o700)
+}
+
+// vectorDBPath is the disposable per-project vector index path, creating the
+// project's directory.
+func (s *Service) vectorDBPath(projectKey string) (string, error) {
+	if _, err := s.projectRoot(projectKey); err != nil {
+		return "", err
+	}
+	return filepath.Join(s.root, "projects", projectKey, "vectors.db"), nil
+}
+
+// vectorDBFile is where a project's vector index lives. It creates nothing:
+// dropping a project needs the path only to name that index's tables.
+func (s *Service) vectorDBFile(projectKey string) string {
+	return filepath.Join(s.root, "projects", projectKey, "vectors.db")
 }
 
 func (s *Service) vectorConfig(ctx context.Context, projectID string) (config.VectorSearchConfig, string, error) {
@@ -109,7 +135,7 @@ func (s *Service) vectorHits(ctx context.Context, projectID, query string, opts 
 		if err := s.db.GetContext(ctx, &projectKey, `SELECT key FROM project WHERE id = ?`, dataset); err != nil {
 			return nil, err
 		}
-		vectorPath, err := home.VectorDBPath(projectKey)
+		vectorPath, err := s.vectorDBPath(projectKey)
 		if err != nil {
 			return nil, err
 		}
@@ -191,7 +217,7 @@ func (s *Service) ReconcileProject(ctx context.Context, projectID string) error 
 	if err := s.db.GetContext(ctx, &projectKey, `SELECT key FROM project WHERE id = ?`, projectID); err != nil {
 		return err
 	}
-	vectorPath, err := home.VectorDBPath(projectKey)
+	vectorPath, err := s.vectorDBPath(projectKey)
 	if err != nil {
 		return err
 	}
@@ -211,7 +237,7 @@ func (s *Service) projectIndex(ctx context.Context, projectID string, cfg config
 	if err := s.db.GetContext(ctx, &key, "SELECT key FROM project WHERE id = ?", projectID); err != nil {
 		return nil, err
 	}
-	path, err := home.VectorDBPath(key)
+	path, err := s.vectorDBPath(key)
 	if err != nil {
 		return nil, err
 	}
@@ -301,9 +327,6 @@ func fuseHits(fts, semantic []core.SearchHit, limit int) []core.SearchHit {
 // DropProject forgets the vector tables of a project that is about to be
 // removed. Its files go with the project's directory.
 func (s *Service) DropProject(ctx context.Context, projectKey string) error {
-	path, err := home.VectorDBFile(projectKey)
-	if err != nil {
-		return err
-	}
+	path := s.vectorDBFile(projectKey)
 	return vector.DropTables(ctx, s.db.DB, path)
 }

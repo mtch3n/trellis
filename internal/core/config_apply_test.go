@@ -13,12 +13,13 @@ import (
 // default columns, label/tag requirements and history retention -- the
 // settings the daemon keeps live rather than only reading at startup.
 func TestApplyConfigAppliesEveryLiveSetting(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer db.Close()
-	c := New(db, FixedClock{MS: 1_000_000}, "test")
+	c := New(db, FixedClock{MS: 1_000_000}, "test", dir)
 
 	cfg := config.Defaults()
 	cfg.Lease.TTL = "45m"
@@ -47,12 +48,13 @@ func TestApplyConfigAppliesEveryLiveSetting(t *testing.T) {
 // An unparseable lease.ttl must leave the previous value in place rather
 // than zeroing it out, the same defensive rule SetLeaseTTL already applies.
 func TestApplyConfigIgnoresAnUnparseableLeaseTTL(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer db.Close()
-	c := New(db, FixedClock{MS: 1_000_000}, "test")
+	c := New(db, FixedClock{MS: 1_000_000}, "test", dir)
 	before := c.leaseTTL
 
 	cfg := config.Defaults()

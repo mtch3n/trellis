@@ -145,9 +145,9 @@ func TestLoadTemplateRejectsPathTraversalName(t *testing.T) {
 // NewTemplate, EditTemplate and DeleteTemplate must all refuse a name that
 // would resolve outside <root>/templates, before ever touching the disk.
 func TestTemplateWritesRejectPathTraversalNames(t *testing.T) {
-	c := testCore(t)
+	tc := testCore(t)
 	root := t.TempDir()
-	c.WithKBRoot(root)
+	c := New(tc.db, tc.clock, tc.actor, root)
 
 	if _, err := c.NewTemplate(t.Context(), "../evil"); !isCode(err, "bad_template_name") {
 		t.Fatalf("NewTemplate(../evil): err = %v, want bad_template_name", err)
@@ -267,7 +267,6 @@ func TestCreateKnowledgeTemplateChecksProvenanceChoices(t *testing.T) {
 
 func TestSeedingWritesBuiltinsOnceAndNeverAgain(t *testing.T) {
 	c := testCore(t)
-	c.WithKBRoot(t.TempDir())
 
 	dir, err := c.templatesDir()
 	if err != nil {
@@ -295,7 +294,6 @@ func TestSeedingWritesBuiltinsOnceAndNeverAgain(t *testing.T) {
 
 func TestSeededTemplatesAllParse(t *testing.T) {
 	c := testCore(t)
-	c.WithKBRoot(t.TempDir())
 	dir, err := c.templatesDir()
 	if err != nil {
 		t.Fatal(err)

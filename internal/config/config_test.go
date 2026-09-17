@@ -14,10 +14,8 @@ import (
 )
 
 func TestDefaultsLoadWithNoFile(t *testing.T) {
-	// An empty home has no config file, so Load returns the defaults. The
-	// user's own ~/.trellis/config.yaml must not decide this test.
-	t.Setenv("TRELLIS_HOME", t.TempDir())
-	cfg, err := Load()
+	// An empty root has no config file, so Load returns the defaults.
+	cfg, err := Load(t.TempDir())
 	if err != nil {
 		t.Fatalf("Load() with missing file: %v", err)
 	}
@@ -286,11 +284,10 @@ func TestUIEnabledDefaultsToTrue(t *testing.T) {
 
 func TestLoadKeepsUIDisabled(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("TRELLIS_HOME", root)
 	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte("ui:\n  enabled: false\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	cfg, err := Load()
+	cfg, err := Load(root)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -321,11 +318,10 @@ func TestHistoryKeepZeroSurvivesApplyDefaults(t *testing.T) {
 
 func TestLoadKeepsHistoryKeepZero(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("TRELLIS_HOME", root)
 	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte("history:\n  keep: 0\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	cfg, err := Load()
+	cfg, err := Load(root)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -339,11 +335,10 @@ func TestLoadKeepsHistoryKeepZero(t *testing.T) {
 
 func TestLoadRejectsNegativeHistoryKeep(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("TRELLIS_HOME", root)
 	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte("history:\n  keep: -1\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	if _, err := Load(); err == nil {
+	if _, err := Load(root); err == nil {
 		t.Error("Load with history.keep: -1, want an error")
 	}
 }
@@ -432,13 +427,12 @@ func TestDescribeSearchMethodIsAnEnumWithChoices(t *testing.T) {
 
 func TestSetGlobalValuesRoundTripsCommentsAndExtensions(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("TRELLIS_HOME", root)
 	original := "# a comment\nlease:\n  ttl: 20m\nextensions:\n  actions: [a, b]\n"
 	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte(original), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := SetGlobalValues(map[string]any{"history.keep": 50}, nil); err != nil {
+	if _, err := SetGlobalValues(root, map[string]any{"history.keep": 50}, nil); err != nil {
 		t.Fatalf("SetGlobalValues: %v", err)
 	}
 	text := readFile(t, filepath.Join(root, "config.yaml"))
@@ -452,7 +446,7 @@ func TestSetGlobalValuesRoundTripsCommentsAndExtensions(t *testing.T) {
 		t.Errorf("history.keep not written:\n%s", text)
 	}
 
-	if _, err := SetGlobalValues(nil, []string{"history.keep"}); err != nil {
+	if _, err := SetGlobalValues(root, nil, []string{"history.keep"}); err != nil {
 		t.Fatalf("SetGlobalValues unset: %v", err)
 	}
 	text = readFile(t, filepath.Join(root, "config.yaml"))
@@ -475,8 +469,7 @@ func readFile(t *testing.T, path string) string {
 
 func TestSetGlobalValuesRejectsWholeBatchOnOneBadValue(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("TRELLIS_HOME", root)
-	_, err := SetGlobalValues(map[string]any{
+	_, err := SetGlobalValues(root, map[string]any{
 		"lease.ttl":              "45m",
 		"history.keep":           -1,
 		"labels.require_on_card": true,
@@ -491,8 +484,7 @@ func TestSetGlobalValuesRejectsWholeBatchOnOneBadValue(t *testing.T) {
 
 func TestSetGlobalValuesThenLoadReadsTypedValuesBack(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("TRELLIS_HOME", root)
-	cfg, err := SetGlobalValues(map[string]any{
+	cfg, err := SetGlobalValues(root, map[string]any{
 		"lease.ttl":             "45m",
 		"history.keep":          50,
 		"board.default_columns": []any{"todo", "done"},
@@ -510,7 +502,7 @@ func TestSetGlobalValuesThenLoadReadsTypedValuesBack(t *testing.T) {
 		t.Errorf("Board.DefaultColumns = %v", cfg.Board.DefaultColumns)
 	}
 
-	reloaded, err := Load()
+	reloaded, err := Load(root)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -527,8 +519,7 @@ func TestSetGlobalValuesThenLoadReadsTypedValuesBack(t *testing.T) {
 // keep them strings all the way through.
 func TestSetGlobalValuesQuotesStringLookingListItems(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("TRELLIS_HOME", root)
-	if _, err := SetGlobalValues(map[string]any{
+	if _, err := SetGlobalValues(root, map[string]any{
 		"board.default_columns": []any{"true", "123"},
 	}, nil); err != nil {
 		t.Fatalf("SetGlobalValues: %v", err)
@@ -551,7 +542,7 @@ func TestSetGlobalValuesQuotesStringLookingListItems(t *testing.T) {
 		t.Fatalf("generic decode = %#v, want the strings [\"true\" \"123\"]", items)
 	}
 
-	reloaded, err := Load()
+	reloaded, err := Load(root)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -562,8 +553,7 @@ func TestSetGlobalValuesQuotesStringLookingListItems(t *testing.T) {
 
 func TestSetGlobalValuesRefusesANonEditableKey(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("TRELLIS_HOME", root)
-	_, err := SetGlobalValues(map[string]any{"ui.port": 9999}, nil)
+	_, err := SetGlobalValues(root, map[string]any{"ui.port": 9999}, nil)
 	if err == nil {
 		t.Fatal("want an error: ui.port is not editable")
 	}
@@ -581,19 +571,17 @@ func TestSetGlobalValuesRefusesANonEditableKey(t *testing.T) {
 
 func TestSetGlobalValuesRefusesAnUnknownKey(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("TRELLIS_HOME", root)
-	if _, err := SetGlobalValues(map[string]any{"no.such.key": "x"}, nil); err == nil {
+	if _, err := SetGlobalValues(root, map[string]any{"no.such.key": "x"}, nil); err == nil {
 		t.Fatal("want an error for an unknown key")
 	}
-	if _, err := SetGlobalValues(nil, []string{"no.such.key"}); err == nil {
+	if _, err := SetGlobalValues(root, nil, []string{"no.such.key"}); err == nil {
 		t.Fatal("want an error unsetting an unknown key")
 	}
 }
 
 func TestSetGlobalValuesRefusesUnsettingANonEditableKey(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("TRELLIS_HOME", root)
-	if _, err := SetGlobalValues(nil, []string{"ui.port"}); err == nil {
+	if _, err := SetGlobalValues(root, nil, []string{"ui.port"}); err == nil {
 		t.Fatal("want an error: ui.port is not editable")
 	}
 }
@@ -827,11 +815,10 @@ func TestAllKeysIncludesEveryKeyGetValueKnows(t *testing.T) {
 
 func TestLoadWithPresenceDistinguishesFileFromDefault(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("TRELLIS_HOME", root)
 	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte("lease:\n  ttl: 10m\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	cfg, present, err := LoadWithPresence()
+	cfg, present, err := LoadWithPresence(root)
 	if err != nil {
 		t.Fatalf("LoadWithPresence: %v", err)
 	}
@@ -847,8 +834,7 @@ func TestLoadWithPresenceDistinguishesFileFromDefault(t *testing.T) {
 }
 
 func TestLoadWithPresenceOnAnEmptyHomeMarksNothingPresent(t *testing.T) {
-	t.Setenv("TRELLIS_HOME", t.TempDir())
-	_, present, err := LoadWithPresence()
+	_, present, err := LoadWithPresence(t.TempDir())
 	if err != nil {
 		t.Fatalf("LoadWithPresence: %v", err)
 	}
@@ -948,7 +934,6 @@ func TestApplyRepoOverridesCopiesEveryPresentKey(t *testing.T) {
 
 // The settings page matches each problem to its field by the "key: " prefix.
 func TestSetGlobalValuesProblemsStartWithTheirKey(t *testing.T) {
-	t.Setenv("TRELLIS_HOME", t.TempDir())
 	set := map[string]any{
 		"lease.ttl":     "soon",
 		"search.method": "grep",
@@ -957,7 +942,7 @@ func TestSetGlobalValuesProblemsStartWithTheirKey(t *testing.T) {
 		"no.such.key":   1,
 		"ui.port":       9999,
 	}
-	_, err := SetGlobalValues(set, nil)
+	_, err := SetGlobalValues(t.TempDir(), set, nil)
 	ise, ok := err.(*InvalidSettingsError)
 	if !ok {
 		t.Fatalf("err = %v, want *InvalidSettingsError", err)

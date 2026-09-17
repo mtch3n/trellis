@@ -19,14 +19,15 @@ import (
 // UI: releasing one requires being its owner.
 func TestServerWritesAsAHumanNotTheDaemon(t *testing.T) {
 	t.Setenv("TRELLIS_AGENT", "")
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
 	ctx := context.Background()
-	c := core.New(db, core.FixedClock{MS: 6_000_000}, "daemon:4242")
+	c := core.New(db, core.FixedClock{MS: 6_000_000}, "daemon:4242", dir)
 	p, err := c.CreateProject(ctx, "ACTOR", false)
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +36,7 @@ func TestServerWritesAsAHumanNotTheDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -89,14 +90,15 @@ func TestServerWritesAsTrellisAgentWhenSet(t *testing.T) {
 // The board list says which board a project opens on, so the web UI lands
 // where the CLI does.
 func TestServerBoardsSayWhichIsDefault(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
 	ctx := context.Background()
-	c := core.New(db, core.FixedClock{MS: 7_000_000}, "ui-boards-test")
+	c := core.New(db, core.FixedClock{MS: 7_000_000}, "ui-boards-test", dir)
 	p, err := c.CreateProject(ctx, "BOARDS", false)
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +113,7 @@ func TestServerBoardsSayWhichIsDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	rec := httptest.NewRecorder()
 	s.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/p/BOARDS/boards", nil))
 	if rec.Code != http.StatusOK {

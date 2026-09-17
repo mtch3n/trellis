@@ -16,14 +16,15 @@ import (
 // The web lists templates from the server, the user's included, with the
 // rules a form needs.
 func TestTemplatesRouteListsRules(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 	root := t.TempDir()
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test").WithKBRoot(root)
-	s := NewServer(c, db, "127.0.0.1:0")
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test", root)
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	get := func() []core.TemplateInfo {
 		t.Helper()
 		rec := httptest.NewRecorder()
@@ -50,9 +51,9 @@ func TestTemplatesRouteListsRules(t *testing.T) {
 		t.Error("the note template is still listed")
 	}
 
-	dir := filepath.Join(root, "templates")
+	templatesDir := filepath.Join(root, "templates")
 	custom := "---\nrequired: [owner]\nchoices:\n  severity: [low, high]\n---\n# {{title}}\n"
-	if err := os.WriteFile(filepath.Join(dir, "incident.md"), []byte(custom), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(templatesDir, "incident.md"), []byte(custom), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	for _, tmpl := range get() {
@@ -70,14 +71,15 @@ func TestTemplatesRouteListsRules(t *testing.T) {
 // per-template routes: get, put, post, delete and reinstall.
 func templateCRUDServer(t *testing.T) (*Server, string) {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dbPath := filepath.Join(t.TempDir(), "trellis.db")
+	db, err := store.Open(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
 	root := t.TempDir()
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test").WithKBRoot(root)
-	return NewServer(c, db, "127.0.0.1:0"), root
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test", root)
+	return NewServer(c, db, "127.0.0.1:0", dbPath), root
 }
 
 func TestTemplateShowRoute(t *testing.T) {

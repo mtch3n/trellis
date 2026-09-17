@@ -14,8 +14,10 @@ import (
 type docRow struct {
 	ID     string `db:"id"`
 	Slug   string `db:"slug"`
-	Path   string `db:"path"`
 	Global bool   `db:"global"`
+	// Path is derived, not scanned: see planDocs, which fills it in for every
+	// row it selects.
+	Path string `db:"-"`
 }
 
 // docMove is what happens to one SRC document: it moves under slug, or, when
@@ -33,12 +35,18 @@ type docMove struct {
 func (m *merger) planDocs() error {
 	var src, dst []docRow
 	if err := m.tx.Select(&src,
-		`SELECT id, slug, path, global FROM knowledge WHERE project_id = ? ORDER BY slug`, m.src.ID); err != nil {
+		`SELECT id, slug, global FROM knowledge WHERE project_id = ? ORDER BY slug`, m.src.ID); err != nil {
 		return err
 	}
 	if err := m.tx.Select(&dst,
-		`SELECT id, slug, path, global FROM knowledge WHERE project_id = ?`, m.dst.ID); err != nil {
+		`SELECT id, slug, global FROM knowledge WHERE project_id = ?`, m.dst.ID); err != nil {
 		return err
+	}
+	for i := range src {
+		src[i].Path = m.c.docPath(m.src.Key, src[i].Global, src[i].Slug)
+	}
+	for i := range dst {
+		dst[i].Path = m.c.docPath(m.dst.Key, dst[i].Global, dst[i].Slug)
 	}
 	bySlug, taken := map[string]docRow{}, map[string]bool{}
 	for _, d := range dst {
@@ -48,7 +56,6 @@ func (m *merger) planDocs() error {
 		taken[s.Slug] = true
 	}
 	out := &m.plan.Knowledge
-	dir := filepath.Join(m.root, "projects", m.dst.Key, "knowledge")
 	// movable reports whether s can move under slug, recording a conflict
 	// when its file is gone or an untracked file already holds the
 	// destination. The plan must see what the apply would trip over.
@@ -60,7 +67,7 @@ func (m *merger) planDocs() error {
 		if s.Global {
 			return true
 		}
-		dest := filepath.Join(dir, slug+".md")
+		dest := m.c.docPath(m.dst.Key, false, slug)
 		if _, err := os.Lstat(dest); err == nil {
 			out.Conflicts = append(out.Conflicts, MergeConflict{Name: s.Slug, Reason: "a file with no entry is already at " + dest})
 			return false
@@ -106,7 +113,6 @@ func (m *merger) planDocs() error {
 // moveDocs carries out planDocs. A project entry's file moves into DST's
 // vault directory; a vault entry stays where it is and only changes origin.
 func (m *merger) moveDocs() error {
-	dir := filepath.Join(m.root, "projects", m.dst.Key, "knowledge")
 	for _, mv := range m.docMoves {
 		d := mv.doc
 		old := DocAddress(m.src.Key, d.Global, d.Slug)
@@ -119,10 +125,10 @@ func (m *merger) moveDocs() error {
 		}
 		path := d.Path
 		if !d.Global {
-			path = filepath.Join(dir, mv.slug+".md")
+			path = m.c.docPath(m.dst.Key, false, mv.slug)
 		}
-		if _, err := m.tx.Exec(`UPDATE knowledge SET project_id = ?, slug = ?, path = ? WHERE id = ?`,
-			m.dst.ID, mv.slug, path, d.ID); err != nil {
+		if _, err := m.tx.Exec(`UPDATE knowledge SET project_id = ?, slug = ? WHERE id = ?`,
+			m.dst.ID, mv.slug, d.ID); err != nil {
 			return err
 		}
 		if path != d.Path {
@@ -234,15 +240,19 @@ func (m *merger) references() error {
 // all.
 func (m *merger) docsCiting(key string) ([]string, error) {
 	var docs []struct {
-		ID   string `db:"id"`
-		Path string `db:"path"`
+		ID     string `db:"id"`
+		Slug   string `db:"slug"`
+		Global bool   `db:"global"`
+		Key    string `db:"pkey"`
 	}
-	if err := m.tx.Select(&docs, `SELECT id, path FROM knowledge ORDER BY id`); err != nil {
+	if err := m.tx.Select(&docs,
+		`SELECT k.id, k.slug, k.global, p.key AS pkey FROM knowledge k
+		 JOIN project p ON p.id = k.project_id ORDER BY k.id`); err != nil {
 		return nil, err
 	}
 	var ids []string
 	for _, d := range docs {
-		path := d.Path
+		path := m.c.docPath(d.Key, d.Global, d.Slug)
 		if p, ok := m.docPath[d.ID]; ok {
 			path = p
 		}
@@ -333,15 +343,15 @@ func (m *merger) rewriteDoc(id string) error {
 	var d struct {
 		Key    string `db:"key"`
 		Slug   string `db:"slug"`
-		Path   string `db:"path"`
 		Global bool   `db:"global"`
 	}
 	if err := m.tx.Get(&d,
-		`SELECT p.key, k.slug, k.path, k.global FROM knowledge k JOIN project p ON p.id = k.project_id
+		`SELECT p.key, k.slug, k.global FROM knowledge k JOIN project p ON p.id = k.project_id
 		 WHERE k.id = ?`, id); err != nil {
 		return err
 	}
-	current, original := d.Path, d.Path
+	docPath := m.c.docPath(d.Key, d.Global, d.Slug)
+	current, original := docPath, docPath
 	if p, ok := m.docPath[id]; ok {
 		current, original = p, m.origPath[id]
 	}

@@ -63,7 +63,7 @@ func TestDeleteProjectRemovesEverythingItOwns(t *testing.T) {
 	if _, err := os.Stat(doc.Path); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the entry's file should be gone, stat = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(c.kbRoot, "projects", p.Key)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(c.root, "projects", p.Key)); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the project's directory should be gone, stat = %v", err)
 	}
 
@@ -78,7 +78,6 @@ func TestDeleteProjectRemovesEverythingItOwns(t *testing.T) {
 
 func TestDeleteProjectWithNoDirectory(t *testing.T) {
 	c := testCore(t)
-	c.WithKBRoot(t.TempDir())
 	p := seededProject(t, c)
 	seededBoard(t, c, p)
 
@@ -97,7 +96,7 @@ func TestDeleteProjectRefusesWhileAnAgentHoldsACard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	holder := New(c.db, c.clock, "sess:holder")
+	holder := New(c.db, c.clock, "sess:holder", c.root)
 	if _, err := holder.RegisterAgent(ctx, "worker-1", "agent", "/tmp", "host", 1); err != nil {
 		t.Fatal(err)
 	}

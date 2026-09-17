@@ -299,8 +299,8 @@ indexed and not injected, before or after this change.
 - `syncDocRelations`: a document naming an existing artifact gets a resolved
   link; a name that does not exist gets a stub; removing a name from the file
   removes its row on the next refresh.
-- A name shared by two artifacts in one project resolves to nothing and lint
-  reports it as ambiguous.
+- An artifact name is unique within its project (`UNIQUE (project_id, name)`),
+  and its file is derived from the storage root, the project key and the name.
 - `CreateArtifact` refuses a name already present in the database for the
   project, even when no file of that name is on disk.
 - `CreateArtifact` backfills a stub left by a document written first.
@@ -320,9 +320,8 @@ indexed and not injected, before or after this change.
   - answers a Range request with 206 and the requested bytes, for media and for
     a text artifact — the frontend caps text previews at 256 KB with Range, and
     the 206 must still carry `text/plain; charset=utf-8`;
-  - returns 404 for an unknown name, an ambiguous name, a registered artifact
-    whose file is gone, and a row whose stored path lies outside the project's
-    artifact directory;
+  - returns 404 for an unknown name, a registered artifact whose file is gone,
+    and a name that resolves outside the project's artifact directory;
   - never serves an unregistered file placed in the directory by hand.
 - A filename containing a quote or a newline cannot break the
   `Content-Disposition` header.

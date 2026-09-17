@@ -26,7 +26,9 @@ type mergeFixture struct {
 func newMergeFixture(t *testing.T) *mergeFixture {
 	t.Helper()
 	root := t.TempDir()
-	f := &mergeFixture{t: t, c: testCore(t).WithKBRoot(root), root: root}
+	tc := testCore(t)
+	c := New(tc.db, tc.clock, tc.actor, root)
+	f := &mergeFixture{t: t, c: c, root: root}
 	f.api, f.apiBoard = f.project("API")
 	f.mono, f.monoBoard = f.project("MONO")
 	return f

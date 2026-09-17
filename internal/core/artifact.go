@@ -20,10 +20,13 @@ import (
 )
 
 type Artifact struct {
-	ID          string `db:"id" json:"id"`
-	ProjectID   string `db:"project_id" json:"-"`
-	Name        string `db:"name" json:"name"`
-	Path        string `db:"path" json:"path"`
+	ID        string `db:"id" json:"id"`
+	ProjectID string `db:"project_id" json:"-"`
+	Name      string `db:"name" json:"name"`
+	// Path is derived from the storage root, the owning project's key and
+	// Name — see artifactPath. It is never a column: a copied or moved
+	// storage root must not carry a stale absolute path along with it.
+	Path        string `db:"-" json:"path"`
 	Kind        string `db:"kind" json:"kind"`
 	MIME        string `db:"mime" json:"mime"`
 	Size        int64  `db:"size" json:"size"`
@@ -35,19 +38,18 @@ type Artifact struct {
 
 // artifactDirPath is where a project's artifacts live. It does not create the
 // directory, because serving must not write.
-func (c *Core) artifactDirPath(projectKey string) (string, error) {
-	root, err := c.root()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(root, "projects", projectKey, "artifacts"), nil
+func (c *Core) artifactDirPath(projectKey string) string {
+	return filepath.Join(c.root, "projects", projectKey, "artifacts")
+}
+
+// artifactPath is where one artifact's file lives, derived from the storage
+// root, the owning project's key, and its name (§ TRELLIS-36).
+func (c *Core) artifactPath(projectKey, name string) string {
+	return filepath.Join(c.artifactDirPath(projectKey), name)
 }
 
 func (c *Core) artifactDir(projectKey string) (string, error) {
-	dir, err := c.artifactDirPath(projectKey)
-	if err != nil {
-		return "", err
-	}
+	dir := c.artifactDirPath(projectKey)
 	return dir, os.MkdirAll(dir, 0o700)
 }
 
@@ -55,11 +57,11 @@ func (c *Core) artifactDir(projectKey string) (string, error) {
 // open. Every refusal is the same not-found error, so a caller learns nothing
 // about why.
 //
-// The stored path comes from the database, so it is checked against the
-// project's artifact directory after resolving symlinks on both sides. A row
-// edited or restored from elsewhere, or a symlink planted in the directory, must
-// not become a way to read an arbitrary file. The name itself is only ever a
-// lookup key and is never joined into a path.
+// The path is derived from the name, so it is still checked against the
+// project's artifact directory after resolving symlinks on both sides. A
+// symlink planted in the directory must not become a way to read an
+// arbitrary file. The name itself is only ever a lookup key and is never
+// joined into a path unchecked.
 func (c *Core) ArtifactFile(ctx context.Context, projectID, name string) (Artifact, string, error) {
 	notFound := ErrNotFound("artifact_not_found", "no artifact "+name, "trellis artifact ls")
 	var key string
@@ -81,12 +83,9 @@ func (c *Core) ArtifactFile(ctx context.Context, projectID, name string) (Artifa
 		return Artifact{}, "", notFound
 	}
 	a := matches[0]
+	a.Path = c.artifactPath(key, a.Name)
 
-	dirPath, err := c.artifactDirPath(key)
-	if err != nil {
-		return Artifact{}, "", err
-	}
-	dir, err := filepath.EvalSymlinks(dirPath)
+	dir, err := filepath.EvalSymlinks(c.artifactDirPath(key))
 	if err != nil {
 		return Artifact{}, "", notFound
 	}
@@ -177,24 +176,19 @@ func (c *Core) CreateArtifact(ctx context.Context, projectID, source string) (Ar
 		}
 		now := c.clock.NowMS()
 		out = Artifact{ID: NewCardID(), ProjectID: projectID, Name: filepath.Base(path), Path: path, Kind: kind, MIME: mimeType, Size: actual.Size(), ContentHash: contentHash, CreatedAt: now, UpdatedAt: now}
-		if _, err := tx.Exec(`INSERT INTO artifact (id, project_id, name, path, kind, mime, size, content_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, out.ID, out.ProjectID, out.Name, out.Path, out.Kind, out.MIME, out.Size, out.ContentHash, out.CreatedAt, out.UpdatedAt); err != nil {
+		if _, err := tx.Exec(`INSERT INTO artifact (id, project_id, name, kind, mime, size, content_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, out.ID, out.ProjectID, out.Name, out.Kind, out.MIME, out.Size, out.ContentHash, out.CreatedAt, out.UpdatedAt); err != nil {
 			return err
 		}
 		out.Ref = ArtifactAddress(key, out.Name)
 		// An entry may already name this artifact, written before it existed.
-		// The name is new to the project (artifactNameTaken made sure), so no
-		// stub it fills was ambiguous.
 		return backfillArtifactStubs(tx, projectID, out.Name, out.ID)
 	})
 	return out, err
 }
 
-// backfillArtifactStubs binds every doc stub named name to id. A stub is a
-// link row with to_id NULL because, at the time the entry's file was synced,
-// name resolved to zero or several artifacts. Both callers make it resolve to
-// exactly one: CreateArtifact when the name is new to the project, and
-// DeleteArtifact when removing one of two same-named artifacts leaves a
-// single survivor.
+// backfillArtifactStubs binds every doc stub named name to id, the artifact
+// CreateArtifact just made. A stub is a link row with to_id NULL because no
+// artifact had that name when the entry's file was synced.
 func backfillArtifactStubs(tx *sqlx.Tx, projectID, name, id string) error {
 	_, err := tx.Exec(
 		`UPDATE link SET to_id = ?
@@ -206,10 +200,11 @@ func backfillArtifactStubs(tx *sqlx.Tx, projectID, name, id string) error {
 }
 
 // artifactNameTaken reports whether a candidate path cannot be used: a file is
-// already there, or the project already has an artifact with that name. The
-// database check matters because names resolve entries' references, and a
-// storage root that has moved leaves rows whose files are elsewhere. An error
-// other than "no such file" stops the search rather than looping forever.
+// already there, or the project already has an artifact with that name. Both
+// checks matter because they can disagree: a stray file with no row can
+// already sit at the derived path, and a row can reserve a name whose file
+// was removed by hand outside Trellis. An error other than "no such file"
+// stops the search rather than looping forever.
 func artifactNameTaken(tx *sqlx.Tx, projectID, path string) (bool, error) {
 	_, err := os.Stat(path)
 	if err == nil {
@@ -262,6 +257,7 @@ func (c *Core) ResolveArtifact(ctx context.Context, projectID, arg string) (Arti
 			err := tx.Get(&out, `SELECT * FROM artifact WHERE project_id = ? AND id = ?`, projectID, arg)
 			if err == nil {
 				out.Ref = ArtifactAddress(key, out.Name)
+				out.Path = c.artifactPath(key, out.Name)
 				return nil
 			}
 			if !errors.Is(err, sql.ErrNoRows) {
@@ -282,28 +278,17 @@ func (c *Core) ResolveArtifact(ctx context.Context, projectID, arg string) (Arti
 			name = p.Name
 		}
 
-		var matches []Artifact
-		if err := tx.Select(&matches,
-			`SELECT * FROM artifact WHERE project_id = ? AND name = ? ORDER BY created_at`,
-			projectID, name); err != nil {
+		// A name is unique within its project.
+		err = tx.Get(&out, `SELECT * FROM artifact WHERE project_id = ? AND name = ?`, projectID, name)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound("artifact_not_found", "no artifact "+arg, "trellis artifact ls")
+		}
+		if err != nil {
 			return err
 		}
-		switch len(matches) {
-		case 0:
-			return ErrNotFound("artifact_not_found", "no artifact "+arg, "trellis artifact ls")
-		case 1:
-			out = matches[0]
-			out.Ref = ArtifactAddress(key, out.Name)
-			return nil
-		default:
-			ids := make([]string, len(matches))
-			for i, m := range matches {
-				ids[i] = m.ID
-			}
-			return ErrUsage("artifact_ambiguous",
-				"more than one artifact is named "+name+": "+strings.Join(ids, ", "),
-				"trellis artifact rm <id>   # remove the extra ones, then refer to it by name")
-		}
+		out.Ref = ArtifactAddress(key, out.Name)
+		out.Path = c.artifactPath(key, out.Name)
+		return nil
 	})
 	return out, err
 }
@@ -325,8 +310,8 @@ func (c *Core) LinkArtifactToDoc(ctx context.Context, projectID, slug, artifactR
 }
 
 // UnlinkArtifactFromDoc removes an artifact from an entry's list. The reference
-// is resolved when it can be; when it cannot — the artifact is gone, or its name
-// is shared — it is taken as written, so a stub can still be cleared. Removing a
+// is resolved when it can be; when the artifact is gone it is taken as written,
+// so a stub can still be cleared. Removing a
 // name that is not listed changes nothing.
 func (c *Core) UnlinkArtifactFromDoc(ctx context.Context, projectID, slug, artifactRef string) (Knowledge, error) {
 	name := artifactRef
@@ -334,7 +319,7 @@ func (c *Core) UnlinkArtifactFromDoc(ctx context.Context, projectID, slug, artif
 	switch e, ok := errors.AsType[*Error](err); {
 	case err == nil:
 		name = a.Name
-	case ok && (e.Code == "artifact_not_found" || e.Code == "artifact_ambiguous"):
+	case ok && e.Code == "artifact_not_found":
 		// Keep the reference as written -- except an address, whose file-list
 		// entry is only ever the name, never the whole "/KEY/artifacts/x.png".
 		// Left unparsed, this would never match anything editDocArtifacts
@@ -437,6 +422,7 @@ func (c *Core) ListArtifacts(ctx context.Context, projectID, cardID, docID strin
 		}
 		for i := range out {
 			out[i].Ref = ArtifactAddress(key, out[i].Name)
+			out[i].Path = c.artifactPath(key, out[i].Name)
 		}
 		return nil
 	})
@@ -446,9 +432,14 @@ func (c *Core) ListArtifacts(ctx context.Context, projectID, cardID, docID strin
 // DeleteArtifact removes metadata, graph links, and the stored file.
 func (c *Core) DeleteArtifact(ctx context.Context, projectID, artifactID string) error {
 	var deleted Artifact
+	var key string
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		if err := tx.Get(&deleted, `SELECT * FROM artifact WHERE id = ? AND project_id = ?`, artifactID, projectID); err != nil {
 			return ErrNotFound("artifact_not_found", "artifact not found", "trellis artifact ls")
+		}
+		var err error
+		if key, err = projectKeyOf(tx, projectID); err != nil {
+			return err
 		}
 		// An entry names its artifacts in its own file, so its link survives as
 		// a stub, the same as a wikilink to a deleted entry. Clearing to_id
@@ -465,24 +456,12 @@ func (c *Core) DeleteArtifact(ctx context.Context, projectID, artifactID string)
 		if _, err := tx.Exec(`DELETE FROM artifact WHERE id = ? AND project_id = ?`, artifactID, projectID); err != nil {
 			return err
 		}
-		// Deleting this artifact may leave exactly one other artifact with its
-		// name — the other half of a name collision. That survivor is no
-		// longer ambiguous, so any doc stub still naming it backfills the same
-		// way a brand-new artifact would fill one.
-		var survivors []string
-		if err := tx.Select(&survivors,
-			`SELECT id FROM artifact WHERE project_id = ? AND name = ?`, projectID, deleted.Name); err != nil {
-			return err
-		}
-		if len(survivors) == 1 {
-			return backfillArtifactStubs(tx, projectID, deleted.Name, survivors[0])
-		}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(deleted.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(c.artifactPath(key, deleted.Name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil

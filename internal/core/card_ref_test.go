@@ -81,7 +81,6 @@ func TestACardKeepsItsRefInAnotherProject(t *testing.T) {
 func TestListingsShowTheStoredRef(t *testing.T) {
 	c, p, pb := twoProjectsWithCards(t)
 	ctx := t.Context()
-	c.WithKBRoot(t.TempDir())
 	blocked, err := c.CreateCard(ctx, p.ID, pb.ID, NewCard{Title: "waits on moved"})
 	if err != nil {
 		t.Fatal(err)

@@ -49,25 +49,28 @@ func TestArtifactFileRefuses(t *testing.T) {
 		"an unknown name": func(t *testing.T, c *Core, projectID string, a Artifact) string {
 			return "nope.png"
 		},
-		"a shared name": func(t *testing.T, c *Core, projectID string, a Artifact) string {
-			insertDuplicateArtifact(t, c, projectID, a)
-			return a.Name
-		},
+		// A shared name is no longer constructible: UNIQUE(project_id, name)
+		// (TRELLIS-36) refuses the very insert that used to simulate it, so
+		// ArtifactFile's "more than one match" branch is unreachable now.
 		"a registered artifact whose file is gone": func(t *testing.T, c *Core, projectID string, a Artifact) string {
 			if err := os.Remove(a.Path); err != nil {
 				t.Fatal(err)
 			}
 			return a.Name
 		},
-		"a row whose path lies outside the directory": func(t *testing.T, c *Core, projectID string, a Artifact) string {
-			outside := filepath.Join(t.TempDir(), "secret.txt")
+		// Path is derived from name (TRELLIS-36), not stored, so the only way
+		// left to make it resolve outside the artifacts directory is a name
+		// that escapes it -- a corrupted or hand-edited row, since Slugify
+		// never produces one.
+		"a name that resolves outside the directory": func(t *testing.T, c *Core, projectID string, a Artifact) string {
+			outside := filepath.Join(filepath.Dir(filepath.Dir(a.Path)), "secret.txt")
 			if err := os.WriteFile(outside, []byte("not yours"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := c.db.Exec(`UPDATE artifact SET path = ? WHERE id = ?`, outside, a.ID); err != nil {
+			if _, err := c.db.Exec(`UPDATE artifact SET name = ? WHERE id = ?`, "../secret.txt", a.ID); err != nil {
 				t.Fatal(err)
 			}
-			return a.Name
+			return "../secret.txt"
 		},
 		"an unregistered file placed in the directory": func(t *testing.T, c *Core, projectID string, a Artifact) string {
 			sneaky := filepath.Join(filepath.Dir(a.Path), "sneaky.png")
@@ -85,7 +88,7 @@ func TestArtifactFileRefuses(t *testing.T) {
 			if err := os.Symlink(outside, link); err != nil {
 				t.Skipf("symlinks unavailable here: %v", err)
 			}
-			if _, err := c.db.Exec(`UPDATE artifact SET path = ?, name = 'link.png' WHERE id = ?`, link, a.ID); err != nil {
+			if _, err := c.db.Exec(`UPDATE artifact SET name = 'link.png' WHERE id = ?`, a.ID); err != nil {
 				t.Fatal(err)
 			}
 			return "link.png"

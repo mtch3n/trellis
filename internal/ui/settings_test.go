@@ -14,20 +14,19 @@ import (
 	"github.com/mtch3n/trellis/internal/store"
 )
 
-// settingsTestServer builds a server whose TRELLIS_HOME and database live in
-// the same directory, so config.yaml (read through home.Root) and the
-// database this test controls agree with each other.
+// settingsTestServer builds a server whose root and database live in the
+// same directory, so config.yaml and the database this test controls agree
+// with each other.
 func settingsTestServer(t *testing.T) *Server {
 	t.Helper()
 	root := t.TempDir()
-	t.Setenv("TRELLIS_HOME", root)
 	db, err := store.Open(filepath.Join(root, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test").WithKBRoot(root)
-	return NewServer(c, db, "127.0.0.1:0")
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test", root)
+	return NewServer(c, db, "127.0.0.1:0", filepath.Join(root, "trellis.db"))
 }
 
 func request(t *testing.T, s *Server, method, path, body string) *httptest.ResponseRecorder {

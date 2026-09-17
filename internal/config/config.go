@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/mtch3n/trellis/internal/home"
 	"gopkg.in/yaml.v3"
 )
 
@@ -135,32 +134,26 @@ func Defaults() Config {
 	}
 }
 
-// configPath returns config.yaml inside the storage root. It goes through
-// home.Root so TRELLIS_HOME moves the settings along with the database; a
-// pinned root whose config still came from ~/.trellis would serve the wrong
-// port for the daemon installed against it.
-func configPath() (string, error) {
-	root, err := home.Root()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(root, "config.yaml"), nil
+// configPath returns config.yaml inside root. The caller resolves root
+// (TRELLIS_HOME or the platform default) and passes it in, so a pinned root
+// whose config still came from a different home never serves the wrong port
+// for the daemon installed against it.
+func configPath(root string) string {
+	return filepath.Join(root, "config.yaml")
 }
 
-// Path returns config.yaml's path, for a caller -- the settings API -- that
-// reports where the file lives without loading it.
-func Path() (string, error) { return configPath() }
+// Path returns config.yaml's path inside root, for a caller -- the settings
+// API -- that reports where the file lives without loading it.
+func Path(root string) string { return configPath(root) }
 
 func ptr[T any](v T) *T { return &v }
 
-// Load reads and parses the global config file. Returns Defaults() if the file
-// does not exist. Returns an error if the file exists but is malformed.
-func Load() (Config, error) {
+// Load reads and parses the global config file inside root. Returns
+// Defaults() if the file does not exist. Returns an error if the file exists
+// but is malformed.
+func Load(root string) (Config, error) {
 	cfg := Defaults()
-	path, err := configPath()
-	if err != nil {
-		return cfg, err
-	}
+	path := configPath(root)
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -767,13 +760,13 @@ func (e *InvalidSettingsError) Error() string {
 	return "invalid settings: " + strings.Join(e.Problems, "; ")
 }
 
-// SetGlobalValues edits the global config.yaml as a YAML node tree: every
-// entry in set and unset is validated first, and nothing is written if any
-// of them is invalid. unset removes the key so the built-in default applies
-// again. Comments and unknown top-level sections such as "extensions:"
-// survive, the same way SetRepoValue preserves them in a repository file.
-// It returns the config Load would now read back.
-func SetGlobalValues(set map[string]any, unset []string) (Config, error) {
+// SetGlobalValues edits the global config.yaml inside root as a YAML node
+// tree: every entry in set and unset is validated first, and nothing is
+// written if any of them is invalid. unset removes the key so the built-in
+// default applies again. Comments and unknown top-level sections such as
+// "extensions:" survive, the same way SetRepoValue preserves them in a
+// repository file. It returns the config Load would now read back.
+func SetGlobalValues(root string, set map[string]any, unset []string) (Config, error) {
 	infos := describeIndex()
 
 	setKeys := make([]string, 0, len(set))
@@ -817,15 +810,12 @@ func SetGlobalValues(set map[string]any, unset []string) (Config, error) {
 		return Config{}, &InvalidSettingsError{Problems: problems}
 	}
 
-	path, err := configPath()
+	path := configPath(root)
+	yamlRoot, err := readOrNewConfigRoot(path)
 	if err != nil {
 		return Config{}, err
 	}
-	root, err := readOrNewConfigRoot(path)
-	if err != nil {
-		return Config{}, err
-	}
-	body := root.Content[0]
+	body := yamlRoot.Content[0]
 	for key, node := range nodes {
 		setNestedValue(body, strings.Split(key, "."), node)
 	}
@@ -833,7 +823,7 @@ func SetGlobalValues(set map[string]any, unset []string) (Config, error) {
 		deleteNestedValue(body, strings.Split(key, "."))
 	}
 
-	out, err := yaml.Marshal(root)
+	out, err := yaml.Marshal(yamlRoot)
 	if err != nil {
 		return Config{}, err
 	}
@@ -846,7 +836,7 @@ func SetGlobalValues(set map[string]any, unset []string) (Config, error) {
 	if err := writeConfigAtomic(path, out); err != nil {
 		return Config{}, err
 	}
-	return Load()
+	return Load(root)
 }
 
 // settingNode converts value -- a set entry's JSON-decoded value, or a Go
@@ -1077,12 +1067,9 @@ func writeConfigAtomic(path string, data []byte) error {
 // set. This is why it exists: EffectiveValue must report "config", not
 // "default", for a value that came from the file, and by the time Load
 // applies its defaults onto an unset field the two are indistinguishable.
-func LoadWithPresence() (Config, map[string]bool, error) {
+func LoadWithPresence(root string) (Config, map[string]bool, error) {
 	cfg := Defaults()
-	path, err := configPath()
-	if err != nil {
-		return cfg, map[string]bool{}, err
-	}
+	path := configPath(root)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

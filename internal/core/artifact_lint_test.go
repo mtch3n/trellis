@@ -54,26 +54,6 @@ func TestLintReportsAMissingArtifact(t *testing.T) {
 	}
 }
 
-func TestLintReportsAnAmbiguousArtifact(t *testing.T) {
-	c, p, _ := kbCore(t)
-	a := addArtifact(t, c, p.ID, "twin.png", "\x89PNG\r\n\x1a\nx")
-	insertDuplicateArtifact(t, c, p.ID, a)
-	doc := entryNaming(t, c, p.ID, "Twin", a.Name)
-
-	var found bool
-	for _, f := range findingsFor(t, c, p.ID, doc) {
-		if f.Kind == "missing_artifact" && f.Ref == a.Name {
-			found = true
-			if !strings.Contains(f.Fix, "artifact ls") {
-				t.Errorf("fix = %q, want it to point at `artifact ls` for a shared name", f.Fix)
-			}
-		}
-	}
-	if !found {
-		t.Error("no missing_artifact finding for a shared name")
-	}
-}
-
 func TestLintIsQuietAboutAResolvedArtifact(t *testing.T) {
 	c, p, _ := kbCore(t)
 	a := addArtifact(t, c, p.ID, "fine.png", "\x89PNG\r\n\x1a\nx")

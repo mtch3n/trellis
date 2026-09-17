@@ -222,22 +222,19 @@ func TestMergeMovesAVaultEntryItOwns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var vaultPath string
-	if err := f.c.db.Get(&vaultPath, `SELECT path FROM knowledge WHERE id = ?`, escalated.ID); err != nil {
-		t.Fatal(err)
-	}
+	vaultPath := escalated.Path
 
 	f.merge(MergeOptions{Apply: true})
 
 	var row struct {
 		ProjectID string `db:"project_id"`
 		Global    bool   `db:"global"`
-		Path      string `db:"path"`
+		Slug      string `db:"slug"`
 	}
-	if err := f.c.db.Get(&row, `SELECT project_id, global, path FROM knowledge WHERE id = ?`, escalated.ID); err != nil {
+	if err := f.c.db.Get(&row, `SELECT project_id, global, slug FROM knowledge WHERE id = ?`, escalated.ID); err != nil {
 		t.Fatal(err)
 	}
-	if row.ProjectID != f.mono.ID || !row.Global || row.Path != vaultPath {
+	if row.ProjectID != f.mono.ID || !row.Global || f.c.docPath(GlobalKey, true, row.Slug) != vaultPath {
 		t.Errorf("vault row = %+v", row)
 	}
 	got, err := f.c.ReadKnowledge(ctx, "", "/GLOBAL/knowledge/conventions")

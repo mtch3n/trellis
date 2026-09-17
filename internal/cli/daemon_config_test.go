@@ -48,7 +48,7 @@ func TestDaemonAppliesGlobalLeaseTTLAndCardRequirements(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer db.Close()
-		c := core.New(db, core.RealClock{}, "test")
+		c := core.New(db, core.RealClock{}, "test", root)
 		board, err := c.BoardBySlug(t.Context(), p.ID, "main")
 		if err != nil {
 			t.Fatalf("BoardBySlug(main): %v", err)

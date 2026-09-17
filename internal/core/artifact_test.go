@@ -17,7 +17,7 @@ func TestArtifactStoresBytesOnDiskAndLinksToCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	c := New(db, FixedClock{MS: 1_757_000_000_000}, "artifact-test").WithKBRoot(t.TempDir())
+	c := New(db, FixedClock{MS: 1_757_000_000_000}, "artifact-test", t.TempDir())
 	project, err := c.CreateProject(t.Context(), "ARTIFACT", false)
 	if err != nil {
 		t.Fatal(err)

@@ -111,9 +111,11 @@ func resolveDaemonStatus(ctx context.Context) (daemonStatus, error) {
 // daemonDefaults resolves the bind address and port for a command that was not
 // given explicit flags, falling back to config and then to built-in defaults.
 func daemonDefaults(bind string, port int) (string, int) {
-	cfg, err := config.Load()
-	if err != nil {
-		cfg = config.Defaults()
+	cfg := config.Defaults()
+	if root, err := home.Root(); err == nil {
+		if loaded, err := config.Load(root); err == nil {
+			cfg = loaded
+		}
 	}
 	if bind == "" {
 		bind = cfg.UI.Bind

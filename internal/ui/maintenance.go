@@ -5,13 +5,13 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/home"
 )
 
 type maintenanceStats struct {
@@ -34,17 +34,13 @@ func fileSize(path string) int64 {
 func (s *Server) handleMaintenance(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
-	dbPath, err := home.DBPath()
-	if err != nil {
-		s.error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
+	dbPath := filepath.Join(s.root, "trellis.db")
 	orphans, err := s.core.OrphanHistoryCount(ctx)
 	if err != nil {
 		s.coreError(w, err)
 		return
 	}
-	cfg, err := config.Load()
+	cfg, err := config.Load(s.root)
 	if err != nil {
 		cfg = config.Defaults()
 	}
@@ -143,12 +139,7 @@ type logsResponse struct {
 // journalctl instead, and one under launchd has no file at all; either way,
 // a missing file is reported, not an error.
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
-	root, err := home.Root()
-	if err != nil {
-		s.error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	path := home.DaemonLogPath(root)
+	path := filepath.Join(s.root, "daemon.log")
 
 	n := logsDefaultLines
 	if raw := r.URL.Query().Get("lines"); raw != "" {

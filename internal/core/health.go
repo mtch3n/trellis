@@ -95,7 +95,9 @@ func (c *Core) Health(ctx context.Context, projectID string) ([]HealthLine, erro
 func (c *Core) RevisionHealth(ctx context.Context, projectID string) (revisions, orphaned int, err error) {
 	var docs []Knowledge
 	if err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		return tx.Select(&docs, `SELECT * FROM knowledge WHERE project_id = ?`, projectID)
+		var err error
+		docs, err = c.knowledgeWithPaths(tx, projectID)
+		return err
 	}); err != nil {
 		return 0, 0, err
 	}

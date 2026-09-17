@@ -308,12 +308,8 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 				"the global vault already has an entry named "+doc.Slug,
 				"trellis knowledge show GLOBAL/"+doc.Slug)
 		}
-		dir, err := c.kbDir(GlobalKey, true)
-		if err != nil {
-			return err
-		}
 		src = doc.Path
-		dest, err = moveFileTo(doc.Path, filepath.Join(dir, filepath.FromSlash(doc.Slug)+".md"))
+		dest, err = moveFileTo(doc.Path, c.docPath(GlobalKey, true, doc.Slug))
 		if err != nil {
 			return err
 		}
@@ -328,9 +324,9 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 		now := c.clock.NowMS()
 		reviewBy := now + int64(GlobalReviewDays)*24*60*60*1000
 		if _, err := tx.Exec(
-			`UPDATE knowledge SET global = 1, path = ?, board_id = NULL, review_by = ?,
+			`UPDATE knowledge SET global = 1, board_id = NULL, review_by = ?,
 			                      reviewed_at = ?, updated_at = ? WHERE id = ?`,
-			dest, reviewBy, now, now, doc.ID); err != nil {
+			reviewBy, now, now, doc.ID); err != nil {
 			return err
 		}
 		doc.Global, doc.Path, doc.ReviewBy, doc.ReviewedAt = true, dest, &reviewBy, &now
@@ -353,9 +349,9 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 		// failed: durable state, not a guess, decides which side of the
 		// move the file belongs on, and when it landed the escalate is a
 		// success no matter what Commit reported.
-		var landed string
-		qerr := c.db.Get(&landed, `SELECT path FROM knowledge WHERE id = ?`, doc.ID)
-		if writeLanded(landed == dest, qerr) {
+		var landed bool
+		qerr := c.db.Get(&landed, `SELECT global FROM knowledge WHERE id = ?`, doc.ID)
+		if writeLanded(landed, qerr) {
 			err = nil
 		} else {
 			if merr := moveBack(dest, src); merr != nil {
@@ -416,16 +412,13 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 		if gerr != nil {
 			return gerr
 		}
+		doc.Path = c.docPath(GlobalKey, true, doc.Slug)
 		var key string
 		if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, doc.ProjectID); err != nil {
 			return err
 		}
-		dir, err := c.kbDir(key, false)
-		if err != nil {
-			return err
-		}
 		src = doc.Path
-		dest, err = moveFileTo(doc.Path, filepath.Join(dir, filepath.FromSlash(doc.Slug)+".md"))
+		dest, err = moveFileTo(doc.Path, c.docPath(key, false, doc.Slug))
 		if err != nil {
 			return err
 		}
@@ -438,8 +431,8 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 			return err
 		}
 		if _, err := tx.Exec(
-			`UPDATE knowledge SET global = 0, path = ?, review_by = NULL, updated_at = ? WHERE id = ?`,
-			dest, c.clock.NowMS(), doc.ID); err != nil {
+			`UPDATE knowledge SET global = 0, review_by = NULL, updated_at = ? WHERE id = ?`,
+			c.clock.NowMS(), doc.ID); err != nil {
 			return err
 		}
 		doc.Global, doc.Path, doc.ReviewBy = false, dest, nil
@@ -461,9 +454,9 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 		// failed: durable state, not a guess, decides which side of the
 		// move the file belongs on, and when it landed the demote is a
 		// success no matter what Commit reported.
-		var landed string
-		qerr := c.db.Get(&landed, `SELECT path FROM knowledge WHERE id = ?`, doc.ID)
-		if writeLanded(landed == dest, qerr) {
+		var landed bool
+		qerr := c.db.Get(&landed, `SELECT global FROM knowledge WHERE id = ?`, doc.ID)
+		if writeLanded(!landed, qerr) {
 			err = nil
 		} else {
 			if merr := moveBack(dest, src); merr != nil {
