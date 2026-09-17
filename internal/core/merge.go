@@ -272,7 +272,7 @@ func (c *Core) afterMerge(ctx context.Context, plan *MergePlan) {
 		}
 	}
 	for _, r := range plan.Pins.Rewrite {
-		if err := writeAtomic(r.Path, []byte(r.To+"\n"), true); err != nil {
+		if err := rewritePin(r); err != nil {
 			warn("rewriting %s: %v; it still names %s", r.Path, err, r.From)
 		}
 	}
@@ -281,6 +281,23 @@ func (c *Core) afterMerge(ctx context.Context, plan *MergePlan) {
 			warn("refreshing %s's derived search state: %v", plan.Dst, err)
 		}
 	}
+}
+
+// rewritePin points a pin at the survivor, unless it no longer names what
+// the plan found: a pin someone changed since is theirs.
+func rewritePin(r PinRewrite) error {
+	raw, err := os.ReadFile(r.Path)
+	if err != nil {
+		return err
+	}
+	current, err := vpath.ParsePin(string(raw))
+	if err != nil {
+		return err
+	}
+	if current.String() != r.From {
+		return fmt.Errorf("it now names %s", current)
+	}
+	return replaceIfUnchanged(r.Path, []byte(r.To+"\n"), ContentHash(string(raw)))
 }
 
 func dirExists(path string) bool {

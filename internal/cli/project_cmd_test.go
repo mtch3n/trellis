@@ -109,6 +109,11 @@ func TestProjectMergeEndToEnd(t *testing.T) {
 		t.Errorf("this directory now opens %+v", got)
 	}
 	runCmd(t, "card", "show", "API-1")
+	// An address names the project, which is gone; the ref above names a card.
+	_, err = execCmd("card", "show", "/API/cards/API-1")
+	if ce := coreErr(t, err); ce.Code != "project_merged" {
+		t.Errorf("an address under /API: %+v", ce)
+	}
 	_, err = execCmd("--project", "API", "card", "ls")
 	if ce := coreErr(t, err); ce.Code != "project_merged" {
 		t.Errorf("--project API: %+v", ce)

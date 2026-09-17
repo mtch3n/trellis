@@ -373,6 +373,24 @@ func TestMergeFinishesAfterTheCommit(t *testing.T) {
 	}
 }
 
+// A pin changed since the plan is left alone and reported.
+func TestMergeLeavesAPinThatChanged(t *testing.T) {
+	f := newMergeFixture(t)
+	repo := t.TempDir()
+	pinPath := filepath.Join(repo, "api", ".trellis")
+	writeFile(t, pinPath, "/OTHER\n")
+
+	plan := f.merge(MergeOptions{Apply: true, ScanRoot: repo,
+		Pins: []resolve.Pin{{Path: pinPath, Target: vpath.ProjectPath("API")}}})
+
+	if got := readFile(t, pinPath); got != "/OTHER\n" {
+		t.Errorf("pin = %q, want it untouched", got)
+	}
+	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "OTHER") {
+		t.Errorf("warnings = %v", plan.Warnings)
+	}
+}
+
 func TestMergeReportsAFailedRefresh(t *testing.T) {
 	f := newMergeFixture(t)
 	f.c.SetKnowledgeChanged(func(context.Context, string) error { return errors.New("embedder down") })
