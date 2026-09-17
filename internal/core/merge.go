@@ -283,6 +283,7 @@ type merger struct {
 	renamed        map[string]string // SRC slug -> its slug in DST, for renamed entries
 	origPath       map[string]string // SRC document id -> its file path before the merge
 	docMoves       []docMove
+	artMoves       []artifactMove
 }
 
 func (m *merger) run(srcKey, dstKey string) error {
@@ -297,15 +298,18 @@ func (m *merger) run(srcKey, dstKey string) error {
 		return nil
 	}
 	// Every conflict is known before anything changes.
-	if err := m.planDocs(); err != nil {
-		return err
+	for _, detect := range []func() error{m.planDocs, m.planArtifacts} {
+		if err := detect(); err != nil {
+			return err
+		}
 	}
-	m.plan.Ready = len(m.plan.Knowledge.Conflicts) == 0
+	m.plan.Ready = len(m.plan.Knowledge.Conflicts) == 0 && len(m.plan.Artifacts.Conflicts) == 0
 	if m.apply && !m.plan.Ready {
 		return mergeNotReady(*m.plan)
 	}
 	for _, step := range []func() error{
-		m.boards, m.labels, m.tags, m.cards, m.moveDocs, m.references, m.config, m.pins, m.retire,
+		m.boards, m.labels, m.tags, m.cards, m.moveDocs, m.moveArtifacts,
+		m.references, m.config, m.pins, m.retire,
 	} {
 		if err := step(); err != nil {
 			return err
@@ -336,19 +340,11 @@ func (m *merger) load(srcKey, dstKey string) (refused bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	// Until artifacts can move, a project that owns any is refused rather
-	// than half-merged.
-	owned, err := m.count(`SELECT COUNT(*) FROM artifact WHERE project_id = ?`, m.src.ID)
-	if err != nil {
-		return false, err
-	}
 	switch {
 	case !vpath.ValidKey(m.dst.Key):
 		m.plan.Refused = fmt.Sprintf("%s cannot be named by a pin; merge into a project whose key can", m.dst.Key)
 	case held > 0:
 		m.plan.Refused = fmt.Sprintf("%s has %d %s held by an agent right now", m.src.Key, held, plural(held, "card", "cards"))
-	case owned > 0:
-		m.plan.Refused = "merging artifacts is not implemented yet"
 	}
 	return m.plan.Refused != "", nil
 }
