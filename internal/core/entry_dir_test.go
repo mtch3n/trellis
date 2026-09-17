@@ -244,8 +244,8 @@ func TestDeleteEntryDoesNotBareLeafIntoTheGlobalVault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
-	if _, err := c.EscalateKnowledge(t.Context(), other.ID, entry.Slug, "cross-project"); err != nil {
-		t.Fatalf("EscalateKnowledge: %v", err)
+	if _, err := c.PromoteEntry(t.Context(), other.ID, entry.Slug, "cross-project"); err != nil {
+		t.Fatalf("PromoteEntry: %v", err)
 	}
 	// LoadEntry from an unrelated project finds it in the vault...
 	if _, err := c.LoadEntry(t.Context(), p.ID, "shared"); err != nil {
@@ -253,7 +253,7 @@ func TestDeleteEntryDoesNotBareLeafIntoTheGlobalVault(t *testing.T) {
 	}
 	// ...but DeleteEntry from that same unrelated project must not.
 	if err := c.DeleteEntry(t.Context(), p.ID, "shared"); pathErrCode(err) != "knowledge_not_found" {
-		t.Fatalf("err = %v, want knowledge_not_found: rm must not reach into another project's escalated entry", err)
+		t.Fatalf("err = %v, want knowledge_not_found: rm must not reach into another project's promoted entry", err)
 	}
 }
 
@@ -327,8 +327,8 @@ func TestMoveEntryRefusesAGlobalEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
-	if _, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason"); err != nil {
-		t.Fatalf("EscalateKnowledge: %v", err)
+	if _, err := c.PromoteEntry(t.Context(), p.ID, entry.Slug, "reason"); err != nil {
+		t.Fatalf("PromoteEntry: %v", err)
 	}
 	if _, err := c.MoveEntry(t.Context(), p.ID, entry.Slug, "renamed", false); pathErrCode(err) != "global_entry" {
 		t.Fatalf("err = %v, want global_entry", err)
@@ -371,7 +371,7 @@ func TestMoveEntryRefusesAnotherProjectsAddress(t *testing.T) {
 }
 
 // review-knowledge #7: a move changes an entry's address exactly the way
-// escalate and demote do, and resolveEntryStubs must run for it too, so a
+// promote and demote do, and resolveEntryStubs must run for it too, so a
 // wikilink written to the new path before the move backfills instead of
 // staying a stub until the referrer's own file next changes.
 func TestMoveEntryBackfillsStubsThatNameTheNewPath(t *testing.T) {
@@ -472,15 +472,15 @@ func TestMoveEntryByBareLeaf(t *testing.T) {
 	}
 }
 
-func TestEscalateKnowledgePreservesTheSubpath(t *testing.T) {
+func TestPromoteEntryPreservesTheSubpath(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment"})
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
-	global, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason")
+	global, err := c.PromoteEntry(t.Context(), p.ID, entry.Slug, "reason")
 	if err != nil {
-		t.Fatalf("EscalateKnowledge: %v", err)
+		t.Fatalf("PromoteEntry: %v", err)
 	}
 	if global.Slug != "deployment/rollback" {
 		t.Fatalf("slug = %q, want the subpath preserved", global.Slug)
@@ -496,8 +496,8 @@ func TestDemoteEntryPreservesTheSubpath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
-	if _, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason"); err != nil {
-		t.Fatalf("EscalateKnowledge: %v", err)
+	if _, err := c.PromoteEntry(t.Context(), p.ID, entry.Slug, "reason"); err != nil {
+		t.Fatalf("PromoteEntry: %v", err)
 	}
 	back, err := c.DemoteEntry(t.Context(), entry.Slug, "reason")
 	if err != nil {
@@ -511,7 +511,7 @@ func TestDemoteEntryPreservesTheSubpath(t *testing.T) {
 	}
 }
 
-func TestEscalateKnowledgeMovesTheRevisionDirectory(t *testing.T) {
+func TestPromoteEntryMovesTheRevisionDirectory(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback"})
 	if err != nil {
@@ -524,22 +524,22 @@ func TestEscalateKnowledgeMovesTheRevisionDirectory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(oldRevDir, "1.md"), []byte("v1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	global, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason")
+	global, err := c.PromoteEntry(t.Context(), p.ID, entry.Slug, "reason")
 	if err != nil {
-		t.Fatalf("EscalateKnowledge: %v", err)
+		t.Fatalf("PromoteEntry: %v", err)
 	}
 	if _, err := os.Stat(revisionDir(global.Path)); err != nil {
 		t.Fatalf("revision directory must have moved: %v", err)
 	}
 }
 
-// review-knowledge #3: escalating a nested entry must move its revision
+// review-knowledge #3: promoting a nested entry must move its revision
 // directory to sit beside the entry at its new subpath, not to the vault
 // root -- moving it to <global>/.rollback.md instead of
 // <global>/deployment/.rollback.md detaches its history (revisionDir(dest)
 // then names a directory that does not exist) and collides with a
-// root-level "rollback" escalated from elsewhere afterward.
-func TestEscalateDemoteMoveTheRevisionDirectoryForANestedSlug(t *testing.T) {
+// root-level "rollback" promoted from elsewhere afterward.
+func TestPromoteDemoteMoveTheRevisionDirectoryForANestedSlug(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback", Dir: "deployment", Body: "v1\n"})
 	if err != nil {
@@ -549,9 +549,9 @@ func TestEscalateDemoteMoveTheRevisionDirectoryForANestedSlug(t *testing.T) {
 		t.Fatalf("EditEntry: %v", err)
 	}
 
-	global, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason")
+	global, err := c.PromoteEntry(t.Context(), p.ID, entry.Slug, "reason")
 	if err != nil {
-		t.Fatalf("EscalateKnowledge: %v", err)
+		t.Fatalf("PromoteEntry: %v", err)
 	}
 	if filepath.Base(filepath.Dir(global.Path)) != "deployment" {
 		t.Fatalf("path = %q, want the subpath preserved", global.Path)
@@ -564,7 +564,7 @@ func TestEscalateDemoteMoveTheRevisionDirectoryForANestedSlug(t *testing.T) {
 	}
 	for v := int64(1); v <= 2; v++ {
 		if _, err := os.Stat(revisionFilePath(global.Path, v)); err != nil {
-			t.Errorf("version %d missing after escalate at %s: %v", v, revisionDir(global.Path), err)
+			t.Errorf("version %d missing after promote at %s: %v", v, revisionDir(global.Path), err)
 		}
 	}
 
@@ -593,8 +593,8 @@ func TestDemoteEntryResolvesADirectoryShapedSlug(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
-	if _, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason"); err != nil {
-		t.Fatalf("EscalateKnowledge: %v", err)
+	if _, err := c.PromoteEntry(t.Context(), p.ID, entry.Slug, "reason"); err != nil {
+		t.Fatalf("PromoteEntry: %v", err)
 	}
 	if _, err := c.DemoteEntry(t.Context(), "deployment/rollback", "reason"); err != nil {
 		t.Fatalf("DemoteEntry by full path: %v", err)
@@ -607,8 +607,8 @@ func TestVerifyEntryResolvesADirectoryShapedSlug(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
-	if _, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason"); err != nil {
-		t.Fatalf("EscalateKnowledge: %v", err)
+	if _, err := c.PromoteEntry(t.Context(), p.ID, entry.Slug, "reason"); err != nil {
+		t.Fatalf("PromoteEntry: %v", err)
 	}
 	if err := c.VerifyEntry(t.Context(), "deployment/rollback"); err != nil {
 		t.Fatalf("VerifyEntry by full path: %v", err)

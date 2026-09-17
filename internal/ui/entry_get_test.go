@@ -368,7 +368,7 @@ func TestGlobalEntryListExcludesBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	global, err := c.EscalateKnowledge(ctx, p.ID, entry.Slug, "used everywhere")
+	global, err := c.PromoteEntry(ctx, p.ID, entry.Slug, "used everywhere")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +457,7 @@ func TestGlobalEntryListNeverCarriesArtifacts(t *testing.T) {
 	if _, err := c.LinkArtifactToEntry(ctx, p.ID, entry.Slug, art.Name); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.EscalateKnowledge(ctx, p.ID, entry.Slug, "used everywhere"); err != nil {
+	if _, err := c.PromoteEntry(ctx, p.ID, entry.Slug, "used everywhere"); err != nil {
 		t.Fatal(err)
 	}
 

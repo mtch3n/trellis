@@ -99,7 +99,7 @@ func (c *Core) syncEntryRelations(tx *sqlx.Tx, entry *Entry, fm Frontmatter, bod
 // resolves wherever it points, another project included: the link names its
 // target exactly, and reading that project by name is already allowed. A
 // project or entry that does not exist yet leaves a stub, which
-// resolveEntryStubs fills in when the entry is created or escalated.
+// resolveEntryStubs fills in when the entry is created or promoted.
 func (c *Core) resolveEntryRef(tx *sqlx.Tx, projectID string, ref Reference) (any, error) {
 	var q string
 	var args []any
@@ -316,7 +316,7 @@ type EntryLink struct {
 }
 
 // EntryLinks lists the links out of a project's entries,
-// including the ones it escalated to the vault, ordered by source and then raw
+// including the ones it promoted to the vault, ordered by source and then raw
 // target. A private entry's links are left out: where it links says what it
 // is about. The flag is read from the files, not the mirror.
 func (c *Core) EntryLinks(ctx context.Context, projectID string) ([]EntryLink, error) {

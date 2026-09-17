@@ -260,8 +260,8 @@ func TestAFailedEditPutsTheFileBack(t *testing.T) {
 	}
 }
 
-// TestEscalateRefusesASlugTheGlobalVaultHas is R7.
-func TestEscalateRefusesASlugTheGlobalVaultHas(t *testing.T) {
+// TestPromoteRefusesASlugTheGlobalVaultHas is R7.
+func TestPromoteRefusesASlugTheGlobalVaultHas(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	other, err := c.CreateProject(t.Context(), "OTHER", false)
 	if err != nil {
@@ -277,27 +277,27 @@ func TestEscalateRefusesASlugTheGlobalVaultHas(t *testing.T) {
 		t.Fatalf("CreateEntry (second): %v", err)
 	}
 
-	escalated, err := c.EscalateKnowledge(t.Context(), p.ID, first.Slug, "shared across projects")
+	promoted, err := c.PromoteEntry(t.Context(), p.ID, first.Slug, "shared across projects")
 	if err != nil {
-		t.Fatalf("EscalateKnowledge (first): %v", err)
+		t.Fatalf("PromoteEntry (first): %v", err)
 	}
-	globalRaw, err := os.ReadFile(escalated.Path)
+	globalRaw, err := os.ReadFile(promoted.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = c.EscalateKnowledge(t.Context(), other.ID, second.Slug, "also shared")
+	_, err = c.PromoteEntry(t.Context(), other.ID, second.Slug, "also shared")
 	var e *Error
 	if !errors.As(err, &e) || e.Code != "global_slug_taken" || e.Exit != 4 {
 		t.Fatalf("err = %v, want global_slug_taken with exit 4", err)
 	}
 
-	after, err := os.ReadFile(escalated.Path)
+	after, err := os.ReadFile(promoted.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(globalRaw, after) {
-		t.Errorf("the global file changed after the refused escalation")
+		t.Errorf("the global file changed after the refused promotion")
 	}
 
 	reloaded, err := c.LoadEntry(t.Context(), other.ID, second.Slug)
@@ -312,8 +312,8 @@ func TestEscalateRefusesASlugTheGlobalVaultHas(t *testing.T) {
 	}
 }
 
-// TestAFailedEscalateMovesTheFileBack is R8 for EscalateKnowledge.
-func TestAFailedEscalateMovesTheFileBack(t *testing.T) {
+// TestAFailedPromoteMovesTheFileBack is R8 for PromoteEntry.
+func TestAFailedPromoteMovesTheFileBack(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy"})
 	if err != nil {
@@ -325,8 +325,8 @@ func TestAFailedEscalateMovesTheFileBack(t *testing.T) {
 		t.Fatalf("create trigger: %v", err)
 	}
 
-	if _, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason"); err == nil {
-		t.Fatal("EscalateKnowledge succeeded despite the trigger")
+	if _, err := c.PromoteEntry(t.Context(), p.ID, entry.Slug, "reason"); err == nil {
+		t.Fatal("PromoteEntry succeeded despite the trigger")
 	}
 
 	if _, err := os.Stat(original); err != nil {
@@ -346,7 +346,7 @@ func TestAFailedEscalateMovesTheFileBack(t *testing.T) {
 		t.Fatalf("LoadEntry after dropping the trigger: %v", err)
 	}
 	if reloaded.Global {
-		t.Error("entry became global despite the failed escalate")
+		t.Error("entry became global despite the failed promote")
 	}
 }
 
@@ -357,11 +357,11 @@ func TestAFailedDemoteMovesTheFileBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
-	escalated, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason")
+	promoted, err := c.PromoteEntry(t.Context(), p.ID, entry.Slug, "reason")
 	if err != nil {
-		t.Fatalf("EscalateKnowledge: %v", err)
+		t.Fatalf("PromoteEntry: %v", err)
 	}
-	original := escalated.Path
+	original := promoted.Path
 
 	if _, err := c.db.Exec(`CREATE TRIGGER boom BEFORE INSERT ON event BEGIN SELECT RAISE(ABORT, 'boom'); END`); err != nil {
 		t.Fatalf("create trigger: %v", err)
@@ -388,7 +388,7 @@ func TestAFailedDemoteMovesTheFileBack(t *testing.T) {
 	}
 }
 
-// TestMoveFileNeverReplaces is R6 and defect #1: escalating two projects'
+// TestMoveFileNeverReplaces is R6 and defect #1: promoting two projects'
 // same-named entry must not let the second replace the first's file.
 func TestMoveFileNeverReplaces(t *testing.T) {
 	srcDir := t.TempDir()
@@ -598,10 +598,10 @@ func TestAPanicAfterTheDeleteWritePutsTheFileBack(t *testing.T) {
 	}
 }
 
-// TestAPanicAfterTheEscalateMoveMovesTheFileBack is Fix 2 for
-// EscalateKnowledge: a panic right after moveFile succeeds must still move
+// TestAPanicAfterThePromoteMoveMovesTheFileBack is Fix 2 for
+// PromoteEntry: a panic right after moveFile succeeds must still move
 // the file back.
-func TestAPanicAfterTheEscalateMoveMovesTheFileBack(t *testing.T) {
+func TestAPanicAfterThePromoteMoveMovesTheFileBack(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy"})
 	if err != nil {
@@ -610,10 +610,10 @@ func TestAPanicAfterTheEscalateMoveMovesTheFileBack(t *testing.T) {
 	original := entry.Path
 
 	// loadEntry's refresh spends the one call before the move; the panic
-	// lands on the next, which computes reviewBy right after the move.
+	// lands on the next, which computes verifyBy right after the move.
 	pc := New(c.db, &panicClock{calls: 1}, c.actor, c.root)
 	mustPanic(t, func() {
-		pc.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason")
+		pc.PromoteEntry(t.Context(), p.ID, entry.Slug, "reason")
 	})
 
 	if _, err := os.Stat(original); err != nil {
@@ -640,11 +640,11 @@ func TestAPanicAfterTheDemoteMoveMovesTheFileBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
-	escalated, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason")
+	promoted, err := c.PromoteEntry(t.Context(), p.ID, entry.Slug, "reason")
 	if err != nil {
-		t.Fatalf("EscalateKnowledge: %v", err)
+		t.Fatalf("PromoteEntry: %v", err)
 	}
-	original := escalated.Path
+	original := promoted.Path
 
 	// DemoteEntry looks its row up directly, without loadEntry, so the
 	// very first clock call is the one right after the move.

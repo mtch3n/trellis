@@ -19,7 +19,7 @@ func TestNominateEntryCountsCitations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(noms) != 1 || noms[0].Cited != 1 || noms[0].Noms != 1 {
+	if len(noms) != 1 || noms[0].Cited != 1 || noms[0].Nominations != 1 {
 		t.Fatalf("Nominations = %+v, want one with the citation counted", noms)
 	}
 }

@@ -41,11 +41,11 @@ func TestACopiedRootActsOnlyOnItsOwnFiles(t *testing.T) {
 	}
 	sharedSeed, err := a.CreateEntry(ctx, p.ID, NewEntry{Title: "Shared Entry", Body: "shared body\n"})
 	if err != nil {
-		t.Fatalf("CreateEntry (to be escalated): %v", err)
+		t.Fatalf("CreateEntry (to be promoted): %v", err)
 	}
-	globalEntry, err := a.EscalateKnowledge(ctx, p.ID, sharedSeed.Slug, "shared across projects")
+	globalEntry, err := a.PromoteEntry(ctx, p.ID, sharedSeed.Slug, "shared across projects")
 	if err != nil {
-		t.Fatalf("EscalateKnowledge: %v", err)
+		t.Fatalf("PromoteEntry: %v", err)
 	}
 	source := filepath.Join(t.TempDir(), "evidence.png")
 	if err := os.WriteFile(source, []byte("\x89PNG\r\n\x1a\nevidence"), 0o600); err != nil {

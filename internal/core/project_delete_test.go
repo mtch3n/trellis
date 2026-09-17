@@ -121,7 +121,7 @@ func TestDeleteProjectRefusesWhileItOwnsVaultEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	escalated, err := c.EscalateKnowledge(ctx, p.ID, entry.Slug, "every repo re-derives this")
+	promoted, err := c.PromoteEntry(ctx, p.ID, entry.Slug, "every repo re-derives this")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestDeleteProjectRefusesWhileItOwnsVaultEntries(t *testing.T) {
 	if !errors.As(err, &te) || te.Code != "project_has_vault_entries" {
 		t.Fatalf("DeleteProject = %v, want project_has_vault_entries", err)
 	}
-	if _, err := os.Stat(escalated.Path); err != nil {
+	if _, err := os.Stat(promoted.Path); err != nil {
 		t.Errorf("the vault entry's file must be untouched: %v", err)
 	}
 	if n := count(t, c, `SELECT COUNT(*) FROM entry WHERE id = ?`, entry.ID); n != 1 {

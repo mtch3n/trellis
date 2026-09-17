@@ -103,7 +103,7 @@ func TestKnowledgeHistoryOnAVaultEntryNeedsNoPin(t *testing.T) {
 	pinEnv(t, "loose")
 	seedProject(t, "ALPHA")
 	refOf(t, "knowledge", "new", "--title", "Conventions", "--project", "ALPHA")
-	escalateByHand(t, "ALPHA", "conventions")
+	promoteByHand(t, "ALPHA", "conventions")
 
 	if _, err := runCmdErr(t, "knowledge", "history", "/GLOBAL/vault/conventions"); err != nil {
 		t.Errorf("knowledge history on a vault entry with no pin: %v", err)

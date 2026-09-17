@@ -72,7 +72,7 @@ const ownedEntities = `SELECT id FROM card WHERE project_id = ?
 //
 // Two things refuse rather than proceed. A card an agent holds right now,
 // because deleting work out from under a running session is not a cleanup.
-// And an entry this project escalated to the global vault: the vault row still
+// And an entry this project promoted to the global vault: the vault row still
 // names its origin project, so it would be deleted with it.
 //
 // The directory is staged before the transaction and restored if it fails, so

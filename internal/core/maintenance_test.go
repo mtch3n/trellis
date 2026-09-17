@@ -176,21 +176,21 @@ func TestPruneOrphanHistoryLeavesGitAndObsidianAlone(t *testing.T) {
 }
 
 // review-knowledge #11: a project filter must not make another project's
-// escalated entry, sitting in the global vault everyone shares, look
+// promoted entry, sitting in the global vault everyone shares, look
 // orphaned; and a nested directory must not be walked -- and its orphan
 // reported -- twice.
 func TestHealthAndPruneDoNotOverCount(t *testing.T) {
 	c, p1, _ := vaultCore(t)
 	p2 := seededProject2(t, c)
 
-	// p2 escalates an entry into the shared global vault.
+	// p2 promotes an entry into the shared global vault.
 	entry, err := c.CreateEntry(t.Context(), p2.ID, NewEntry{Title: "Shared", Body: "v1\n"})
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
-	escalated, err := c.EscalateKnowledge(t.Context(), p2.ID, entry.Slug, "shared runbook")
+	promoted, err := c.PromoteEntry(t.Context(), p2.ID, entry.Slug, "shared runbook")
 	if err != nil {
-		t.Fatalf("EscalateKnowledge: %v", err)
+		t.Fatalf("PromoteEntry: %v", err)
 	}
 
 	// p1 has a nested entry, so its directory is both walked directly (it is
@@ -223,8 +223,8 @@ func TestHealthAndPruneDoNotOverCount(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("removed %d, want 1: the nested vault must not be walked twice", n)
 	}
-	if _, err := os.Stat(revisionDir(escalated.Path)); err != nil {
-		t.Errorf("p2's escalated entry's own revisions were removed too: %v", err)
+	if _, err := os.Stat(revisionDir(promoted.Path)); err != nil {
+		t.Errorf("p2's promoted entry's own revisions were removed too: %v", err)
 	}
 }
 

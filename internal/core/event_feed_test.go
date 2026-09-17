@@ -417,14 +417,14 @@ func TestEventFeedCommentRefIsItsCardsRef(t *testing.T) {
 	}
 }
 
-func TestEventFeedEntryRefUsesGlobalForAnEscalatedEntry(t *testing.T) {
+func TestEventFeedEntryRefUsesGlobalForAPromotedEntry(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Widely useful"})
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
-	if _, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "applies everywhere"); err != nil {
-		t.Fatalf("EscalateKnowledge: %v", err)
+	if _, err := c.PromoteEntry(t.Context(), p.ID, entry.Slug, "applies everywhere"); err != nil {
+		t.Fatalf("PromoteEntry: %v", err)
 	}
 
 	// Kinds: []string{"entry"} excludes vaultCore's own "board created"

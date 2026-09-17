@@ -211,7 +211,7 @@ func (c *Core) PruneOrphanHistory(ctx context.Context) (int64, error) {
 // directories its own entries live in. Liveness is always checked against
 // every project's rows, never just the ones a project filter selects: the
 // global vault is walked unconditionally, and another project's entry
-// escalated into it must not be reported as this project's orphan.
+// promoted into it must not be reported as this project's orphan.
 func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]string, error) {
 	var allEntries []Entry
 	var keys []string

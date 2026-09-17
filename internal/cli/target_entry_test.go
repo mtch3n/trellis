@@ -12,9 +12,9 @@ import (
 	"github.com/mtch3n/trellis/internal/store"
 )
 
-// escalateByHand does what a human does at a terminal: escalate is refused to
+// promoteByHand does what a human does at a terminal: escalate is refused to
 // agents and needs a TTY, so tests go through core.
-func escalateByHand(t *testing.T, key, slug string) {
+func promoteByHand(t *testing.T, key, slug string) {
 	t.Helper()
 	root, err := home.Root()
 	if err != nil {
@@ -30,7 +30,7 @@ func escalateByHand(t *testing.T, key, slug string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.EscalateKnowledge(t.Context(), p.ID, slug, "shared"); err != nil {
+	if _, err := c.PromoteEntry(t.Context(), p.ID, slug, "shared"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -93,7 +93,7 @@ func TestAVaultAddressIgnoresAmbientState(t *testing.T) {
 	dir := pinEnv(t, "loose")
 	seedProject(t, "ALPHA")
 	refOf(t, "knowledge", "new", "--title", "Conventions", "--project", "ALPHA")
-	escalateByHand(t, "ALPHA", "conventions")
+	promoteByHand(t, "ALPHA", "conventions")
 	const want = "/GLOBAL/vault/conventions"
 
 	_, err := execCmd("knowledge", "show", "conventions")

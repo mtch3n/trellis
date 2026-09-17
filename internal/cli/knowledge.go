@@ -26,7 +26,7 @@ func newKnowledgeCmd() *cobra.Command {
 	cmd.AddCommand(
 		newKnowledgeNewCmd(), newKnowledgeShowCmd(), newKnowledgeLsCmd(), newKnowledgeEditCmd(),
 		newKnowledgeRmCmd(), newKnowledgeMvCmd(), newKnowledgePinCmd(), newKnowledgePinsCmd(), newKnowledgeLintCmd(),
-		newKnowledgeNominateCmd(), newKnowledgeNominationsCmd(), newKnowledgeEscalateCmd(),
+		newKnowledgeNominateCmd(), newKnowledgeNominationsCmd(), newKnowledgePromoteCmd(),
 		newKnowledgeDemoteCmd(), newKnowledgeVerifyCmd(), newKnowledgeHealthCmd(),
 		newKnowledgeUptakeCmd(), newKnowledgeTemplateCmd(),
 		newKnowledgeHistoryCmd(), newKnowledgeDiffCmd())
@@ -108,13 +108,13 @@ func newKnowledgeShowCmd() *cobra.Command {
 				view := struct {
 					core.Entry
 					Backlinks  []core.Backlink `json:"backlinks,omitempty"`
-					Unreviewed bool            `json:"unreviewed,omitzero"`
-				}{Entry: entry, Backlinks: back, Unreviewed: entry.Unreviewed(time.Now().UnixMilli())}
+					Unverified bool            `json:"unreviewed,omitzero"`
+				}{Entry: entry, Backlinks: back, Unverified: entry.Unverified(time.Now().UnixMilli())}
 				return Emit(cmd, view, func() string {
 					var b strings.Builder
 					b.WriteString(entry.Ref)
-					if view.Unreviewed {
-						fmt.Fprintf(&b, "  (unreviewed since %s)", msDate(*entry.ReviewedAt))
+					if view.Unverified {
+						fmt.Fprintf(&b, "  (unreviewed since %s)", msDate(*entry.VerifiedAt))
 					}
 					b.WriteString("\n" + entry.Title + "\n\n" + entry.BodyMD)
 					if len(back) > 0 {
@@ -617,20 +617,20 @@ func newKnowledgeNominationsCmd() *cobra.Command {
 		Short: "The escalation queue, with its evidence",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withBoard(func(app *appCtx) error {
-				noms, err := app.Core.Nominations(cmd.Context(), app.Project.ID)
+				nominees, err := app.Core.Nominations(cmd.Context(), app.Project.ID)
 				if err != nil {
 					return err
 				}
-				return Emit(cmd, map[string]any{"nominations": noms}, func() string {
-					if len(noms) == 0 {
+				return Emit(cmd, map[string]any{"nominations": nominees}, func() string {
+					if len(nominees) == 0 {
 						return "(no nominations)"
 					}
 					var b strings.Builder
 					w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 					fmt.Fprintln(w, "SLUG\tCITED\tPINNED\tREADS/30d\tACTORS\tNOMS\tREASON")
-					for _, n := range noms {
+					for _, n := range nominees {
 						fmt.Fprintf(w, "%s\t%d\t%d\t%d\t%d\t%d\t%q — %s\n",
-							n.Slug, n.Cited, n.Pinned, n.Reads, n.Actors, n.Noms, n.Reason, n.Actor)
+							n.Slug, n.Cited, n.Pinned, n.Reads, n.Actors, n.Nominations, n.Reason, n.Actor)
 					}
 					w.Flush()
 					return strings.TrimRight(b.String(), "\n")
@@ -640,7 +640,7 @@ func newKnowledgeNominationsCmd() *cobra.Command {
 	}
 }
 
-func newKnowledgeEscalateCmd() *cobra.Command {
+func newKnowledgePromoteCmd() *cobra.Command {
 	var reason TextValue
 	cmd := &cobra.Command{
 		Use:   "escalate <slug>",
@@ -651,7 +651,7 @@ func newKnowledgeEscalateCmd() *cobra.Command {
 				return err
 			}
 			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0]}, func(app *appCtx, ref string) error {
-				entry, err := app.Core.EscalateKnowledge(cmd.Context(), app.Project.ID, ref, reason.String())
+				entry, err := app.Core.PromoteEntry(cmd.Context(), app.Project.ID, ref, reason.String())
 				if err != nil {
 					return err
 				}

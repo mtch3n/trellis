@@ -250,7 +250,7 @@ func (c *Core) refuseResemblingDir(tx *sqlx.Tx, projectID, dir string, allowNew 
 // slug. input may be the full path ("deployment/rollback") or a bare leaf
 // ("rollback"): a bare leaf matches any directory and is a permanent
 // addressing mode, not a compatibility shim. includeGlobal widens matching
-// to the vault, which loadEntry's callers want (show, edit, pin, escalate...)
+// to the vault, which loadEntry's callers want (show, edit, pin, promote...)
 // and DeleteEntry does not: rm only ever removes this project's own row.
 func (c *Core) resolveSlug(tx *sqlx.Tx, projectID, input string, includeGlobal bool) (string, error) {
 	norm := normalizeSlugPath(input)

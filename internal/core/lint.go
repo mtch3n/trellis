@@ -339,7 +339,7 @@ func stubFix(ref Reference) string {
 	case "":
 		return `trellis knowledge new --title "` + ref.Raw + `"`
 	case address.GlobalKey:
-		return `trellis knowledge new --title "` + ref.Slug + `"   # then a human escalates it`
+		return `trellis knowledge new --title "` + ref.Slug + `"   # then a human promotes it`
 	}
 	return "trellis --project " + ref.ProjectKey + ` knowledge new --title "` + ref.Slug + `"`
 }

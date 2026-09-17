@@ -49,8 +49,8 @@ type Entry struct {
 	Size        int64  `db:"size" json:"-"`
 	Global      bool   `db:"global" json:"global,omitzero"`
 	Private     bool   `db:"private" json:"private,omitzero"`
-	ReviewBy    *int64 `db:"verify_by" json:"verify_by,omitempty"`
-	ReviewedAt  *int64 `db:"verified_at" json:"verified_at,omitempty"`
+	VerifyBy    *int64 `db:"verify_by" json:"verify_by,omitempty"`
+	VerifiedAt  *int64 `db:"verified_at" json:"verified_at,omitempty"`
 	Version     int64  `db:"version" json:"version"`
 	CreatedAt   int64  `db:"created_at" json:"created_at"`
 	UpdatedAt   int64  `db:"updated_at" json:"updated_at"`
@@ -434,7 +434,7 @@ func (c *Core) LoadEntry(ctx context.Context, projectID, slug string) (Entry, er
 	return entry, err
 }
 
-// ReadEntry is LoadEntry plus the read counter that the escalation
+// ReadEntry is LoadEntry plus the read counter that the promotion
 // queue and `knowledge ls --cold` are computed from. Separate from Load so
 // internal lookups — lint, the graph, resolving a link — do not inflate a
 // number that is supposed to mean "a person or agent went and read this".

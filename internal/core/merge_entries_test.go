@@ -199,7 +199,7 @@ func TestMergeRenamesConflictsOnRequest(t *testing.T) {
 func TestMergeNeverRenamesAVaultEntry(t *testing.T) {
 	f := newMergeFixture(t)
 	f.entry(f.api, "Conventions", "API's.\n")
-	if _, err := f.c.EscalateKnowledge(t.Context(), f.api.ID, "conventions", "shared"); err != nil {
+	if _, err := f.c.PromoteEntry(t.Context(), f.api.ID, "conventions", "shared"); err != nil {
 		t.Fatal(err)
 	}
 	f.entry(f.mono, "Conventions", "MONO's.\n")
@@ -218,11 +218,11 @@ func TestMergeMovesAVaultEntryItOwns(t *testing.T) {
 	f := newMergeFixture(t)
 	ctx := t.Context()
 	f.entry(f.api, "Conventions", "Shared.\n")
-	escalated, err := f.c.EscalateKnowledge(ctx, f.api.ID, "conventions", "shared")
+	promoted, err := f.c.PromoteEntry(ctx, f.api.ID, "conventions", "shared")
 	if err != nil {
 		t.Fatal(err)
 	}
-	vaultPath := escalated.Path
+	vaultPath := promoted.Path
 
 	f.merge(MergeOptions{Apply: true})
 
@@ -231,7 +231,7 @@ func TestMergeMovesAVaultEntryItOwns(t *testing.T) {
 		Global    bool   `db:"global"`
 		Slug      string `db:"slug"`
 	}
-	if err := f.c.db.Get(&row, `SELECT project_id, global, slug FROM entry WHERE id = ?`, escalated.ID); err != nil {
+	if err := f.c.db.Get(&row, `SELECT project_id, global, slug FROM entry WHERE id = ?`, promoted.ID); err != nil {
 		t.Fatal(err)
 	}
 	if row.ProjectID != f.mono.ID || !row.Global || f.c.entryPath(GlobalKey, true, row.Slug) != vaultPath {

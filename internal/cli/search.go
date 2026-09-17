@@ -97,7 +97,7 @@ func emitHits(cmd *cobra.Command, hits []core.SearchHit, showProject bool) error
 		w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 		for _, h := range hits {
 			title := h.Title
-			if h.Unreviewed {
+			if h.Unverified {
 				title += "  (unreviewed)"
 			}
 			if showProject {

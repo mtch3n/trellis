@@ -10,18 +10,18 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// GlobalReviewDays is how long a global entry goes before it is called
-// unreviewed. Shorter than anything local: reach amplifies staleness (§10.11).
-const GlobalReviewDays = 180
+// GlobalVerifyDays is how long a global entry goes before it is called
+// unverified. Shorter than anything local: reach amplifies staleness (§10.11).
+const GlobalVerifyDays = 180
 
-// EscalateKnowledge moves an entry to the global vault. It MOVES rather than
+// PromoteEntry moves an entry to the global vault. It MOVES rather than
 // copies: two copies diverge, and a stale global copy is worse than none. Every
 // existing reference keeps resolving because link.to_id stores identity.
 //
 // The human gate is enforced by the caller (§10.8): core has no opinion about
 // who is typing, and an --i-am-human flag is exactly what an agent would reach
 // for, so none exists anywhere.
-func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason string) (Entry, error) {
+func (c *Core) PromoteEntry(ctx context.Context, projectID, slug, reason string) (Entry, error) {
 	var entry Entry
 	var src, dest string
 	var revMoved bool
@@ -78,16 +78,16 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 			return err
 		}
 		now := c.clock.NowMS()
-		reviewBy := now + int64(GlobalReviewDays)*24*60*60*1000
+		verifyBy := now + int64(GlobalVerifyDays)*24*60*60*1000
 		if _, err := tx.Exec(
 			`UPDATE entry SET global = 1, board_id = NULL, verify_by = ?,
 			                      verified_at = ?, updated_at = ? WHERE id = ?`,
-			reviewBy, now, now, entry.ID); err != nil {
+			verifyBy, now, now, entry.ID); err != nil {
 			return err
 		}
-		entry.Global, entry.Path, entry.ReviewBy, entry.ReviewedAt = true, dest, &reviewBy, &now
+		entry.Global, entry.Path, entry.VerifyBy, entry.VerifiedAt = true, dest, &verifyBy, &now
 		// Links written to the vault address before the entry got there are
-		// stubs; escalating is what makes them resolvable.
+		// stubs; promoting is what makes them resolvable.
 		if err := c.resolveEntryStubs(tx, &entry); err != nil {
 			return err
 		}
@@ -103,7 +103,7 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 	if err != nil && done {
 		// done means the closure completed and it was tx.Commit that
 		// failed: durable state, not a guess, decides which side of the
-		// move the file belongs on, and when it landed the escalate is a
+		// move the file belongs on, and when it landed the promote is a
 		// success no matter what Commit reported.
 		var landed bool
 		qerr := c.db.Get(&landed, `SELECT global FROM entry WHERE id = ?`, entry.ID)
@@ -123,7 +123,7 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 	return entry, err
 }
 
-// DemoteEntry returns a global entry to its origin project. An escalation
+// DemoteEntry returns a global entry to its origin project. An promotion
 // mistake must not be permanent.
 func (c *Core) DemoteEntry(ctx context.Context, slug, reason string) (Entry, error) {
 	var entry Entry
@@ -191,7 +191,7 @@ func (c *Core) DemoteEntry(ctx context.Context, slug, reason string) (Entry, err
 			c.clock.NowMS(), entry.ID); err != nil {
 			return err
 		}
-		entry.Global, entry.Path, entry.ReviewBy = false, dest, nil
+		entry.Global, entry.Path, entry.VerifyBy = false, dest, nil
 		// Links to the project address resolve once the entry is back.
 		if err := c.resolveEntryStubs(tx, &entry); err != nil {
 			return err
@@ -228,7 +228,7 @@ func (c *Core) DemoteEntry(ctx context.Context, slug, reason string) (Entry, err
 	return entry, err
 }
 
-// VerifyEntry resets the review clock on a global entry.
+// VerifyEntry resets the verify date on a global entry.
 func (c *Core) VerifyEntry(ctx context.Context, slug string) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var entry Entry
@@ -248,24 +248,24 @@ func (c *Core) VerifyEntry(ctx context.Context, slug string) error {
 			return err
 		}
 		now := c.clock.NowMS()
-		reviewBy := now + int64(GlobalReviewDays)*24*60*60*1000
+		verifyBy := now + int64(GlobalVerifyDays)*24*60*60*1000
 		if _, err := tx.Exec(
-			`UPDATE entry SET verified_at = ?, verify_by = ? WHERE id = ?`, now, reviewBy, entry.ID); err != nil {
+			`UPDATE entry SET verified_at = ?, verify_by = ? WHERE id = ?`, now, verifyBy, entry.ID); err != nil {
 			return err
 		}
 		return c.recordEvent(tx, "entry", entry.ID, "verified", "", "", "")
 	})
 }
 
-// Unreviewed reports whether a global entry is past its review date, which is
+// Unverified reports whether a global entry is past its review date, which is
 // said out loud at every point of use rather than filed in a report nobody reads.
-func (e Entry) Unreviewed(nowMS int64) bool {
-	return e.Global && e.ReviewBy != nil && nowMS > *e.ReviewBy
+func (e Entry) Unverified(nowMS int64) bool {
+	return e.Global && e.VerifyBy != nil && nowMS > *e.VerifyBy
 }
 
 // moveFile moves src into destDir, refusing to replace anything already
 // there. It is moveFileTo with the destination computed as "same basename,
-// new directory" -- escalate and demote never rename the leaf, only relocate
+// new directory" -- promote and demote never rename the leaf, only relocate
 // it between the project vault and the global one.
 func moveFile(src, destDir string) (string, error) {
 	return moveFileTo(src, filepath.Join(destDir, baseName(src)))

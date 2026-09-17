@@ -92,7 +92,7 @@ func TestARelativeLinkFallsBackToTheVault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.EscalateKnowledge(ctx, other.ID, shared.Slug, "shared"); err != nil {
+	if _, err := c.PromoteEntry(ctx, other.ID, shared.Slug, "shared"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
@@ -196,7 +196,7 @@ func TestMissingHeadingsInForeignAndVaultTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.EscalateKnowledge(ctx, other.ID, shared.Slug, "shared"); err != nil {
+	if _, err := c.PromoteEntry(ctx, other.ID, shared.Slug, "shared"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Setup", Body: "" +

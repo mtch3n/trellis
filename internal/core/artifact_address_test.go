@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestEscalateRefusesASlugTheVaultHolds(t *testing.T) {
+func TestPromoteRefusesASlugTheVaultHolds(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 	other := seededProject2(t, c)
@@ -19,11 +19,11 @@ func TestEscalateRefusesASlugTheVaultHolds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	moved, err := c.EscalateKnowledge(ctx, p.ID, mine.Slug, "shared")
+	moved, err := c.PromoteEntry(ctx, p.ID, mine.Slug, "shared")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = c.EscalateKnowledge(ctx, other.ID, theirs.Slug, "also shared")
+	_, err = c.PromoteEntry(ctx, other.ID, theirs.Slug, "also shared")
 	if got := errCode(t, err); got != "global_slug_taken" {
 		t.Fatalf("code = %s, want global_slug_taken", got)
 	}
@@ -36,7 +36,7 @@ func TestEscalateRefusesASlugTheVaultHolds(t *testing.T) {
 	}
 }
 
-func TestEscalationBackfillsVaultStubs(t *testing.T) {
+func TestPromotionBackfillsVaultStubs(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 	other := seededProject2(t, c)
@@ -45,17 +45,17 @@ func TestEscalationBackfillsVaultStubs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if kinds, _ := lintKinds(t, c, other.ID); kinds["stub"] != 1 {
-		t.Fatalf("before escalation: %v, want one stub", kinds)
+		t.Fatalf("before promotion: %v, want one stub", kinds)
 	}
 	target, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Conventions"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.EscalateKnowledge(ctx, p.ID, target.Slug, "shared"); err != nil {
+	if _, err := c.PromoteEntry(ctx, p.ID, target.Slug, "shared"); err != nil {
 		t.Fatal(err)
 	}
 	if kinds, _ := lintKinds(t, c, other.ID); kinds["stub"] != 0 {
-		t.Errorf("after escalation: %v, want the stub resolved", kinds)
+		t.Errorf("after promotion: %v, want the stub resolved", kinds)
 	}
 }
 

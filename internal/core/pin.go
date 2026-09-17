@@ -199,7 +199,7 @@ func (c *Core) pins(tx *sqlx.Tx, projectID, boardID string, limit int) ([]Pin, e
 // filesystems, or on a filesystem without hard links, falls back to
 // copyAtomic, which refuses the same way. Either way src is only removed once
 // dest is safely in place. knowledge mv calls this directly because, unlike
-// escalate and demote, it can rename the leaf as well as relocate it.
+// promote and demote, it can rename the leaf as well as relocate it.
 func moveFileTo(src, dest string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 		return "", err
@@ -235,7 +235,7 @@ func moveFileTo(src, dest string) (string, error) {
 }
 
 // moveBack undoes a successful moveFile: dest moves back into the directory
-// src used to live in. It is the only compensation escalate and demote need,
+// src used to live in. It is the only compensation promote and demote need,
 // so it stays a small helper rather than growing into a general framework.
 func moveBack(dest, src string) error {
 	_, err := moveFile(dest, filepath.Dir(src))

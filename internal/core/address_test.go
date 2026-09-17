@@ -23,7 +23,7 @@ func TestEntryAddressSQLMatchesGo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.EscalateKnowledge(ctx, p.ID, shared.Slug, "shared"); err != nil {
+	if _, err := c.PromoteEntry(ctx, p.ID, shared.Slug, "shared"); err != nil {
 		t.Fatal(err)
 	}
 	var rows []struct {
@@ -104,7 +104,7 @@ func TestBacklinksNameAVaultSourceByItsVaultAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.EscalateKnowledge(ctx, p.ID, source.Slug, "shared"); err != nil {
+	if _, err := c.PromoteEntry(ctx, p.ID, source.Slug, "shared"); err != nil {
 		t.Fatal(err)
 	}
 	back, err := c.Backlinks(ctx, target.ID)

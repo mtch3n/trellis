@@ -183,19 +183,19 @@ func TestVerifyRejectsACardAddressWhoseRefPrefixDoesNotMatch(t *testing.T) {
 	}
 }
 
-// An entry address counted an escalated row because it had no
+// An entry address counted an promoted row because it had no
 // "global = 0" filter, while resolveEntryRef's own address branch excludes
 // exactly that row -- an entry's old project address becomes a stub, not a
 // hit, once it lives in the global vault instead.
-func TestVerifyRejectsAnEscalatedEntrysOldProjectAddress(t *testing.T) {
+func TestVerifyRejectsAPromotedEntrysOldProjectAddress(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 	target, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Shared"})
 	if err != nil {
 		t.Fatalf("CreateEntry: %v", err)
 	}
-	if _, err := c.EscalateKnowledge(t.Context(), p.ID, target.Slug, "reason"); err != nil {
-		t.Fatalf("EscalateKnowledge: %v", err)
+	if _, err := c.PromoteEntry(t.Context(), p.ID, target.Slug, "reason"); err != nil {
+		t.Fatalf("PromoteEntry: %v", err)
 	}
 
 	_, err = c.CreateEntry(t.Context(), p.ID, NewEntry{

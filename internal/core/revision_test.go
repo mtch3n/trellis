@@ -357,7 +357,7 @@ func TestEditEntryFieldsCommitFailureDiscardsTheSpeculativeRevision(t *testing.T
 	}
 }
 
-func TestEscalateMovesTheRevisionDirectory(t *testing.T) {
+func TestPromoteMovesTheRevisionDirectory(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Shared", Body: "v1\n"})
 	if err != nil {
@@ -368,22 +368,22 @@ func TestEscalateMovesTheRevisionDirectory(t *testing.T) {
 	}
 	oldDir := revisionDir(entry.Path)
 
-	escalated, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "shared across projects")
+	promoted, err := c.PromoteEntry(t.Context(), p.ID, entry.Slug, "shared across projects")
 	if err != nil {
-		t.Fatalf("EscalateKnowledge: %v", err)
+		t.Fatalf("PromoteEntry: %v", err)
 	}
 	if _, err := os.Stat(oldDir); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the old revision directory still exists")
 	}
-	newDir := revisionDir(escalated.Path)
+	newDir := revisionDir(promoted.Path)
 	for v := int64(1); v <= 2; v++ {
-		if _, err := os.Stat(revisionFilePath(escalated.Path, v)); err != nil {
-			t.Errorf("version %d missing after escalate: %v", v, err)
+		if _, err := os.Stat(revisionFilePath(promoted.Path, v)); err != nil {
+			t.Errorf("version %d missing after promote: %v", v, err)
 		}
 	}
 	_ = newDir
 
-	back, err := c.DemoteEntry(t.Context(), escalated.Slug, "back to project")
+	back, err := c.DemoteEntry(t.Context(), promoted.Slug, "back to project")
 	if err != nil {
 		t.Fatalf("DemoteEntry: %v", err)
 	}
@@ -397,7 +397,7 @@ func TestEscalateMovesTheRevisionDirectory(t *testing.T) {
 	}
 }
 
-func TestAFailedEscalateMovesTheRevisionDirectoryBack(t *testing.T) {
+func TestAFailedPromoteMovesTheRevisionDirectoryBack(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy"})
 	if err != nil {
@@ -414,8 +414,8 @@ func TestAFailedEscalateMovesTheRevisionDirectoryBack(t *testing.T) {
 		}
 	}()
 
-	if _, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "reason"); err == nil {
-		t.Fatal("EscalateKnowledge succeeded despite the trigger")
+	if _, err := c.PromoteEntry(t.Context(), p.ID, entry.Slug, "reason"); err == nil {
+		t.Fatal("PromoteEntry succeeded despite the trigger")
 	}
 	if _, err := os.Stat(revisionFilePath(entry.Path, 1)); err != nil {
 		t.Errorf("revision directory not restored at %s: %v", oldDir, err)

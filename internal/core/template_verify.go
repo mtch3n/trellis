@@ -119,7 +119,7 @@ func (c *Core) resolvesInternalReference(tx *sqlx.Tx, projectID, s string) (ok, 
 		}
 		return n > 0, true, nil
 	case address.CollectionVault:
-		// An entry that escalated out of this project keeps its project_id;
+		// An entry that promoted out of this project keeps its project_id;
 		// resolveEntryRef's own address branch excludes it (k.global = 0) so
 		// the old project address becomes a stub, not a hit. Match that here.
 		var n int

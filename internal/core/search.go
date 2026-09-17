@@ -114,14 +114,14 @@ func (c *Core) FindSimilarOpenCards(ctx context.Context, projectID string, title
 
 // SearchHit is one result. Cross-project hits are pointers, never text:
 // searching across projects is discovery, and reading the entry still requires
-// being in that project or for it to have been escalated (§10.6.1).
+// being in that project or for it to have been promoted (§10.6.1).
 type SearchHit struct {
 	Kind       string `db:"kind" json:"kind"` // card or knowledge
 	Ref        string `db:"ref" json:"ref"`
 	Title      string `db:"title" json:"title"`
 	Project    string `db:"project" json:"project"`
 	Detail     string `db:"detail" json:"detail,omitempty"` // column for cards, type for entries
-	Unreviewed bool   `db:"unreviewed" json:"unreviewed,omitzero"`
+	Unverified bool   `db:"unreviewed" json:"unreviewed,omitzero"`
 }
 
 // SearchOpts narrows or widens a search.

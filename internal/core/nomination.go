@@ -9,16 +9,16 @@ import (
 
 // Nomination is an agent's argument that an entry is useful beyond its project.
 type Nomination struct {
-	Slug      string `db:"slug" json:"slug"`
-	Title     string `db:"title" json:"title"`
-	Actor     string `db:"actor" json:"actor"`
-	Reason    string `db:"reason" json:"reason"`
-	Cited     int    `db:"cited" json:"cited"`
-	Pinned    int    `db:"pinned" json:"pinned"`
-	Reads     int    `db:"reads" json:"reads_30d"`
-	Actors    int    `db:"actors" json:"actors"`
-	Noms      int    `db:"noms" json:"noms"`
-	CreatedAt int64  `db:"created_at" json:"created_at"`
+	Slug        string `db:"slug" json:"slug"`
+	Title       string `db:"title" json:"title"`
+	Actor       string `db:"actor" json:"actor"`
+	Reason      string `db:"reason" json:"reason"`
+	Cited       int    `db:"cited" json:"cited"`
+	Pinned      int    `db:"pinned" json:"pinned"`
+	Reads       int    `db:"reads" json:"reads_30d"`
+	Actors      int    `db:"actors" json:"actors"`
+	Nominations int    `db:"noms" json:"noms"`
+	CreatedAt   int64  `db:"created_at" json:"created_at"`
 }
 
 // NominateEntry records a nominee for promotion. No threshold blocks

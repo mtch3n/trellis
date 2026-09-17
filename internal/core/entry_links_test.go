@@ -18,8 +18,8 @@ func TestEntryLinksListsAddressesAndWithholdsPrivateSources(t *testing.T) {
 
 	create("Target Entry", "target\n", false)
 	vault := create("Vault Entry", "[[target-entry]]\n", false)
-	if _, err := c.EscalateKnowledge(ctx, p.ID, vault.Slug, "shared"); err != nil {
-		t.Fatalf("EscalateKnowledge: %v", err)
+	if _, err := c.PromoteEntry(ctx, p.ID, vault.Slug, "shared"); err != nil {
+		t.Fatalf("PromoteEntry: %v", err)
 	}
 	create("Source Entry", "[[target-entry#usage]] [[missing-one]] [[/GLOBAL/vault/vault-entry]]\n", false)
 	create("Secret Entry", "[[target-entry]]\n", true)

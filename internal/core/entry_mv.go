@@ -173,7 +173,7 @@ func (c *Core) MoveEntry(ctx context.Context, projectID, ref, newPath string, ne
 		if err := c.recordEvent(tx, "entry", entry.ID, "moved", "", oldSlug, newSlug); err != nil {
 			return err
 		}
-		// A move changes the entry's address the same way escalate and
+		// A move changes the entry's address the same way promote and
 		// demote do; a wikilink written to the new path before this move,
 		// still a stub, becomes resolvable now.
 		if err := c.resolveEntryStubs(tx, &entry); err != nil {
@@ -191,7 +191,7 @@ func (c *Core) MoveEntry(ctx context.Context, projectID, ref, newPath string, ne
 	if err != nil && done {
 		// done means the closure completed and it was tx.Commit that failed:
 		// durable state, not a guess, decides which side of the move the
-		// file belongs on, exactly as EscalateKnowledge already resolves this.
+		// file belongs on, exactly as PromoteEntry already resolves this.
 		var landed string
 		qerr := c.db.Get(&landed, `SELECT slug FROM entry WHERE id = ?`, entry.ID)
 		if writeLanded(landed == newSlug, qerr) {
