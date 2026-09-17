@@ -1,6 +1,6 @@
 {
   "name": "trellis",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Local kanban boards and vaults for AI agents: board state at session start, cards with expiring claims, and a linked markdown vault.",
   "author": {
     "name": "mtchen"
