@@ -11,7 +11,7 @@ import (
 func TestEventLogOrdersBySeqAndPages(t *testing.T) {
 	// vaultCore's project and board setup already recorded a "board created"
 	// event before either card exists, so every query here is filtered to
-	// Kinds: []string{"card"} — otherwise the very first page would return
+	// Entities: []string{"card"} — otherwise the very first page would return
 	// that board event, not "one".
 	c, p, b := vaultCore(t)
 	card1, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "one"})
@@ -57,7 +57,7 @@ func TestEventLogDefaultAndMaxLimit(t *testing.T) {
 	// Driving that many writes through CreateCard would make this the
 	// slowest test in the suite for no benefit -- the limit logic does not
 	// care how a row got there -- so the events are inserted directly.
-	// Kinds: []string{"card"} below excludes vaultCore's own "board created"
+	// Entities: []string{"card"} below excludes vaultCore's own "board created"
 	// event, so every one of these rows, and only these, is in scope.
 	const bulk = 5100
 	var sb strings.Builder
@@ -204,7 +204,7 @@ func TestEventLogScopesByProject(t *testing.T) {
 		t.Fatalf("CreateCard p2: %v", err)
 	}
 
-	// Filtered to Kinds: []string{"card"} throughout: vaultCore and
+	// Filtered to Entities: []string{"card"} throughout: vaultCore and
 	// seededBoard each already record a "board created" event for their own
 	// project, and this test is about project scoping, not board noise.
 	scoped, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"card"}})
@@ -304,9 +304,10 @@ func TestEventLogDeletedCardHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *testi
 		t.Fatalf("project-scoped events = %+v, want created + deleted", scoped)
 	}
 
-	// Kinds: []string{"card"} excludes vaultCore's own "board created" event,
-	// whose ref is still the (undeleted) board's name and would otherwise
-	// trip the loop below, which assumes every returned event is this card's.
+	// Entities: []string{"card"} excludes vaultCore's own "board created"
+	// event, whose ref is still the (undeleted) board's name and would
+	// otherwise trip the loop below, which assumes every returned event is
+	// this card's.
 	events, _, err := c.EventLog(t.Context(), EventQuery{Entities: []string{"card"}})
 	if err != nil {
 		t.Fatalf("EventLog: %v", err)
@@ -339,7 +340,7 @@ func TestEventLogDeletedEntryHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *test
 
 	// A project-scoped read now reaches a hard-deleted entity's history
 	// because the event table carries project_id.
-	// Kinds: []string{"entry"} excludes vaultCore's own "board created"
+	// Entities: []string{"entry"} excludes vaultCore's own "board created"
 	// event, whose ref and title are still the (undeleted) board's — the
 	// loop below assumes every returned event is this entry's.
 	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"entry"}})
@@ -376,7 +377,7 @@ func TestEventLogPrivateEntryCarriesRefAndTitleOnly(t *testing.T) {
 		t.Fatalf("EditEntryFields: %v", err)
 	}
 
-	// Kinds: []string{"entry"} excludes vaultCore's own "board created"
+	// Entities: []string{"entry"} excludes vaultCore's own "board created"
 	// event, whose title is the board's name, not this entry's.
 	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"entry"}})
 	if err != nil {
@@ -427,7 +428,7 @@ func TestEventLogEntryRefUsesGlobalForAPromotedEntry(t *testing.T) {
 		t.Fatalf("PromoteEntry: %v", err)
 	}
 
-	// Kinds: []string{"entry"} excludes vaultCore's own "board created"
+	// Entities: []string{"entry"} excludes vaultCore's own "board created"
 	// event, which also has action "created".
 	events, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"entry"}, Actions: []string{"created"}})
 	if err != nil {

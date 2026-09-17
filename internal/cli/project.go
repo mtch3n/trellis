@@ -37,7 +37,7 @@ func newProjectNewCmd() *cobra.Command {
 				return err
 			}
 			return Emit(cmd, p, func() string {
-				return fmt.Sprintf("created project %s · mark a directory with it: trellis init --key %s", p.Key, p.Key)
+				return fmt.Sprintf("created project %s · mark a directory for it: trellis init --key %s", p.Key, p.Key)
 			})
 		},
 	}

@@ -303,7 +303,7 @@ func TestParseRetentionAcceptsDaysWeeksAndGoDurations(t *testing.T) {
 	}
 }
 
-func TestHealthReportsRevisionsAndOrphans(t *testing.T) {
+func TestHealthReportsRevisionsAndLeftovers(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry1, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Watched", Body: "v1\n"})
 	if err != nil {

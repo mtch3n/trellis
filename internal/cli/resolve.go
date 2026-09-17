@@ -60,9 +60,9 @@ func resolveProject(ctx context.Context, c *core.Core) (resolvedProject, error) 
 // markerFailure reports a malformed marker as a usage error. Anything else is
 // an I/O failure and passes through unchanged.
 func markerFailure(err error) error {
-	if pe, ok := errors.AsType[*resolve.MarkerError](err); ok {
-		return core.ErrUsage("bad_pin", pe.Error(),
-			"trellis init --key <KEY>   # after removing "+pe.Path)
+	if me, ok := errors.AsType[*resolve.MarkerError](err); ok {
+		return core.ErrUsage("bad_pin", me.Error(),
+			"trellis init --key <KEY>   # after removing "+me.Path)
 	}
 	return err
 }

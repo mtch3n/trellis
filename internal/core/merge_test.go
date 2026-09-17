@@ -430,7 +430,7 @@ func TestMergeDropsDerivedStateBeforeApplying(t *testing.T) {
 
 // A comment on a merged card is reported under the card's own ref, not a
 // key-seq pair the card does not answer to.
-func TestFeedNamesACommentOnAMergedCardByItsRef(t *testing.T) {
+func TestEventLogNamesACommentOnAMergedCardByItsRef(t *testing.T) {
 	f := newMergeFixture(t)
 	card := f.card(f.api, f.apiBoard, "moved", nil, nil)
 	f.card(f.mono, f.monoBoard, "already here", nil, nil)

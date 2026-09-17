@@ -82,7 +82,7 @@ func TestInitJoinsANamedProject(t *testing.T) {
 	}
 }
 
-func TestInitReadsACommittedPin(t *testing.T) {
+func TestInitReadsACommittedMarker(t *testing.T) {
 	dir := markerEnv(t, "fresh-clone")
 	writeMarker(t, dir, "/BETA\n")
 	got := runInit(t)

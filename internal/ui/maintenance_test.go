@@ -12,7 +12,7 @@ import (
 	"github.com/mtch3n/trellis/internal/home"
 )
 
-func TestGetMaintenanceReportsSizesAndOrphanCount(t *testing.T) {
+func TestGetMaintenanceReportsSizesAndLeftoverCount(t *testing.T) {
 	s := settingsTestServer(t)
 
 	rec := request(t, s, http.MethodGet, "/api/maintenance", "")

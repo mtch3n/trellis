@@ -76,7 +76,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]Diagnostic, error)
 				return err
 			}
 			for _, r := range rows {
-				f, ok, err := linkFinding(c, tx, targets, e, r.ToRaw, r.ToID, r.Anchor)
+				f, ok, err := linkDiagnostic(c, tx, targets, e, r.ToRaw, r.ToID, r.Anchor)
 				if err != nil {
 					return err
 				}
@@ -235,8 +235,8 @@ func (c *Core) knownExtraFields(ctx context.Context) (map[string]bool, error) {
 	return known, nil
 }
 
-// linkFinding judges one wikilink held by d.
-func linkFinding(c *Core, tx *sqlx.Tx, targets linkTargets, e Entry, raw string,
+// linkDiagnostic judges one wikilink held by e.
+func linkDiagnostic(c *Core, tx *sqlx.Tx, targets linkTargets, e Entry, raw string,
 	toID, anchor sql.NullString) (Diagnostic, bool, error) {
 	ref := ParseReference(raw)
 	if !toID.Valid {

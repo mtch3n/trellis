@@ -173,12 +173,12 @@ func TestFindMarkerMalformedIsAMarkerError(t *testing.T) {
 	dir := t.TempDir()
 	markerAt(t, dir, "TRELLIS\n")
 	_, _, err := FindMarker(dir)
-	pe, ok := errors.AsType[*MarkerError](err)
+	me, ok := errors.AsType[*MarkerError](err)
 	if !ok {
 		t.Fatalf("error = %v, want *MarkerError", err)
 	}
-	if !strings.Contains(pe.Error(), "old bare-key format") || !strings.HasSuffix(pe.Path, MarkerFile) {
-		t.Errorf("MarkerError = %q (path %s)", pe.Error(), pe.Path)
+	if !strings.Contains(me.Error(), "old bare-key format") || !strings.HasSuffix(me.Path, MarkerFile) {
+		t.Errorf("MarkerError = %q (path %s)", me.Error(), me.Path)
 	}
 }
 

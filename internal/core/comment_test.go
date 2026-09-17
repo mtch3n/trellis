@@ -70,6 +70,6 @@ func TestCreateComment(t *testing.T) {
 	if len(events) != 1 {
 		t.Errorf("EventLog returned %d events, want 1", len(events))
 	} else if events[0].Entity != "comment" {
-		t.Errorf("event Kind = %s, want 'comment'", events[0].Entity)
+		t.Errorf("event Entity = %s, want 'comment'", events[0].Entity)
 	}
 }

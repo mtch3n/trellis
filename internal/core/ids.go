@@ -9,11 +9,11 @@ import (
 )
 
 // NewID mints every id Trellis stores: a uuid v7, which is time-ordered so
-// ids sort by creation. Card ranking relies on this property. The stdlib guarantees uuid v7 is
-// monotonically increasing within a process via a 12-bit sub-millisecond
-// fraction and a monotonic bump under mutex when timestamps repeat. This
-// guarantee holds only within a process; code must not assume ordering across
-// separate processes.
+// ids sort by creation. Card ranking relies on this property. The stdlib
+// guarantees uuid v7 is monotonically increasing within a process via a
+// 12-bit sub-millisecond fraction and a monotonic bump under mutex when
+// timestamps repeat. This guarantee holds only within a process; code must
+// not assume ordering across separate processes.
 func NewID() string { return uuid.NewV7().String() }
 
 // CardRef is a parsed card reference. Exactly one of UUID or Seq is set.
