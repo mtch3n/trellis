@@ -884,17 +884,14 @@ func (s *Server) handleClaimCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in claimRequest
+	// The body is optional; one that is present must parse.
 	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		s.error(w, http.StatusInternalServerError, "failed to read request body")
-		return
+	if err == nil && len(bytes.TrimSpace(body)) > 0 {
+		err = json.Unmarshal(body, &in)
 	}
-	trimmed := bytes.TrimSpace(body)
-	if len(trimmed) > 0 {
-		if err := json.Unmarshal(trimmed, &in); err != nil {
-			s.error(w, http.StatusBadRequest, "invalid JSON; nothing changed")
-			return
-		}
+	if err != nil {
+		s.error(w, http.StatusBadRequest, "invalid JSON; nothing changed")
+		return
 	}
 	// TTL is optional; defaults to configured lease TTL
 	var ttlMS int64 = 0
