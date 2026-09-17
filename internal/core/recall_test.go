@@ -310,7 +310,7 @@ func TestRecallNarrowedToAKnowledgeDimensionDropsCards(t *testing.T) {
 		t.Fatalf("unfiltered recall returned %d, want the card and the entry", len(wide))
 	}
 
-	// A card carries neither doc_type nor provenance, so keeping it in a
+	// A card carries neither template nor provenance, so keeping it in a
 	// narrowed result would answer a question nobody asked.
 	narrow, err := c.Recall(ctx, p.ID, "retry budget", RecallOpts{Provenances: []string{"extracted"}})
 	if err != nil {

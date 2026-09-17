@@ -279,17 +279,17 @@ func (w *terminalWorkspace) renderKnowledge() {
 		return
 	}
 	w.docs = docs
-	slices.SortFunc(docs, func(a, b core.Knowledge) int { return strings.Compare(a.DocType+"/"+a.Title, b.DocType+"/"+b.Title) })
+	slices.SortFunc(docs, func(a, b core.Knowledge) int { return strings.Compare(a.Template+"/"+a.Title, b.Template+"/"+b.Title) })
 	groups := map[string]*tview.TreeNode{}
 	var first *tview.TreeNode
 	for _, doc := range docs {
 		if !matchesFilter(w.filter, doc.Title, doc.Slug, doc.BodyMD) {
 			continue
 		}
-		group := groups[doc.DocType]
+		group := groups[doc.Template]
 		if group == nil {
-			group = tview.NewTreeNode(tuiText(doc.DocType)).SetColor(tuiAccent)
-			groups[doc.DocType] = group
+			group = tview.NewTreeNode(tuiText(doc.Template)).SetColor(tuiAccent)
+			groups[doc.Template] = group
 			root.AddChild(group)
 		}
 		node := tview.NewTreeNode(tuiText(doc.Title)).SetColor(tuiFG).SetReference(doc)
@@ -322,7 +322,7 @@ func (w *terminalWorkspace) renderKnowledge() {
 }
 func (w *terminalWorkspace) selectDoc(doc core.Knowledge) {
 	w.doc = &doc
-	text := "[::b]" + tuiText(doc.Title) + "[::-]\n[#9cabb9]" + tuiText(doc.Ref) + " · " + tuiText(doc.DocType) + "[-]\n\n" + terminalMarkdown(doc.BodyMD)
+	text := "[::b]" + tuiText(doc.Title) + "[::-]\n[#9cabb9]" + tuiText(doc.Ref) + " · " + tuiText(doc.Template) + "[-]\n\n" + terminalMarkdown(doc.BodyMD)
 	links, err := w.session.app.Core.Backlinks(w.ctx, doc.ID)
 	if err != nil {
 		text += "\n\nBacklinks unavailable: " + tuiText(err.Error())

@@ -1,7 +1,6 @@
 package core
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"regexp"
@@ -183,16 +182,15 @@ func (c *Core) verifyBody(tx *sqlx.Tx, projectID, body string) ([]string, error)
 
 // templateVerifyViolations runs a template's verify rule: every value of
 // each named field, or every reference in the body when the field named is
-// "body", must resolve. It opens its own read-only transaction rather than
-// sharing the write transaction CreateKnowledge opens later, so a reject
-// template still writes nothing when a reference fails to resolve.
-func (c *Core) templateVerifyViolations(ctx context.Context, projectID string, t Template,
+// "body", must resolve. It reads in the caller's transaction: the store has
+// one connection, so opening another here would wait on the caller forever.
+func (c *Core) templateVerifyViolations(tx *sqlx.Tx, projectID string, t Template,
 	fields map[string][]string, body string) ([]string, error) {
 	if len(t.Verify) == 0 {
 		return nil, nil
 	}
 	var out []string
-	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+	err := func() error {
 		for _, name := range t.Verify {
 			var refs []string
 			var err error
@@ -209,6 +207,6 @@ func (c *Core) templateVerifyViolations(ctx context.Context, projectID string, t
 			}
 		}
 		return nil
-	})
+	}()
 	return out, err
 }

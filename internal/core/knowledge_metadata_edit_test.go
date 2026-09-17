@@ -29,11 +29,11 @@ func TestKnowledgeMetadataEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc, err = c.EditKnowledgeFields(t.Context(), p.ID, doc.Slug, KnowledgeEdit{DocType: new("decision"), Private: new(true), Tags: new([]string{"new"}), Labels: new([]string{"reviewed"}), IfVersion: &doc.Version})
+	doc, err = c.EditKnowledgeFields(t.Context(), p.ID, doc.Slug, KnowledgeEdit{Template: new("research"), Private: new(true), Tags: new([]string{"new"}), Labels: new([]string{"reviewed"}), IfVersion: &doc.Version})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.DocType != "decision" || !doc.Private || !slices.Equal(doc.Tags, []string{"new"}) || !slices.Equal(doc.Labels, []string{"reviewed"}) || doc.Recap != nil {
+	if doc.Template != "research" || !doc.Private || !slices.Equal(doc.Tags, []string{"new"}) || !slices.Equal(doc.Labels, []string{"reviewed"}) || doc.Recap != nil {
 		t.Fatalf("edited: %+v", doc)
 	}
 	raw, err := os.ReadFile(doc.Path)
@@ -44,7 +44,7 @@ func TestKnowledgeMetadataEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fm.Type != "decision" || !fm.Private || !slices.Equal(fm.Tags, doc.Tags) || !slices.Equal(fm.Labels, doc.Labels) {
+	if fm.Template != "research" || !fm.Private || !slices.Equal(fm.Tags, doc.Tags) || !slices.Equal(fm.Labels, doc.Labels) {
 		t.Fatalf("frontmatter: %+v", fm)
 	}
 	rev, err := os.ReadFile(revisionFilePath(doc.Path, doc.Version))
@@ -56,7 +56,7 @@ func TestKnowledgeMetadataEdit(t *testing.T) {
 		t.Fatalf("leaked=%d err=%v", leaked, err)
 	}
 	doc, err = c.EditKnowledgeFields(t.Context(), p.ID, doc.Slug, KnowledgeEdit{Body: new("still private\n"), IfVersion: &doc.Version})
-	if err != nil || !doc.Private || doc.DocType != "decision" || len(doc.Tags) != 1 || len(doc.Labels) != 1 {
+	if err != nil || !doc.Private || doc.Template != "research" || len(doc.Tags) != 1 || len(doc.Labels) != 1 {
 		t.Fatalf("omitted fields: %+v %v", doc, err)
 	}
 	if err = c.db.Get(&leaked, `SELECT count(*) FROM event WHERE entity_id = ? AND action = 'edited' AND COALESCE(new_value,'') != ''`, doc.ID); err != nil || leaked != 0 {
@@ -91,7 +91,7 @@ func TestKnowledgeMetadataEditFailureIsAtomic(t *testing.T) {
 			code := ""
 			switch kind {
 			case "type":
-				edit.DocType = new("not-a-template")
+				edit.Template = new("not-a-template")
 				code = "unknown_template"
 			case "label":
 				edit.Labels = new([]string{"missing"})

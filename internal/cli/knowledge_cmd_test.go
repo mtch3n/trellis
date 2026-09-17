@@ -52,8 +52,8 @@ func TestKnowledgeNewPrivateFlag(t *testing.T) {
 // asserting the marker through the command would assert nothing.
 func TestRenderKnowledgeListMarksPrivate(t *testing.T) {
 	got := renderKnowledgeList([]core.Knowledge{
-		{Slug: "staging-credentials", DocType: "reference", Title: "Staging credentials", Private: true},
-		{Slug: "recall-ranking", DocType: "decision", Title: "Recall ranking"},
+		{Slug: "staging-credentials", Template: "reference", Title: "Staging credentials", Private: true},
+		{Slug: "recall-ranking", Template: "decision", Title: "Recall ranking"},
 	})
 
 	var secret, open string

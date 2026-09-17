@@ -44,7 +44,7 @@ func newKnowledgeNewCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !title.Changed() {
 				return core.ErrUsage("missing_title", "a knowledge entry needs a title",
-					`trellis knowledge new --title "Concurrency model" --template decision --source https://example.com`)
+					`trellis knowledge new --title "Concurrency model"`)
 			}
 			fields, err := parseSetFlags(setFlags)
 			if err != nil {
@@ -72,9 +72,9 @@ func newKnowledgeNewCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Var(&title, "title", "entry title")
-	cmd.Flags().Var(&body, "body", "markdown body (default: the template)")
+	cmd.Flags().Var(&body, "body", "markdown body (default: simple header)")
 	cmd.Flags().Var(&summary, "summary", "one line, used as the pinned recap when none is written")
-	cmd.Flags().StringVar(&template, "template", "note", strings.Join(core.Templates(), "|"))
+	cmd.Flags().StringVar(&template, "template", "", strings.Join(core.Templates(), "|")+" (optional)")
 	cmd.Flags().StringVar(&provenance, "provenance", "", "ingestion path: "+strings.Join(core.Provenances(), "|")+" (default authored)")
 	cmd.Flags().StringVar(&board, "board", "", "associate with a board (association, never ownership)")
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "free-form tags")
@@ -228,7 +228,7 @@ func renderKnowledgeList(docs []core.Knowledge) string {
 		} else if d.Private {
 			mark = "private"
 		}
-		fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\n", indent, leaf, d.DocType, d.Provenance, mark, d.Title)
+		fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\n", indent, leaf, d.Template, d.Provenance, mark, d.Title)
 	}
 	w.Flush()
 	return strings.TrimRight(b.String(), "\n")
@@ -236,14 +236,14 @@ func renderKnowledgeList(docs []core.Knowledge) string {
 
 func newKnowledgeLsCmd() *cobra.Command {
 	var thisBoard, cold bool
-	var docTypes, provenances, tags []string
+	var templates, provenances, tags []string
 	cmd := &cobra.Command{
 		Use:   "ls [dir]",
 		Short: "List entries, as a tree grouped by directory",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withBoard(func(app *appCtx) error {
-				filter := core.KnowledgeFilter{DocTypes: docTypes, Provenances: provenances, Tags: tags}
+				filter := core.KnowledgeFilter{Templates: templates, Provenances: provenances, Tags: tags}
 				if thisBoard {
 					filter.BoardID = app.Board.ID
 				}
@@ -273,7 +273,7 @@ func newKnowledgeLsCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&thisBoard, "board-only", false, "this board's entries plus the unscoped ones")
 	cmd.Flags().BoolVar(&cold, "cold", false, "entries nothing has read in 30 days")
-	cmd.Flags().StringSliceVar(&docTypes, "type", nil, "only these doc types: "+strings.Join(core.Templates(), "|"))
+	cmd.Flags().StringSliceVar(&templates, "template", nil, "only these templates: "+strings.Join(core.Templates(), "|"))
 	cmd.Flags().StringSliceVar(&provenances, "provenance", nil, "only these ingestion paths: "+strings.Join(core.Provenances(), "|"))
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "only entries with every one of these tags")
 	return cmd
@@ -328,7 +328,7 @@ func newKnowledgeHealthCmd() *cobra.Command {
 func newKnowledgeEditCmd() *cobra.Command {
 	var body TextValue
 	var sources, tags, labels []string
-	var docType, private string
+	var template, private string
 	var ifVersion int64
 	cmd := &cobra.Command{
 		Use:   "edit <slug>",
@@ -338,9 +338,9 @@ func newKnowledgeEditCmd() *cobra.Command {
 			setSources := cmd.Flags().Changed("source")
 			setTags := cmd.Flags().Changed("tag")
 			setLabels := cmd.Flags().Changed("label")
-			setDocType := cmd.Flags().Changed("type")
+			setTemplate := cmd.Flags().Changed("template")
 			setPrivate := cmd.Flags().Changed("private")
-			if !body.Changed() && !setSources && !setTags && !setLabels && !setDocType && !setPrivate {
+			if !body.Changed() && !setSources && !setTags && !setLabels && !setTemplate && !setPrivate {
 				return core.ErrUsage("missing_body",
 					"--body replaces the whole body; --source replaces the source list",
 					"trellis knowledge edit "+args[0]+" --body @notes.md")
@@ -355,8 +355,8 @@ func newKnowledgeEditCmd() *cobra.Command {
 					edit.Sources = &sources
 				}
 				if setTags {
-					// Filter out empty strings (e.g., from --tag= to clear tags)
-					filtered := make([]string, 0, len(tags))
+					// Filter out empty strings (e.g., from --tag="" to clear tags)
+					filtered := make([]string, 0)
 					for _, t := range tags {
 						if t != "" {
 							filtered = append(filtered, t)
@@ -365,8 +365,8 @@ func newKnowledgeEditCmd() *cobra.Command {
 					edit.Tags = &filtered
 				}
 				if setLabels {
-					// Filter out empty strings (e.g., from --label= to clear labels)
-					filtered := make([]string, 0, len(labels))
+					// Filter out empty strings (e.g., from --label="" to clear labels)
+					filtered := make([]string, 0)
 					for _, l := range labels {
 						if l != "" {
 							filtered = append(filtered, l)
@@ -374,8 +374,8 @@ func newKnowledgeEditCmd() *cobra.Command {
 					}
 					edit.Labels = &filtered
 				}
-				if setDocType {
-					edit.DocType = &docType
+				if setTemplate {
+					edit.Template = &template
 				}
 				if setPrivate {
 					p := private == "true"
@@ -388,7 +388,13 @@ func newKnowledgeEditCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return Emit(cmd, doc, func() string { return "wrote " + doc.Path })
+				return Emit(cmd, doc, func() string {
+					out := "wrote " + doc.Path
+					for _, w := range doc.Warnings {
+						out += "\nwarning: " + w
+					}
+					return out
+				})
 			})
 		},
 	}
@@ -396,7 +402,7 @@ func newKnowledgeEditCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&sources, "source", nil, "replace the source list; repeatable")
 	cmd.Flags().StringArrayVar(&tags, "tag", nil, "replace the tag list; repeatable")
 	cmd.Flags().StringArrayVar(&labels, "label", nil, "replace the label list; repeatable")
-	cmd.Flags().StringVar(&docType, "type", "", "change the template type")
+	cmd.Flags().StringVar(&template, "template", "", "change the template")
 	cmd.Flags().StringVar(&private, "private", "", "mark private (true|false)")
 	cmd.Flags().Int64Var(&ifVersion, "if-version", 0, "the version you read; required (knowledge show --json)")
 	return cmd

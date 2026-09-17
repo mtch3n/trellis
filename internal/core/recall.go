@@ -34,7 +34,7 @@ type RecallOpts struct {
 	// Narrowing to a knowledge dimension drops cards from the result, because
 	// a card carries neither of these and silently keeping them would make a
 	// filtered recall answer a question nobody asked.
-	DocTypes    []string
+	Templates   []string
 	Provenances []string
 
 	// Record writes an `injected` event per returned hit. Off by default so
@@ -151,7 +151,7 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 
 		// summary is the recap fallback: an entry that was never pinned still
 		// has the line its author wrote to describe it.
-		typeClause, typeArgs := inClause("k.doc_type", o.DocTypes)
+		typeClause, typeArgs := inClause("k.template", o.Templates)
 		provClause, provArgs := inClause("k.provenance", o.Provenances)
 		narrowed := typeClause != "" || provClause != ""
 
@@ -165,7 +165,7 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 			       `+docAddressSQL+` AS ref,
 			       k.title,
 			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
-			       k.doc_type AS detail,
+			       k.template AS detail,
 			       COALESCE(NULLIF(k.recap, ''), k.summary) AS recap
 			FROM knowledge k
 			JOIN knowledge_fts ON knowledge_fts.rowid = k.rowid

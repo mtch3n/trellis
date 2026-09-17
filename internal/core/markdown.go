@@ -15,10 +15,10 @@ import (
 // doc — which project, which links, when it was read — lives in the database;
 // these are the fields a human editing the file in Obsidian would expect to own.
 type Frontmatter struct {
-	Title   string `yaml:"title"`
-	Type    string `yaml:"type,omitempty"`
-	Status  string `yaml:"status,omitempty"`
-	Summary string `yaml:"summary,omitempty"`
+	Title    string `yaml:"title"`
+	Template string `yaml:"template,omitempty"`
+	Status   string `yaml:"status,omitempty"`
+	Summary  string `yaml:"summary,omitempty"`
 	// Provenance names the ingestion path, not the author:
 	// authored, prompted or extracted. Empty means unrecorded.
 	Provenance string `yaml:"provenance,omitempty"`

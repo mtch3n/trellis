@@ -71,8 +71,8 @@ func TestProjectEventsComeFromTheFeed(t *testing.T) {
 		}
 		if ev.Kind == "knowledge" && ev.Action == "created" {
 			sawFinding = true
-			if ev.Type != "finding" || ev.Title != "Cache stampede" || ev.Ref != doc.Ref {
-				t.Errorf("knowledge event = %+v, want type, title and ref", ev)
+			if ev.Template != "finding" || ev.Title != "Cache stampede" || ev.Ref != doc.Ref {
+				t.Errorf("knowledge event = %+v, want template, title and ref", ev)
 			}
 		}
 	}

@@ -1,6 +1,9 @@
 package core
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // Error is a user-facing failure. Every message is at most three lines: what is
 // wrong, then a runnable fix.
@@ -33,4 +36,10 @@ func ErrConflict(code, msg, fix string) error {
 
 func ErrPolicy(code, msg, fix string) error {
 	return &Error{Code: code, Msg: msg, Fix: fix, Exit: 5}
+}
+
+// isCode reports whether err is a core error with this code.
+func isCode(err error, code string) bool {
+	e, ok := errors.AsType[*Error](err)
+	return ok && e.Code == code
 }

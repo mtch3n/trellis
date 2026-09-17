@@ -140,14 +140,14 @@ func TestSeedingWritesBuiltinsOnceAndNeverAgain(t *testing.T) {
 	// Deleting a built-in and asking for the directory again must not
 	// bring it back: seeding runs only when the directory itself is
 	// absent.
-	if err := os.Remove(filepath.Join(dir, "note.md")); err != nil {
+	if err := os.Remove(filepath.Join(dir, "decision.md")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.templatesDir(); err != nil {
 		t.Fatalf("templatesDir: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "note.md")); !os.IsNotExist(err) {
-		t.Error("note.md was reseeded after being deleted")
+	if _, err := os.Stat(filepath.Join(dir, "decision.md")); !os.IsNotExist(err) {
+		t.Error("decision.md was reseeded after being deleted")
 	}
 }
 
@@ -160,7 +160,7 @@ func TestSeededTemplatesAllParse(t *testing.T) {
 	}
 	wantEnforce := map[string]string{
 		"decision": "reject", "finding": "reject",
-		"note": "warn", "reference": "warn", "research": "warn", "runbook": "warn",
+		"reference": "warn", "research": "warn", "runbook": "warn",
 	}
 	for _, name := range Templates() {
 		tmpl, err := loadTemplate(dir, name)

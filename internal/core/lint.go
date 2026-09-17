@@ -16,7 +16,7 @@ import (
 
 // LintFinding is one problem with the vault. Lint reports; it never repairs.
 type LintFinding struct {
-	Kind string `json:"kind"` // stub, ambiguous_link, broken_anchor, orphan, wrong_collection, bad_path, missing_artifact, unknown_field, deep_directory, long_directory_name, similar_directory
+	Kind string `json:"kind"` // template_violation, unknown_template, stub, ambiguous_link, broken_anchor, orphan, wrong_collection, bad_path, missing_artifact, unknown_field, deep_directory, long_directory_name, similar_directory
 	Doc  string `json:"doc"`  // the address of the entry that holds the problem
 	Ref  string `json:"ref,omitempty"`
 	Fix  string `json:"fix"`
@@ -42,6 +42,25 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 	targets := linkTargets{}
 	for _, d := range docs {
 		targets[d.ID] = linkTarget{ref: d.Ref, anchors: anchorSet(d.BodyMD)}
+	}
+
+	// A template is read once however many entries use it.
+	templates := map[string]Template{}
+	templateErrs := map[string]error{}
+	templateOf := func(name string) (Template, error) {
+		if t, ok := templates[name]; ok {
+			return t, nil
+		}
+		if err, ok := templateErrs[name]; ok {
+			return Template{}, err
+		}
+		t, err := c.templateNamed(name)
+		if err != nil {
+			templateErrs[name] = err
+			return Template{}, err
+		}
+		templates[name] = t
+		return t, nil
 	}
 
 	err = c.Tx(ctx, func(tx *sqlx.Tx) error {
@@ -93,9 +112,30 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 			if err != nil {
 				return err
 			}
-			fm, _, err := splitDocFile(d.Path, raw)
+			fm, body, err := splitDocFile(d.Path, raw)
 			if err != nil {
 				return err
+			}
+			// A hand edit can break the entry's template; Trellis's own
+			// writes cannot, so this is where that shows.
+			if fm.Template != "" {
+				t, err := templateOf(fm.Template)
+				switch {
+				case isCode(err, "unknown_template"):
+					out = append(out, LintFinding{Kind: "unknown_template", Doc: d.Ref, Ref: fm.Template,
+						Fix: "trellis knowledge edit " + d.Ref + " --template <name>   # or --template \"\" for none"})
+				case err != nil:
+					return err
+				default:
+					problems, err := c.templateProblems(tx, d.ProjectID, t, frontmatterFields(fm), body, true)
+					if err != nil {
+						return err
+					}
+					for _, problem := range problems {
+						out = append(out, LintFinding{Kind: "template_violation", Doc: d.Ref, Ref: problem,
+							Fix: "trellis knowledge edit " + d.Ref + "   # " + t.Name + ": " + problem})
+					}
+				}
 			}
 			var extraKeys []string
 			for k := range fm.Extra {
