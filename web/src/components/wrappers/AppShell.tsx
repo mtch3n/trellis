@@ -19,6 +19,7 @@ import { defaultBoard } from '@/lib/boards'
 import { useLiveStatus } from '@/lib/live-status'
 import { useNavigationGuard } from '@/lib/navigation-guard'
 import { ThemeToggle } from '@/components/wrappers/ThemeToggle'
+import { TrellisMark } from '@/components/wrappers/TrellisMark'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 export type Section = 'overview' | 'board' | 'vault' | 'settings'
@@ -142,8 +143,9 @@ export function AppShell({
         {/* On a narrow screen the project scope stands in for the mark, so every control still fits. */}
         <GuardedLink
           to="/"
-          className={cn('flex items-center text-sm font-semibold text-foreground', projectKey && 'max-sm:hidden')}
+          className={cn('flex items-center gap-2 text-sm font-semibold text-foreground', projectKey && 'max-sm:hidden')}
         >
+          <TrellisMark />
           Trellis
         </GuardedLink>
 

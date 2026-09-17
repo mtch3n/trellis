@@ -1,3 +1,5 @@
+<img src="brand/boards/readme-header.png" alt="Trellis" width="900">
+
 # Trellis
 
 Trellis is a local-first kanban board and vault whose primary caller is an AI agent, not a human at a terminal. It stores boards, cards and entry metadata in a SQLite database and provides a command-line interface for reading, creating, and modifying them.
