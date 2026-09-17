@@ -1,22 +1,13 @@
 package ui
 
 import (
-	"fmt"
-	"os"
 	"testing"
+
+	"github.com/mtch3n/trellis/internal/testhome"
 )
 
-// Tests here build a Core without WithKBRoot, which writes knowledge under
-// the Trellis home. Point that home at a temporary directory so a test run
-// never writes into the user's real ~/.trellis.
-func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "trellis-ui-test-")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	os.Setenv("TRELLIS_HOME", dir)
-	code := m.Run()
-	os.RemoveAll(dir)
-	os.Exit(code)
-}
+// TestMain makes this package's test binary hermetic: see internal/testhome.
+// Tests here build every *core.Core with an explicit root (t.TempDir()), so
+// this is a second line, not the mechanism: a test that forgot the root
+// argument would fail to compile before it ever reached TRELLIS_HOME.
+func TestMain(m *testing.M) { testhome.Main(m) }
