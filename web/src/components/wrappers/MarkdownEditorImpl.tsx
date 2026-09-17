@@ -1,6 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
-import { Editor, rootCtx, defaultValueCtx, editorViewCtx, editorViewOptionsCtx } from '@milkdown/kit/core'
+import {
+  Editor,
+  rootCtx,
+  defaultValueCtx,
+  editorViewCtx,
+  editorViewOptionsCtx,
+  remarkStringifyOptionsCtx,
+} from '@milkdown/kit/core'
 import { commonmark } from '@milkdown/kit/preset/commonmark'
 import { gfm } from '@milkdown/kit/preset/gfm'
 import { history } from '@milkdown/kit/plugin/history'
@@ -28,6 +35,17 @@ import { Textarea } from '@/components/ui/textarea'
  * `getMarkdown` is read on demand rather than on every keystroke, so typing
  * does not re-render the form around it.
  */
+/**
+ * Put wikilinks back the way they were written. The markdown serializer
+ * escapes square brackets, so `[[slug]]` would be saved as `\[\[slug]]`: plain
+ * text, and one link fewer in the vault. Links are how entries find each
+ * other, so the rich view must not quietly unmake them. Escapes inside the
+ * link (an `_` in a slug, the `|` before an alias) are undone too.
+ */
+function restoreWikilinks(markdown: string) {
+  return markdown.replace(/\\\[\\\[((?:\\.|[^\]\n])+?)\\?\]\\?\]/g, (_, inner: string) => `[[${inner.replace(/\\(.)/g, '$1')}]]`)
+}
+
 export function MarkdownEditorImpl({
   value,
   source,
@@ -87,7 +105,11 @@ export function MarkdownEditorImpl({
             'data-placeholder': placeholder ?? '',
           },
         }))
-        ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => { latest.current = markdown })
+        // Write lists and rules the way the files and templates already do.
+        // The serializer's defaults, `*` for both, would rewrite every one
+        // on the first rich-text save.
+        ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: '-' as const, rule: '-' as const }))
+        ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => { latest.current = restoreWikilinks(markdown) })
       })
       .use(commonmark)
       .use(gfm)

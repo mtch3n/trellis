@@ -3,10 +3,11 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Maximize2, Pencil, X } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import type { HistoryEvent } from '@/components/wrappers/HistoryList'
+import type { CardComment, CardEvent } from '@/components/wrappers/CardTimeline'
 import { IconButton } from '@/components/wrappers/IconButton'
 import { EditActions } from '@/components/wrappers/EditInPlace'
 import { CardMenu } from '@/components/wrappers/CardMenu'
+import type { CardOption } from '@/components/wrappers/RelationsEditor'
 import {
   CardView,
   type CardDraft,
@@ -14,7 +15,6 @@ import {
   type ChipChange,
   type CardInfo,
   type CardMode,
-  type CardNote,
 } from '@/components/wrappers/CardView'
 import { shortActor } from '@/lib/cards'
 
@@ -34,8 +34,8 @@ import { shortActor } from '@/lib/cards'
 export function CardDialog({
   open,
   card,
-  notes,
-  history,
+  comments,
+  events,
   columns,
   currentColumn,
   startIn = 'read',
@@ -51,11 +51,15 @@ export function CardDialog({
   onSteal,
   onDelete,
   me,
+  cardOptions,
+  onRelate,
+  onUnrelate,
+  onComment,
 }: {
   open: boolean
   card: CardInfo | null
-  notes: CardNote[]
-  history: HistoryEvent[]
+  comments: CardComment[]
+  events: CardEvent[]
   columns: string[]
   currentColumn?: string
   startIn?: CardMode
@@ -74,6 +78,11 @@ export function CardDialog({
   onDelete: () => Promise<boolean>
   /** Who the server writes as; a card this person holds stays editable. */
   me?: string
+  /** The board's cards, to relate this one to. */
+  cardOptions: CardOption[]
+  onRelate: (relation: { rel: string; ref: string }) => Promise<boolean>
+  onUnrelate: (relation: { rel: string; ref: string }) => Promise<void>
+  onComment: (body: string) => Promise<boolean>
 }) {
   const [mode, setMode] = useState<CardMode>(startIn)
   const [source, setSource] = useState(false)
@@ -165,8 +174,8 @@ export function CardDialog({
         <div ref={scroller} tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto px-10 pt-2 pb-10 outline-none">
           <CardView
             card={card}
-            notes={notes}
-            history={history}
+            comments={comments}
+            events={events}
             columns={columns}
             currentColumn={currentColumn}
             mode={mode}
@@ -181,6 +190,11 @@ export function CardDialog({
             onLabel={onLabel}
             onTag={onTag}
             me={me}
+            base={`/p/${projectKey}`}
+            cardOptions={cardOptions}
+            onRelate={onRelate}
+            onUnrelate={onUnrelate}
+            onComment={onComment}
             onSteal={onSteal}
           />
           {/* A new card is a form to finish, so its commit sits at its end. */}

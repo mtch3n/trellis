@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Pencil } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -21,13 +21,16 @@ import {
   type CardEdit,
   type CardInfo,
   type CardMode,
-  type CardNote,
 } from '@/components/wrappers/CardView'
 import { PRIORITIES, PRIORITY_NUMBERS, shortActor } from '@/lib/cards'
-import type { HistoryEvent } from '@/components/wrappers/HistoryList'
+import type { CardComment, CardEvent } from '@/components/wrappers/CardTimeline'
+import { readError } from '@/lib/api'
 
 interface ColumnCardsInfo { name: string; cards: CardInfo[] }
-interface CardDetail { card: CardInfo; notes: CardNote[]; activity?: HistoryEvent[] }
+interface CardDetail { card: CardInfo; comments?: CardComment[]; activity?: CardEvent[]; relations?: CardInfo['relations'] }
+
+/** The detail carries a card's relations beside it; the views read them on the card. */
+const withRelations = (detail: CardDetail): CardInfo => ({ ...detail.card, relations: detail.relations ?? [] })
 
 function message(err: unknown) {
   return err instanceof Error ? err.message : 'Unknown error'
@@ -41,9 +44,13 @@ function message(err: unknown) {
 export function CardPage() {
   const { projectKey, cardRef } = useParams<{ projectKey: string; cardRef: string }>()
   const [card, setCard] = useState<CardInfo | null>(null)
-  const [notes, setNotes] = useState<CardNote[]>([])
-  const [history, setHistory] = useState<HistoryEvent[]>([])
+  const [comments, setComments] = useState<CardComment[]>([])
+  const [events, setEvents] = useState<CardEvent[]>([])
   const [columns, setColumns] = useState<ColumnCardsInfo[]>([])
+  const cardOptions = useMemo(
+    () => columns.flatMap((column) => column.cards.map((item) => ({ ref: item.ref, title: item.title }))),
+    [columns],
+  )
   const [board, setBoard] = useState<string | null>(null)
   const [mode, setMode] = useState<CardMode>('read')
   const [source, setSource] = useState(false)
@@ -62,11 +69,11 @@ export function CardPage() {
       setBoard(slug)
 
       const detail = await fetch(`/api/p/${projectKey}/cards/${encodeURIComponent(cardRef)}`, { signal })
-      if (!detail.ok) throw new Error(await detail.text())
+      if (!detail.ok) throw new Error(await readError(detail))
       const data = (await detail.json()) as CardDetail
-      setCard(data.card)
-      setNotes(data.notes ?? [])
-      setHistory(data.activity ?? [])
+      setCard(withRelations(data))
+      setComments(data.comments ?? [])
+      setEvents(data.activity ?? [])
       setError(null)
 
       if (slug) {
@@ -92,7 +99,7 @@ export function CardPage() {
     if (!card || !board) return
     setSaving(true)
     try {
-      // Only what changed is sent, so the history records edits, not saves.
+      // Only what changed is sent, so the timeline records edits, not saves.
       const changes: { title?: string; body?: string } = {}
       if (edit.title !== card.title) changes.title = edit.title
       if (edit.body !== card.body) changes.body = edit.body
@@ -104,12 +111,12 @@ export function CardPage() {
             body: JSON.stringify({ ...changes, if_version: card.version }),
           })
       if (response && !response.ok) {
-        const text = await response.text()
+        const text = await readError(response)
         await load()
         toast.add({ title: 'Card changed underneath you', description: `${text} It has been reloaded.`, type: 'error' })
         return
       }
-      // Reload rather than patch in the response, so the history shows the edit.
+      // Reload rather than patch in the response, so the timeline shows the edit.
       await load()
       changeMode('read')
       toast.add({ title: `Saved ${card.ref}`, type: 'success' })
@@ -126,7 +133,7 @@ export function CardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ column, before: '' }),
       })
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) throw new Error(await readError(response))
       await load()
     } catch (err) {
       toast.add({ title: 'Could not move card', description: message(err), type: 'error' })
@@ -158,6 +165,62 @@ export function CardPage() {
   }, [projectKey])
 
   /** One label or tag added or removed, applied at once like status and priority. */
+  // Relating applies at once. The server answers with the new relations, but
+  // the whole detail is read back so the card's version stays current too.
+  // A comment is posted and the detail read back, so it lands in the timeline
+  // with everything else that happened.
+  const comment = async (body: string) => {
+    if (!card || !board) return false
+    const ref = card.ref
+    try {
+      const response = await fetch(`${base}/cards/${encodeURIComponent(ref)}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body }),
+      })
+      if (!response.ok) throw new Error(await readError(response))
+      await load()
+      return true
+    } catch (err) {
+      toast.add({ title: `Could not comment on ${ref}`, description: message(err), type: 'error' })
+      return false
+    }
+  }
+
+  const relate = async (relation: { rel: string; ref: string }) => {
+    if (!card || !board) return false
+    const ref = card.ref
+    try {
+      const response = await fetch(`${base}/cards/${encodeURIComponent(ref)}/relations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(relation),
+      })
+      if (!response.ok) throw new Error(await readError(response))
+      await load()
+      return true
+    } catch (err) {
+      toast.add({ title: `Could not relate ${ref} to ${relation.ref}`, description: message(err), type: 'error' })
+      return false
+    }
+  }
+
+  const unrelate = async (relation: { rel: string; ref: string }) => {
+    if (!card || !board) return
+    const ref = card.ref
+    try {
+      const response = await fetch(
+        `${base}/cards/${encodeURIComponent(ref)}/relations/${encodeURIComponent(relation.rel)}/${encodeURIComponent(relation.ref)}`,
+        { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+      )
+      if (!response.ok) throw new Error(await readError(response))
+    } catch (err) {
+      toast.add({ title: `Could not remove the relation to ${relation.ref}`, description: message(err), type: 'error' })
+    } finally {
+      await load()
+    }
+  }
+
   const chip = (field: 'labels' | 'tags') => async (change: { add?: string; remove?: string }) => {
     if (!card || !board) return
     const patch = change.add ? { [`add_${field}`]: [change.add] } : { [`remove_${field}`]: [change.remove] }
@@ -167,7 +230,7 @@ export function CardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
       })
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) throw new Error(await readError(response))
     } catch (err) {
       toast.add({ title: `Could not change the ${field}`, description: message(err), type: 'error' })
     } finally {
@@ -185,7 +248,7 @@ export function CardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ priority: PRIORITY_NUMBERS[priority as (typeof PRIORITIES)[number]] }),
       })
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) throw new Error(await readError(response))
     } catch (err) {
       toast.add({ title: 'Could not change the priority', description: message(err), type: 'error' })
     } finally {
@@ -202,7 +265,7 @@ export function CardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason }),
       })
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) throw new Error(await readError(response))
       await load()
     } catch (err) {
       toast.add({ title: 'Could not take the lease', description: message(err), type: 'error' })
@@ -219,7 +282,7 @@ export function CardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
       })
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) throw new Error(await readError(response))
       toast.add({ title: `Deleted ${card.ref}`, type: 'success' })
       navigate(back, { replace: true })
       return true
@@ -288,8 +351,8 @@ export function CardPage() {
           <div className="mt-6">
             <CardView
               card={card}
-              notes={notes}
-              history={history}
+              comments={comments}
+              events={events}
               columns={columns.map((column) => column.name)}
               currentColumn={currentColumn}
               mode={mode}
@@ -305,6 +368,11 @@ export function CardPage() {
               onLabel={chip('labels')}
               onTag={chip('tags')}
               me={me}
+              base={`/p/${projectKey}`}
+              cardOptions={cardOptions}
+              onRelate={relate}
+              onUnrelate={unrelate}
+              onComment={comment}
               onSteal={steal}
             />
           </div>

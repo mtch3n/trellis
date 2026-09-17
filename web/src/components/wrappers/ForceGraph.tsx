@@ -14,6 +14,7 @@ import {
 import { select } from 'd3-selection'
 import 'd3-transition'
 import { zoom, zoomIdentity, zoomTransform, type ZoomBehavior, type ZoomTransform } from 'd3-zoom'
+import { templateLabel } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { GraphNode, KnowledgeGraph } from '@/lib/knowledge-graph'
 
@@ -358,7 +359,7 @@ export const ForceGraph = forwardRef<ForceGraphHandle, {
                 role={node.stub ? 'img' : 'link'}
                 tabIndex={node.stub ? undefined : 0}
                 aria-current={active ? 'page' : undefined}
-                aria-label={node.stub ? `Stub: ${node.slug}` : `${node.title}, ${node.kind}, ${node.degree} links`}
+                aria-label={node.stub ? `Stub: ${node.slug}` : `${node.title}, ${templateLabel(node.template)}, ${node.degree} links`}
                 onPointerEnter={() => { if (!dragging.current) light(node.id) }}
                 onPointerLeave={() => { if (!dragging.current) light(null) }}
                 onFocus={() => light(node.id)}

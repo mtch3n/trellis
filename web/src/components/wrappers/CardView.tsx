@@ -6,13 +6,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator'
 import { MarkdownContent } from '@/components/wrappers/MarkdownContent'
 import { ChipEditor } from '@/components/wrappers/ChipEditor'
+import { RelationsEditor, type CardOption, type Relation } from '@/components/wrappers/RelationsEditor'
 import { EditForm, InPlaceText } from '@/components/wrappers/EditInPlace'
 import { Lamp } from '@/components/wrappers/Lamp'
 import { MarkdownEditor } from '@/components/wrappers/MarkdownEditor'
-import { HistoryList, type HistoryEvent } from '@/components/wrappers/HistoryList'
+import { CommentBox } from '@/components/wrappers/CommentBox'
+import { CardTimeline, type CardComment, type CardEvent } from '@/components/wrappers/CardTimeline'
 import { MetaFacts, MetaGroup, MetaPanel } from '@/components/wrappers/MetaPanel'
 import { sentence } from '@/lib/format'
-import { meaningfulEvents } from '@/lib/history'
+import { meaningfulEvents } from '@/lib/card-events'
 import { PRIORITIES, shortActor } from '@/lib/cards'
 
 export interface CardInfo {
@@ -27,9 +29,9 @@ export interface CardInfo {
   updated_at?: number
   labels?: string[]
   tags?: string[]
+  relations?: Relation[]
 }
 
-export interface CardNote { id: string; actor: string; body: string; created_at: number }
 
 const BODY_PLACEHOLDER = 'Context, or how you will know it is done'
 
@@ -77,15 +79,15 @@ const stamp = (ms: number) => new Date(ms).toLocaleString(undefined, { day: 'num
  * Editing happens in place and covers the words only. Reading, the title and
  * body show a faint wash when pointed at, and a click on either starts
  * editing it. Editing, they become fields where they stand, in the same type,
- * and notes and history stay put. The facts column has its own logic and
+ * and the Timeline stays put. The facts column has its own logic and
  * ignores Edit: status and priority apply the moment they change. Save,
  * Cancel and the markdown toggle belong to the parent's action row, in the
  * place Edit had, so starting an edit moves nothing.
  */
 export function CardView({
   card,
-  notes,
-  history = [],
+  comments,
+  events = [],
   columns,
   currentColumn,
   mode,
@@ -102,11 +104,17 @@ export function CardView({
   onTag,
   onSteal,
   me,
+  base,
+  cardOptions,
+  onRelate,
+  onUnrelate,
+  onComment,
 }: {
   card: CardInfo | null
-  notes: CardNote[]
+  /** The card's comments, oldest first, as the card detail returns them. */
+  comments: CardComment[]
   /** The card's event log, newest first, as the card detail returns it. */
-  history?: HistoryEvent[]
+  events?: CardEvent[]
   columns: string[]
   currentColumn?: string
   mode: CardMode
@@ -126,6 +134,15 @@ export function CardView({
   onSteal: (reason: string) => Promise<void>
   /** Who the server writes as, so a lease this person holds reads as theirs. */
   me?: string
+  /** The project's path in the app, for links to related cards. */
+  base: string
+  /** The board's cards, to relate this one to. */
+  cardOptions: CardOption[]
+  /** Resolves true when the relation was recorded. */
+  onRelate: (relation: { rel: string; ref: string }) => Promise<boolean>
+  onUnrelate: (relation: { rel: string; ref: string }) => Promise<void>
+  /** Resolves true when the comment was posted. */
+  onComment: (body: string) => Promise<boolean>
 }) {
   // Priority and status are only drafted for a card that does not exist yet.
   const initial = () => ({ title: card?.title ?? '', priority: 'normal', column: columns[0] ?? '', labels: [] as string[], tags: [] as string[] })
@@ -152,7 +169,7 @@ export function CardView({
   const mine = Boolean(card?.owner) && card?.owner === me
   const locked = Boolean(card?.owner) && !mine
   const holder = shortActor(card?.owner)
-  const changes = meaningfulEvents(history)
+  const changes = meaningfulEvents(events)
   const editing = mode !== 'read'
   const creating = mode === 'create'
   // A held card's status and priority wait for its lease.
@@ -239,33 +256,19 @@ export function CardView({
       <div className="min-w-0">
         {editing ? <EditForm id="card-form" onSubmit={submit}>{content}</EditForm> : content}
 
-        {notes.length > 0 && (
-          <section className="mt-10">
-            <h2 className="text-heading">Notes</h2>
-            <ul className="mt-4 flex flex-col gap-6">
-              {notes.map((note) => (
-                <li key={note.id}>
-                  <p className="flex items-baseline gap-3 text-xs text-muted-foreground">
-                    <span className="text-meta">{shortActor(note.actor) ?? note.actor}</span>
-                    <span>{new Date(note.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                  </p>
-                  <div className="mt-2">
-                    <MarkdownContent content={note.body} />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
-        {changes.length > 0 && (
+        {/* One timeline: what was said and what changed, in the order it
+            happened, with the box for saying something at its top. */}
+        {!creating && card && (
           <section className="mt-10">
             <h2 className="flex items-baseline gap-2 text-heading">
-              History
-              <span className="text-xs font-normal text-muted-foreground">{changes.length}</span>
+              Timeline
+              <span className="text-xs font-normal text-muted-foreground">{changes.length + comments.length}</span>
             </h2>
-            <div className="mt-2">
-              <HistoryList events={changes} />
+            <div className="mt-4">
+              <CommentBox onSubmit={onComment} />
+            </div>
+            <div className="mt-6">
+              <CardTimeline events={changes} comments={comments} />
             </div>
           </section>
         )}
@@ -358,12 +361,25 @@ export function CardView({
         </MetaGroup>
 
         {!creating && card && (
+          <MetaGroup label="Relations" count={card.relations?.length || undefined}>
+            <RelationsEditor
+              relations={card.relations ?? []}
+              cards={cardOptions.filter((option) => option.ref !== card.ref)}
+              base={base}
+              disabledReason={fixed ? `Held by ${holder}. Take the lease to change its relations.` : undefined}
+              onAdd={onRelate}
+              onRemove={onUnrelate}
+            />
+          </MetaGroup>
+        )}
+
+        {!creating && card && (
           <MetaGroup label="Details">
             <MetaFacts
               facts={[
                 { label: 'Ref', value: card.ref, mono: true },
                 { label: 'Version', value: `v${card.version}` },
-                { label: 'Notes', value: String(notes.length) },
+                { label: 'Comments', value: String(comments.length) },
               ]}
             />
           </MetaGroup>

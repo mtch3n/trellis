@@ -37,14 +37,18 @@ import { Lamp } from '@/components/wrappers/Lamp'
 import { PageHeader } from '@/components/wrappers/PageHeader'
 import { useLiveStatus } from '@/lib/live-status'
 import { CardDialog } from '@/components/wrappers/CardDialog'
-import { type CardInfo, type CardNote } from '@/components/wrappers/CardView'
+import { type CardInfo } from '@/components/wrappers/CardView'
 import { PRIORITIES, PRIORITY_NUMBERS, shortActor } from '@/lib/cards'
-import type { HistoryEvent } from '@/components/wrappers/HistoryList'
+import type { CardComment, CardEvent } from '@/components/wrappers/CardTimeline'
 import { sentence } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { readError } from '@/lib/api'
 
 interface ColumnCardsInfo { name: string; cards: CardInfo[] }
-interface CardDetail { card: CardInfo; notes: CardNote[]; activity?: HistoryEvent[] }
+interface CardDetail { card: CardInfo; comments?: CardComment[]; activity?: CardEvent[]; relations?: CardInfo['relations'] }
+
+/** The detail carries a card's relations beside it; the views read them on the card. */
+const withRelations = (detail: CardDetail): CardInfo => ({ ...detail.card, relations: detail.relations ?? [] })
 /** Column name to the refs in it, in order: the board as the drag sees it. */
 type Layout = Record<string, string[]>
 
@@ -113,12 +117,16 @@ const DROP: DropAnimation = {
 export function BoardPage() {
   const { projectKey, boardSlug } = useParams<{ projectKey: string; boardSlug: string }>()
   const [columns, setColumns] = useState<ColumnCardsInfo[]>([])
+  const cardOptions = useMemo(
+    () => columns.flatMap((column) => column.cards.map((card) => ({ ref: card.ref, title: card.title }))),
+    [columns],
+  )
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState<CardInfo | null>(null)
   const [creating, setCreating] = useState(false)
-  const [notes, setNotes] = useState<CardNote[]>([])
-  const [history, setHistory] = useState<HistoryEvent[]>([])
+  const [comments, setComments] = useState<CardComment[]>([])
+  const [events, setEvents] = useState<CardEvent[]>([])
   const [saving, setSaving] = useState(false)
   const [labelOptions, setLabelOptions] = useState<string[]>([])
   const [view, setView] = useState('board')
@@ -137,7 +145,7 @@ export function BoardPage() {
     if (!projectKey || !boardSlug) return
     try {
       const response = await fetch(`${base}/cards`, { signal })
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) throw new Error(await readError(response))
       setColumns(await response.json())
       setError(null)
     } catch (err) {
@@ -220,17 +228,17 @@ export function BoardPage() {
 
   const openCard = async (card: CardInfo) => {
     setOpen(card)
-    setNotes([])
-    setHistory([])
+    setComments([])
+    setEvents([])
     try {
       const response = await fetch(`${base}/cards/${encodeURIComponent(card.ref)}`)
       if (response.ok) {
         const detail = (await response.json()) as CardDetail
-        setNotes(detail.notes ?? [])
-        setHistory(detail.activity ?? [])
+        setComments(detail.comments ?? [])
+        setEvents(detail.activity ?? [])
       }
     } catch {
-      /* the card reads fine without its notes */
+      /* the card reads fine without its comments */
     }
   }
 
@@ -240,9 +248,9 @@ export function BoardPage() {
     const detail = (await response.json()) as CardDetail
     // A move or a priority change bumps the version, and the next save of
     // the words has to send the new one. Only the card still open is replaced.
-    setOpen((current) => (current?.ref === ref ? detail.card : current))
-    setNotes(detail.notes ?? [])
-    setHistory(detail.activity ?? [])
+    setOpen((current) => (current?.ref === ref ? withRelations(detail) : current))
+    setComments(detail.comments ?? [])
+    setEvents(detail.activity ?? [])
   }
 
   // A lease this person holds is theirs to edit, so the page needs to know
@@ -270,6 +278,62 @@ export function BoardPage() {
   }, [projectKey])
 
   /** One label or tag added or removed, applied at once like status and priority. */
+  // Relating applies at once. The server answers with the new relations, but
+  // the whole detail is read back so the card's version stays current too.
+  // A comment is posted and the detail read back, so it lands in the timeline
+  // with everything else that happened.
+  const comment = async (body: string) => {
+    if (!open) return false
+    const ref = open.ref
+    try {
+      const response = await fetch(`${base}/cards/${encodeURIComponent(ref)}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body }),
+      })
+      if (!response.ok) throw new Error(await readError(response))
+      await refreshDetail(ref)
+      return true
+    } catch (err) {
+      toast.add({ title: `Could not comment on ${ref}`, description: message(err), type: 'error' })
+      return false
+    }
+  }
+
+  const relate = async (relation: { rel: string; ref: string }) => {
+    if (!open) return false
+    const ref = open.ref
+    try {
+      const response = await fetch(`${base}/cards/${encodeURIComponent(ref)}/relations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(relation),
+      })
+      if (!response.ok) throw new Error(await readError(response))
+      await refreshDetail(ref)
+      return true
+    } catch (err) {
+      toast.add({ title: `Could not relate ${ref} to ${relation.ref}`, description: message(err), type: 'error' })
+      return false
+    }
+  }
+
+  const unrelate = async (relation: { rel: string; ref: string }) => {
+    if (!open) return
+    const ref = open.ref
+    try {
+      const response = await fetch(
+        `${base}/cards/${encodeURIComponent(ref)}/relations/${encodeURIComponent(relation.rel)}/${encodeURIComponent(relation.ref)}`,
+        { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+      )
+      if (!response.ok) throw new Error(await readError(response))
+    } catch (err) {
+      toast.add({ title: `Could not remove the relation to ${relation.ref}`, description: message(err), type: 'error' })
+    } finally {
+      await refreshDetail(ref)
+    }
+  }
+
   const chip = (field: 'labels' | 'tags') => async (change: { add?: string; remove?: string }) => {
     if (!open) return
     const ref = open.ref
@@ -280,7 +344,7 @@ export function BoardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
       })
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) throw new Error(await readError(response))
     } catch (err) {
       toast.add({ title: `Could not change the ${field} of ${ref}`, description: message(err), type: 'error' })
     } finally {
@@ -296,7 +360,7 @@ export function BoardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...draft, priority: PRIORITY_NUMBERS[draft.priority as (typeof PRIORITIES)[number]] }),
       })
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) throw new Error(await readError(response))
       setCreating(false)
       await loadBoard()
     } catch (err) {
@@ -309,7 +373,7 @@ export function BoardPage() {
     if (!open) return false
     setSaving(true)
     try {
-      // Only what changed is sent, so the history records edits, not saves.
+      // Only what changed is sent, so the timeline records edits, not saves.
       const changes = changedFields(open, edit)
       let saved = open
       const response = Object.keys(changes).length === 0
@@ -320,13 +384,13 @@ export function BoardPage() {
             body: JSON.stringify({ ...changes, if_version: open.version }),
           })
       if (response && !response.ok) {
-        const text = await response.text()
+        const text = await readError(response)
         const refreshed = await fetch(`${base}/cards/${encodeURIComponent(open.ref)}`)
         if (refreshed.ok) {
           const detail = (await refreshed.json()) as CardDetail
-          setOpen(detail.card)
-          setNotes(detail.notes ?? [])
-          setHistory(detail.activity ?? [])
+          setOpen(withRelations(detail))
+          setComments(detail.comments ?? [])
+          setEvents(detail.activity ?? [])
         }
         toast.add({ title: 'Card changed underneath you', description: `${text} It has been reloaded.`, type: 'error' })
         return false
@@ -353,7 +417,7 @@ export function BoardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ priority: PRIORITY_NUMBERS[priority as (typeof PRIORITIES)[number]] }),
       })
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) throw new Error(await readError(response))
     } catch (err) {
       toast.add({ title: `Could not change the priority of ${ref}`, description: message(err), type: 'error' })
     } finally {
@@ -369,7 +433,7 @@ export function BoardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ column, before }),
       })
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) throw new Error(await readError(response))
     } catch (err) {
       toast.add({ title: `Could not move ${ref}`, description: message(err), type: 'error' })
     } finally {
@@ -385,11 +449,11 @@ export function BoardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
       })
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) throw new Error(await readError(response))
       toast.add({ title: `Deleted ${open.ref}`, type: 'success' })
       setOpen(null)
-      setNotes([])
-    setHistory([])
+      setComments([])
+    setEvents([])
       await loadBoard()
       return true
     } catch (err) {
@@ -407,14 +471,14 @@ export function BoardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason }),
       })
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) throw new Error(await readError(response))
       await loadBoard()
       const refreshed = await fetch(`${base}/cards/${encodeURIComponent(open.ref)}`)
       if (refreshed.ok) {
         const detail = (await refreshed.json()) as CardDetail
-        setOpen(detail.card)
-        setNotes(detail.notes ?? [])
-        setHistory(detail.activity ?? [])
+        setOpen(withRelations(detail))
+        setComments(detail.comments ?? [])
+        setEvents(detail.activity ?? [])
       }
     } catch (err) {
       toast.add({ title: 'Could not take the lease', description: message(err), type: 'error' })
@@ -637,13 +701,13 @@ export function BoardPage() {
       <CardDialog
         open={creating || open !== null}
         card={creating ? null : open}
-        notes={creating ? [] : notes}
-        history={creating ? [] : history}
+        comments={creating ? [] : comments}
+        events={creating ? [] : events}
         columns={columnNames}
         currentColumn={openColumn}
         startIn={creating ? 'create' : 'read'}
         saving={saving}
-        onOpenChange={(next) => { if (!next) { setCreating(false); setOpen(null); setNotes([]); setHistory([]) } }}
+        onOpenChange={(next) => { if (!next) { setCreating(false); setOpen(null); setComments([]); setEvents([]) } }}
         onSave={saveCard}
         onCreate={createCard}
         onMove={(column) => (open ? moveCard(open.ref, column).then(() => refreshDetail(open.ref)) : Promise.resolve())}
@@ -652,6 +716,10 @@ export function BoardPage() {
         onLabel={chip('labels')}
         onTag={chip('tags')}
         me={me}
+        cardOptions={cardOptions}
+        onRelate={relate}
+        onUnrelate={unrelate}
+        onComment={comment}
         onSteal={stealLease}
         onDelete={deleteCard}
       />
@@ -825,11 +893,14 @@ function CardTile({
       title={locked ? `Held by ${actor}. Take the lease to move it.` : undefined}
       {...handlers}
       className={cn(
-        'h-auto w-full flex-col items-stretch justify-start gap-0 border-border bg-card p-3 text-left whitespace-normal hover:border-rule-strong hover:bg-card active:not-aria-[haspopup]:translate-y-0',
+        // No outline: a tile sits on its column by its shadow. The background
+        // runs under the transparent border, so no hairline of column shows
+        // between the card and its shadow.
+        'h-auto w-full flex-col items-stretch justify-start gap-0 bg-tile bg-clip-border p-3 text-left whitespace-normal shadow-tile hover:bg-tile hover:shadow-tile-raised active:not-aria-[haspopup]:translate-y-0',
         locked ? 'cursor-pointer' : 'cursor-grab',
-        selected && 'border-foreground hover:border-foreground',
-        placeholder && 'border-dashed border-rule-strong bg-transparent hover:bg-transparent *:invisible',
-        lifted && 'scale-102 rotate-1 cursor-grabbing border-rule-strong shadow-lift',
+        selected && 'border-foreground',
+        placeholder && 'border-dashed border-rule-strong bg-transparent shadow-none hover:bg-transparent hover:shadow-none *:invisible',
+        lifted && 'scale-102 rotate-1 cursor-grabbing shadow-lift hover:shadow-lift',
         refused && 'animate-refuse',
       )}
     >

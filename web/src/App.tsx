@@ -7,7 +7,7 @@ import { KnowledgePage } from './pages/KnowledgePage'
 import { OverviewPage } from './pages/OverviewPage'
 import { CardPage } from './pages/CardPage'
 import { SearchPage } from './pages/SearchPage'
-import { ActivityPage } from './pages/ActivityPage'
+import { EventLogPage } from './pages/EventLogPage'
 import { Toaster } from '@/components/ui/toast'
 import { AppShell, type Section } from '@/components/wrappers/AppShell'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
@@ -58,7 +58,7 @@ function App() {
         />
 
         <Route path="/search" element={<AppShell><SearchPage /></AppShell>} />
-        <Route path="/activity" element={<AppShell><ActivityPage /></AppShell>} />
+        <Route path="/event-log" element={<AppShell><EventLogPage /></AppShell>} />
 
         <Route
           path="*"

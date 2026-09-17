@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import { NavLink } from 'react-router-dom'
-import { ArrowUpDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Lock, Network, Search } from 'lucide-react'
+import { ArrowUpDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, FilePlus, Lock, Network, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
@@ -29,6 +29,7 @@ import {
   GLOBAL_SCOPE,
   ancestorsOf,
   buildVaultTree,
+  folderDir,
   folderPaths,
   type TreeFolder,
   type TreeNode,
@@ -63,6 +64,9 @@ function stored<T>(key: string, fallback: T, parse: (raw: string) => T): T {
  * and the folders around the open entry open themselves when it changes. The
  * arrow keys walk the tree. The graph docks at its foot, passed in as `dock`.
  *
+ * New entries start from the toolbar, at the project's top level, or from a
+ * project folder's own row, inside it.
+ *
  * The selection is one surface that slides to the open row, so moving
  * between entries reads as moving, not as one row blinking off and another on.
  */
@@ -73,6 +77,7 @@ export function KnowledgeNav({
   activeId,
   dock,
   onOpenGraph,
+  onCreate,
 }: {
   entries: KnowledgeEntry[]
   vaultCount: number
@@ -81,6 +86,8 @@ export function KnowledgeNav({
   dock: ReactNode
   /** Below the dock's breakpoint the graph is reached from the toolbar. */
   onOpenGraph: () => void
+  /** Start a new entry in a project folder; "" is the top level. */
+  onCreate: (dir: string) => void
 }) {
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState<TreeSort>(() =>
@@ -106,7 +113,7 @@ export function KnowledgeNav({
           (entry) =>
             entry.title.toLowerCase().includes(needle) ||
             entry.slug.toLowerCase().includes(needle) ||
-            (entry.type ?? '').toLowerCase().includes(needle),
+            (entry.template ?? '').toLowerCase().includes(needle),
         )
       : entries
     return buildVaultTree(matching, { projectKey, sort })
@@ -181,6 +188,9 @@ export function KnowledgeNav({
             onChange={(event) => setFilter(event.target.value)}
           />
         </InputGroup>
+        <IconButton label="New entry" onClick={() => onCreate('')}>
+          <FilePlus />
+        </IconButton>
         <SortMenu sort={sort} onSort={setSort} />
         <IconButton
           label={allClosed ? 'Expand all' : 'Collapse all'}
@@ -212,6 +222,10 @@ export function KnowledgeNav({
                 activeId={activeId}
                 isOpen={(path) => filtering || !closed.has(path)}
                 onOpenChange={setOpen}
+                createIn={(path) => {
+                  const dir = folderDir(path, projectKey)
+                  return dir === null ? undefined : () => onCreate(dir)
+                }}
                 empty={
                   filtering
                     ? 'No match'
@@ -307,6 +321,7 @@ function Folder({
   activeId,
   isOpen,
   onOpenChange,
+  createIn,
   empty,
 }: {
   folder: TreeFolder
@@ -315,31 +330,58 @@ function Folder({
   activeId?: string
   isOpen: (path: string) => boolean
   onOpenChange: (path: string, open: boolean) => void
+  /** How to start an entry in a folder, where one can be started. */
+  createIn: (path: string) => (() => void) | undefined
   empty?: string
 }) {
+  const create = createIn(folder.path)
   return (
     <Collapsible
       open={isOpen(folder.path)}
       onOpenChange={(open) => onOpenChange(folder.path, open)}
       render={<li />}
     >
-      <CollapsibleTrigger
-        data-tree-row
-        render={
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-full justify-start gap-1.5 px-2 font-normal text-foreground/85 hover:text-foreground aria-expanded:bg-transparent aria-expanded:hover:bg-muted"
+      {/* The new-entry button sits over the count, beside the row rather
+          than in it, because a button cannot hold another. */}
+      <div className="group/folder relative">
+        <CollapsibleTrigger
+          data-tree-row
+          render={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-full justify-start gap-1.5 px-2 font-normal text-foreground/85 hover:text-foreground aria-expanded:bg-transparent aria-expanded:hover:bg-muted"
+            />
+          }
+        >
+          <ChevronRight
+            data-icon="inline-start"
+            className="text-muted-foreground transition-transform duration-200 ease-settle group-aria-expanded/button:rotate-90"
           />
-        }
-      >
-        <ChevronRight
-          data-icon="inline-start"
-          className="text-muted-foreground transition-transform duration-200 ease-settle group-aria-expanded/button:rotate-90"
-        />
-        <span className={cn('min-w-0 truncate', depth === 0 && 'font-medium')}>{folder.name}</span>
-        <span className="ml-auto text-xs text-muted-foreground">{folder.count}</span>
-      </CollapsibleTrigger>
+          <span className={cn('min-w-0 truncate', depth === 0 && 'font-medium')}>{folder.name}</span>
+          <span
+            className={cn(
+              'ml-auto text-xs text-muted-foreground',
+              create && 'group-hover/folder:opacity-0 pointer-coarse:opacity-0',
+            )}
+          >
+            {folder.count}
+          </span>
+        </CollapsibleTrigger>
+        {create && (
+          <IconButton
+            label={`New entry in ${folder.name}`}
+            size="icon-xs"
+            side="right"
+            // Opaque, so a button shown by keyboard focus covers the count. A
+            // touch screen cannot point, so there it is always shown.
+            className="absolute top-0.5 right-1 bg-muted opacity-0 group-hover/folder:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+            onClick={create}
+          >
+            <FilePlus />
+          </IconButton>
+        )}
+      </div>
 
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-all duration-200 ease-settle data-ending-style:h-0 data-starting-style:h-0">
         {folder.children.length === 0 ? (
@@ -356,6 +398,7 @@ function Folder({
                   activeId={activeId}
                   isOpen={isOpen}
                   onOpenChange={onOpenChange}
+                  createIn={createIn}
                 />
               ) : (
                 <li key={node.path}>

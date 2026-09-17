@@ -104,7 +104,7 @@ export function CardMenu({ cardRef, href, deleteDisabledReason, onDelete }: {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {cardRef}?</AlertDialogTitle>
             <AlertDialogDescription>
-              The card and its notes are removed for good. The activity log keeps a record.
+              The card and its comments are removed for good. The event log keeps a record.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="mx-0 mb-0 border-0 bg-transparent p-0">

@@ -18,6 +18,7 @@ import { DeleteProjectDialog } from '@/components/wrappers/DeleteProjectDialog'
 import { Lamp } from '@/components/wrappers/Lamp'
 import { PageHeader } from '@/components/wrappers/PageHeader'
 import { Paged } from '@/components/wrappers/Paged'
+import { readError } from '@/lib/api'
 
 function cards(project: ProjectSummary) {
   return project.columns.reduce((total, column) => total + column.card_count, 0)
@@ -40,7 +41,7 @@ export function ProjectsPage() {
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
       const response = await fetch('/api/projects', { signal })
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) throw new Error(await readError(response))
       setProjects(await response.json())
       setError(null)
     } catch (err) {

@@ -19,3 +19,14 @@ export function shortActor(owner?: string) {
   if (kind === 'human') return name || owner
   return owner
 }
+
+/** Each card relation and its inverse, in the order a reader weighs them. */
+export const RELATIONS = [
+  { value: 'blocked_by', label: 'Blocked by' },
+  { value: 'blocks', label: 'Blocks' },
+  { value: 'resolved_by', label: 'Resolved by' },
+  { value: 'resolves', label: 'Resolves' },
+  { value: 'duplicate_of', label: 'Duplicate of' },
+  { value: 'duplicated_by', label: 'Duplicated by' },
+  { value: 'relates_to', label: 'Related to' },
+] as const

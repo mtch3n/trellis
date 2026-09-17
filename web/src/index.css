@@ -54,6 +54,13 @@
   --ink-2: oklch(0.45 0.010 68);
   --rule-strong: oklch(0.70 0.014 78);
   --wikilink: oklch(0.50 0.090 62);
+  /* Shadow colours. On paper a shadow is the ink, thinned. */
+  --shade: color-mix(in oklch, var(--ink) 9%, transparent);
+  --shade-strong: color-mix(in oklch, var(--ink) 16%, transparent);
+  --shade-deep: color-mix(in oklch, var(--ink) 28%, transparent);
+  /* A board tile's surface, and the light along its top edge. */
+  --tile: var(--card);
+  --tile-edge: transparent;
 
   --sidebar: var(--card);
   --sidebar-foreground: var(--foreground);
@@ -97,6 +104,14 @@
   --ink-2: oklch(0.655 0.012 75);
   --rule-strong: oklch(0.335 0.011 265);
   --wikilink: oklch(0.80 0.105 74);
+  /* The ink is light here, so a shadow is darkness instead. */
+  --shade: oklch(0 0 0 / 30%);
+  --shade-strong: oklch(0 0 0 / 45%);
+  --shade-deep: oklch(0 0 0 / 60%);
+  /* A shadow barely reads on a dark column, so a tile is also a step
+     lighter than it, with a faint light along its top edge. */
+  --tile: oklch(0.225 0.008 265);
+  --tile-edge: oklch(1 0 0 / 5%);
 
   --sidebar: var(--card);
   --sidebar-foreground: var(--foreground);
@@ -151,6 +166,7 @@
   --color-ink-2: var(--ink-2);
   --color-rule-strong: var(--rule-strong);
   --color-wikilink: var(--wikilink);
+  --color-tile: var(--tile);
 
   --radius-sm: var(--radius);
   --radius-md: var(--radius);
@@ -165,7 +181,7 @@
      audit rejects any other size, tracking or uppercase utility.
 
        text-title    24px  600  the one h1 on a screen: board, entry, card
-       text-heading  16px  600  an h2 inside a page: Notes, Results, Stubs
+       text-heading  16px  600  an h2 inside a page: Timeline, Results, Stubs
        text-body     15px  400  reading: a summary, and the prose scale
        text-sm       14px  400  the interface: rows, tiles, nav, controls
        text-xs       12px  400  secondary words: kinds, captions, counts
@@ -218,8 +234,12 @@
   --shadow-lamp-held: 0 0 9px -1px var(--held);
   --shadow-lamp-alarm: 0 0 9px -1px var(--danger);
   --shadow-lamp-live: 0 0 8px var(--live);
-  /* The one lifted object: a card in the hand. Tinted by the ink, never black. */
-  --shadow-lift: 0 1px 2px color-mix(in oklch, var(--ink) 10%, transparent), 0 12px 32px -8px color-mix(in oklch, var(--ink) 28%, transparent);
+  /* A card on its column: no outline, just enough shadow to sit on the
+     surface. Pointing at it raises it a little; carrying it lifts it. */
+  --shadow-tile: inset 0 1px 0 var(--tile-edge), 0 1px 2px var(--shade), 0 2px 6px -3px var(--shade);
+  --shadow-tile-raised: inset 0 1px 0 var(--tile-edge), 0 1px 2px var(--shade-strong), 0 6px 14px -6px var(--shade-strong);
+  /* The one lifted object: a card in the hand. */
+  --shadow-lift: 0 1px 2px var(--shade), 0 12px 32px -8px var(--shade-deep);
 
   --spacing-shell: 3.375rem;
   /* Viewport minus the shell: the height a pane gets when it scrolls on its own. */
@@ -478,6 +498,15 @@
     pointer-events: none;
   }
   .trellis-prosemirror .milkdown-prose:focus-visible { outline: none; }
+  /* Raw HTML in a body is kept but not edited in rich text: mostly the
+     guidance comments a template leaves under each heading. It reads as a
+     note to the writer, not as prose, and `-->` stays three characters. */
+  .trellis-prosemirror .milkdown-prose [data-type='html'] {
+    color: var(--muted-foreground);
+    font-family: var(--font-mono);
+    font-size: 0.8125em;
+    font-variant-ligatures: none;
+  }
 }
 
 /* Every motion in the app is decoration on top of a state change that is
