@@ -183,8 +183,9 @@ func SplitAnchor(s string) (target, anchor string) { target, anchor, _ = strings
 // case-insensitive and come back upper-case.
 //
 // It checks shape only: whether the object exists is for the caller to check
-// against the database. This is the subset of the address grammar that a
-// template's verify rule needs — no boards, no anchors — and the full layer extends it.
+// against the database. This is the subset of the grammar in
+// docs/superpowers/specs/2026-09-16-virtual-paths-design.md that a template's
+// verify rule needs — no boards, no anchors — and the full layer extends it.
 func Parse(s string) (Address, error) {
 	s = strings.TrimSpace(s)
 	rest, ok := strings.CutPrefix(s, "/")

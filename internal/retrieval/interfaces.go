@@ -17,7 +17,7 @@ const (
 )
 
 type Embedder interface {
-	EmbedEntry(context.Context, string) ([]float32, error)
+	EmbedDocument(context.Context, string) ([]float32, error)
 	EmbedQuery(context.Context, string) ([]float32, error)
 	ModelID() string
 	Dimension() int

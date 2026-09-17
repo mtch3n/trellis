@@ -33,6 +33,7 @@ docs/ui-operation-parity.md	owner	5
 docs/ui-operation-parity.md	type-field	2
 docs/ui-operation-parity.md	unarchive	1
 internal/address/address.go	pin-file	3
+internal/address/address.go	vpath	1	# why: spec file path
 internal/address/address_test.go	pin-file	8
 internal/cli/agent.go	owner	1
 internal/cli/artifact.go	attach	9
@@ -93,6 +94,7 @@ internal/cli/knowledge_template_test.go	knowledge-ident	24
 internal/cli/knowledge_template_test.go	owner	2
 internal/cli/link.go	knowledge-cli	1
 internal/cli/link_test.go	knowledge-ident	5
+internal/cli/link_test.go	vpath	1	# why: spec file path
 internal/cli/maintenance.go	orphan-file	7
 internal/cli/maintenance_cmd_test.go	knowledge-ident	1
 internal/cli/maintenance_cmd_test.go	orphan-file	2

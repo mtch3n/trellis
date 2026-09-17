@@ -55,8 +55,8 @@ func TestLinkRelativeEntryMeansTheCurrentProject(t *testing.T) {
 }
 
 // An entry address still crosses projects on purpose: link's documented
-// exception (the 2026-09-16 address design spec, "Cross-project
-// operations").
+// exception (docs/superpowers/specs/2026-09-16-virtual-paths-design.md,
+// "Cross-project operations").
 func TestLinkStillCrossesProjectsWithAnAddressedEntry(t *testing.T) {
 	targetEnv(t)
 	refOf(t, "knowledge", "new", "--title", "Runbook", "--project", "BETA")

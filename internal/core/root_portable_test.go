@@ -35,11 +35,11 @@ func TestACopiedRootActsOnlyOnItsOwnFiles(t *testing.T) {
 	p := seededProject(t, a)
 	seededBoard(t, a, p)
 
-	projectEntry, err := a.CreateEntry(ctx, p.ID, NewEntry{Title: "Project Doc", Body: "project body\n"})
+	projectEntry, err := a.CreateEntry(ctx, p.ID, NewEntry{Title: "Project Entry", Body: "project body\n"})
 	if err != nil {
 		t.Fatalf("CreateEntry (project entry): %v", err)
 	}
-	sharedSeed, err := a.CreateEntry(ctx, p.ID, NewEntry{Title: "Shared Doc", Body: "shared body\n"})
+	sharedSeed, err := a.CreateEntry(ctx, p.ID, NewEntry{Title: "Shared Entry", Body: "shared body\n"})
 	if err != nil {
 		t.Fatalf("CreateEntry (to be escalated): %v", err)
 	}

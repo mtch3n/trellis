@@ -254,7 +254,7 @@ func TestPrivateEntryListExcludesSummaryRecap(t *testing.T) {
 
 	// Create a private entry with summary
 	privateEntry, err := c.CreateEntry(ctx, p.ID, core.NewEntry{
-		Title:   "Private Doc",
+		Title:   "Private Entry",
 		Summary: "Private summary",
 		Body:    "Private content",
 		Private: true,
@@ -276,7 +276,7 @@ func TestPrivateEntryListExcludesSummaryRecap(t *testing.T) {
 
 	// Create a public entry with summary
 	publicEntry, err := c.CreateEntry(ctx, p.ID, core.NewEntry{
-		Title:   "Public Doc",
+		Title:   "Public Entry",
 		Summary: "Public summary",
 		Body:    "Public content",
 		Private: false,
@@ -566,7 +566,7 @@ func TestGetEntryFieldsPrivateList(t *testing.T) {
 
 	// Create a private entry with Set fields
 	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/knowledge",
-		`{"title":"Private Doc","body":"Content","private":true,"set":{"owner":"alice"}}`)
+		`{"title":"Private Entry","body":"Content","private":true,"set":{"owner":"alice"}}`)
 	if createResp.Code != http.StatusCreated {
 		t.Fatalf("create status = %d, body = %s", createResp.Code, createResp.Body)
 	}
@@ -584,7 +584,7 @@ func TestGetEntryFieldsPrivateList(t *testing.T) {
 
 	var privEntry core.Entry
 	for _, entry := range entries {
-		if entry.Title == "Private Doc" {
+		if entry.Title == "Private Entry" {
 			privEntry = entry
 			break
 		}
