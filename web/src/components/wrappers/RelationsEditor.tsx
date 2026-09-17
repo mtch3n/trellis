@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { Check, Plus, X } from 'lucide-react'
+import { Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Combobox,
@@ -91,17 +91,16 @@ export function RelationsEditor({
               <li key={row.ref} className="group/relation relative">
                 <Link
                   to={`${base}/card/${encodeURIComponent(row.ref)}`}
-                  className="flex flex-col gap-0.5 px-2 py-1.5 pr-8 transition-colors hover:bg-muted"
+                  className="flex flex-col gap-0.5 px-2 py-1.5 pr-8 transition-colors hover:bg-accent/50"
                 >
                   <span className="flex items-center gap-2">
                     <span className="text-meta text-muted-foreground">{row.ref}</span>
                     <span
                       className={cn(
-                        'ml-auto flex items-center gap-1 text-xs',
+                        'ml-auto text-xs',
                         !row.done && group.value === 'blocked_by' ? 'text-danger' : 'text-muted-foreground',
                       )}
                     >
-                      {row.done ? <Check className="size-3" /> : null}
                       {row.done ? 'Done' : sentence(row.column)}
                     </span>
                   </span>

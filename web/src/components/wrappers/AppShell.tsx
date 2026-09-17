@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ChevronsUpDown } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { ChevronsUpDown, Settings } from 'lucide-react'
+import { Button, buttonVariants } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,17 +13,20 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Lamp } from '@/components/wrappers/Lamp'
+import { GuardedLink } from '@/components/wrappers/NavigationGuard'
 import { ProjectSwitcher } from '@/components/wrappers/ProjectSwitcher'
 import { useLiveStatus } from '@/lib/live-status'
+import { useNavigationGuard } from '@/lib/navigation-guard'
 import { ThemeToggle } from '@/components/wrappers/ThemeToggle'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
-export type Section = 'overview' | 'board' | 'knowledge'
+export type Section = 'overview' | 'board' | 'vault' | 'settings'
 
 export interface ProjectSummary {
   key: string
   board_count: number
   in_progress: number
-  stale_leases: number
+  expired_claims: number
   recent_changes: number
   boards: { name: string; slug: string; is_default?: boolean }[]
   columns: { name: string; card_count: number; is_done: boolean }[]
@@ -35,7 +38,11 @@ function cardCount(project: ProjectSummary) {
 
 /**
  * The shell is four slots and stays four slots: the mark, the project scope,
- * the sections (overview, board, vault), and connection status.
+ * the sections (overview, board, vault), and connection status with the
+ * machine-wide controls, settings last.
+ *
+ * Every way out of a screen goes through the navigation guard, so a screen
+ * with unsaved changes can ask before it is left.
  *
  * Project is a scope control rather than a destination, because PRODUCT.md
  * makes one project the working scope and switching a deliberate act. A
@@ -54,6 +61,7 @@ export function AppShell({
   const [reachable, setReachable] = useState(true)
   const { live } = useLiveStatus()
   const navigate = useNavigate()
+  const { guard } = useNavigationGuard()
   const location = useLocation()
   const { boardSlug } = useParams<{ projectKey: string; boardSlug?: string }>()
   // No rule under the shell at rest. Once content scrolls beneath it, a
@@ -82,12 +90,12 @@ export function AppShell({
   // One reading of connection state, shown once. The board used to repeat it
   // as a banner, which said nothing the lamp had not already said.
   const status = !reachable
-    ? { lamp: 'alarm' as const, label: 'offline', tone: 'text-danger', title: 'The daemon is not responding' }
+    ? { lamp: 'alarm' as const, label: 'Offline', tone: 'text-danger', title: 'The daemon is not responding' }
     : live === 'disconnected'
-      ? { lamp: 'held' as const, label: 'stale', tone: 'text-held', title: 'Live updates dropped. Showing the last state received.' }
+      ? { lamp: 'claimed' as const, label: 'Stale', tone: 'text-claimed', title: 'Live updates dropped. Showing the last state received.' }
       : live === 'connected'
-        ? { lamp: 'live' as const, label: 'live', tone: 'text-muted-foreground', title: 'Receiving live updates' }
-        : { lamp: 'idle' as const, label: 'idle', tone: 'text-muted-foreground', title: 'No live stream on this screen' }
+        ? { lamp: 'live' as const, label: 'Live', tone: 'text-muted-foreground', title: 'Receiving live updates' }
+        : { lamp: 'idle' as const, label: 'Idle', tone: 'text-muted-foreground', title: 'No live stream on this screen' }
 
   const current = projects.find((project) => project.key === projectKey)
   // Ordered the way the picker is read: where you are, then what is live,
@@ -111,14 +119,16 @@ export function AppShell({
     const board = pickBoard(target?.boards ?? [])
     // Switching keeps the section you are in, so comparing two projects'
     // boards or vaults is one step each.
-    if (section === 'knowledge') navigate(`/p/${key}/knowledge`)
-    else if (section === 'board' && board) navigate(`/p/${key}/b/${board.slug}`)
-    else navigate(`/p/${key}`)
+    guard(() => {
+      if (section === 'vault') navigate(`/p/${key}/vault`)
+      else if (section === 'board' && board) navigate(`/p/${key}/b/${board.slug}`)
+      else navigate(`/p/${key}`)
+    })
   }
 
   const tab =
-    'relative flex items-center px-4 text-sm text-muted-foreground transition-colors duration-150 hover:text-foreground ' +
-    'after:absolute after:inset-x-4 after:bottom-2.5 after:h-0.5 after:scale-x-0 after:bg-foreground after:transition-transform after:duration-200 after:ease-settle ' +
+    'relative flex items-center px-2.5 text-sm text-muted-foreground transition-colors duration-150 hover:text-foreground sm:px-4 ' +
+    'after:absolute after:inset-x-2.5 sm:after:inset-x-4 after:bottom-2.5 after:h-0.5 after:scale-x-0 after:bg-foreground after:transition-transform after:duration-200 after:ease-settle ' +
     'aria-[current=page]:text-foreground aria-[current=page]:after:scale-x-100'
 
   const selectedBoard = current ? pickBoard(current.boards) : undefined
@@ -128,11 +138,15 @@ export function AppShell({
       <div ref={top} aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-px" />
       <div
         data-scrolled={scrolled || undefined}
-        className="sticky top-0 z-20 flex h-shell items-stretch gap-6 border-b border-transparent bg-background px-6 transition-colors duration-200 data-scrolled:border-border lg:px-8"
+        className="sticky top-0 z-20 flex h-shell items-stretch gap-3 border-b border-transparent bg-background px-6 transition-colors duration-200 data-scrolled:border-border sm:gap-6 lg:px-8"
       >
-        <Link to="/" className="flex items-center text-sm font-semibold text-foreground">
+        {/* On a narrow screen the project scope stands in for the mark, so every control still fits. */}
+        <GuardedLink
+          to="/"
+          className={cn('flex items-center text-sm font-semibold text-foreground', projectKey && 'max-sm:hidden')}
+        >
           Trellis
-        </Link>
+        </GuardedLink>
 
         {projectKey && (
           <div className="flex items-center gap-3">
@@ -141,54 +155,75 @@ export function AppShell({
               projects={ordered.map((project) => ({
                 key: project.key,
                 cards: cardCount(project),
-                stale: project.stale_leases,
+                expired: project.expired_claims,
               }))}
               onSwitch={switchProject}
-              onAll={() => navigate('/projects')}
+              onAll={() => guard(() => navigate('/projects'))}
             />
             {current && current.boards.length > 1 && (
               <BoardSwitcher
                 current={selectedBoard?.slug ?? ''}
                 boards={current.boards}
-                onSwitch={(slug) => navigate(`/p/${current.key}/b/${slug}`)}
+                onSwitch={(slug) => guard(() => navigate(`/p/${current.key}/b/${slug}`))}
               />
             )}
           </div>
         )}
 
         <nav className="-ml-2 flex">
-          <Link
+          <GuardedLink
             to={projectKey ? `/p/${projectKey}` : '/'}
             aria-current={section === 'overview' ? 'page' : undefined}
             className={tab}
           >
             Overview
-          </Link>
-          <Link
+          </GuardedLink>
+          <GuardedLink
             to={selectedBoard ? `/p/${current?.key}/b/${selectedBoard.slug}` : '/'}
             aria-current={section === 'board' ? 'page' : undefined}
             className={tab}
           >
             Board
-          </Link>
-          <Link
-            to={projectKey ? `/p/${projectKey}/knowledge` : '/'}
-            aria-current={section === 'knowledge' ? 'page' : undefined}
+          </GuardedLink>
+          <GuardedLink
+            to={projectKey ? `/p/${projectKey}/vault` : '/'}
+            aria-current={section === 'vault' ? 'page' : undefined}
             className={tab}
           >
             Vault
-          </Link>
+          </GuardedLink>
         </nav>
 
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-2 sm:gap-3">
           <span
             className={cn('flex items-center gap-2 text-xs', status.tone)}
             title={status.title}
           >
             <Lamp state={status.lamp} label={status.label} />
-            {status.label}
+            {/* The lamp carries the label for screen readers; on a narrow screen it
+                also stands alone on screen, so the controls beside it fit. */}
+            <span aria-hidden="true" className="max-sm:hidden">{status.label}</span>
           </span>
           <ThemeToggle />
+          {/* A link, so it is announced as one; the tooltip names it, as on every icon-only control. */}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <GuardedLink
+                  to="/settings"
+                  aria-label="Settings"
+                  aria-current={section === 'settings' ? 'page' : undefined}
+                  className={cn(
+                    buttonVariants({ variant: 'ghost', size: 'icon-sm' }),
+                    'aria-[current=page]:bg-muted aria-[current=page]:text-foreground',
+                  )}
+                />
+              }
+            >
+              <Settings />
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Settings</TooltipContent>
+          </Tooltip>
         </div>
       </div>
       {children}

@@ -23,7 +23,7 @@ import { Textarea } from '@/components/ui/textarea'
  * Built from Milkdown's kit rather than the batteries-included Crepe bundle:
  * Crepe eagerly imports a CodeMirror language mode per syntax it can highlight,
  * which was four megabytes of dist for a nicety, and this UI ships inside the
- * Go binary via `go:embed`. commonmark plus gfm is the grammar the knowledge
+ * Go binary via `go:embed`. commonmark plus gfm is the grammar the vaowledge
  * base actually uses, and markdown shortcuts (`## `, `- `, `> `) still work.
  *
  * The source toggle is not a nicety either. Markdown files are the source of

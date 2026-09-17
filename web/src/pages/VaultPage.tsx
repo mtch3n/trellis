@@ -14,7 +14,7 @@ import {
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/components/ui/toast'
-import { ArtifactList, type Artifact } from '@/components/wrappers/ArtifactList'
+import { ArtifactList } from '@/components/wrappers/ArtifactList'
 import { ActionRow } from '@/components/wrappers/ActionRow'
 import { EditActions } from '@/components/wrappers/EditInPlace'
 import { EntryView, type EntryDraft } from '@/components/wrappers/EntryView'
@@ -22,7 +22,7 @@ import { FieldsEditor } from '@/components/wrappers/FieldsEditor'
 import { GraphDock } from '@/components/wrappers/GraphDock'
 import { GraphExplorer } from '@/components/wrappers/GraphExplorer'
 import { IconButton } from '@/components/wrappers/IconButton'
-import { KnowledgeNav } from '@/components/wrappers/KnowledgeNav'
+import { VaultNav } from '@/components/wrappers/VaultNav'
 import { MetaFacts, MetaGroup, MetaPanel } from '@/components/wrappers/MetaPanel'
 import { NewEntryDialog, type CreatedEntry } from '@/components/wrappers/NewEntryDialog'
 import { SourcesEditor } from '@/components/wrappers/SourcesEditor'
@@ -30,36 +30,13 @@ import { TemplateSelect } from '@/components/wrappers/TemplateSelect'
 import { TemplateSwitchDialog, type TemplateSwitch } from '@/components/wrappers/TemplateSwitchDialog'
 import { VaultLayout } from '@/components/wrappers/VaultLayout'
 import { sentence, templateLabel } from '@/lib/format'
-import { buildGraph, entryNodeId, type GraphNode, type KnowledgeLink } from '@/lib/knowledge-graph'
-import { fieldRows, switchNeedsDialog, type FieldValues, type TemplateInfo } from '@/lib/templates'
+import { buildGraph, entryNodeId, type GraphNode, type EntryLink } from '@/lib/entry-graph'
+import type { Entry } from '@/lib/entry'
+import { fieldRows, switchNeedsDialog, type TemplateInfo } from '@/lib/templates'
 import { cn } from '@/lib/utils'
 import { projectFolders } from '@/lib/vault-tree'
 import { readError, readRefusal, refusalText, type Refusal } from '@/lib/api'
 
-export interface KnowledgeEntry {
-  id: string
-  slug: string
-  ref: string
-  title: string
-  summary?: string
-  /** Set when the entry is pinned: the line a session reads before the body. */
-  recap?: string
-  body?: string
-  /** The template the entry follows, or "" when it follows none. */
-  template?: string
-  path?: string
-  global?: boolean
-  private?: boolean
-  created_at?: number
-  updated_at?: number
-  version: number
-  /** Files attached to the entry. Absent when there are none, and never on vault entries. */
-  artifacts?: Artifact[]
-  /** What the entry's claims rest on. Only the full entry carries them. */
-  sources?: string[]
-  /** Frontmatter beyond what Trellis names: what templates and `set` write. Empty on private entries in lists. */
-  fields?: FieldValues
-}
 
 /** A template's warnings as a toast's words, one sentence each. */
 function warningText(warnings: string[]) {
@@ -74,7 +51,7 @@ function when(timestamp?: number) {
 }
 
 /**
- * Knowledge as a workspace: the navigator with the graph docked beneath it on
+ * The vault as a workspace: the navigator with the graph docked beneath it on
  * the left, and the open entry with its facts centred in the rest.
  *
  * The navigator is not decoration. These entries are markdown files and the
@@ -89,23 +66,23 @@ function when(timestamp?: number) {
  * explorer's open state is the `view=graph` query, so it survives a reload and
  * following any link out of it closes it.
  */
-export function KnowledgePage() {
+export function VaultPage() {
   const { projectKey, slug } = useParams<{ projectKey: string; slug?: string }>()
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
   const location = useLocation()
-  const [vault, setVault] = useState<KnowledgeEntry[] | null>(null)
-  const [project, setProject] = useState<KnowledgeEntry[] | null>(null)
+  const [vault, setVault] = useState<Entry[] | null>(null)
+  const [project, setProject] = useState<Entry[] | null>(null)
   const [board, setBoard] = useState<string | null>(null)
-  const [links, setLinks] = useState<KnowledgeLink[]>([])
+  const [links, setLinks] = useState<EntryLink[]>([])
   // Tagged with the entry it belongs to, so moving to another entry needs no reset.
   const [editingSlug, setEditingSlug] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [source, setSource] = useState(false)
-  // The open entry in full: its body and attachments. Tagged with the slug it
+  // The open entry in full: its body and artifacts. Tagged with the slug it
   // belongs to, so a stale answer for the previous entry is never shown.
-  const [detail, setDetail] = useState<KnowledgeEntry | null>(null)
+  const [detail, setDetail] = useState<Entry | null>(null)
   const [templates, setTemplates] = useState<TemplateInfo[]>([])
   // The folder a new entry is being started in, while the dialog is open.
   const [creatingIn, setCreatingIn] = useState<string | null>(null)
@@ -133,10 +110,10 @@ export function KnowledgePage() {
     }
     try {
       const [globalEntries, projectEntries, boards, resolved, known] = await Promise.all([
-        read('/api/global/knowledge') as Promise<KnowledgeEntry[]>,
-        read(`/api/p/${projectKey}/knowledge`) as Promise<KnowledgeEntry[]>,
+        read('/api/global/vault') as Promise<Entry[]>,
+        read(`/api/p/${projectKey}/vault`) as Promise<Entry[]>,
         read(`/api/p/${projectKey}/boards`) as Promise<{ slug: string }[]>,
-        read(`/api/p/${projectKey}/links/knowledge`) as Promise<KnowledgeLink[]>,
+        read(`/api/p/${projectKey}/links/vault`) as Promise<EntryLink[]>,
         read('/api/templates') as Promise<TemplateInfo[]>,
       ])
       setVault(globalEntries ?? [])
@@ -147,7 +124,7 @@ export function KnowledgePage() {
       setError(null)
     } catch (err) {
       if (signal?.aborted) return
-      setError(err instanceof Error ? err.message : 'Could not load knowledge')
+      setError(err instanceof Error ? err.message : 'Could not load the vault')
       setVault([]); setProject([])
     }
   }, [projectKey])
@@ -159,9 +136,9 @@ export function KnowledgePage() {
   }, [load])
 
   const readEntry = useCallback(async (target: string, signal?: AbortSignal) => {
-    const response = await fetch(`/api/p/${projectKey}/knowledge/${encodeURIComponent(target)}`, { signal })
+    const response = await fetch(`/api/p/${projectKey}/vault/${encodeURIComponent(target)}`, { signal })
     if (!response.ok) throw new Error(await readError(response))
-    return (await response.json()) as KnowledgeEntry
+    return (await response.json()) as Entry
   }, [projectKey])
 
   useEffect(() => {
@@ -184,7 +161,7 @@ export function KnowledgePage() {
 
   const entries = useMemo(() => [...(vault ?? []), ...(project ?? [])], [vault, project])
   const entry = useMemo(() => entries.find((item) => item.slug === slug), [entries, slug])
-  // The list's facts with the detail's body and attachments, once they are in.
+  // The list's facts with the detail's body and artifacts, once they are in.
   const shown = useMemo(
     () => (entry && detail?.slug === entry.slug ? { ...entry, ...detail } : undefined),
     [entry, detail],
@@ -212,7 +189,7 @@ export function KnowledgePage() {
     [entries],
   )
   const openNode = useCallback(
-    (node: GraphNode) => navigate(`/p/${projectKey}/knowledge/${encodeURIComponent(node.slug)}`),
+    (node: GraphNode) => navigate(`/p/${projectKey}/vault/${encodeURIComponent(node.slug)}`),
     [navigate, projectKey],
   )
   // Opening pushes a history entry so Back closes the explorer. Closing an
@@ -236,7 +213,7 @@ export function KnowledgePage() {
     setSaving(true)
     try {
       const response = await fetch(
-        `/api/p/${projectKey}/b/${board}/knowledge/${encodeURIComponent(entry.slug)}`,
+        `/api/p/${projectKey}/b/${board}/vault/${encodeURIComponent(entry.slug)}`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -287,7 +264,7 @@ export function KnowledgePage() {
     if (!projectKey || !board || !entry) return { message: 'The entry is not loaded yet.', problems: [] }
     try {
       const response = await fetch(
-        `/api/p/${projectKey}/b/${board}/knowledge/${encodeURIComponent(entry.slug)}`,
+        `/api/p/${projectKey}/b/${board}/vault/${encodeURIComponent(entry.slug)}`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -354,7 +331,7 @@ export function KnowledgePage() {
     setFresh(made.slug)
     setEditingSlug(made.slug)
     setSource(false)
-    navigate(`/p/${projectKey}/knowledge/${encodeURIComponent(made.slug)}`)
+    navigate(`/p/${projectKey}/vault/${encodeURIComponent(made.slug)}`)
     if (made.warnings?.length) {
       toast.add({ title: `Created ${made.slug}, with warnings`, description: warningText(made.warnings), type: 'warning' })
     } else {
@@ -394,7 +371,7 @@ export function KnowledgePage() {
     <>
       <VaultLayout
         nav={
-          <KnowledgeNav
+          <VaultNav
             entries={entries}
             vaultCount={vault.length}
             projectKey={projectKey}
@@ -408,7 +385,7 @@ export function KnowledgePage() {
         <main className="min-w-0 px-6 pb-8 lg:h-full lg:overflow-y-auto lg:px-12">
           {error && (
             <Alert variant="destructive" className="mx-auto mt-8 max-w-measure">
-              <AlertTitle>Could not load knowledge</AlertTitle>
+              <AlertTitle>Could not load the vault</AlertTitle>
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
@@ -416,24 +393,24 @@ export function KnowledgePage() {
           {!error && !entry && (
             <Empty className="min-h-under-shell -mb-8 border-0">
               <EmptyHeader>
-                <EmptyTitle className="text-heading font-semibold">
+                <EmptyTitle>
                   {entries.length === 0 ? 'Nothing written yet' : slug ? 'No entry by that name' : 'Choose an entry'}
                 </EmptyTitle>
                 <EmptyDescription>
                   {entries.length === 0
-                    ? 'Agents write knowledge here as they work.'
+                    ? 'Agents write entries here as they work.'
                     : slug
                       ? `Nothing in this project or the vault is called ${slug}.`
                       : `${entries.length} ${entries.length === 1 ? 'entry' : 'entries'} in this project and the vault.`}
                 </EmptyDescription>
               </EmptyHeader>
               <EmptyContent className="flex-row justify-center">
-                <Button variant="outline" onClick={() => setCreatingIn('')}>
+                <Button variant="outline" size="sm" onClick={() => setCreatingIn('')}>
                   <FilePlus data-icon="inline-start" />
                   New entry
                 </Button>
                 {graph.nodes.length > 0 && (
-                  <Button variant="outline" onClick={() => setExploring(true)}>
+                  <Button variant="outline" size="sm" onClick={() => setExploring(true)}>
                     <Network data-icon="inline-start" />
                     Open the graph
                   </Button>
@@ -451,7 +428,7 @@ export function KnowledgePage() {
                 <Breadcrumb className="min-w-0">
                   <BreadcrumbList className="flex-nowrap">
                     <BreadcrumbItem>
-                      <BreadcrumbLink render={<Link to={`/p/${projectKey}/knowledge`} />}>Vault</BreadcrumbLink>
+                      <BreadcrumbLink render={<Link to={`/p/${projectKey}/vault`} />}>Vault</BreadcrumbLink>
                     </BreadcrumbItem>
                     <BreadcrumbSeparator />
                     <BreadcrumbItem className="min-w-0">
@@ -502,7 +479,7 @@ export function KnowledgePage() {
                 )}
 
                 {facts && (
-                  <MetaPanel className="gap-6 xl:sticky xl:top-16 xl:self-start">
+                  <MetaPanel className="xl:sticky xl:top-16 xl:self-start">
                     {/* The template and the sources apply the moment they change,
                         editing or not, like a card's status. */}
                     <MetaGroup label="Template">
@@ -538,7 +515,7 @@ export function KnowledgePage() {
                         facts={[
                           { label: 'Slug', value: entry.slug, mono: true, stacked: true },
                           { label: 'Scope', value: entry.global ? 'Global vault' : (projectKey ?? 'Project') },
-                          ...(entry.private ? [{ label: 'Visibility', value: 'Private' }] : []),
+                          ...(entry.private ? [{ label: 'Private', value: 'Yes' }] : []),
                           { label: 'Version', value: `v${entry.version}` },
                           { label: 'Created', value: when(entry.created_at) ?? 'Unknown' },
                           { label: 'Updated', value: when(entry.updated_at) ?? 'Unknown' },
@@ -547,14 +524,14 @@ export function KnowledgePage() {
                     </MetaGroup>
 
                     {shown?.artifacts && shown.artifacts.length > 0 && (
-                      <MetaGroup label="Attachments" count={shown.artifacts.length} collapsible>
+                      <MetaGroup label="Artifacts" count={shown.artifacts.length} collapsible>
                         <ArtifactList artifacts={shown.artifacts} />
                       </MetaGroup>
                     )}
 
                     <MetaGroup label="Linked" count={neighbours.length || undefined} collapsible>
                       {neighbours.length === 0 ? (
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-sm text-muted-foreground">
                           No links yet. A wikilink in this entry, or one pointing at it, appears here.
                         </p>
                       ) : (
@@ -564,11 +541,11 @@ export function KnowledgePage() {
                               {node.stub ? (
                                 <p className="flex items-baseline justify-between gap-3 px-2 py-1.5" title="Not written yet">
                                   <span className="min-w-0 truncate text-meta text-muted-foreground">{node.slug}</span>
-                                  <span className="shrink-0 text-xs text-muted-foreground">stub</span>
+                                  <span className="shrink-0 text-xs text-muted-foreground">Stub</span>
                                 </p>
                               ) : (
                                 <Link
-                                  to={`/p/${projectKey}/knowledge/${encodeURIComponent(node.slug)}`}
+                                  to={`/p/${projectKey}/vault/${encodeURIComponent(node.slug)}`}
                                   className="block px-2 py-1.5 text-sm leading-snug transition-colors hover:bg-accent/50"
                                 >
                                   {node.title}

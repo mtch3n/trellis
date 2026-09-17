@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import type { ProjectSummary } from '@/components/wrappers/AppShell'
 import { readError } from '@/lib/api'
 
@@ -67,7 +67,6 @@ export function RootRedirect() {
           <EmptyTitle>No project yet</EmptyTitle>
           <EmptyDescription>Run trellis init in a repository to create one.</EmptyDescription>
         </EmptyHeader>
-        <EmptyContent />
       </Empty>
     )
   }

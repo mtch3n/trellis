@@ -18,10 +18,10 @@ interface SearchHit {
   title: string
   project: string
   detail: string
-  unreviewed?: boolean
+  unverified?: boolean
 }
 
-/** Search reaches across both halves of the product, cards and knowledge alike. */
+/** Search reaches across both halves of the product, cards and vault entries alike. */
 export function SearchPage() {
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<SearchHit[]>([])
@@ -52,14 +52,14 @@ export function SearchPage() {
     <main className="px-6 pb-24 lg:px-8">
       <PageHeader title="Search" />
 
-      <form onSubmit={search} className="mt-4 flex max-w-2xl gap-2">
+      <form onSubmit={search} className="mt-4 flex max-w-measure gap-2">
         <InputGroup>
           <InputGroupAddon>
             {searching ? <Spinner /> : <Search />}
           </InputGroupAddon>
           <InputGroupInput
-            aria-label="Search cards and knowledge"
-            placeholder="Cards and knowledge, across every project"
+            aria-label="Search cards and entries"
+            placeholder="Cards and entries, across every project"
             value={query}
             autoFocus
             onChange={(event) => setQuery(event.target.value)}
@@ -102,7 +102,7 @@ export function SearchPage() {
           </h2>
           <Paged items={hits} label="Result pages">
             {(page) => (
-          <Table className="mt-2">
+          <Table className="mt-3">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-28">Kind</TableHead>

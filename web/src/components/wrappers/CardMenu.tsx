@@ -1,15 +1,5 @@
 import { useState } from 'react'
-import { Ellipsis, Link2, Trash2 } from 'lucide-react'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { Ellipsis } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -18,9 +8,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Spinner } from '@/components/ui/spinner'
 import { toast } from '@/components/ui/toast'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { ConfirmDialog } from '@/components/wrappers/ConfirmDialog'
 
 /**
  * A card's secondary actions, behind one button in its action row: copying a
@@ -79,7 +69,6 @@ export function CardMenu({ cardRef, href, deleteDisabledReason, onDelete }: {
         </Tooltip>
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuItem onClick={() => void copyLink()}>
-            <Link2 />
             Copy link
           </DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -88,7 +77,6 @@ export function CardMenu({ cardRef, href, deleteDisabledReason, onDelete }: {
             disabled={Boolean(deleteDisabledReason)}
             onClick={() => setConfirming(true)}
           >
-            <Trash2 />
             Delete card
           </DropdownMenuItem>
           {deleteDisabledReason && (
@@ -99,23 +87,15 @@ export function CardMenu({ cardRef, href, deleteDisabledReason, onDelete }: {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <AlertDialog open={confirming} onOpenChange={(next) => { if (!busy) setConfirming(next) }}>
-        <AlertDialogContent className="gap-5 p-6">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete {cardRef}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The card and its comments are removed for good. The event log keeps a record.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="mx-0 mb-0 border-0 bg-transparent p-0">
-            <AlertDialogCancel variant="ghost" disabled={busy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" disabled={busy} onClick={() => void confirm()}>
-              {busy ? <Spinner data-icon="inline-start" /> : <Trash2 data-icon="inline-start" />}
-              Delete card
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={confirming}
+        busy={busy}
+        title={`Delete ${cardRef}?`}
+        description="The card and its comments are removed for good. The event log keeps a record."
+        confirm="Delete card"
+        onOpenChange={setConfirming}
+        onConfirm={() => void confirm()}
+      />
     </>
   )
 }

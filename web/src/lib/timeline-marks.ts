@@ -1,6 +1,6 @@
 /**
  * What happened in a project, as marks on a few fixed lanes: when each card was
- * created, when work on it started, when it was finished, and when knowledge
+ * created, when work on it started, when it was finished, and when an entry
  * was written. The lanes never grow with the project; only the marks do.
  */
 
@@ -9,7 +9,7 @@ export interface ProjectEvent {
   seq: number
   ts: number
   actor: string
-  kind: 'card' | 'knowledge'
+  entity: 'card' | 'entry'
   ref: string
   action: string
   field?: string
@@ -21,7 +21,7 @@ export interface TimelineCard {
   ref: string
   title: string
   createdAt: number
-  owner?: string
+  claimedBy?: string
 }
 
 export type LaneName = 'created' | 'started' | 'finished' | 'written'
@@ -29,7 +29,7 @@ export type LaneName = 'created' | 'started' | 'finished' | 'written'
 export interface Mark {
   at: number
   lane: LaneName
-  /** A card ref, or a knowledge ref (`KEY/slug`). */
+  /** A card ref, or an entry ref (`KEY/slug`). */
   ref: string
   title: string
   actor?: string
@@ -46,7 +46,7 @@ export function buildMarks({
 }: {
   cards: TimelineCard[]
   events: ProjectEvent[]
-  /** Entry titles by knowledge ref. */
+  /** Entry titles by entry ref. */
   titles: Map<string, string>
   /** The first column: a card leaving it has been started. */
   queue: string
@@ -61,7 +61,7 @@ export function buildMarks({
 
   const started = new Set<string>()
   for (const event of events) {
-    if (event.kind === 'knowledge') {
+    if (event.entity === 'entry') {
       if (event.action !== 'created' && event.action !== 'edited') continue
       lanes.written.push({
         at: event.ts,
@@ -86,7 +86,7 @@ export function buildMarks({
         ref: card.ref,
         title: card.title,
         actor: event.actor,
-        flag: Boolean(card.owner),
+        flag: Boolean(card.claimedBy),
       })
     }
     // A card reopened and finished again is finished twice.

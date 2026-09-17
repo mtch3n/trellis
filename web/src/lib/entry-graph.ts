@@ -1,15 +1,15 @@
 /**
- * The knowledge graph, built from the links the server resolved
- * (`GET /api/p/{key}/links/knowledge`), so the picture is exactly what the
+ * The vault graph, built from the links the server resolved
+ * (`GET /api/p/{key}/links/vault`), so the picture is exactly what the
  * backend stored and no body has to travel to draw it. Entries and links meet
- * on the entry's address (`/KEY/knowledge/<slug>`). A link whose target no
+ * on the entry's address (`/KEY/vault/<slug>`). A link whose target no
  * entry answers is a stub, labelled with what its author wrote. Links are
  * drawn undirected, because "what is this connected to" is the question a
  * reader asks.
  */
 
 /** One resolved wikilink, as the links route returns it. */
-export interface KnowledgeLink {
+export interface EntryLink {
   from: string
   /** The target's address, or null for a stub. */
   to: string | null
@@ -45,7 +45,7 @@ export interface GraphLink {
   target: string
 }
 
-export interface KnowledgeGraph {
+export interface VaultGraph {
   nodes: GraphNode[]
   links: GraphLink[]
   /** Stub slug to the slugs of the entries that link to it. */
@@ -60,7 +60,7 @@ function nodeId(vault: boolean, slug: string) {
   return `${vault ? 'vault' : 'project'}:${slug}`
 }
 
-export function buildGraph(entries: GraphSource[], resolved: KnowledgeLink[]): KnowledgeGraph {
+export function buildGraph(entries: GraphSource[], resolved: EntryLink[]): VaultGraph {
   const nodes = new Map<string, GraphNode>()
   const byAddress = new Map<string, string>()
   const slugOf = new Map<string, string>()

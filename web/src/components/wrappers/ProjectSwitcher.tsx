@@ -1,4 +1,4 @@
-import { ChevronsUpDown, Rows3 } from 'lucide-react'
+import { ChevronsUpDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -15,7 +15,7 @@ import { Lamp } from '@/components/wrappers/Lamp'
 export interface SwitcherProject {
   key: string
   cards: number
-  stale: number
+  expired: number
 }
 
 /**
@@ -44,7 +44,7 @@ export function ProjectSwitcher({
       <DropdownMenuTrigger
         render={<Button variant="ghost" size="sm" className="max-w-56 gap-2 px-2" aria-label={`Project ${current}. Switch project`} />}
       >
-        {here && here.stale > 0 && <Lamp state="held" label={`${here.stale} stale leases`} />}
+        {here && here.expired > 0 && <Lamp state="claimed" label={`${here.expired} expired claims`} />}
         <span className="min-w-0 truncate">{current}</span>
         <ChevronsUpDown data-icon="inline-end" className="text-muted-foreground" />
       </DropdownMenuTrigger>
@@ -54,7 +54,6 @@ export function ProjectSwitcher({
           <div className="flex items-center justify-between gap-3">
             <DropdownMenuLabel>Projects</DropdownMenuLabel>
             <DropdownMenuItem className="py-0.5 text-xs text-muted-foreground" onClick={onAll}>
-              <Rows3 className="size-3.5" />
               All projects
             </DropdownMenuItem>
           </div>
@@ -62,14 +61,14 @@ export function ProjectSwitcher({
             {projects.map((project) => (
               <DropdownMenuRadioItem key={project.key} value={project.key} className="gap-3 py-1.5" title={project.key}>
                 <span className="min-w-0 flex-1 truncate">{project.key}</span>
-                {project.stale > 0 ? (
-                  <span className="flex shrink-0 items-center gap-1.5 text-xs text-held">
-                    <Lamp state="held" label="Stale leases" />
-                    {project.stale} stale
+                {project.expired > 0 ? (
+                  <span className="flex shrink-0 items-center gap-1.5 text-xs text-claimed">
+                    <Lamp state="claimed" label="Expired claims" />
+                    {project.expired} expired
                   </span>
                 ) : (
                   <span className="shrink-0 text-xs text-muted-foreground">
-                    {project.cards === 0 ? 'empty' : `${project.cards} ${project.cards === 1 ? 'card' : 'cards'}`}
+                    {project.cards === 0 ? 'Empty' : `${project.cards} ${project.cards === 1 ? 'card' : 'cards'}`}
                   </span>
                 )}
               </DropdownMenuRadioItem>

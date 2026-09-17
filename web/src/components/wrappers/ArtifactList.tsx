@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { AudioLines, Download, FileArchive, FileCode, FileQuestion, FileText, Film, Image, Paperclip, X } from 'lucide-react'
+import { AudioLines, Download, FileArchive, FileCode, FileText, Film, Image, Paperclip, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -8,7 +8,7 @@ import { bytes, sentence } from '@/lib/format'
 
 export type ArtifactKind = 'image' | 'audio' | 'video' | 'document' | 'text' | 'archive'
 
-/** A file attached to an entry, as the knowledge list returns it. */
+/** An artifact of an entry, as the vault list returns it. */
 export interface Artifact {
   name: string
   kind?: ArtifactKind
@@ -32,9 +32,9 @@ const ICON: Record<ArtifactKind, ReactNode> = {
 const TEXT_LIMIT = 256 * 1024
 
 /**
- * An entry's attachments, for the facts column. A row opens the preview; an
+ * An entry's artifacts, for the facts column. A row opens the preview; an
  * archive has nothing to preview, so its row downloads instead. A name the
- * entry mentions but nobody attached reads as a broken reference, not as an
+ * entry names but nobody stored reads as a broken reference, not as an
  * error.
  */
 export function ArtifactList({ artifacts }: { artifacts: Artifact[] }) {
@@ -50,9 +50,10 @@ export function ArtifactList({ artifacts }: { artifacts: Artifact[] }) {
               <li
                 key={artifact.name}
                 className="flex items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground"
-                title="The entry names this file, but it is not attached"
+                title="The entry names this file, but no artifact of that name is stored"
               >
-                <FileQuestion className="size-4 shrink-0" />
+                {/* The kind icon's width, so the name lines up with the rows above; the strike and the word say the rest. */}
+                <span aria-hidden="true" className="size-4 shrink-0" />
                 <span className="min-w-0 flex-1 truncate line-through decoration-muted-foreground/50">{artifact.name}</span>
                 <span className="shrink-0 text-xs">Missing</span>
               </li>
@@ -98,7 +99,7 @@ export function ArtifactList({ artifacts }: { artifacts: Artifact[] }) {
 }
 
 /**
- * One attachment, previewed the way its kind can be shown without running it.
+ * One artifact, previewed the way its kind can be shown without running it.
  * Artifacts are arbitrary files served from this origin, so an image is only
  * ever an `<img>` (an SVG there cannot run script), text is only ever text,
  * and media loads its metadata, not the whole recording.

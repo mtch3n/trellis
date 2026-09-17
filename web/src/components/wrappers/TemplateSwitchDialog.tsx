@@ -1,5 +1,4 @@
 import { useState, type FormEvent } from 'react'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -122,7 +121,7 @@ export function TemplateSwitchDialog({
   return (
     <Dialog open={template !== null} onOpenChange={(next) => { if (!saving) onOpenChange(next) }}>
       <DialogContent className="max-h-[88dvh] gap-5 overflow-y-auto p-6 sm:max-w-lg">
-        <form onSubmit={submit} className="flex flex-col gap-6">
+        <form onSubmit={submit} className="flex flex-col gap-5">
           <DialogHeader>
             <DialogTitle>Switch to {name}</DialogTitle>
             <DialogDescription className="text-pretty">{describeTemplate(target)}</DialogDescription>
@@ -158,13 +157,11 @@ export function TemplateSwitchDialog({
           )}
 
           {missing.length > 0 && (
-            <Alert>
-              <AlertDescription className="text-pretty">
-                {blocked
-                  ? `${lacks}, and switching adds ${missing.length === 1 ? 'it' : 'them'}. Save or cancel your edit first, so nothing is written under it.`
-                  : `${lacks}. Switching adds ${missing.length === 1 ? 'it' : 'them'} at the end, empty, for you to fill in.`}
-              </AlertDescription>
-            </Alert>
+            <p className="text-sm text-pretty text-muted-foreground">
+              {blocked
+                ? `${lacks}, and switching adds ${missing.length === 1 ? 'it' : 'them'}. Save or cancel your edit first, so nothing is written under it.`
+                : `${lacks}. Switching adds ${missing.length === 1 ? 'it' : 'them'} at the end, empty, for you to fill in.`}
+            </p>
           )}
 
           {refusal && <RefusalAlert refusal={refusal} />}

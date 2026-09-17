@@ -16,7 +16,7 @@ import 'd3-transition'
 import { zoom, zoomIdentity, zoomTransform, type ZoomBehavior, type ZoomTransform } from 'd3-zoom'
 import { templateLabel } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import type { GraphNode, KnowledgeGraph } from '@/lib/knowledge-graph'
+import type { GraphNode, VaultGraph } from '@/lib/entry-graph'
 
 export interface ForceGraphHandle {
   zoomBy: (factor: number) => void
@@ -57,7 +57,7 @@ function reducedMotion() {
 }
 
 /**
- * A force-directed picture of the knowledge graph that you can pan, zoom and
+ * A force-directed picture of the vault graph that you can pan, zoom and
  * pull apart.
  *
  * d3 owns the physics, the zoom and the drag; React owns the elements. The
@@ -68,7 +68,7 @@ function reducedMotion() {
  * paint; the simulation only runs live while a node is being pulled.
  */
 export const ForceGraph = forwardRef<ForceGraphHandle, {
-  graph: KnowledgeGraph
+  graph: VaultGraph
   activeId?: string
   variant?: 'compact' | 'full'
   onOpen: (node: GraphNode) => void
@@ -254,7 +254,7 @@ export const ForceGraph = forwardRef<ForceGraphHandle, {
     return () => observer.disconnect()
   }, [apply, fitTransform])
 
-  // Dragging a node pins it while held and lets it go on release.
+  // Dragging a node pins it while the pointer is down and lets it go on release.
   useEffect(() => {
     const sim = simRef.current
     if (!sim) return
@@ -322,7 +322,7 @@ export const ForceGraph = forwardRef<ForceGraphHandle, {
       ref={svgRef}
       className={cn('force-graph block size-full select-none', className)}
       role="group"
-      aria-label={`Knowledge graph: ${graph.nodes.length - graph.stubs.length} entries, ${graph.links.length} links, ${graph.stubs.length} stubs`}
+      aria-label={`Vault graph: ${graph.nodes.length - graph.stubs.length} entries, ${graph.links.length} links, ${graph.stubs.length} stubs`}
       data-labels="quiet"
     >
       <g ref={viewportRef}>

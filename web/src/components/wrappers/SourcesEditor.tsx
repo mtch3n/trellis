@@ -53,7 +53,7 @@ export function SourcesEditor({
   return (
     <div className="flex flex-col gap-2">
       {sources.length === 0 && !adding && (
-        <p className="text-xs text-muted-foreground">No sources yet.</p>
+        <p className="text-sm text-muted-foreground">No sources yet.</p>
       )}
 
       {sources.length > 0 && (

@@ -11,10 +11,10 @@
  * Trellis has two halves and the palette follows them.
  *
  *   Boards are work in motion   -> instrument chrome. Amber is the only
- *                                  accent; it means a lease is held.
- *   Knowledge is what was kept  -> paper and ink, the one light surface.
+ *                                  accent; it means a card is claimed.
+ *   The vault is what was kept  -> paper and ink, the one light surface.
  *
- * Three colours carry meaning and nothing else does: amber for held,
+ * Three colours carry meaning and nothing else does: amber for a claim,
  * red for an alarm, green for the live connection lamp. Everything
  * else is achromatic, so a quiet board reads as quiet.
  */
@@ -29,7 +29,7 @@
   --card-foreground: oklch(0.19 0.008 60);
   --popover: oklch(0.975 0.008 85);
   --popover-foreground: oklch(0.19 0.008 60);
-  /* The primary action is ink, not amber: amber is spent on held leases. */
+  /* The primary action is ink, not amber: amber is spent on claims. */
   --primary: oklch(0.19 0.008 60);
   --primary-foreground: oklch(0.965 0.010 85);
   --secondary: oklch(0.905 0.014 85);
@@ -45,7 +45,7 @@
   --radius: 0rem;
 
   /* Trellis semantics. A lamp is the whole state vocabulary. */
-  --held: oklch(0.79 0.155 72);
+  --claimed: oklch(0.79 0.155 72);
   --danger: oklch(0.545 0.212 27);
   --live: oklch(0.72 0.17 155);
   --paper: oklch(0.945 0.012 85);
@@ -92,7 +92,7 @@
   --input: oklch(0.300 0.010 265);
   --ring: oklch(0.615 0.012 265);
 
-  --held: oklch(0.812 0.152 76);
+  --claimed: oklch(0.812 0.152 76);
   --danger: oklch(0.638 0.223 27);
   --live: oklch(0.795 0.175 157);
   /* The reading surface is a warmer material than the chrome, never a
@@ -157,7 +157,7 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  --color-held: var(--held);
+  --color-claimed: var(--claimed);
   --color-danger: var(--danger);
   --color-live: var(--live);
   --color-paper: var(--paper);
@@ -220,7 +220,7 @@
     from { opacity: 0; transform: translateY(4px); }
   }
 
-  /* A held card refusing to move: a short, damped no. */
+  /* A claimed card refusing to move: a short, damped no. */
   --animate-refuse: refuse 320ms var(--ease-settle);
 
   @keyframes refuse {
@@ -229,17 +229,14 @@
     70% { transform: translateX(-1.5px); }
   }
 
-  /* A lamp glows; it never sits under a generic shadow. */
+  /* An idle lamp is an outline; a lit one is a flat fill, never a glow. */
   --shadow-lamp-idle: inset 0 0 0 1px var(--rule-strong);
-  --shadow-lamp-held: 0 0 9px -1px var(--held);
-  --shadow-lamp-alarm: 0 0 9px -1px var(--danger);
-  --shadow-lamp-live: 0 0 8px var(--live);
   /* A card on its column: no outline, just enough shadow to sit on the
      surface. Pointing at it raises it a little; carrying it lifts it. */
   --shadow-tile: inset 0 1px 0 var(--tile-edge), 0 1px 2px var(--shade), 0 2px 6px -3px var(--shade);
   --shadow-tile-raised: inset 0 1px 0 var(--tile-edge), 0 1px 2px var(--shade-strong), 0 6px 14px -6px var(--shade-strong);
   /* The one lifted object: a card in the hand. */
-  --shadow-lift: 0 1px 2px var(--shade), 0 12px 32px -8px var(--shade-deep);
+  --shadow-lift: 0 1px 2px var(--shade-strong), 0 8px 18px -8px var(--shade-deep);
 
   --spacing-shell: 3.375rem;
   /* Viewport minus the shell: the height a pane gets when it scrolls on its own. */
@@ -252,16 +249,18 @@
   /* The measure, the facts rail and the gap between them. */
   --container-entry: 60.5rem;
 
-  --grid-template-columns-doc: minmax(0, 1fr) 17rem;
-  /* Knowledge is a navigator, then a document and its facts centred in what
-     is left. Facts drop below the document before the measure gives way. */
+  --grid-template-columns-facts: minmax(0, 1fr) 17rem;
+  /* The vault is a navigator, then an entry and its facts centred in what
+     is left. Facts drop below the entry before the measure gives way. */
   --grid-template-columns-nav: 18rem minmax(0, 1fr);
   --grid-template-columns-measure: minmax(0, 42rem);
   --grid-template-columns-entry: minmax(0, 42rem) 15rem;
-  /* The overview is a dashboard, not a document: it takes the width. */
+  /* The overview is a dashboard, not a page of prose: it takes the width. */
   --container-overview: 96rem;
   /* The overview: what is moving, then a rail of what is known. */
   --grid-template-columns-overview: minmax(0, 1fr) 18rem;
+  /* Settings: the section menu, then the section. */
+  --grid-template-columns-settings: 12.5rem minmax(0, 1fr);
 }
 
 @utility text-meta {
@@ -273,18 +272,13 @@
 }
 
 /* The project timeline. Lane names stay pinned at its left edge, so only
-   the far edge fades. Skipped quiet time lies over the lanes as a fine
-   vertical grain, so it reads as a jump, not as time that passed. */
+   the far edge fades. Skipped quiet time lies over the lanes as a flat band
+   under its length, so it reads as a jump, not as time that passed. */
 .timeline-scroll {
   --scroll-fade-s-size: 0px;
 }
 .timeline-skip {
-  background-color: color-mix(in oklch, var(--background) 72%, transparent);
-  background-image: repeating-linear-gradient(
-    90deg,
-    color-mix(in oklch, var(--muted-foreground) 22%, transparent) 0 1px,
-    transparent 1px 4px
-  );
+  background-color: color-mix(in oklch, var(--muted) 70%, transparent);
 }
 
 /* A field edited in place. The wash reaches past the words on every side
@@ -391,7 +385,7 @@
 
   /* ForceGraph. Positions are written by the simulation, states by data
      attributes, so hover and focus never re-render React. Everything is
-     achromatic: amber means a held lease, and nothing here is held. */
+     achromatic: amber means a claim, and nothing here is claimed. */
   .force-graph {
     --graph-k: 1;
     touch-action: none;
@@ -448,7 +442,7 @@
   .force-graph .graph-label {
     fill: var(--muted-foreground);
     font-family: var(--font-geist);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     paint-order: stroke;
     stroke: var(--card);
     stroke-width: 3px;
@@ -488,7 +482,7 @@
     flex: 1;
   }
   /* An empty body says what belongs in it. ProseMirror renders an empty
-     document as one paragraph holding a single trailing break. */
+     body as one paragraph holding a single trailing break. */
   .trellis-prosemirror .milkdown-prose:has(> p:only-child > br:only-child)::before {
     content: attr(data-placeholder);
     position: absolute;
@@ -504,7 +498,7 @@
   .trellis-prosemirror .milkdown-prose [data-type='html'] {
     color: var(--muted-foreground);
     font-family: var(--font-mono);
-    font-size: 0.8125em;
+    font-size: 0.8em;
     font-variant-ligatures: none;
   }
 }

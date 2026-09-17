@@ -1,27 +1,10 @@
-import type { ReactNode } from 'react'
-import {
-  Archive,
-  ArchiveRestore,
-  ArrowRight,
-  Ban,
-  ChevronRight,
-  Circle,
-  Flag,
-  Link2,
-  Link2Off,
-  Lock,
-  LockOpen,
-  MessageSquare,
-  Pencil,
-  Plus,
-  Tag,
-  Trash2,
-} from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { DiffView } from '@/components/wrappers/DiffView'
 import { MarkdownContent } from '@/components/wrappers/MarkdownContent'
 import { RELATIONS, shortActor } from '@/lib/cards'
+import { actionLabel } from '@/lib/events'
 import { sentence } from '@/lib/format'
 import { meaningfulEvents } from '@/lib/card-events'
 import { cn } from '@/lib/utils'
@@ -54,15 +37,16 @@ const TEXT_FIELDS = new Set(['title', 'body', 'summary'])
 /**
  * What happened to a card, as one timeline, newest first: its comments and its
  * events together, in the order they happened. Each item is a marker on one
- * line down the left with its own symbol; an event says in a sentence what
- * changed, a comment shows what was said. Who and when follow, and a new day
+ * line down the left, filled for a comment or the card's creation and hollow
+ * for any other event; the sentence beside it says what changed, so the marker
+ * does not repeat it with an icon. A comment shows what was said. Who and when follow, and a new day
  * starts under its own heading. A text edit opens into a diff when the log
  * kept both sides, and says plainly when it did not.
  */
 export function CardTimeline({
   events: all,
   comments = [],
-  statusLabel = 'Status',
+  statusLabel = 'Column',
 }: {
   events: CardEvent[]
   comments?: CardComment[]
@@ -97,18 +81,10 @@ export function CardTimeline({
             )}
             <div className="relative flex gap-3 pb-5">
               {/* The rail runs from this marker down to the next one. */}
-              {!last && <span aria-hidden="true" className="absolute top-6 bottom-0 left-3 w-px bg-border" />}
+              {!last && <span aria-hidden="true" className="absolute top-5 bottom-0 left-3 w-px bg-border" />}
               {item.kind === 'event' ? (
                 <>
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      'relative flex size-6 shrink-0 items-center justify-center bg-muted text-muted-foreground',
-                      item.event.action === 'created' && 'bg-foreground text-background',
-                    )}
-                  >
-                    {symbol(item.event)}
-                  </span>
+                  <Marker filled={item.event.action === 'created'} />
                   <div className="min-w-0 flex-1 pt-0.5">
                     <p className="text-sm text-foreground">{summary(item.event, statusLabel)}</p>
                     <Byline actor={item.event.actor} at={item.at} />
@@ -117,12 +93,10 @@ export function CardTimeline({
                 </>
               ) : (
                 <>
-                  <span aria-hidden="true" className="relative flex size-6 shrink-0 items-center justify-center bg-accent text-foreground">
-                    <MessageSquare className="size-3" />
-                  </span>
+                  <Marker filled />
                   <div className="min-w-0 flex-1 pt-0.5">
                     <Byline actor={item.comment.actor} at={item.at} verb="commented" />
-                    <div className="mt-1.5 bg-card px-3.5 py-2.5">
+                    <div className="mt-1.5">
                       <MarkdownContent content={item.comment.body} />
                     </div>
                   </div>
@@ -139,7 +113,7 @@ export function CardTimeline({
 /** Who, optionally what they did, and at what time of the day. */
 function Byline({ actor, at, verb }: { actor: string; at: number; verb?: string }) {
   return (
-    <p className={cn('flex items-baseline gap-2 text-xs text-muted-foreground', verb ? 'text-sm' : 'mt-0.5')}>
+    <p className={cn('flex items-baseline gap-2 text-xs text-muted-foreground', !verb && 'mt-0.5')}>
       <span className={cn('text-meta', verb && 'text-foreground')}>{shortActor(actor) ?? actor}</span>
       {verb && <span>{verb}</span>}
       <time className="text-xs" dateTime={new Date(at).toISOString()}>{clock(at)}</time>
@@ -168,43 +142,13 @@ function TextChange({ event, older }: { event: CardEvent; older: CardEvent[] }) 
   )
 }
 
-/** Each kind of event keeps one symbol, so a long timeline can be skimmed. */
-function symbol(event: CardEvent): ReactNode {
-  switch (event.action) {
-    case 'created':
-      return <Plus className="size-3" />
-    case 'moved':
-      return <ArrowRight className="size-3" />
-    case 'edited':
-      return event.field === 'priority' ? <Flag className="size-3" /> : <Pencil className="size-3" />
-    case 'claimed':
-      return <Lock className="size-3" />
-    case 'released':
-      return <LockOpen className="size-3" />
-    case 'blocked':
-      return <Ban className="size-3" />
-    case 'unblocked':
-      return <Circle className="size-3" />
-    case 'linked':
-    case 'related':
-      return <Link2 className="size-3" />
-    case 'unlinked':
-    case 'unrelated':
-      return <Link2Off className="size-3" />
-    case 'labeled':
-    case 'unlabeled':
-    case 'tagged':
-    case 'untagged':
-      return <Tag className="size-3" />
-    case 'archived':
-      return <Archive className="size-3" />
-    case 'unarchived':
-      return <ArchiveRestore className="size-3" />
-    case 'deleted':
-      return <Trash2 className="size-3" />
-    default:
-      return <Circle className="size-3" />
-  }
+/** An item's place on the rail. It covers the line behind it. */
+function Marker({ filled = false }: { filled?: boolean }) {
+  return (
+    <span aria-hidden="true" className="relative flex w-6 shrink-0 justify-center pt-2">
+      <span className={cn('size-2 bg-background ring-1 ring-rule-strong ring-inset', filled && 'bg-foreground ring-foreground')} />
+    </span>
+  )
 }
 
 function summary(event: CardEvent, statusLabel: string) {
@@ -220,9 +164,13 @@ function summary(event: CardEvent, statusLabel: string) {
       if (field === 'priority') return `Priority changed from ${from} to ${to}`
       return TEXT_FIELDS.has(field) ? `${sentence(field)} edited` : `${sentence(field)} changed`
     case 'claimed':
-      return 'Took the lease'
+      return 'Claimed it'
+    case 'stolen':
+      return event.old_value ? `Stole the claim from ${shortActor(event.old_value) ?? event.old_value}` : 'Stole the claim'
+    case 'renewed':
+      return 'Renewed the claim'
     case 'released':
-      return 'Released the lease'
+      return 'Released the claim'
     case 'blocked':
       return `Blocked by ${event.new_value}`
     case 'unblocked':
@@ -245,10 +193,10 @@ function summary(event: CardEvent, statusLabel: string) {
       return `${sentence(field)} removed: ${event.old_value}`
     case 'archived':
       return 'Archived'
-    case 'unarchived':
+    case 'restored':
       return 'Restored from the archive'
     default:
-      return field ? `${sentence(event.action)} ${sentence(field).toLowerCase()}` : sentence(event.action)
+      return field ? `${actionLabel(event.action)} ${sentence(field).toLowerCase()}` : actionLabel(event.action)
   }
 }
 

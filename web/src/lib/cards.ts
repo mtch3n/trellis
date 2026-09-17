@@ -11,13 +11,13 @@ export const PRIORITY_NUMBERS: Record<(typeof PRIORITIES)[number], number> = {
  * stays whole, and anything else keeps its kind because the kind is the
  * interesting part (`cli:4821`, `daemon:2`).
  */
-export function shortActor(owner?: string) {
-  if (!owner) return null
-  const [kind, ...rest] = owner.split(':')
+export function shortActor(actor?: string) {
+  if (!actor) return null
+  const [kind, ...rest] = actor.split(':')
   const name = rest.join(':')
   if (kind === 'agent') return name.slice(0, 8)
-  if (kind === 'human') return name || owner
-  return owner
+  if (kind === 'human') return name || actor
+  return actor
 }
 
 /** Each card relation and its inverse, in the order a reader weighs them. */

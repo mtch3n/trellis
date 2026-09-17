@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ForceGraph, type ForceGraphHandle } from '@/components/wrappers/ForceGraph'
 import { IconButton } from '@/components/wrappers/IconButton'
-import type { GraphNode, KnowledgeGraph } from '@/lib/knowledge-graph'
+import type { GraphNode, VaultGraph } from '@/lib/entry-graph'
 
 const STORAGE_KEY = 'trellis.graph-dock'
 
@@ -17,7 +17,7 @@ function initiallyOpen() {
 }
 
 /**
- * The graph, docked at the foot of the knowledge navigator and open by
+ * The graph, docked at the foot of the vault navigator and open by
  * default. It shows the whole vault with the open entry marked, so the reader
  * always sees where they are and what the entry touches. Expanding hands the
  * same graph to the explorer rather than growing the dock.
@@ -28,7 +28,7 @@ export function GraphDock({
   onOpen,
   onExpand,
 }: {
-  graph: KnowledgeGraph
+  graph: VaultGraph
   activeId?: string
   onOpen: (node: GraphNode) => void
   onExpand: () => void

@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 export interface MetaFact {
   label: string
   value: ReactNode
-  tone?: 'held' | 'danger'
+  tone?: 'claimed' | 'danger'
   /** Identifiers (refs, slugs, agent ids) set in mono; words, times and numbers stay sans. */
   mono?: boolean
   /** A value too long for one line sits under its label instead of beside it. */
@@ -16,7 +16,7 @@ export interface MetaFact {
 
 /**
  * The right column. One shape for every surface that shows an artefact: the
- * card dialog, the card page and the knowledge entry all describe their subject
+ * card dialog, the card page and the vault entry all describe their subject
  * the same way, so moving between them costs no re-reading.
  */
 export function MetaPanel({ children, className }: { children: ReactNode; className?: string }) {
@@ -120,7 +120,7 @@ export function MetaFacts({ facts }: { facts: MetaFact[] }) {
               'min-w-0',
               fact.stacked ? 'break-all' : 'text-right',
               fact.mono ? 'text-meta' : 'text-sm',
-              fact.tone === 'held' && 'text-held',
+              fact.tone === 'claimed' && 'text-claimed',
               fact.tone === 'danger' && 'text-danger',
             )}
           >

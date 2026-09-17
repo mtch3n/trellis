@@ -29,7 +29,7 @@ function slots(current: number, total: number): (number | 'gap')[] {
  *
  * The API returns whole collections rather than pages (it takes a `limit` but
  * no offset or cursor), so the slicing is client-side and honest about it: the
- * count shown is the count held.
+ * count shown is the count in hand.
  *
  * A list that fits on one page renders no pager. Controls that never do
  * anything are furniture.

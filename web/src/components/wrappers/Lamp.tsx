@@ -1,10 +1,10 @@
 import { cn } from '@/lib/utils'
 
-export type LampState = 'idle' | 'held' | 'alarm' | 'live'
+export type LampState = 'idle' | 'claimed' | 'alarm' | 'live'
 
 const LABEL: Record<LampState, string> = {
   idle: 'Idle',
-  held: 'Lease held',
+  claimed: 'Claimed',
   alarm: 'Blocked',
   live: 'Connected',
 }
@@ -34,9 +34,9 @@ export function Lamp({
       className={cn(
         'inline-block size-2 shrink-0',
         state === 'idle' && 'shadow-lamp-idle',
-        state === 'held' && 'bg-held shadow-lamp-held',
-        state === 'alarm' && 'lamp-alarm bg-danger shadow-lamp-alarm',
-        state === 'live' && 'lamp-live rounded-full bg-live shadow-lamp-live',
+        state === 'claimed' && 'bg-claimed',
+        state === 'alarm' && 'lamp-alarm bg-danger',
+        state === 'live' && 'lamp-live rounded-full bg-live',
         className,
       )}
     />

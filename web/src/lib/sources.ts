@@ -5,7 +5,7 @@
  * write exactly those.
  */
 
-const ADDRESS = /^\/([A-Za-z][A-Za-z0-9-]*)\/(cards|knowledge|artifacts)\/(\S+)$/
+const ADDRESS = /^\/([A-Za-z][A-Za-z0-9-]*)\/(cards|vault|artifacts)\/(\S+)$/
 const WIKILINK = /^\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]$/
 const CARD_REF = /^([A-Za-z][A-Za-z0-9]*)-(\d+)$/
 
@@ -19,20 +19,26 @@ export function sourceTarget(source: string, projectKey: string): SourceTarget {
   const text = source.trim()
   const link = WIKILINK.exec(text)
   if (link) {
-    const slug = link[1].trim()
-    return { kind: 'route', to: `/p/${projectKey}/knowledge/${encodeURIComponent(slug)}`, label: text }
+    // A wikilink names an entry by slug, or by its whole address.
+    const target = link[1].trim()
+    const inside = ADDRESS.exec(target)
+    if (inside) return { ...addressTarget(inside, projectKey), label: text }
+    return { kind: 'route', to: `/p/${projectKey}/vault/${encodeURIComponent(target)}`, label: text }
   }
   const address = ADDRESS.exec(text)
-  if (address) {
-    const [, key, collection, name] = address
-    // The global vault is read from inside a project, so it opens in this one.
-    const project = key === 'GLOBAL' ? projectKey : key
-    if (collection === 'cards') return { kind: 'route', to: `/p/${project}/card/${encodeURIComponent(name)}`, label: text }
-    if (collection === 'knowledge') return { kind: 'route', to: `/p/${project}/knowledge/${encodeURIComponent(name)}`, label: text }
-    return { kind: 'url', href: `/api/p/${project}/artifacts/${encodeURIComponent(name)}`, label: text }
-  }
+  if (address) return { ...addressTarget(address, projectKey), label: text }
   if (/^https?:\/\/\S+$/i.test(text)) return { kind: 'url', href: text, label: text.replace(/^https?:\/\//i, '') }
   return { kind: 'text' }
+}
+
+/** Where an absolute address leads, but for the words shown. */
+function addressTarget(address: RegExpExecArray, projectKey: string) {
+  const [, key, collection, name] = address
+  // The global vault is read from inside a project, so it opens in this one.
+  const project = key === 'GLOBAL' ? projectKey : key
+  if (collection === 'cards') return { kind: 'route' as const, to: `/p/${project}/card/${encodeURIComponent(name)}` }
+  if (collection === 'vault') return { kind: 'route' as const, to: `/p/${project}/vault/${encodeURIComponent(name)}` }
+  return { kind: 'url' as const, href: `/api/p/${project}/artifacts/${encodeURIComponent(name)}` }
 }
 
 /**

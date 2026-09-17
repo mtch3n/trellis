@@ -99,7 +99,7 @@ export function CardDialog({
     if (open) changeMode(startIn)
   }
 
-  const locked = Boolean(card?.owner) && card?.owner !== me
+  const locked = Boolean(card?.claimed_by) && card?.claimed_by !== me
   // Reading, focus lands on the scrolling body itself, which moves nothing
   // and lets the arrow keys scroll. Writing, it lands in the title.
   const scroller = useRef<HTMLDivElement>(null)
@@ -137,7 +137,7 @@ export function CardDialog({
                 size="sm"
                 disabled={locked}
                 onClick={() => changeMode('edit')}
-                title={locked ? 'Held by an agent. Take the lease to edit.' : undefined}
+                title={locked ? 'Claimed by an agent. Steal the claim to edit.' : undefined}
               >
                 <Pencil data-icon="inline-start" />
                 Edit
@@ -150,7 +150,7 @@ export function CardDialog({
               <CardMenu
                 cardRef={card.ref}
                 href={`/p/${projectKey}/card/${encodeURIComponent(card.ref)}`}
-                deleteDisabledReason={locked ? `Held by ${shortActor(card.owner)}. Take the lease to delete it.` : undefined}
+                deleteDisabledReason={locked ? `Claimed by ${shortActor(card.claimed_by)}. Steal the claim to delete it.` : undefined}
                 onDelete={onDelete}
               />
             )}
@@ -200,7 +200,7 @@ export function CardDialog({
           {/* A new card is a form to finish, so its commit sits at its end. */}
           {mode === 'create' && (
             <div className="mt-8 flex justify-end">
-              <EditActions form="card-form" source={source} onSourceChange={setSource} label="Create card" creating saving={saving} />
+              <EditActions form="card-form" source={source} onSourceChange={setSource} label="Create card" saving={saving} />
             </div>
           )}
         </div>

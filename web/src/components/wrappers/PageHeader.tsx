@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 export interface HeaderFact {
   label: string
   value: number | string
-  tone?: 'held' | 'danger'
+  tone?: 'claimed' | 'danger'
 }
 
 /**
@@ -13,15 +13,19 @@ export interface HeaderFact {
  * not belong here, and a fact worth nothing at zero is not shown at zero.
  *
  * The dashboard is read-first, so the header is deliberately short. Every row it
- * does not take is a row of content above the fold.
+ * does not take is a row of content above the fold. A page that needs saying
+ * what it is for, such as a settings section, gets one line under the title,
+ * and its action then stays level with the title.
  */
 export function PageHeader({
   title,
+  description,
   facts = [],
   actions,
   className,
 }: {
   title: ReactNode
+  description?: ReactNode
   facts?: HeaderFact[]
   actions?: ReactNode
   className?: string
@@ -32,11 +36,19 @@ export function PageHeader({
       className={cn(
         // No rule under it: the content below is its own surface, and a line
         // between the two only repeats that.
-        'flex min-h-16 shrink-0 flex-wrap items-center gap-x-8 gap-y-3 py-4',
+        'flex min-h-16 shrink-0 flex-wrap gap-x-8 gap-y-3 py-4',
+        description ? 'items-start' : 'items-center',
         className,
       )}
     >
-      <h1 className="text-title">{title}</h1>
+      {description ? (
+        <div className="flex min-w-0 flex-col gap-1">
+          <h1 className="text-title">{title}</h1>
+          <p className="text-sm text-pretty text-muted-foreground">{description}</p>
+        </div>
+      ) : (
+        <h1 className="text-title">{title}</h1>
+      )}
 
       {shown.length > 0 && (
         <dl className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
@@ -46,7 +58,7 @@ export function PageHeader({
               <dd
                 className={cn(
                   'text-xs font-medium',
-                  fact.tone === 'held' && 'text-held',
+                  fact.tone === 'claimed' && 'text-claimed',
                   fact.tone === 'danger' && 'text-danger',
                 )}
               >

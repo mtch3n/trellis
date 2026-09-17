@@ -3,17 +3,17 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PageHeader } from '@/components/wrappers/PageHeader'
-import { sentence } from '@/lib/format'
 import { Paged } from '@/components/wrappers/Paged'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { shortActor } from '@/lib/cards'
 import { readError } from '@/lib/api'
+import { actionLabel } from '@/lib/events'
 
 interface Event {
   seq: number
   timestamp: number
   actor: string
-  entity_type: string
+  entity: string
   action: string
   field?: string
   title: string
@@ -36,7 +36,7 @@ export function EventLogPage() {
 
   useEffect(() => {
     const controller = new AbortController()
-    fetch('/api/activity?limit=200', { signal: controller.signal })
+    fetch('/api/events?limit=200', { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(await readError(response))
         return response.json()
@@ -50,7 +50,7 @@ export function EventLogPage() {
 
   return (
     <main className="px-6 pb-24 lg:px-8">
-      <PageHeader title="Event log" facts={[{ label: 'Events', value: events?.length ?? 0 }]} />
+      <PageHeader title="Event log" />
 
       {error && (
         <Alert variant="destructive" className="mt-6">
@@ -94,7 +94,7 @@ export function EventLogPage() {
               <TableRow key={event.seq}>
                 <TableCell className="text-muted-foreground">{clock(event.timestamp)}</TableCell>
                 <TableCell className="text-meta text-muted-foreground">{shortActor(event.actor) ?? event.actor}</TableCell>
-                <TableCell className="text-muted-foreground">{sentence(event.action)}</TableCell>
+                <TableCell className="text-muted-foreground">{actionLabel(event.action)}</TableCell>
                 <TableCell className="text-muted-foreground">{event.project}</TableCell>
                 <TableCell>{event.title}</TableCell>
               </TableRow>

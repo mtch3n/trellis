@@ -24,7 +24,7 @@ export interface CardInfo {
   body: string
   priority: string
   version: number
-  owner?: string
+  claimed_by?: string
   created_at?: number
   updated_at?: number
   labels?: string[]
@@ -132,7 +132,7 @@ export function CardView({
   onLabel: (change: ChipChange) => Promise<void>
   onTag: (change: ChipChange) => Promise<void>
   onSteal: (reason: string) => Promise<void>
-  /** Who the server writes as, so a lease this person holds reads as theirs. */
+  /** Who the server writes as, so a claim this person holds reads as theirs. */
   me?: string
   /** The project's path in the app, for links to related cards. */
   base: string
@@ -164,15 +164,15 @@ export function CardView({
     setReason('')
   }
 
-  // A lease this person holds is not a lock: they are the owner the server
+  // A claim this person holds is not a lock: they are the actor the server
   // will check, so the card is theirs to change.
-  const mine = Boolean(card?.owner) && card?.owner === me
-  const locked = Boolean(card?.owner) && !mine
-  const holder = shortActor(card?.owner)
+  const mine = Boolean(card?.claimed_by) && card?.claimed_by === me
+  const locked = Boolean(card?.claimed_by) && !mine
+  const claimant = shortActor(card?.claimed_by)
   const changes = meaningfulEvents(events)
   const editing = mode !== 'read'
   const creating = mode === 'create'
-  // A held card's status and priority wait for its lease.
+  // A claimed card's column and priority wait for its claim.
   const fixed = locked && !creating
   const status = creating ? draft.column : (currentColumn ?? '')
   const priority = creating ? draft.priority : (card?.priority ?? 'normal')
@@ -221,7 +221,7 @@ export function CardView({
       ) : (
         <h1 className={cn('text-title text-balance', canEdit && 'edit-hint')} onClick={startEdit('title')}>{card?.title}</h1>
       )}
-      <Separator className="my-6" />
+      <Separator className="my-7" />
       {editing ? (
         <MarkdownEditor
           key={`${card?.id ?? 'new'}-${mode}`}
@@ -250,7 +250,7 @@ export function CardView({
     <div
       className={cn(
         'grid items-start gap-10',
-        wide ? 'justify-center gap-x-14 grid-cols-measure xl:grid-cols-entry' : 'lg:grid-cols-doc',
+        wide ? 'justify-center gap-x-14 grid-cols-measure xl:grid-cols-entry' : 'lg:grid-cols-facts',
       )}
     >
       <div className="min-w-0">
@@ -260,7 +260,7 @@ export function CardView({
             happened, with the box for saying something at its top. */}
         {!creating && card && (
           <section className="mt-10">
-            <h2 className="flex items-baseline gap-2 text-heading">
+            <h2 className="flex items-baseline gap-3 text-heading">
               Timeline
               <span className="text-xs font-normal text-muted-foreground">{changes.length + comments.length}</span>
             </h2>
@@ -278,7 +278,7 @@ export function CardView({
         {/* Status is the board column, named the way trackers name it. Status
             and priority apply the moment they change, editing or not; only a
             card being created drafts them. */}
-        <MetaGroup label="Status">
+        <MetaGroup label="Column">
           <Select
             items={columns.map((name) => ({ value: name, label: sentence(name) }))}
             value={status}
@@ -289,12 +289,12 @@ export function CardView({
             }}
           >
             <SelectTrigger
-              aria-label="Status"
+              aria-label="Column"
               className="w-full"
               disabled={fixed}
-              title={fixed ? `Held by ${holder}. Take the lease to change its status.` : undefined}
+              title={fixed ? `Claimed by ${claimant}. Steal the claim to change its column.` : undefined}
             >
-              <SelectValue placeholder="Status" />
+              <SelectValue placeholder="Column" />
             </SelectTrigger>
             <SelectContent>
               {columns.map((name) => (
@@ -318,7 +318,7 @@ export function CardView({
               aria-label="Priority"
               className={cn('w-full', priority === 'urgent' && 'text-danger')}
               disabled={fixed}
-              title={fixed ? `Held by ${holder}. Take the lease to change its priority.` : undefined}
+              title={fixed ? `Claimed by ${claimant}. Steal the claim to change its priority.` : undefined}
             >
               <SelectValue />
             </SelectTrigger>
@@ -339,7 +339,7 @@ export function CardView({
             values={creating ? draft.labels : (card?.labels ?? [])}
             options={labelOptions}
             placeholder="Label"
-            disabledReason={fixed ? `Held by ${holder}. Take the lease to change its labels.` : undefined}
+            disabledReason={fixed ? `Claimed by ${claimant}. Steal the claim to change its labels.` : undefined}
             onChange={(change) => {
               if (!creating) { void onLabel(change); return }
               setDraft({ ...draft, labels: apply(draft.labels, change) })
@@ -352,7 +352,7 @@ export function CardView({
             name="tag"
             values={creating ? draft.tags : (card?.tags ?? [])}
             placeholder="Tag"
-            disabledReason={fixed ? `Held by ${holder}. Take the lease to change its tags.` : undefined}
+            disabledReason={fixed ? `Claimed by ${claimant}. Steal the claim to change its tags.` : undefined}
             onChange={(change) => {
               if (!creating) { void onTag(change); return }
               setDraft({ ...draft, tags: apply(draft.tags, change) })
@@ -366,7 +366,7 @@ export function CardView({
               relations={card.relations ?? []}
               cards={cardOptions.filter((option) => option.ref !== card.ref)}
               base={base}
-              disabledReason={fixed ? `Held by ${holder}. Take the lease to change its relations.` : undefined}
+              disabledReason={fixed ? `Claimed by ${claimant}. Steal the claim to change its relations.` : undefined}
               onAdd={onRelate}
               onRemove={onUnrelate}
             />
@@ -380,23 +380,25 @@ export function CardView({
                 { label: 'Ref', value: card.ref, mono: true },
                 { label: 'Version', value: `v${card.version}` },
                 { label: 'Comments', value: String(comments.length) },
+                ...(card.created_at !== undefined ? [{ label: 'Created', value: stamp(card.created_at) }] : []),
+                ...(card.updated_at !== undefined ? [{ label: 'Updated', value: stamp(card.updated_at) }] : []),
               ]}
             />
           </MetaGroup>
         )}
 
         {!creating && card && (
-          <MetaGroup label="Lease">
+          <MetaGroup label="Claim">
             {mine ? (
               <p className="flex items-center gap-2 text-sm">
-                <Lamp state="held" />
-                Held by you
+                <Lamp state="claimed" />
+                Claimed by you
               </p>
             ) : locked ? (
               <>
                 <p className="flex items-center gap-2 text-sm">
-                  <Lamp state="held" />
-                  Held by <span className="text-meta text-held">{holder}</span>
+                  <Lamp state="claimed" />
+                  Claimed by <span className="text-meta text-claimed">{claimant}</span>
                 </p>
                 {stealing ? (
                   <form
@@ -410,35 +412,29 @@ export function CardView({
                     }}
                   >
                     <Input
-                      aria-label="Reason for taking the lease"
+                      aria-label="Reason for stealing the claim"
                       placeholder="Why you are taking it"
                       value={reason}
                       autoFocus
                       onChange={(event) => setReason(event.target.value)}
                     />
                     <div className="flex gap-2">
-                      <Button type="submit" size="sm" disabled={!reason.trim() || saving}>Take it</Button>
+                      <Button type="submit" size="sm" disabled={!reason.trim() || saving}>Steal it</Button>
                       <Button type="button" size="sm" variant="ghost" onClick={() => setStealing(false)}>Cancel</Button>
                     </div>
                   </form>
                 ) : (
                   <Button size="sm" variant="outline" className="mt-3 w-full" onClick={() => setStealing(true)}>
-                    Take the lease
+                    Steal the claim
                   </Button>
                 )}
               </>
             ) : (
-              <p className="text-sm text-muted-foreground">Not held. Any agent can claim it.</p>
+              <p className="text-sm text-muted-foreground">Not claimed. Any agent can claim it.</p>
             )}
           </MetaGroup>
         )}
 
-        {!creating && card && (card.created_at !== undefined || card.updated_at !== undefined) && (
-          <p className="flex flex-col gap-1 text-xs text-muted-foreground">
-            {card.created_at !== undefined && <span>Created {stamp(card.created_at)}</span>}
-            {card.updated_at !== undefined && <span>Updated {stamp(card.updated_at)}</span>}
-          </p>
-        )}
       </MetaPanel>
 
     </div>

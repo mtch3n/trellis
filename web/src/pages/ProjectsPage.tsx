@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Ellipsis, KanbanSquare, LayoutDashboard, Trash2 } from 'lucide-react'
+import { Ellipsis } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { toast } from '@/components/ui/toast'
 import type { ProjectSummary } from '@/components/wrappers/AppShell'
 import { DeleteProjectDialog } from '@/components/wrappers/DeleteProjectDialog'
@@ -73,15 +74,14 @@ export function ProjectsPage() {
 
   const live = projects.filter((project) => cards(project) > 0).sort((a, b) => cards(b) - cards(a))
   const untouched = projects.filter((project) => cards(project) === 0)
-  const stale = projects.reduce((total, project) => total + project.stale_leases, 0)
+  const stale = projects.reduce((total, project) => total + project.expired_claims, 0)
 
   return (
     <main className="px-6 pb-24 lg:px-8">
       <PageHeader
         title="Projects"
         facts={[
-          { label: 'Stale leases', value: stale, tone: 'held' },
-          { label: 'Projects', value: projects.length },
+          { label: 'Expired claims', value: stale, tone: 'claimed' },
         ]}
       />
 
@@ -150,7 +150,7 @@ function Group({
                   const board = project.boards[0]
                   return (
                     <TableRow key={project.key}>
-                      <TableCell><Lamp state={project.stale_leases > 0 ? 'held' : 'idle'} /></TableCell>
+                      <TableCell><Lamp state={project.expired_claims > 0 ? 'claimed' : 'idle'} /></TableCell>
                       <TableCell>
                         <Link to={`/p/${project.key}`} className="underline-offset-4 hover:underline">
                           {project.key}
@@ -169,8 +169,8 @@ function Group({
                       <TableCell className="text-right text-muted-foreground">{column(project, 'review')}</TableCell>
                       <TableCell className="text-right text-muted-foreground">{column(project, 'done')}</TableCell>
                       <TableCell>
-                        {project.stale_leases > 0 ? (
-                          <span className="text-held">{project.stale_leases} stale</span>
+                        {project.expired_claims > 0 ? (
+                          <span className="text-claimed">{project.expired_claims} expired</span>
                         ) : (
                           <span className="text-muted-foreground">{cards(project) === 0 ? 'Empty' : 'Clear'}</span>
                         )}
@@ -195,25 +195,29 @@ function ProjectActions({ project, onDelete }: { project: ProjectSummary; onDele
   const board = project.boards[0]
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
-        render={<Button variant="ghost" size="icon-sm" aria-label={`Actions for ${project.key}`} />}
-      >
-        <Ellipsis />
-      </DropdownMenuTrigger>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <DropdownMenuTrigger
+              render={<Button variant="ghost" size="icon-sm" aria-label={`Actions for ${project.key}`} />}
+            />
+          }
+        >
+          <Ellipsis />
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Actions</TooltipContent>
+      </Tooltip>
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuItem onClick={() => navigate(`/p/${project.key}`)}>
-          <LayoutDashboard />
           Overview
         </DropdownMenuItem>
         {board && (
           <DropdownMenuItem onClick={() => navigate(`/p/${project.key}/b/${board.slug}`)}>
-            <KanbanSquare />
             Board
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onClick={onDelete}>
-          <Trash2 />
           Delete project
         </DropdownMenuItem>
       </DropdownMenuContent>

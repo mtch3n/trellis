@@ -1,6 +1,4 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Trash2 } from 'lucide-react'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -20,8 +18,9 @@ import { readError } from '@/lib/api'
  * confirmation, so this dialog is the explanation, not the guard: it says what
  * goes, what stays, and why the project can come back.
  *
- * A refusal from the server (a lease held right now, entries in the global
- * vault) is shown inside the dialog, where the reader is looking.
+ * A refusal from the server (a live claim, entries in the global
+ * vault) is shown inside the dialog, where the reader is looking, as plain
+ * text rather than a box in the box.
  */
 export function DeleteProjectDialog({
   projectKey,
@@ -53,7 +52,7 @@ export function DeleteProjectDialog({
   useEffect(() => {
     if (!projectKey) return
     const controller = new AbortController()
-    fetch(`/api/p/${projectKey}/knowledge`, { signal: controller.signal })
+    fetch(`/api/p/${projectKey}/vault`, { signal: controller.signal })
       .then((response) => (response.ok ? response.json() : []))
       .then((list: unknown[]) => setEntries(list?.length ?? 0))
       .catch(() => { /* the count is a courtesy */ })
@@ -117,9 +116,7 @@ export function DeleteProjectDialog({
           </Field>
 
           {refusal && (
-            <Alert variant="destructive">
-              <AlertDescription className="whitespace-pre-line">{refusal}</AlertDescription>
-            </Alert>
+            <p role="alert" className="text-sm text-pretty whitespace-pre-line text-destructive">{refusal}</p>
           )}
 
           <DialogFooter className="mx-0 mb-0 border-0 bg-transparent p-0">
@@ -127,7 +124,7 @@ export function DeleteProjectDialog({
               Cancel
             </Button>
             <Button type="submit" variant="destructive" disabled={!confirmed || deleting}>
-              {deleting ? <Spinner data-icon="inline-start" /> : <Trash2 data-icon="inline-start" />}
+              {deleting && <Spinner data-icon="inline-start" />}
               Delete project
             </Button>
           </DialogFooter>

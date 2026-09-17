@@ -4,12 +4,12 @@ import { EditForm, InPlaceText } from '@/components/wrappers/EditInPlace'
 import { MarkdownContent } from '@/components/wrappers/MarkdownContent'
 import { MarkdownEditor } from '@/components/wrappers/MarkdownEditor'
 import { joinTitleHeading, splitTitleHeading } from '@/lib/title-heading'
-import type { KnowledgeEntry } from '@/pages/KnowledgePage'
+import type { Entry } from '@/lib/entry'
 
 export interface EntryDraft { title: string; summary: string; body: string }
 
 /**
- * One knowledge entry, read or edited. Content only: the facts about it live in
+ * One vault entry, read or edited. Content only: the facts about it live in
  * the meta column, the same way a card's do.
  *
  * Editing happens in place. Reading, the title, summary and body show a faint
@@ -30,7 +30,7 @@ export function EntryView({
   onEditingChange,
   onSave,
 }: {
-  entry: KnowledgeEntry
+  entry: Entry
   editing: boolean
   /** Which field takes the cursor when the entry opens already editing. */
   initialFocus?: 'title' | 'body'

@@ -35,7 +35,7 @@ import {
   type TreeNode,
   type TreeSort,
 } from '@/lib/vault-tree'
-import type { KnowledgeEntry } from '@/pages/KnowledgePage'
+import type { Entry } from '@/lib/entry'
 
 const CLOSED_KEY = 'trellis.vault-tree.closed'
 const SORT_KEY = 'trellis.vault-tree.sort'
@@ -57,7 +57,7 @@ function stored<T>(key: string, fallback: T, parse: (raw: string) => T): T {
 }
 
 /**
- * The navigator, as a file explorer. Knowledge is markdown files and the
+ * The navigator, as a file explorer. Entries are markdown files and the
  * scopes are directories, so the sidebar shows that tree rather than inventing
  * one: the global vault and this project as top folders, subfolders where a
  * slug has them, one line per file. Folders remember whether they were open,
@@ -70,7 +70,7 @@ function stored<T>(key: string, fallback: T, parse: (raw: string) => T): T {
  * The selection is one surface that slides to the open row, so moving
  * between entries reads as moving, not as one row blinking off and another on.
  */
-export function KnowledgeNav({
+export function VaultNav({
   entries,
   vaultCount,
   projectKey = 'Project',
@@ -79,7 +79,7 @@ export function KnowledgeNav({
   onOpenGraph,
   onCreate,
 }: {
-  entries: KnowledgeEntry[]
+  entries: Entry[]
   vaultCount: number
   projectKey?: string
   activeId?: string
@@ -171,7 +171,7 @@ export function KnowledgeNav({
     return () => observer.disconnect()
   }, [place])
 
-  const base = `/p/${projectKey}/knowledge`
+  const base = `/p/${projectKey}/vault`
   const filtering = filter.trim() !== ''
 
   return (
@@ -230,7 +230,7 @@ export function KnowledgeNav({
                   filtering
                     ? 'No match'
                     : root.path === GLOBAL_SCOPE && vaultCount === 0
-                      ? 'Empty. Agents nominate entries, and escalating one moves it here.'
+                      ? 'Empty. Agents nominate entries, and promoting one moves it here.'
                       : 'Nothing written yet'
                 }
               />

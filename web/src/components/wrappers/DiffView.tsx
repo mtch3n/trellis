@@ -56,7 +56,7 @@ export function DiffView({ before, after, mode = 'lines' }: { before: string; af
   }
 
   return (
-    <div className="overflow-x-auto bg-muted/40 py-2 text-meta leading-relaxed">
+    <div className="overflow-x-auto py-2 text-meta leading-relaxed">
       {renderLinesWithCollapse(lines)}
     </div>
   )

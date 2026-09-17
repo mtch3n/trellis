@@ -26,7 +26,7 @@ const LANES: ReadonlyArray<{ name: LaneName; label: string; verb: string; noun: 
   { name: 'created', label: 'Created', verb: 'created', noun: ['card', 'cards'] },
   { name: 'started', label: 'Started', verb: 'started', noun: ['card', 'cards'] },
   { name: 'finished', label: 'Done', verb: 'finished', noun: ['card', 'cards'] },
-  { name: 'written', label: 'Knowledge', verb: 'written', noun: ['entry', 'entries'] },
+  { name: 'written', label: 'Entries', verb: 'written', noun: ['entry', 'entries'] },
 ]
 
 const time = (ms: number) => new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
@@ -34,7 +34,7 @@ const day = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: 'n
 
 /**
  * What happened in a project, on four lanes that never grow: cards created,
- * cards started, cards finished, and knowledge written. Each event is a mark
+ * cards started, cards finished, and entries written. Each event is a mark
  * at its moment; marks too close to tell apart merge into one with a count,
  * and pointing at any mark lists what it stands for, with links.
  *
@@ -192,7 +192,6 @@ function Ruler({ axis, ticks, now }: { axis: TimeAxis; ticks: ReturnType<typeof 
             className="absolute inset-y-0 flex items-end justify-center gap-0.5 pb-1 text-xs whitespace-nowrap text-muted-foreground"
             style={{ left: skip.x, width: skip.width }}
           >
-            <FastForward className="size-3" />
             {skipped(skip.to - skip.from)}
           </div>
         ))}
@@ -212,7 +211,7 @@ function Lane({ label, count, children }: { label: string; count: number; childr
         <span className="text-label">{label}</span>
         <span className="text-xs text-muted-foreground">{count}</span>
       </div>
-      <div className="relative flex-1 bg-muted/35">{children}</div>
+      <div className="relative flex-1 bg-muted/50">{children}</div>
     </div>
   )
 }
@@ -224,7 +223,7 @@ function Glyph({ lane, flag }: { lane: LaneName; flag: boolean }) {
     case 'created':
       return <Plus className={shape} />
     case 'started':
-      return <Play className={cn(shape, 'fill-current', flag && 'text-held')} />
+      return <Play className={cn(shape, 'fill-current', flag && 'text-claimed')} />
     case 'finished':
       return <Check className={shape} />
     case 'written':
@@ -268,7 +267,7 @@ function MarkCluster({
             size={single ? 'icon-xs' : 'xs'}
             aria-label={heading}
             className={cn(
-              'absolute top-1/2 -translate-x-1/2 -translate-y-1/2 text-foreground/75 hover:text-foreground data-popup-open:text-foreground',
+              'absolute top-1/2 -translate-x-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground data-popup-open:text-foreground',
               !single && 'bg-background px-1.5 hover:bg-card data-popup-open:bg-card',
             )}
             style={{ left: cluster.x }}
@@ -286,7 +285,7 @@ function MarkCluster({
               <Link
                 to={
                   mark.lane === 'written'
-                    ? `${base}/knowledge/${encodeURIComponent(mark.ref.slice(mark.ref.indexOf('/') + 1))}`
+                    ? `${base}/vault/${encodeURIComponent(mark.ref.slice(mark.ref.indexOf('/') + 1))}`
                     : `${base}/card/${encodeURIComponent(mark.ref)}`
                 }
                 className="flex items-baseline gap-2.5 px-1.5 py-1 transition-colors hover:bg-accent"
@@ -299,7 +298,7 @@ function MarkCluster({
                   <span className="shrink-0 text-meta text-muted-foreground">{mark.ref}</span>
                 )}
                 {mark.lane === 'started' && mark.actor && (
-                  <span className={cn('shrink-0 text-meta', mark.flag ? 'text-held' : 'text-muted-foreground')}>
+                  <span className={cn('shrink-0 text-meta', mark.flag ? 'text-claimed' : 'text-muted-foreground')}>
                     {shortActor(mark.actor)}
                   </span>
                 )}

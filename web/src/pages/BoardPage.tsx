@@ -45,7 +45,7 @@ import { cn } from '@/lib/utils'
 import { readError } from '@/lib/api'
 
 interface ColumnCardsInfo { name: string; cards: CardInfo[] }
-interface CardDetail { card: CardInfo; comments?: CardComment[]; activity?: CardEvent[]; relations?: CardInfo['relations'] }
+interface CardDetail { card: CardInfo; comments?: CardComment[]; events?: CardEvent[]; relations?: CardInfo['relations'] }
 
 /** The detail carries a card's relations beside it; the views read them on the card. */
 const withRelations = (detail: CardDetail): CardInfo => ({ ...detail.card, relations: detail.relations ?? [] })
@@ -235,7 +235,7 @@ export function BoardPage() {
       if (response.ok) {
         const detail = (await response.json()) as CardDetail
         setComments(detail.comments ?? [])
-        setEvents(detail.activity ?? [])
+        setEvents(detail.events ?? [])
       }
     } catch {
       /* the card reads fine without its comments */
@@ -250,10 +250,10 @@ export function BoardPage() {
     // the words has to send the new one. Only the card still open is replaced.
     setOpen((current) => (current?.ref === ref ? withRelations(detail) : current))
     setComments(detail.comments ?? [])
-    setEvents(detail.activity ?? [])
+    setEvents(detail.events ?? [])
   }
 
-  // A lease this person holds is theirs to edit, so the page needs to know
+  // A claim this person holds is theirs to edit, so the page needs to know
   // which principal the server writes as.
   const [me, setMe] = useState<string>()
   useEffect(() => {
@@ -261,7 +261,7 @@ export function BoardPage() {
     fetch('/api/me', { signal: controller.signal })
       .then((response) => (response.ok ? response.json() : null))
       .then((who: { actor: string } | null) => { if (who) setMe(who.actor) })
-      .catch(() => { /* without it every lease simply reads as someone else's */ })
+      .catch(() => { /* without it every claim simply reads as someone else's */ })
     return () => controller.abort()
   }, [])
 
@@ -390,7 +390,7 @@ export function BoardPage() {
           const detail = (await refreshed.json()) as CardDetail
           setOpen(withRelations(detail))
           setComments(detail.comments ?? [])
-          setEvents(detail.activity ?? [])
+          setEvents(detail.events ?? [])
         }
         toast.add({ title: 'Card changed underneath you', description: `${text} It has been reloaded.`, type: 'error' })
         return false
@@ -462,7 +462,7 @@ export function BoardPage() {
     }
   }
 
-  const stealLease = async (reason: string) => {
+  const stealClaim = async (reason: string) => {
     if (!open) return
     setSaving(true)
     try {
@@ -478,10 +478,10 @@ export function BoardPage() {
         const detail = (await refreshed.json()) as CardDetail
         setOpen(withRelations(detail))
         setComments(detail.comments ?? [])
-        setEvents(detail.activity ?? [])
+        setEvents(detail.events ?? [])
       }
     } catch (err) {
-      toast.add({ title: 'Could not take the lease', description: message(err), type: 'error' })
+      toast.add({ title: 'Could not steal the claim', description: message(err), type: 'error' })
     } finally { setSaving(false) }
   }
 
@@ -662,7 +662,7 @@ export function BoardPage() {
                             <TableHead className="w-7" aria-label="State" />
                             <TableHead className="w-28">Ref</TableHead>
                             <TableHead>Card</TableHead>
-                            <TableHead className="w-32">Holder</TableHead>
+                            <TableHead className="w-32">Claimed by</TableHead>
                             <TableHead className="w-24">Priority</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -675,12 +675,12 @@ export function BoardPage() {
                               onClick={() => void openCard(card)}
                             >
                               <TableCell>
-                                <Lamp state={card.priority === 'urgent' ? 'alarm' : card.owner ? 'held' : 'idle'} />
+                                <Lamp state={card.priority === 'urgent' ? 'alarm' : card.claimed_by ? 'claimed' : 'idle'} />
                               </TableCell>
                               <TableCell className="text-meta text-muted-foreground">{card.ref}</TableCell>
                               <TableCell>{card.title}</TableCell>
-                              <TableCell className={cn('text-meta', card.owner ? 'text-held' : 'text-muted-foreground')}>
-                                {shortActor(card.owner) ?? 'none'}
+                              <TableCell className={cn('text-meta', card.claimed_by ? 'text-claimed' : 'text-muted-foreground')}>
+                                {shortActor(card.claimed_by) ?? 'none'}
                               </TableCell>
                               <TableCell className={cn('text-xs', card.priority === 'urgent' ? 'text-danger' : 'text-muted-foreground')}>
                                 {sentence(card.priority)}
@@ -720,7 +720,7 @@ export function BoardPage() {
         onRelate={relate}
         onUnrelate={unrelate}
         onComment={comment}
-        onSteal={stealLease}
+        onSteal={stealClaim}
         onDelete={deleteCard}
       />
     </main>
@@ -747,7 +747,7 @@ function BoardColumn({
   onOpen: (card: CardInfo) => void
 }) {
   const { setNodeRef } = useDroppable({ id: `${COLUMN}${column.name}` })
-  const held = column.cards.filter((card) => card.owner).length
+  const claimed = column.cards.filter((card) => card.claimed_by).length
   const refs = useMemo(() => column.cards.map((card) => card.ref), [column.cards])
 
   return (
@@ -760,7 +760,7 @@ function BoardColumn({
     >
       <header className="flex h-11 shrink-0 items-center gap-2 px-3.5">
         <h2 className="text-label">{sentence(column.name)}</h2>
-        {held > 0 && <span className="text-xs text-held">{held} held</span>}
+        {claimed > 0 && <span className="text-xs text-claimed">{claimed} claimed</span>}
         <span className="ml-auto text-xs text-muted-foreground">{column.cards.length}</span>
       </header>
 
@@ -795,7 +795,7 @@ function BoardColumn({
  * column becomes the landing slot: a dashed outline of the same height, so
  * the drop target is visible before the drop.
  *
- * A held card does not drag: the lease is the concurrency contract, and a move
+ * A claimed card does not drag: the claim is the concurrency contract, and a move
  * the server would refuse should not look available. Trying anyway says why.
  */
 function SortableCard({
@@ -807,9 +807,9 @@ function SortableCard({
   selected: boolean
   onOpen: (card: CardInfo) => void
 }) {
-  const locked = Boolean(card.owner)
-  // Held cards stay drop targets: a card may be placed beside one, and the
-  // server re-ranks the column without touching the lease.
+  const locked = Boolean(card.claimed_by)
+  // Claimed cards stay drop targets: a card may be placed beside one, and the
+  // server re-ranks the column without touching the claim.
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.ref,
     disabled: { draggable: locked, droppable: false },
@@ -826,8 +826,8 @@ function SortableCard({
       start.told = true
       setShake((count) => count + 1)
       toast.add({
-        title: `${card.ref} is held by ${shortActor(card.owner)}`,
-        description: 'Open it and take the lease before moving it.',
+        title: `${card.ref} is claimed by ${shortActor(card.claimed_by)}`,
+        description: 'Open it and steal the claim before moving it.',
       })
     },
     // A refused drag still ends in a click on the same card; it should not
@@ -880,17 +880,17 @@ function CardTile({
   refused?: boolean
   onOpen?: (card: CardInfo) => void
 } & React.HTMLAttributes<HTMLButtonElement>) {
-  const locked = Boolean(card.owner)
+  const locked = Boolean(card.claimed_by)
   const urgent = card.priority === 'urgent'
-  const actor = shortActor(card.owner)
+  const actor = shortActor(card.claimed_by)
 
   return (
     <Button
       variant="ghost"
       onClick={() => onOpen?.(card)}
       aria-current={selected ? 'true' : undefined}
-      aria-roledescription={locked ? 'held card' : 'draggable card'}
-      title={locked ? `Held by ${actor}. Take the lease to move it.` : undefined}
+      aria-roledescription={locked ? 'claimed card' : 'draggable card'}
+      title={locked ? `Claimed by ${actor}. Steal the claim to move it.` : undefined}
       {...handlers}
       className={cn(
         // No outline: a tile sits on its column by its shadow. The background
@@ -906,7 +906,7 @@ function CardTile({
     >
       <span className="block text-sm leading-snug text-foreground">{card.title}</span>
       <span className="mt-2.5 flex w-full flex-wrap items-center gap-x-2 gap-y-1">
-        <Lamp state={urgent ? 'alarm' : locked ? 'held' : 'idle'} />
+        <Lamp state={urgent ? 'alarm' : locked ? 'claimed' : 'idle'} />
         <span className="text-meta text-muted-foreground">{card.ref}</span>
         {card.priority !== 'normal' && (
           <span className={cn('text-xs', urgent ? 'text-danger' : 'text-muted-foreground')}>
@@ -914,8 +914,8 @@ function CardTile({
           </span>
         )}
         {actor && (
-          <span className="ml-auto text-xs text-held">
-            Held by <span className="text-meta">{actor}</span>
+          <span className="ml-auto text-xs text-claimed">
+            Claimed by <span className="text-meta">{actor}</span>
           </span>
         )}
       </span>

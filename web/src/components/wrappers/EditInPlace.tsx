@@ -1,5 +1,5 @@
 import { useEffect, useRef, type FormEvent, type ReactNode } from 'react'
-import { Code, Plus, Save } from 'lucide-react'
+import { Code } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Kbd, KbdGroup } from '@/components/ui/kbd'
 import { Spinner } from '@/components/ui/spinner'
@@ -87,7 +87,7 @@ export function InPlaceText({
         required={required}
         placeholder={placeholder}
         className={cn(
-          'min-h-0 resize-none rounded-none border-0 bg-transparent p-0 shadow-none placeholder:text-muted-foreground/45 focus-visible:ring-0 dark:bg-transparent',
+          'min-h-0 resize-none rounded-none border-0 bg-transparent p-0 shadow-none placeholder:text-muted-foreground/55 focus-visible:ring-0 dark:bg-transparent',
           className,
         )}
         value={value}
@@ -114,7 +114,6 @@ export function EditActions({
   source,
   onSourceChange,
   label,
-  creating = false,
   saving,
   onCancel,
 }: {
@@ -123,7 +122,6 @@ export function EditActions({
   source: boolean
   onSourceChange: (source: boolean) => void
   label: string
-  creating?: boolean
   saving: boolean
   onCancel?: () => void
 }) {
@@ -159,7 +157,7 @@ export function EditActions({
       )}
       <Tooltip>
         <TooltipTrigger render={<Button type="submit" form={form} size="sm" disabled={saving} />}>
-          {saving ? <Spinner data-icon="inline-start" /> : creating ? <Plus data-icon="inline-start" /> : <Save data-icon="inline-start" />}
+          {saving && <Spinner data-icon="inline-start" />}
           {label}
         </TooltipTrigger>
         <TooltipContent>

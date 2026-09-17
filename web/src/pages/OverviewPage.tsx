@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowRight } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -11,7 +10,8 @@ import { Lamp } from '@/components/wrappers/Lamp'
 import { MetaGroup } from '@/components/wrappers/MetaPanel'
 import { ProjectTimeline } from '@/components/wrappers/ProjectTimeline'
 import { PageHeader } from '@/components/wrappers/PageHeader'
-import type { KnowledgeEntry } from '@/pages/KnowledgePage'
+import type { Entry } from '@/lib/entry'
+import { actionLabel } from '@/lib/events'
 import { ago, sentence, templateLabel } from '@/lib/format'
 import { buildMarks, type ProjectEvent } from '@/lib/timeline-marks'
 import { cn } from '@/lib/utils'
@@ -22,7 +22,7 @@ interface Event {
   seq: number
   timestamp: number
   actor: string
-  entity_type: string
+  entity: string
   action: string
   title: string
 }
@@ -31,7 +31,7 @@ interface Snapshot {
   summary: ProjectSummary | null
   columns: ColumnCards[]
   events: Event[]
-  entries: KnowledgeEntry[]
+  entries: Entry[]
   log: ProjectEvent[]
   loadedAt: number
 }
@@ -81,8 +81,8 @@ export function OverviewPage() {
       }
       const [columns, events, entries, log] = await Promise.all([
         board ? read<ColumnCards[]>(`/api/p/${projectKey}/b/${board}/cards`) : Promise.resolve([]),
-        read<Event[]>(`/api/activity?project=${encodeURIComponent(projectKey)}&limit=20`),
-        read<KnowledgeEntry[]>(`/api/p/${projectKey}/knowledge`),
+        read<Event[]>(`/api/events?project=${encodeURIComponent(projectKey)}&limit=20`),
+        read<Entry[]>(`/api/p/${projectKey}/vault`),
         readLog(),
       ])
       setData({ summary, columns, events, entries: entries ?? [], log, loadedAt: Date.now() })
@@ -106,7 +106,7 @@ export function OverviewPage() {
       cards: cards.flatMap((card) =>
         card.created_at === undefined
           ? []
-          : [{ ref: card.ref, title: card.title, createdAt: card.created_at, owner: card.owner }],
+          : [{ ref: card.ref, title: card.title, createdAt: card.created_at, claimedBy: card.claimed_by }],
       ),
       events: data.log,
       titles,
@@ -117,7 +117,7 @@ export function OverviewPage() {
       marks,
       moving,
       total: cards.length,
-      held: cards.filter((card) => card.owner).length,
+      claimed: cards.filter((card) => card.claimed_by).length,
       urgent: cards.filter((card) => card.priority === 'urgent' && !doneNames.has(columnOf(data.columns, card.ref))),
       pinned: data.entries.filter((entry) => entry.recap),
       recent: [...data.entries].sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0)).slice(0, 5),
@@ -129,7 +129,7 @@ export function OverviewPage() {
     return (
       <main className="mx-auto max-w-overview px-6 pb-24 lg:px-8">
         <PageHeader title={projectKey ?? 'Overview'} />
-        <Alert variant="destructive" className="mt-4">
+        <Alert variant="destructive" className="mt-6">
           <AlertTitle>Could not load the project</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
@@ -140,7 +140,7 @@ export function OverviewPage() {
   if (!data || !view) return <LoadingOverview />
 
   const base = `/p/${projectKey}`
-  const stale = data.summary?.stale_leases ?? 0
+  const stale = data.summary?.expired_claims ?? 0
 
   if (view.total === 0 && data.entries.length === 0) {
     return (
@@ -161,9 +161,8 @@ export function OverviewPage() {
       <PageHeader
         title={projectKey}
         facts={[
-          { label: 'Cards', value: view.total },
-          { label: 'Held', value: view.held, tone: 'held' },
-          { label: 'Stale leases', value: stale, tone: 'held' },
+          { label: 'Claimed', value: view.claimed, tone: 'claimed' },
+          { label: 'Expired claims', value: stale, tone: 'claimed' },
           { label: 'Entries', value: data.entries.length },
         ]}
       />
@@ -202,7 +201,7 @@ export function OverviewPage() {
                     <span className="w-20 shrink-0 truncate text-meta text-muted-foreground">
                       {shortActor(event.actor) ?? event.actor}
                     </span>
-                    <span className="w-24 shrink-0 text-xs text-muted-foreground">{sentence(event.action)}</span>
+                    <span className="w-24 shrink-0 text-xs text-muted-foreground">{actionLabel(event.action)}</span>
                     <span className="min-w-0 truncate text-sm">{event.title}</span>
                   </li>
                 ))}
@@ -210,10 +209,9 @@ export function OverviewPage() {
             )}
             <Link
               to="/event-log"
-              className="mt-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="mt-3 inline-flex text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               Full event log
-              <ArrowRight className="size-3.5" />
             </Link>
           </section>
         </div>
@@ -231,10 +229,9 @@ export function OverviewPage() {
             {view.board && (
               <Link
                 to={`${base}/b/${view.board}`}
-                className="mt-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+                className="mt-3 inline-flex text-sm text-muted-foreground transition-colors hover:text-foreground"
               >
                 Open the board
-                <ArrowRight className="size-3.5" />
               </Link>
             )}
           </MetaGroup>
@@ -244,7 +241,7 @@ export function OverviewPage() {
               <ul className="flex flex-col gap-4">
                 {view.pinned.map((entry) => (
                   <li key={entry.id}>
-                    <Link to={`${base}/knowledge/${encodeURIComponent(entry.slug)}`} className="text-sm leading-snug hover:underline">
+                    <Link to={`${base}/vault/${encodeURIComponent(entry.slug)}`} className="text-sm leading-snug hover:underline">
                       {entry.title}
                     </Link>
                     <p className="mt-1 text-xs text-pretty text-muted-foreground">{entry.recap}</p>
@@ -262,7 +259,7 @@ export function OverviewPage() {
                 {view.recent.map((entry) => (
                   <li key={entry.id}>
                     <Link
-                      to={`${base}/knowledge/${encodeURIComponent(entry.slug)}`}
+                      to={`${base}/vault/${encodeURIComponent(entry.slug)}`}
                       className="block px-2 py-1.5 transition-colors hover:bg-accent/50"
                     >
                       <span className="block text-sm leading-snug">{entry.title}</span>
@@ -300,16 +297,16 @@ function CardSection({
 }) {
   return (
     <section>
-      <h2 className="flex items-baseline gap-2 text-heading">
+      <h2 className="flex items-baseline gap-3 text-heading">
         {title}
         <span className="text-xs font-normal text-muted-foreground">{cards.length}</span>
       </h2>
       {cards.length === 0 ? (
         <p className="mt-3 text-sm text-muted-foreground">{empty}</p>
       ) : (
-        <ul className="-mx-3 mt-2 flex flex-col">
+        <ul className="-mx-3 mt-3 flex flex-col">
           {cards.map((card) => {
-            const holder = shortActor(card.owner)
+            const claimant = shortActor(card.claimed_by)
             const urgent = card.priority === 'urgent'
             return (
               <li key={card.id}>
@@ -317,14 +314,14 @@ function CardSection({
                   to={`${base}/card/${encodeURIComponent(card.ref)}`}
                   className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/50"
                 >
-                  <Lamp state={urgent ? 'alarm' : holder ? 'held' : 'idle'} />
+                  <Lamp state={urgent ? 'alarm' : claimant ? 'claimed' : 'idle'} />
                   <span className="min-w-0 flex-1 truncate text-sm">{card.title}</span>
                   {card.priority !== 'normal' && (
                     <span className={cn('shrink-0 text-xs', urgent ? 'text-danger' : 'text-muted-foreground')}>
                       {sentence(card.priority)}
                     </span>
                   )}
-                  {holder && <span className="shrink-0 text-meta text-held">{holder}</span>}
+                  {claimant && <span className="shrink-0 text-meta text-claimed">{claimant}</span>}
                   <span className="w-24 shrink-0 text-right text-meta text-muted-foreground">{card.ref}</span>
                 </Link>
               </li>
@@ -342,7 +339,7 @@ function LoadingOverview() {
       <div className="flex min-h-16 items-center py-4">
         <Skeleton className="h-7 w-40" />
       </div>
-      <div className="mt-6 grid gap-x-14 gap-y-12 lg:grid-cols-overview">
+      <div className="mt-12 grid gap-x-14 gap-y-12 lg:grid-cols-overview">
         <div className="flex flex-col gap-3">
           <Skeleton className="h-5 w-32" />
           <Skeleton className="h-10 w-full" />

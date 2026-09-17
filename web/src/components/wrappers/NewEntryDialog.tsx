@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { FolderPlus, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -35,10 +35,10 @@ import {
   type TemplateInfo,
 } from '@/lib/templates'
 import { cn } from '@/lib/utils'
-import type { KnowledgeEntry } from '@/pages/KnowledgePage'
+import type { Entry } from '@/lib/entry'
 
 /** What the server hands back for a new entry: the entry, and what its template warned about. */
-export type CreatedEntry = KnowledgeEntry & { warnings?: string[] }
+export type CreatedEntry = Entry & { warnings?: string[] }
 
 /** The project's top level, as a folder choice. */
 const TOP = ''
@@ -115,12 +115,12 @@ export function NewEntryDialog({
     setCreating(true)
     setRefusal(null)
     try {
-      const response = await fetch(`/api/p/${projectKey}/b/${board}/knowledge`, {
+      const response = await fetch(`/api/p/${projectKey}/b/${board}/vault`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: title.trim(),
-          dir: dir.trim().replace(/^\/+|\/+$/g, '') || undefined,
+          directory: dir.trim().replace(/^\/+|\/+$/g, '') || undefined,
           template: templateName,
           summary: asks.summary ? summary.trim() : undefined,
           sources: asks.sources
@@ -144,7 +144,7 @@ export function NewEntryDialog({
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!creating) onOpenChange(next) }}>
       <DialogContent className="max-h-[88dvh] gap-5 overflow-y-auto p-6 sm:max-w-lg">
-        <form onSubmit={submit} className="flex flex-col gap-6">
+        <form onSubmit={submit} className="flex flex-col gap-5">
           <DialogHeader>
             <DialogTitle>New entry</DialogTitle>
             <DialogDescription className="text-pretty">
@@ -278,7 +278,6 @@ function FolderField({
             ))}
             <SelectSeparator />
             <SelectItem value={NEW_FOLDER}>
-              <FolderPlus className="text-muted-foreground" />
               New folder…
             </SelectItem>
           </SelectContent>

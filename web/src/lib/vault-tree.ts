@@ -1,4 +1,4 @@
-import type { KnowledgeEntry } from '@/pages/KnowledgePage'
+import type { Entry } from '@/lib/entry'
 
 /**
  * The vault as a file tree. The two scopes are the top folders, the global
@@ -20,7 +20,7 @@ export interface TreeFolder {
 export interface TreeFile {
   kind: 'file'
   path: string
-  entry: KnowledgeEntry
+  entry: Entry
 }
 
 export type TreeNode = TreeFolder | TreeFile
@@ -30,7 +30,7 @@ export type TreeSort = 'title' | 'title-desc' | 'updated' | 'created'
 export const GLOBAL_SCOPE = 'GLOBAL'
 
 export function buildVaultTree(
-  entries: KnowledgeEntry[],
+  entries: Entry[],
   { projectKey, sort }: { projectKey: string; sort: TreeSort },
 ): TreeFolder[] {
   const roots: TreeFolder[] = [
@@ -71,7 +71,7 @@ function arrange(folder: TreeFolder, sort: TreeSort): number {
   return count
 }
 
-function compareFiles(a: KnowledgeEntry, b: KnowledgeEntry, sort: TreeSort) {
+function compareFiles(a: Entry, b: Entry, sort: TreeSort) {
   switch (sort) {
     case 'title':
       return a.title.localeCompare(b.title)
@@ -105,9 +105,9 @@ export function ancestorsOf(nodes: TreeNode[], id: string, trail: string[] = [])
 /**
  * The folders a new entry of this project can go in, as the directory the
  * server takes: `ops`, `ops/db`. The global vault is left out, because entries
- * are created in the project and reach the vault only by escalation.
+ * are created in the project and reach the vault only by promotion.
  */
-export function projectFolders(entries: KnowledgeEntry[]): string[] {
+export function projectFolders(entries: Entry[]): string[] {
   const dirs = new Set<string>()
   for (const entry of entries) {
     if (entry.global) continue

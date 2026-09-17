@@ -27,7 +27,7 @@ import type { CardComment, CardEvent } from '@/components/wrappers/CardTimeline'
 import { readError } from '@/lib/api'
 
 interface ColumnCardsInfo { name: string; cards: CardInfo[] }
-interface CardDetail { card: CardInfo; comments?: CardComment[]; activity?: CardEvent[]; relations?: CardInfo['relations'] }
+interface CardDetail { card: CardInfo; comments?: CardComment[]; events?: CardEvent[]; relations?: CardInfo['relations'] }
 
 /** The detail carries a card's relations beside it; the views read them on the card. */
 const withRelations = (detail: CardDetail): CardInfo => ({ ...detail.card, relations: detail.relations ?? [] })
@@ -73,7 +73,7 @@ export function CardPage() {
       const data = (await detail.json()) as CardDetail
       setCard(withRelations(data))
       setComments(data.comments ?? [])
-      setEvents(data.activity ?? [])
+      setEvents(data.events ?? [])
       setError(null)
 
       if (slug) {
@@ -140,7 +140,7 @@ export function CardPage() {
     }
   }
 
-  // A lease this person holds is theirs to edit, so the page needs to know
+  // A claim this person holds is theirs to edit, so the page needs to know
   // which principal the server writes as.
   const [me, setMe] = useState<string>()
   useEffect(() => {
@@ -148,7 +148,7 @@ export function CardPage() {
     fetch('/api/me', { signal: controller.signal })
       .then((response) => (response.ok ? response.json() : null))
       .then((who: { actor: string } | null) => { if (who) setMe(who.actor) })
-      .catch(() => { /* without it every lease simply reads as someone else's */ })
+      .catch(() => { /* without it every claim simply reads as someone else's */ })
     return () => controller.abort()
   }, [])
 
@@ -268,7 +268,7 @@ export function CardPage() {
       if (!response.ok) throw new Error(await readError(response))
       await load()
     } catch (err) {
-      toast.add({ title: 'Could not take the lease', description: message(err), type: 'error' })
+      toast.add({ title: 'Could not steal the claim', description: message(err), type: 'error' })
     } finally { setSaving(false) }
   }
 
@@ -313,9 +313,9 @@ export function CardPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={Boolean(card.owner) && card.owner !== me}
+                  disabled={Boolean(card.claimed_by) && card.claimed_by !== me}
                   onClick={() => changeMode('edit')}
-                  title={card.owner && card.owner !== me ? 'Held by an agent. Take the lease to edit.' : undefined}
+                  title={card.claimed_by && card.claimed_by !== me ? 'Claimed by an agent. Steal the claim to edit.' : undefined}
                 >
                   <Pencil data-icon="inline-start" />
                   Edit
@@ -326,7 +326,7 @@ export function CardPage() {
               <CardMenu
                 cardRef={card.ref}
                 href={`/p/${projectKey}/card/${encodeURIComponent(card.ref)}`}
-                deleteDisabledReason={card.owner ? `Held by ${shortActor(card.owner)}. Take the lease to delete it.` : undefined}
+                deleteDisabledReason={card.claimed_by ? `Claimed by ${shortActor(card.claimed_by)}. Steal the claim to delete it.` : undefined}
                 onDelete={remove}
               />
             </div>

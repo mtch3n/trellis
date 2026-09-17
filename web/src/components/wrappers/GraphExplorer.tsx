@@ -4,11 +4,11 @@ import { Minus, Plus, Scan, X } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { ForceGraph, type ForceGraphHandle } from '@/components/wrappers/ForceGraph'
 import { IconButton } from '@/components/wrappers/IconButton'
-import type { GraphNode, KnowledgeGraph } from '@/lib/knowledge-graph'
+import type { GraphNode, VaultGraph } from '@/lib/entry-graph'
 
 /**
  * The graph at full size. The canvas takes the screen; the rail beside it
- * answers the two questions a graph of a knowledge base is actually asked:
+ * answers the two questions a graph of a vault is actually asked:
  * what is connected to nothing, and which links point at entries nobody has
  * written yet. Choosing a node or a name opens that entry, and because the
  * explorer's open state lives in the URL, leaving the URL closes it.
@@ -23,7 +23,7 @@ export function GraphExplorer({
   onOpenChange,
 }: {
   open: boolean
-  graph: KnowledgeGraph
+  graph: VaultGraph
   activeId?: string
   projectKey?: string
   titleOf: (slug: string) => string
@@ -34,7 +34,7 @@ export function GraphExplorer({
   // Focus lands on the canvas, so Tab walks the nodes before the toolbar.
   const canvas = useRef<HTMLDivElement>(null)
   const entries = graph.nodes.length - graph.stubs.length
-  const href = (slug: string) => `/p/${projectKey}/knowledge/${encodeURIComponent(slug)}`
+  const href = (slug: string) => `/p/${projectKey}/vault/${encodeURIComponent(slug)}`
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -82,7 +82,7 @@ export function GraphExplorer({
 
           <aside className="hidden w-80 shrink-0 flex-col gap-8 overflow-y-auto border-l border-border p-5 md:flex">
             <section>
-              <h3 className="text-label text-muted-foreground">Unlinked</h3>
+              <h3 className="text-label text-muted-foreground">Orphans</h3>
               {graph.orphans.length === 0 ? (
                 <p className="mt-2 text-sm text-muted-foreground">Every entry links somewhere.</p>
               ) : (
