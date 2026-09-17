@@ -12,8 +12,13 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // marker names the temporary home a test binary created. A test that
@@ -21,6 +26,17 @@ import (
 // the marker and shares the parent's home instead of making (and, when it is
 // killed, leaking) one of its own.
 const marker = "TRELLIS_TEST_HOME"
+
+// prefix starts every temporary home's name, followed by the creating
+// process's pid: the sweep below needs to tell a home whose test is still
+// running from one whose process is gone.
+const prefix = "trellis-test-home-"
+
+// staleAfter is how old a leftover home must be before the sweep removes it
+// without being able to prove its process has exited. It is far longer than
+// any package's tests take -- go test's own default timeout is 10 minutes --
+// and only matters where a pid cannot be checked.
+const staleAfter = 2 * time.Hour
 
 // goLocations are the go env values that default to somewhere under HOME. A
 // test that runs `go build` would otherwise download a fresh module cache
@@ -42,7 +58,8 @@ func Setup() (cleanup func()) {
 		return func() {}
 	}
 	pinGoLocations()
-	dir, err := os.MkdirTemp("", "trellis-test-home-")
+	sweepStale()
+	dir, err := os.MkdirTemp("", fmt.Sprintf("%s%d-", prefix, os.Getpid()))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -59,11 +76,44 @@ func Setup() (cleanup func()) {
 // process with its result. It is the whole of most packages' TestMain; a
 // package with its own additional setup calls Setup instead, so it can fold
 // testhome's cleanup into its own before exiting.
+//
+// An interrupt -- go test's own Ctrl-C, or a harness killing a slow run --
+// still removes the home: only SIGKILL escapes, and the next run's sweep
+// collects what that leaves. A re-executed binary sharing its parent's home
+// keeps the default signal behaviour instead, because a test that
+// re-executes itself as a fixture may be testing exactly what the process
+// does when it is asked to stop.
 func Main(m *testing.M) {
+	owns := os.Getenv(marker) == ""
 	cleanup := Setup()
+	stop := func() {}
+	if owns {
+		stop = onInterrupt(cleanup)
+	}
 	code := m.Run()
+	stop()
 	cleanup()
 	os.Exit(code)
+}
+
+// onInterrupt runs cleanup and exits when the process is interrupted or
+// asked to terminate. The returned function stops watching.
+func onInterrupt(cleanup func()) (stop func()) {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-signals:
+			cleanup()
+			os.Exit(1)
+		case <-done:
+		}
+	}()
+	return func() {
+		signal.Stop(signals)
+		close(done)
+	}
 }
 
 // pinGoLocations exports the go env values that live under HOME, read
@@ -83,6 +133,60 @@ func pinGoLocations() {
 			os.Setenv(name, env[name])
 		}
 	}
+}
+
+// sweepStale removes temporary homes left behind by test binaries that are
+// no longer running. A process killed outright never runs its cleanup, so
+// without this the leftovers accumulate until the temp filesystem fills --
+// which is exactly what happened on 2026-09-17.
+func sweepStale() {
+	entries, err := os.ReadDir(os.TempDir())
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), prefix) {
+			continue
+		}
+		dir := filepath.Join(os.TempDir(), e.Name())
+		if !stale(e, dir) {
+			continue
+		}
+		removeAll(dir)
+	}
+}
+
+// stale reports whether a leftover home's owner is gone. The pid in the
+// name answers it directly where a process can be checked; otherwise the
+// directory has to be old enough that no run could still be using it.
+func stale(e fs.DirEntry, dir string) bool {
+	pid, ok := pidOf(e.Name())
+	if ok && pid == os.Getpid() {
+		return false
+	}
+	if ok && !processAlive(pid) {
+		return true
+	}
+	info, err := e.Info()
+	if err != nil {
+		return false
+	}
+	return time.Since(info.ModTime()) > staleAfter
+}
+
+// pidOf reads the creating process's pid out of a temporary home's name,
+// which is prefix + pid + "-" + the random suffix MkdirTemp adds.
+func pidOf(name string) (int, bool) {
+	rest := strings.TrimPrefix(name, prefix)
+	digits, _, found := strings.Cut(rest, "-")
+	if !found {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(digits)
+	if err != nil || pid <= 0 {
+		return 0, false
+	}
+	return pid, true
 }
 
 // removeAll removes dir even when it holds read-only files, which the Go
