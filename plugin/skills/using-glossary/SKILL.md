@@ -12,8 +12,8 @@ the words it is **Not**.
 ## Look it up
 
 1. If the session brief shows a pinned glossary, start with its recap.
-2. Otherwise run `trellis knowledge ls --template glossary`, then
-   `trellis knowledge show <slug>`.
+2. Otherwise run `trellis vault ls --template glossary`, then
+   `trellis vault show <entry>`.
 3. If the project has no glossary, carry on without one.
 
 ## Use what you find
