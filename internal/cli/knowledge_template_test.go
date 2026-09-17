@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -32,6 +33,40 @@ func TestTemplateNewRefusesAnExistingName(t *testing.T) {
 	runCmd(t, "knowledge", "template", "new", "custom")
 	if _, err := runCmdErr(t, "knowledge", "template", "new", "custom"); cliErrCode(err) != "template_exists" {
 		t.Errorf("second new: err = %v, want template_exists", err)
+	}
+}
+
+// review-knowledge #2 / review-cli #1: a template name is joined straight
+// into a filesystem path under <root>/templates. "../" in the name must
+// never let template new/edit/rm read, overwrite or delete a file outside
+// that directory -- in particular, a knowledge entry's own file.
+func TestTemplateNewEditRmRefusePathTraversalNames(t *testing.T) {
+	projectEnv(t)
+	entryPath := newEntry(t, "--title", "Runbook")
+	traversal := "../projects/TEST/knowledge/runbook"
+
+	if _, err := runCmdErr(t, "knowledge", "template", "new", "../evil"); cliErrCode(err) != "bad_template_name" {
+		t.Errorf("template new ../evil: err = %v, want bad_template_name", err)
+	}
+	home := os.Getenv("TRELLIS_HOME")
+	if _, err := os.Stat(filepath.Join(home, "evil.md")); !os.IsNotExist(err) {
+		t.Errorf("template new must not have written outside <root>/templates: %v", err)
+	}
+
+	if _, err := runCmdErr(t, "knowledge", "template", "edit", traversal, "--body",
+		"---\nenforce: warn\n---\npwned\n"); cliErrCode(err) != "bad_template_name" {
+		t.Errorf("template edit %s: err = %v, want bad_template_name", traversal, err)
+	}
+	if _, err := runCmdErr(t, "knowledge", "template", "rm", traversal); cliErrCode(err) != "bad_template_name" {
+		t.Errorf("template rm %s: err = %v, want bad_template_name", traversal, err)
+	}
+
+	raw, err := os.ReadFile(entryPath)
+	if err != nil {
+		t.Fatalf("the entry file must survive: %v", err)
+	}
+	if strings.Contains(string(raw), "pwned") {
+		t.Errorf("the entry file was overwritten through a template path: %q", raw)
 	}
 }
 

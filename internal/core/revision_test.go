@@ -285,6 +285,78 @@ func TestAFailedRevisionWriteFailsTheEdit(t *testing.T) {
 	}
 }
 
+// review-knowledge #5: EditKnowledgeFields captures the new version's
+// content before the transaction is known to have landed. If the commit
+// itself then fails -- an ambiguous outcome, not a statement error -- that
+// speculative capture must be discarded along with the file write it goes
+// with. Left behind, it blocks the real version from ever being captured:
+// revisionToKeep sees "that version is already retained" and skips it.
+func TestEditKnowledgeFieldsCommitFailureDiscardsTheSpeculativeRevision(t *testing.T) {
+	c, p, _ := kbCore(t)
+	ctx := t.Context()
+	doc, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Standup", Body: "v1\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A canary that turns EditKnowledgeFields's own row update into a
+	// foreign key violation SQLite defers to COMMIT: the closure completes
+	// normally (done = true), the speculative version-2 capture happens,
+	// and only the commit itself then fails.
+	if _, err := c.db.Exec(`CREATE TABLE canary (id INTEGER PRIMARY KEY, target TEXT REFERENCES knowledge(id))`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.db.Exec(`CREATE TRIGGER canary_trg AFTER UPDATE OF content_hash ON knowledge
+		BEGIN INSERT INTO canary (target) VALUES ('does-not-exist'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.db.Exec(`PRAGMA defer_foreign_keys = ON`); err != nil {
+		t.Fatal(err)
+	}
+
+	body := "v2\n"
+	if _, err := c.EditKnowledgeFields(ctx, p.ID, doc.Slug, KnowledgeEdit{Body: &body, IfVersion: &doc.Version}); err == nil {
+		t.Fatal("EditKnowledgeFields succeeded; the deferred foreign key violation should have failed its commit")
+	}
+
+	raw, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != string(original) {
+		t.Fatalf("entry not restored after the failed commit:\ngot  %q\nwant %q", raw, original)
+	}
+	if _, err := os.Stat(revisionFilePath(doc.Path, doc.Version+1)); !os.IsNotExist(err) {
+		t.Fatalf("a phantom version %d survived the failed commit: %v", doc.Version+1, err)
+	}
+
+	if _, err := c.db.Exec(`DROP TRIGGER canary_trg`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Redo the edit for real: it must capture the actual version 2, not
+	// skip it as "already retained" because of the discarded phantom.
+	edited, err := c.EditKnowledgeFields(ctx, p.ID, doc.Slug, KnowledgeEdit{Body: &body, IfVersion: &doc.Version})
+	if err != nil {
+		t.Fatalf("EditKnowledgeFields (retry): %v", err)
+	}
+	v2, err := os.ReadFile(revisionFilePath(doc.Path, edited.Version))
+	if err != nil {
+		t.Fatalf("version %d was never captured: %v", edited.Version, err)
+	}
+	current, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(v2) != string(current) {
+		t.Errorf("retained version %d = %q, want the real content %q", edited.Version, v2, current)
+	}
+}
+
 func TestEscalateMovesTheRevisionDirectory(t *testing.T) {
 	c, p, _ := kbCore(t)
 	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Shared", Body: "v1\n"})

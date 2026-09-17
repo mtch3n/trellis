@@ -155,14 +155,11 @@ func (c *Core) CreateArtifact(ctx context.Context, projectID, source string) (Ar
 		}
 		path := filepath.Join(dir, name)
 		for n := 2; ; n++ {
-			// The table is checked as well as the disk: a row can outlive its
-			// file, and its name is still its address.
-			var taken int
-			if err := tx.Get(&taken, `SELECT COUNT(*) FROM artifact WHERE project_id = ? AND name = ?`,
-				projectID, filepath.Base(path)); err != nil {
+			taken, err := artifactNameTaken(tx, projectID, path)
+			if err != nil {
 				return err
 			}
-			if _, err := os.Stat(path); taken == 0 && errors.Is(err, os.ErrNotExist) {
+			if !taken {
 				break
 			}
 			path = filepath.Join(dir, fmt.Sprintf("%s-%d%s", strings.TrimSuffix(name, filepath.Ext(name)), n, filepath.Ext(name)))
@@ -338,7 +335,15 @@ func (c *Core) UnlinkArtifactFromDoc(ctx context.Context, projectID, slug, artif
 	case err == nil:
 		name = a.Name
 	case ok && (e.Code == "artifact_not_found" || e.Code == "artifact_ambiguous"):
-		// Keep the reference as written.
+		// Keep the reference as written -- except an address, whose file-list
+		// entry is only ever the name, never the whole "/KEY/artifacts/x.png".
+		// Left unparsed, this would never match anything editDocArtifacts
+		// finds, and the unlink would silently do nothing.
+		if strings.HasPrefix(artifactRef, "/") {
+			if p, perr := ParseAddress(artifactRef, vpath.CollectionArtifacts); perr == nil {
+				name = p.Name
+			}
+		}
 	default:
 		return Knowledge{}, err
 	}
