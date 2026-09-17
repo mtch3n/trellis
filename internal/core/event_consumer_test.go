@@ -25,7 +25,7 @@ func TestEnsureEventConsumerCreatesOnFirstUse(t *testing.T) {
 }
 
 func TestAckAdvancesTheCursor(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestAckAdvancesTheCursor(t *testing.T) {
 }
 
 func TestAckNeverMovesBackwards(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestAckNeverMovesBackwards(t *testing.T) {
 }
 
 func TestAckRefusesASeqPastTheNewest(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestAckRefusesASeqPastTheNewest(t *testing.T) {
 // same technique internal/core/lease_test.go:474-478 already uses to test
 // time-dependent behavior against a shared connection.
 func TestEventGapAfterPartialPruning(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestEventGapAfterPartialPruning(t *testing.T) {
 // all of them to the prune, means the consumer never saw those newer ones.
 func TestEventGapWhenEveryEventIsPruned(t *testing.T) {
 	t.Run("caught up", func(t *testing.T) {
-		c, p, b := kbCore(t)
+		c, p, b := vaultCore(t)
 		if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 			t.Fatalf("CreateCard: %v", err)
 		}
@@ -172,7 +172,7 @@ func TestEventGapWhenEveryEventIsPruned(t *testing.T) {
 	})
 
 	t.Run("behind", func(t *testing.T) {
-		c, p, b := kbCore(t)
+		c, p, b := vaultCore(t)
 		if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 			t.Fatalf("CreateCard: %v", err)
 		}
@@ -203,7 +203,7 @@ func TestEventGapWhenEveryEventIsPruned(t *testing.T) {
 }
 
 func TestEventGapIsFalseForABrandNewConsumer(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestEventGapIsFalseForABrandNewConsumer(t *testing.T) {
 }
 
 func TestListEventConsumersReportsCursorLagAndGap(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}

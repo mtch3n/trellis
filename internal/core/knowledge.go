@@ -25,9 +25,9 @@ var templateFS embed.FS
 // take the key, so /GLOBAL/vault/<slug> never collides with a project.
 const GlobalKey = address.GlobalKey
 
-// Knowledge is the cached row for one markdown file. The file always wins: every
+// Entry is the cached row for one markdown file. The file always wins: every
 // read compares mtime and size and re-reads when they moved (§5).
-type Knowledge struct {
+type Entry struct {
 	ID        string  `db:"id" json:"id"`
 	ProjectID string  `db:"project_id" json:"-"`
 	BoardID   *string `db:"board_id" json:"-"`
@@ -84,8 +84,8 @@ type ArtifactRef struct {
 	Missing bool   `db:"missing" json:"missing"`
 }
 
-// NewKnowledge is what `knowledge new` supplies.
-type NewKnowledge struct {
+// NewEntry is what `knowledge new` supplies.
+type NewEntry struct {
 	Title      string
 	Provenance string // authored | prompted | extracted; defaults to authored
 	Private    bool
@@ -109,10 +109,10 @@ type NewKnowledge struct {
 	Sources []string
 }
 
-// KnowledgeEdit is a whole-document replacement. Nil fields retain their
+// EntryEdit is a whole-document replacement. Nil fields retain their
 // current values, allowing callers to update frontmatter without losing the
 // body (or update the body without losing title and summary).
-type KnowledgeEdit struct {
+type EntryEdit struct {
 	Title   *string
 	Summary *string
 	Body    *string
@@ -142,56 +142,56 @@ func Templates() []string {
 	return names
 }
 
-// docDir is where a project's vault lives: one directory per project, plus
+// vaultDir is where a project's vault lives: one directory per project, plus
 // the reserved global one. It does not create the directory; a write that
 // needs it existing goes through kbDir.
-func (c *Core) docDir(projectKey string, global bool) string {
+func (c *Core) vaultDir(projectKey string, global bool) string {
 	if global {
 		return filepath.Join(c.root, "global", "vault")
 	}
 	return filepath.Join(c.root, "projects", projectKey, "vault")
 }
 
-// kbDir is docDir, creating the directory: only a write needs that.
-func (c *Core) kbDir(projectKey string, global bool) (string, error) {
-	dir := c.docDir(projectKey, global)
+// makeVaultDir is docDir, creating the directory: only a write needs that.
+func (c *Core) makeVaultDir(projectKey string, global bool) (string, error) {
+	dir := c.vaultDir(projectKey, global)
 	return dir, os.MkdirAll(dir, 0o700)
 }
 
-// docPath is where one entry's file lives, derived from the storage root, its
+// entryPath is where one entry's file lives, derived from the storage root, its
 // project key (GlobalKey for a global entry) and its slug (§ TRELLIS-36). It
 // is never stored: a copied or moved storage root must not carry a stale
 // absolute path along with it.
-func (c *Core) docPath(projectKey string, global bool, slug string) string {
-	return filepath.Join(c.docDir(projectKey, global), filepath.FromSlash(slug)+".md")
+func (c *Core) entryPath(projectKey string, global bool, slug string) string {
+	return filepath.Join(c.vaultDir(projectKey, global), filepath.FromSlash(slug)+".md")
 }
 
-// keyOfDoc resolves the project key a document's file and address are built
+// keyOfEntry resolves the project key a document's file and address are built
 // from: the global vault's reserved key for a global entry, or its owning
 // project's key otherwise.
-func (c *Core) keyOfDoc(tx *sqlx.Tx, doc *Knowledge) (string, error) {
-	if doc.Global {
+func (c *Core) keyOfEntry(tx *sqlx.Tx, entry *Entry) (string, error) {
+	if entry.Global {
 		return GlobalKey, nil
 	}
 	var key string
-	err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, doc.ProjectID)
+	err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, entry.ProjectID)
 	return key, err
 }
 
-// CreateKnowledge writes the file first and the row second: the file is the
+// CreateEntry writes the file first and the row second: the file is the
 // record, and a row pointing at a file that was never written would be a lie.
-func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnowledge) (Knowledge, error) {
+func (c *Core) CreateEntry(ctx context.Context, projectID string, in NewEntry) (Entry, error) {
 	if strings.TrimSpace(in.Title) == "" {
-		return Knowledge{}, ErrUsage("missing_title", "a knowledge entry needs a title",
+		return Entry{}, ErrUsage("missing_title", "a knowledge entry needs a title",
 			`trellis knowledge new --title "Concurrency model"`)
 	}
 	provenance, err := checkProvenance(in.Provenance)
 	if err != nil {
-		return Knowledge{}, err
+		return Entry{}, err
 	}
 	for name := range in.Set {
 		if flag, reserved := reservedFrontmatterFields[name]; reserved {
-			return Knowledge{}, ErrUsage("reserved_field",
+			return Entry{}, ErrUsage("reserved_field",
 				`"`+name+`" is a built-in frontmatter field and cannot be set with --set`,
 				"use "+flag+" instead")
 		}
@@ -208,11 +208,11 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		// Template provided: load and validate
 		templatesDirPath, err := c.templatesDir()
 		if err != nil {
-			return Knowledge{}, err
+			return Entry{}, err
 		}
 		tmpl, err := loadTemplate(templatesDirPath, in.Template)
 		if err != nil {
-			return Knowledge{}, err
+			return Entry{}, err
 		}
 		// The same fields the edit path checks (template.go's templateProblems
 		// via frontmatterFields), not just sources/summary/--set: a required
@@ -241,25 +241,25 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 			violations, err = c.templateProblems(tx, projectID, tmpl, fields, body, checkSections)
 			return err
 		}); err != nil {
-			return Knowledge{}, err
+			return Entry{}, err
 		}
 		if err := enforceTemplate(tmpl, violations); err != nil {
-			return Knowledge{}, err
+			return Entry{}, err
 		}
 	}
 	if err := c.checkWrite(ctx, ProposedWrite{
 		Op: "doc.write", EntityType: "entry", ProjectID: projectID,
 		Fields: map[string]string{"title": in.Title, "body": body},
 	}); err != nil {
-		return Knowledge{}, err
+		return Entry{}, err
 	}
 
 	dirSlug, err := SlugifyPath(in.Dir)
 	if err != nil {
-		return Knowledge{}, err
+		return Entry{}, err
 	}
 
-	var doc Knowledge
+	var entry Entry
 	var writtenPath string
 	err = c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var key string
@@ -312,8 +312,8 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 				fm.Extra[k] = v
 			}
 		}
-		raw := RenderDoc(fm, body)
-		path := c.docPath(key, false, slug)
+		raw := RenderEntry(fm, body)
+		path := c.entryPath(key, false, slug)
 		// A revision directory can outlive the entry it belonged to when the
 		// file and row are removed outside Trellis -- exactly what
 		// `maintenance prune --orphan-history` exists for. Adopting it here
@@ -338,7 +338,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 			return err
 		}
 
-		doc = Knowledge{
+		entry = Entry{
 			ID: NewCardID(), ProjectID: projectID, BoardID: boardID, Slug: slug,
 			Title: in.Title, Path: path, Template: fm.Template, Summary: in.Summary,
 			Provenance: provenance,
@@ -347,32 +347,32 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 			BodyMD:     body, ContentHash: ContentHash(raw), MTime: st.ModTime().UnixMilli(),
 			Size: st.Size(), Version: 1, CreatedAt: now, UpdatedAt: now,
 		}
-		doc.Fields = extraToFields(fm.Extra)
-		if err := insertKnowledge(tx, doc); err != nil {
+		entry.Fields = extraToFields(fm.Extra)
+		if err := insertEntry(tx, entry); err != nil {
 			return err
 		}
-		if _, err := c.captureKnowledgeRevision(doc.Path, doc.Version, []byte(raw)); err != nil {
+		if _, err := c.captureEntryRevision(entry.Path, entry.Version, []byte(raw)); err != nil {
 			return err
 		}
-		if err := c.syncDocRelations(tx, &doc, fm, body); err != nil {
+		if err := c.syncEntryRelations(tx, &entry, fm, body); err != nil {
 			return err
 		}
-		if err := c.resolveDocStubs(tx, &doc); err != nil {
+		if err := c.resolveEntryStubs(tx, &entry); err != nil {
 			return err
 		}
-		if err := c.rebuildKnowledgeFTS(tx); err != nil {
+		if err := c.rebuildEntryFTS(tx); err != nil {
 			return err
 		}
-		if err := c.recordEvent(tx, "entry", doc.ID, "created", "", "", doc.Title); err != nil {
+		if err := c.recordEvent(tx, "entry", entry.ID, "created", "", "", entry.Title); err != nil {
 			return err
 		}
-		return c.docView(tx, &doc)
+		return c.entryView(tx, &entry)
 	})
 	if err != nil && writtenPath != "" {
 		// A failed transaction must not leave a database-less knowledge file.
 		// Keep a committed file intact if SQLite reports an ambiguous commit by
 		// only removing the path when it still has the exact bytes we wrote.
-		if raw, readErr := os.ReadFile(writtenPath); readErr == nil && ContentHash(string(raw)) == doc.ContentHash {
+		if raw, readErr := os.ReadFile(writtenPath); readErr == nil && ContentHash(string(raw)) == entry.ContentHash {
 			_ = os.Remove(writtenPath)
 			_ = atomicfile.SyncDir(filepath.Dir(writtenPath))
 			_ = os.Remove(revisionFilePath(writtenPath, 1))
@@ -380,23 +380,23 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 		}
 	}
 	if err == nil {
-		c.notifyKnowledgeChanged(ctx, projectID)
+		c.notifyEntryChanged(ctx, projectID)
 		if len(violations) > 0 {
-			doc.Warnings = violations
+			entry.Warnings = violations
 		}
 	}
-	return doc, err
+	return entry, err
 }
 
-func insertKnowledge(tx *sqlx.Tx, d Knowledge) error {
+func insertEntry(tx *sqlx.Tx, e Entry) error {
 	_, err := tx.Exec(
 		`INSERT INTO entry (id, project_id, board_id, slug, title, template, summary,
 		                        provenance, private, content_hash, mtime, size, global, version,
 		                        created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		d.ID, d.ProjectID, d.BoardID, d.Slug, d.Title, d.Template, d.Summary,
-		d.Provenance, d.Private, d.ContentHash, d.MTime, d.Size, d.Global, d.Version,
-		d.CreatedAt, d.UpdatedAt)
+		e.ID, e.ProjectID, e.BoardID, e.Slug, e.Title, e.Template, e.Summary,
+		e.Provenance, e.Private, e.ContentHash, e.MTime, e.Size, e.Global, e.Version,
+		e.CreatedAt, e.UpdatedAt)
 	return err
 }
 
@@ -427,47 +427,47 @@ func uniqueSlug(tx *sqlx.Tx, projectID, base string) (string, error) {
 	}
 }
 
-// LoadKnowledge resolves a slug within a project, re-reading the file when it
+// LoadEntry resolves a slug within a project, re-reading the file when it
 // changed underneath (§8.6: the file always wins).
-func (c *Core) LoadKnowledge(ctx context.Context, projectID, slug string) (Knowledge, error) {
-	var doc Knowledge
+func (c *Core) LoadEntry(ctx context.Context, projectID, slug string) (Entry, error) {
+	var entry Entry
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		return c.loadDoc(tx, projectID, slug, &doc)
+		return c.loadEntry(tx, projectID, slug, &entry)
 	})
 	if err == nil {
-		c.notifyKnowledgeChanged(ctx, projectID)
+		c.notifyEntryChanged(ctx, projectID)
 	}
-	return doc, err
+	return entry, err
 }
 
-// ReadKnowledge is LoadKnowledge plus the read counter that the escalation
+// ReadEntry is LoadKnowledge plus the read counter that the escalation
 // queue and `knowledge ls --cold` are computed from. Separate from Load so
 // internal lookups — lint, the graph, resolving a link — do not inflate a
 // number that is supposed to mean "a person or agent went and read this".
-func (c *Core) ReadKnowledge(ctx context.Context, projectID, slug string) (Knowledge, error) {
-	var doc Knowledge
+func (c *Core) ReadEntry(ctx context.Context, projectID, slug string) (Entry, error) {
+	var entry Entry
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		if err := c.loadDoc(tx, projectID, slug, &doc); err != nil {
+		if err := c.loadEntry(tx, projectID, slug, &entry); err != nil {
 			return err
 		}
-		return c.recordRead(tx, doc.ID)
+		return c.recordRead(tx, entry.ID)
 	})
-	return doc, err
+	return entry, err
 }
 
-func (c *Core) loadDoc(tx *sqlx.Tx, projectID, slug string, out *Knowledge) error {
+func (c *Core) loadEntry(tx *sqlx.Tx, projectID, slug string, out *Entry) error {
 	key, err := projectKeyOf(tx, projectID)
 	if err != nil {
 		return err
 	}
-	d, err := readDocArg(slug, key)
+	d, err := readEntryArg(slug, key)
 	if err != nil {
 		return err
 	}
 	var exactSlug string
-	if projectID == "" || d.scope == docVault {
+	if projectID == "" || d.scope == entryVault {
 		exactSlug, err = c.resolveSlug(tx, "", d.slug, true)
-	} else if d.scope == docOwn {
+	} else if d.scope == entryOwn {
 		exactSlug, err = c.resolveSlug(tx, projectID, d.slug, false)
 	} else {
 		exactSlug, err = c.resolveSlug(tx, projectID, d.slug, true)
@@ -476,9 +476,9 @@ func (c *Core) loadDoc(tx *sqlx.Tx, projectID, slug string, out *Knowledge) erro
 		return err
 	}
 
-	if projectID == "" || d.scope == docVault {
+	if projectID == "" || d.scope == entryVault {
 		err = tx.Get(out, `SELECT * FROM entry WHERE slug = ? AND global = 1`, exactSlug)
-	} else if d.scope == docOwn {
+	} else if d.scope == entryOwn {
 		err = tx.Get(out, `SELECT * FROM entry WHERE slug = ? AND project_id = ? AND global = 0`, exactSlug, projectID)
 	} else {
 		err = tx.Get(out, `SELECT * FROM entry WHERE slug = ? AND (project_id = ? OR global = 1) ORDER BY global LIMIT 1`, exactSlug, projectID)
@@ -492,7 +492,7 @@ func (c *Core) loadDoc(tx *sqlx.Tx, projectID, slug string, out *Knowledge) erro
 	if err := c.refreshFromFile(tx, out); err != nil {
 		return err
 	}
-	return c.docView(tx, out)
+	return c.entryView(tx, out)
 }
 
 // extraToFields converts Frontmatter.Extra to Knowledge.Fields.
@@ -526,7 +526,7 @@ func extraToFields(extra map[string]any) map[string]any {
 // refreshFromFile re-reads the file when mtime or size moved. This is the whole
 // of the "stat sweep": a stat is microseconds, so it runs on every read rather
 // than on a schedule, and an edit in Obsidian is visible to the next command.
-func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) (err error) {
+func (c *Core) refreshFromFile(tx *sqlx.Tx, entry *Entry) (err error) {
 	// The capture below writes the retained copy of this version before the
 	// row commits it. If a later step in this function fails, that copy must
 	// not survive: kept, it would be skipped as "already retained" the next
@@ -540,125 +540,125 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) (err error) {
 			}
 		}
 	}()
-	key, err := c.keyOfDoc(tx, doc)
+	key, err := c.keyOfEntry(tx, entry)
 	if err != nil {
 		return err
 	}
-	doc.Path = c.docPath(key, doc.Global, doc.Slug)
-	st, err := os.Stat(doc.Path)
+	entry.Path = c.entryPath(key, entry.Global, entry.Slug)
+	st, err := os.Stat(entry.Path)
 	if errors.Is(err, os.ErrNotExist) {
-		return ErrNotFound("file_missing", "the file for "+doc.Slug+" is gone: "+doc.Path,
-			"trellis knowledge rm "+doc.Slug+"   # drop the row too")
+		return ErrNotFound("file_missing", "the file for "+entry.Slug+" is gone: "+entry.Path,
+			"trellis knowledge rm "+entry.Slug+"   # drop the row too")
 	}
 	if err != nil {
 		return err
 	}
-	raw, err := os.ReadFile(doc.Path)
+	raw, err := os.ReadFile(entry.Path)
 	if err != nil {
 		return err
 	}
-	fm, body, err := splitDocFile(doc.Path, raw)
+	fm, body, err := splitEntryFile(entry.Path, raw)
 	if err != nil {
 		return err
 	}
-	doc.Title = cmpOr(fm.Title, doc.Title)
+	entry.Title = cmpOr(fm.Title, entry.Title)
 	// Unlike Title, an empty template is meaningful: it means "no template",
 	// not "keep whatever the row had". cmpOr here would make removing the
 	// key by hand a no-op, so ls --template, the Templates recall filter and
 	// Knowledge.Template would all keep reporting a template the file no
 	// longer names.
-	doc.Template = fm.Template
-	doc.Summary = fm.Summary
-	doc.Provenance = fm.Provenance
-	doc.Sources = fm.Sources
-	doc.Fields = extraToFields(fm.Extra)
+	entry.Template = fm.Template
+	entry.Summary = fm.Summary
+	entry.Provenance = fm.Provenance
+	entry.Sources = fm.Sources
+	entry.Fields = extraToFields(fm.Extra)
 	// The flag is compared separately because the content hash cannot see it:
 	// a database restored from an older backup, or a file that already carried
 	// the key when the column was added, has an unchanged file and a wrong row.
-	becamePrivate := fm.Private && !doc.Private
-	privateDrifted := doc.Private != fm.Private
-	doc.Private = fm.Private
-	doc.BodyMD = body
-	oldHash := doc.ContentHash
-	doc.ContentHash = ContentHash(string(raw))
-	statMoved := st.ModTime().UnixMilli() != doc.MTime || st.Size() != doc.Size
-	contentChanged := oldHash != doc.ContentHash
+	becamePrivate := fm.Private && !entry.Private
+	privateDrifted := entry.Private != fm.Private
+	entry.Private = fm.Private
+	entry.BodyMD = body
+	oldHash := entry.ContentHash
+	entry.ContentHash = ContentHash(string(raw))
+	statMoved := st.ModTime().UnixMilli() != entry.MTime || st.Size() != entry.Size
+	contentChanged := oldHash != entry.ContentHash
 	changed := contentChanged || privateDrifted
-	doc.MTime = st.ModTime().UnixMilli()
-	doc.Size = st.Size()
-	doc.UpdatedAt = c.clock.NowMS()
+	entry.MTime = st.ModTime().UnixMilli()
+	entry.Size = st.Size()
+	entry.UpdatedAt = c.clock.NowMS()
 	if !changed {
 		// Same bytes under a new mtime — a touch, or a write that was undone.
 		// That is not a new version: bumping it would hand every holder of the
 		// current version a false conflict. Record the stat and stop.
 		if statMoved {
 			if _, err := tx.Exec(`UPDATE entry SET mtime = ?, size = ? WHERE id = ?`,
-				doc.MTime, doc.Size, doc.ID); err != nil {
+				entry.MTime, entry.Size, entry.ID); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	doc.Version++
+	entry.Version++
 
 	if _, err := tx.Exec(
 		`UPDATE entry SET title = ?, template = ?, summary = ?, provenance = ?, private = ?,
 		                      content_hash = ?, mtime = ?, size = ?, version = ?,
 		                      updated_at = ? WHERE id = ?`,
-		doc.Title, doc.Template, doc.Summary, doc.Provenance, doc.Private, doc.ContentHash,
-		doc.MTime, doc.Size, doc.Version, doc.UpdatedAt, doc.ID); err != nil {
+		entry.Title, entry.Template, entry.Summary, entry.Provenance, entry.Private, entry.ContentHash,
+		entry.MTime, entry.Size, entry.Version, entry.UpdatedAt, entry.ID); err != nil {
 		return err
 	}
 	if contentChanged {
-		revisionDest, err = c.captureKnowledgeRevision(doc.Path, doc.Version, raw)
+		revisionDest, err = c.captureEntryRevision(entry.Path, entry.Version, raw)
 		if err != nil {
 			return err
 		}
 	}
 	if becamePrivate {
-		if err := c.purgeDisclosedCopies(tx, doc); err != nil {
+		if err := c.purgeDisclosedCopies(tx, entry); err != nil {
 			return err
 		}
 	}
-	if err := c.syncDocRelations(tx, doc, fm, body); err != nil {
+	if err := c.syncEntryRelations(tx, entry, fm, body); err != nil {
 		return err
 	}
-	if err := c.rebuildKnowledgeFTS(tx); err != nil {
+	if err := c.rebuildEntryFTS(tx); err != nil {
 		return err
 	}
-	return c.recordEvent(tx, "entry", doc.ID, "reloaded", "", "", "external edit")
+	return c.recordEvent(tx, "entry", entry.ID, "reloaded", "", "", "external edit")
 }
 
-// docView fills the computed fields.
-func (c *Core) docView(tx *sqlx.Tx, doc *Knowledge) error {
-	key, err := c.keyOfDoc(tx, doc)
+// entryView fills the computed fields.
+func (c *Core) entryView(tx *sqlx.Tx, entry *Entry) error {
+	key, err := c.keyOfEntry(tx, entry)
 	if err != nil {
 		return err
 	}
-	doc.Ref = DocAddress(key, doc.Global, doc.Slug)
-	doc.Path = c.docPath(key, doc.Global, doc.Slug)
-	doc.BoardName = ""
-	if doc.BoardID != nil {
-		if err := tx.Get(&doc.BoardName, `SELECT name FROM board WHERE id = ?`, *doc.BoardID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	entry.Ref = EntryAddress(key, entry.Global, entry.Slug)
+	entry.Path = c.entryPath(key, entry.Global, entry.Slug)
+	entry.BoardName = ""
+	if entry.BoardID != nil {
+		if err := tx.Get(&entry.BoardName, `SELECT name FROM board WHERE id = ?`, *entry.BoardID); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 	}
-	doc.Tags = []string{}
-	if err := tx.Select(&doc.Tags,
+	entry.Tags = []string{}
+	if err := tx.Select(&entry.Tags,
 		`SELECT t.name FROM tag t JOIN entry_tag kt ON kt.tag_id = t.id WHERE kt.entry_id = ? ORDER BY t.name`,
-		doc.ID); err != nil {
+		entry.ID); err != nil {
 		return err
 	}
-	doc.Labels = []string{}
-	if err := tx.Select(&doc.Labels,
+	entry.Labels = []string{}
+	if err := tx.Select(&entry.Labels,
 		`SELECT l.name FROM label l JOIN entry_label kl ON kl.label_id = l.id WHERE kl.entry_id = ? ORDER BY l.name`,
-		doc.ID); err != nil {
+		entry.ID); err != nil {
 		return err
 	}
 	// rowid order is the order syncDocRelations inserted the rows, which is
 	// the order the file lists the names.
-	doc.Artifacts = nil
-	return tx.Select(&doc.Artifacts,
+	entry.Artifacts = nil
+	return tx.Select(&entry.Artifacts,
 		`SELECT l.to_raw AS name,
 		        COALESCE(a.kind, '') AS kind,
 		        COALESCE(a.mime, '') AS mime,
@@ -666,15 +666,15 @@ func (c *Core) docView(tx *sqlx.Tx, doc *Knowledge) error {
 		        (l.to_id IS NULL)    AS missing
 		 FROM link l LEFT JOIN artifact a ON a.id = l.to_id
 		 WHERE l.from_type = 'entry' AND l.from_id = ? AND l.rel = 'artifact'
-		 ORDER BY l.rowid`, doc.ID)
+		 ORDER BY l.rowid`, entry.ID)
 }
 
 // ListKnowledge returns the selected board's entries plus the unscoped ones
 // (§10.1): a board is a lens, so narrowing by one never hides project-wide
 // knowledge. An empty boardID lists the whole project.
-// KnowledgeFilter narrows a listing. A zero value lists everything the project
+// EntryFilter narrows a listing. A zero value lists everything the project
 // can see, which is what almost every caller wants.
-type KnowledgeFilter struct {
+type EntryFilter struct {
 	BoardID     string   // association only; entries with no board always match
 	Templates   []string // template values to keep; empty keeps all
 	Provenances []string // ingestion paths to keep; empty keeps all
@@ -682,7 +682,7 @@ type KnowledgeFilter struct {
 	Dir         string   // scope to this directory and its subtree; empty keeps everything
 }
 
-func (f KnowledgeFilter) where() (string, []any) {
+func (f EntryFilter) where() (string, []any) {
 	clauses, args := []string{"project_id = ?"}, []any{}
 	if f.BoardID != "" {
 		clauses = append(clauses, "(board_id IS NULL OR board_id = ?)")
@@ -723,52 +723,52 @@ func (f KnowledgeFilter) where() (string, []any) {
 	return strings.Join(clauses, " AND "), args
 }
 
-func (c *Core) ListKnowledge(ctx context.Context, projectID string, f KnowledgeFilter) ([]Knowledge, error) {
-	docs := []Knowledge{}
+func (c *Core) ListEntries(ctx context.Context, projectID string, f EntryFilter) ([]Entry, error) {
+	entries := []Entry{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		where, args := f.where()
-		if err := tx.Select(&docs, `SELECT * FROM entry WHERE `+where+
+		if err := tx.Select(&entries, `SELECT * FROM entry WHERE `+where+
 			` ORDER BY updated_at DESC`, append([]any{projectID}, args...)...); err != nil {
 			return err
 		}
-		for i := range docs {
-			if err := c.refreshFromFile(tx, &docs[i]); err != nil {
+		for i := range entries {
+			if err := c.refreshFromFile(tx, &entries[i]); err != nil {
 				return err
 			}
-			if err := c.docView(tx, &docs[i]); err != nil {
+			if err := c.entryView(tx, &entries[i]); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
-	return docs, err
+	return entries, err
 }
 
-// ListGlobalKnowledge lists the global vault, each entry refreshed from its
+// ListGlobalEntries lists the global vault, each entry refreshed from its
 // file first: a caller that withholds private content must read the file's
 // flag, never a mirror that a hand edit has not reached yet.
-func (c *Core) ListGlobalKnowledge(ctx context.Context) ([]Knowledge, error) {
-	docs := []Knowledge{}
+func (c *Core) ListGlobalEntries(ctx context.Context) ([]Entry, error) {
+	entries := []Entry{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		if err := tx.Select(&docs, `SELECT * FROM entry WHERE global = 1 ORDER BY updated_at DESC`); err != nil {
+		if err := tx.Select(&entries, `SELECT * FROM entry WHERE global = 1 ORDER BY updated_at DESC`); err != nil {
 			return err
 		}
-		for i := range docs {
-			if err := c.refreshFromFile(tx, &docs[i]); err != nil {
+		for i := range entries {
+			if err := c.refreshFromFile(tx, &entries[i]); err != nil {
 				return err
 			}
-			if err := c.docView(tx, &docs[i]); err != nil {
+			if err := c.entryView(tx, &entries[i]); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
-	return docs, err
+	return entries, err
 }
 
-// EditKnowledge replaces the body. The file is rewritten and the row follows.
-func (c *Core) EditKnowledge(ctx context.Context, projectID, slug, body string, ifVersion *int64) (Knowledge, error) {
-	return c.EditKnowledgeFields(ctx, projectID, slug, KnowledgeEdit{Body: &body, IfVersion: ifVersion})
+// EditEntry replaces the body. The file is rewritten and the row follows.
+func (c *Core) EditEntry(ctx context.Context, projectID, slug, body string, ifVersion *int64) (Entry, error) {
+	return c.EditEntryFields(ctx, projectID, slug, EntryEdit{Body: &body, IfVersion: ifVersion})
 }
 
 // changedOnDisk reports that a knowledge file no longer holds the bytes a
@@ -789,10 +789,10 @@ func writeLanded(matches bool, queryErr error) bool {
 	return queryErr == nil && matches
 }
 
-// EditKnowledgeFields atomically replaces the selected Markdown fields and
+// EditEntryFields atomically replaces the selected Markdown fields and
 // updates the cached row from the same rendered file.
-func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, in KnowledgeEdit) (Knowledge, error) {
-	var doc Knowledge
+func (c *Core) EditEntryFields(ctx context.Context, projectID, slug string, in EntryEdit) (Entry, error) {
+	var entry Entry
 	var oldRaw []byte
 	var written string
 	var revisionDest string
@@ -813,7 +813,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 				// direct type assertion no longer recognises. Join only when
 				// the undo itself failed; otherwise the original error, with
 				// its code and exit intact, passes through unchanged.
-				if uerr := undoWrite(doc.Path, oldRaw, written); uerr != nil {
+				if uerr := undoWrite(entry.Path, oldRaw, written); uerr != nil {
 					err = errors.Join(err, uerr)
 				}
 				written = ""
@@ -830,22 +830,22 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 			}
 		}()
 
-		if err := c.loadDoc(tx, projectID, slug, &doc); err != nil {
+		if err := c.loadEntry(tx, projectID, slug, &entry); err != nil {
 			return err
 		}
 		if in.IfVersion == nil {
 			return ErrUsage("version_required",
 				"knowledge edit replaces whole fields and needs the version you read",
-				fmt.Sprintf("trellis knowledge show %s --json   # then pass --if-version %d", doc.Slug, doc.Version))
+				fmt.Sprintf("trellis knowledge show %s --json   # then pass --if-version %d", entry.Slug, entry.Version))
 		}
 		// refreshFromFile has already folded in any external edit, so a version
 		// mismatch here means exactly that: someone else changed the file.
-		if in.IfVersion != nil && *in.IfVersion != doc.Version {
+		if in.IfVersion != nil && *in.IfVersion != entry.Version {
 			return &Error{
 				Code: "conflict", Exit: 4,
 				Msg: fmt.Sprintf("%s changed on disk since you read it (you: v%d, now: v%d)",
-					doc.Slug, *in.IfVersion, doc.Version),
-				Fix: "trellis knowledge show " + doc.Slug,
+					entry.Slug, *in.IfVersion, entry.Version),
+				Fix: "trellis knowledge show " + entry.Slug,
 			}
 		}
 		fields := map[string]string{}
@@ -865,7 +865,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 			fields["sources"] = strings.Join(*in.Sources, "\n")
 		}
 		if err := c.checkWrite(ctx, ProposedWrite{
-			Op: "doc.write", EntityType: "entry", EntityID: doc.ID, ProjectID: projectID,
+			Op: "doc.write", EntityType: "entry", EntityID: entry.ID, ProjectID: projectID,
 			Fields: fields,
 		}); err != nil {
 			return err
@@ -874,19 +874,19 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		// The one read this write is based on. loadDoc's own read, above, may
 		// be stale by now: checkWrite just ran arbitrary policy code, and
 		// nothing here holds a lock against a program outside Trellis.
-		raw, err := os.ReadFile(doc.Path)
+		raw, err := os.ReadFile(entry.Path)
 		if err != nil {
 			return err
 		}
-		if ContentHash(string(raw)) != doc.ContentHash {
-			return changedOnDisk(doc.Slug)
+		if ContentHash(string(raw)) != entry.ContentHash {
+			return changedOnDisk(entry.Slug)
 		}
-		base := doc.ContentHash // the hash this write is based on
+		base := entry.ContentHash // the hash this write is based on
 		oldRaw = raw
-		if _, err := c.captureKnowledgeRevision(doc.Path, doc.Version, oldRaw); err != nil {
+		if _, err := c.captureEntryRevision(entry.Path, entry.Version, oldRaw); err != nil {
 			return err
 		}
-		fm, body, err := splitDocFile(doc.Path, raw)
+		fm, body, err := splitEntryFile(entry.Path, raw)
 		if err != nil {
 			return err
 		}
@@ -896,7 +896,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		}
 		if in.Title != nil {
 			if strings.TrimSpace(*in.Title) == "" {
-				return ErrUsage("missing_title", "a knowledge entry needs a title", "trellis knowledge show "+doc.Slug)
+				return ErrUsage("missing_title", "a knowledge entry needs a title", "trellis knowledge show "+entry.Slug)
 			}
 			fm.Title = *in.Title
 		}
@@ -961,49 +961,49 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 
 		now := c.clock.NowMS()
 		fm.Updated = msToRFC3339(now)
-		out := RenderDoc(fm, body)
-		if err := replaceIfUnchanged(doc.Path, []byte(out), base); err != nil {
+		out := RenderEntry(fm, body)
+		if err := replaceIfUnchanged(entry.Path, []byte(out), base); err != nil {
 			if errors.Is(err, errFileChanged) {
-				return changedOnDisk(doc.Slug)
+				return changedOnDisk(entry.Slug)
 			}
 			return err
 		}
 		written = ContentHash(out)
-		st, err := os.Stat(doc.Path)
+		st, err := os.Stat(entry.Path)
 		if err != nil {
 			return err
 		}
 
-		doc.Title = cmpOr(fm.Title, doc.Title)
-		doc.Summary = fm.Summary
-		doc.BodyMD = body
-		doc.ContentHash = written
-		doc.Sources = fm.Sources
-		doc.Fields = extraToFields(fm.Extra)
-		doc.Template = fm.Template
+		entry.Title = cmpOr(fm.Title, entry.Title)
+		entry.Summary = fm.Summary
+		entry.BodyMD = body
+		entry.ContentHash = written
+		entry.Sources = fm.Sources
+		entry.Fields = extraToFields(fm.Extra)
+		entry.Template = fm.Template
 		// Handle private false→true transition: purge disclosed copies in the same transaction
-		oldPrivate := doc.Private
-		doc.Private = fm.Private
-		doc.MTime = st.ModTime().UnixMilli()
-		doc.Size = st.Size()
-		doc.Version++
-		doc.UpdatedAt = now
+		oldPrivate := entry.Private
+		entry.Private = fm.Private
+		entry.MTime = st.ModTime().UnixMilli()
+		entry.Size = st.Size()
+		entry.Version++
+		entry.UpdatedAt = now
 		if _, err := tx.Exec(
 			`UPDATE entry SET title = ?, summary = ?, content_hash = ?, mtime = ?, size = ?,
 			                      version = ?, updated_at = ?, template = ?, private = ? WHERE id = ?`,
-			doc.Title, doc.Summary, doc.ContentHash, doc.MTime, doc.Size, doc.Version, doc.UpdatedAt, doc.Template, doc.Private, doc.ID); err != nil {
+			entry.Title, entry.Summary, entry.ContentHash, entry.MTime, entry.Size, entry.Version, entry.UpdatedAt, entry.Template, entry.Private, entry.ID); err != nil {
 			return err
 		}
 		// Purge disclosed copies if changing from public to private
-		if !oldPrivate && doc.Private {
-			if err := c.purgeDisclosedCopies(tx, &doc); err != nil {
+		if !oldPrivate && entry.Private {
+			if err := c.purgeDisclosedCopies(tx, &entry); err != nil {
 				return err
 			}
 		}
-		if err := c.syncDocRelations(tx, &doc, fm, body); err != nil {
+		if err := c.syncEntryRelations(tx, &entry, fm, body); err != nil {
 			return err
 		}
-		if err := c.rebuildKnowledgeFTS(tx); err != nil {
+		if err := c.rebuildEntryFTS(tx); err != nil {
 			return err
 		}
 		for _, field := range []string{"body", "title", "summary"} {
@@ -1015,10 +1015,10 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 			// bodies is a copy of them. However, titles are disclosed by design
 			// (like in created/deleted events), so keep them.
 			value := fields[field]
-			if doc.Private && field != "title" {
+			if entry.Private && field != "title" {
 				value = ""
 			}
-			if err := c.recordEvent(tx, "entry", doc.ID, "edited", field, "", value); err != nil {
+			if err := c.recordEvent(tx, "entry", entry.ID, "edited", field, "", value); err != nil {
 				return err
 			}
 		}
@@ -1028,32 +1028,32 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		if in.Artifacts != nil {
 			for _, name := range namesAdded(before, fm.Artifacts) {
 				value := name
-				if doc.Private {
+				if entry.Private {
 					value = ""
 				}
-				if err := c.recordEvent(tx, "entry", doc.ID, "artifact_linked", "", "", value); err != nil {
+				if err := c.recordEvent(tx, "entry", entry.ID, "artifact_linked", "", "", value); err != nil {
 					return err
 				}
 			}
 			for _, name := range namesAdded(fm.Artifacts, before) {
 				value := name
-				if doc.Private {
+				if entry.Private {
 					value = ""
 				}
-				if err := c.recordEvent(tx, "entry", doc.ID, "artifact_unlinked", "", "", value); err != nil {
+				if err := c.recordEvent(tx, "entry", entry.ID, "artifact_unlinked", "", "", value); err != nil {
 					return err
 				}
 			}
 		}
-		revisionDest, err = c.captureKnowledgeRevision(doc.Path, doc.Version, []byte(out))
+		revisionDest, err = c.captureEntryRevision(entry.Path, entry.Version, []byte(out))
 		if err != nil {
 			return err
 		}
-		if err := c.docView(tx, &doc); err != nil {
+		if err := c.entryView(tx, &entry); err != nil {
 			return err
 		}
 		if len(templateWarnings) > 0 {
-			doc.Warnings = templateWarnings
+			entry.Warnings = templateWarnings
 		}
 		done = true
 		return nil
@@ -1065,11 +1065,11 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		// write landed, the edit is a success no matter what Commit
 		// reported.
 		var landed string
-		qerr := c.db.Get(&landed, `SELECT content_hash FROM entry WHERE id = ?`, doc.ID)
+		qerr := c.db.Get(&landed, `SELECT content_hash FROM entry WHERE id = ?`, entry.ID)
 		if writeLanded(landed == written, qerr) {
 			err = nil
 		} else {
-			if uerr := undoWrite(doc.Path, oldRaw, written); uerr != nil {
+			if uerr := undoWrite(entry.Path, oldRaw, written); uerr != nil {
 				err = errors.Join(err, uerr)
 			}
 			if derr := discardCapturedRevision(revisionDest); derr != nil {
@@ -1078,49 +1078,49 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		}
 	}
 	if err == nil {
-		c.notifyKnowledgeChanged(ctx, projectID)
+		c.notifyEntryChanged(ctx, projectID)
 	}
-	return doc, err
+	return entry, err
 }
 
-// DeleteKnowledge removes the row and the file.
-func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) error {
+// DeleteEntry removes the row and the file.
+func (c *Core) DeleteEntry(ctx context.Context, projectID, slug string) error {
 	var staged, revStaged *stagedRemoval
-	var doc Knowledge
+	var entry Entry
 	var done bool
 	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
 		key, err := projectKeyOf(tx, projectID)
 		if err != nil {
 			return err
 		}
-		d, err := readDocArg(slug, key)
+		d, err := readEntryArg(slug, key)
 		if err != nil {
 			return err
 		}
-		exactSlug, rerr := c.resolveSlug(tx, projectID, d.slug, d.scope == docVault)
+		exactSlug, rerr := c.resolveSlug(tx, projectID, d.slug, d.scope == entryVault)
 		if rerr != nil {
 			return rerr
 		}
 		q := `SELECT * FROM entry WHERE project_id = ? AND slug = ?`
 		switch d.scope {
-		case docOwn:
+		case entryOwn:
 			q += ` AND global = 0`
-		case docVault:
+		case entryVault:
 			q += ` AND global = 1`
 		}
-		if err := tx.Get(&doc, q, projectID, exactSlug); err != nil {
+		if err := tx.Get(&entry, q, projectID, exactSlug); err != nil {
 			if err.Error() == "sql: no rows in result set" {
 				return ErrNotFound("knowledge_not_found", "no knowledge entry "+slug+" owned by this project", "trellis knowledge ls")
 			}
 			return err
 		}
-		doc.Path = c.docPath(key, doc.Global, doc.Slug)
+		entry.Path = c.entryPath(key, entry.Global, entry.Slug)
 		var serr error
-		staged, serr = stageRemoval(doc.Path)
+		staged, serr = stageRemoval(entry.Path)
 		if serr != nil {
 			return serr
 		}
-		revStaged, serr = stageRemoval(revisionDir(doc.Path))
+		revStaged, serr = stageRemoval(revisionDir(entry.Path))
 		if serr != nil {
 			if rerr := staged.restore(); rerr != nil {
 				return errors.Join(serr, rerr)
@@ -1143,19 +1143,19 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 				}
 			}
 		}()
-		if err := c.recordEvent(tx, "entry", doc.ID, "deleted", "", doc.Title, ""); err != nil {
+		if err := c.recordEvent(tx, "entry", entry.ID, "deleted", "", entry.Title, ""); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`DELETE FROM entry WHERE id = ?`, doc.ID); err != nil {
+		if _, err := tx.Exec(`DELETE FROM entry WHERE id = ?`, entry.ID); err != nil {
 			return err
 		}
-		if err := c.rebuildKnowledgeFTS(tx); err != nil {
+		if err := c.rebuildEntryFTS(tx); err != nil {
 			return err
 		}
 		// Inbound links survive as stubs rather than vanishing: a reference to
 		// something deleted is a finding, not a silent no-op (§10.4).
 		if _, err := tx.Exec(
-			`UPDATE link SET to_id = NULL WHERE to_type = 'entry' AND to_id = ?`, doc.ID); err != nil {
+			`UPDATE link SET to_id = NULL WHERE to_type = 'entry' AND to_id = ?`, entry.ID); err != nil {
 			return err
 		}
 		done = true
@@ -1169,7 +1169,7 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 		// own defer already restored -- there is nothing here to resolve,
 		// including the "not found" case where doc.ID is not a real row.
 		var gone int
-		qerr := c.db.Get(&gone, `SELECT COUNT(*) FROM entry WHERE id = ?`, doc.ID)
+		qerr := c.db.Get(&gone, `SELECT COUNT(*) FROM entry WHERE id = ?`, entry.ID)
 		if writeLanded(gone == 0, qerr) {
 			err = nil
 		} else {
@@ -1190,31 +1190,31 @@ func (c *Core) DeleteKnowledge(ctx context.Context, projectID, slug string) erro
 	if err := revStaged.finalize(); err != nil {
 		return err
 	}
-	c.notifyKnowledgeChanged(ctx, projectID)
+	c.notifyEntryChanged(ctx, projectID)
 	return nil
 }
 
-// RebuildKnowledgeSearch refreshes the derived FTS index from the Markdown
+// RebuildEntrySearch refreshes the derived FTS index from the Markdown
 // files. It is intentionally rebuildable: SQLite stores metadata and search
 // terms, while the file remains the source of truth.
-func (c *Core) RebuildKnowledgeSearch(ctx context.Context) error {
+func (c *Core) RebuildEntrySearch(ctx context.Context) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
 		if _, err := tx.Exec("DELETE FROM entry_search_state"); err != nil {
 			return err
 		}
-		return c.rebuildKnowledgeFTS(tx)
+		return c.rebuildEntryFTS(tx)
 	})
 }
 
-// SyncKnowledgeSearch indexes only files whose metadata changed, or rows absent
+// SyncEntrySearch indexes only files whose metadata changed, or rows absent
 // from the cache after a migration. Missing files lose their stale search terms
 // but retain metadata so knowledge rm and diagnostics remain usable.
-func (c *Core) SyncKnowledgeSearch(ctx context.Context) error {
-	return c.Tx(ctx, c.rebuildKnowledgeFTS)
+func (c *Core) SyncEntrySearch(ctx context.Context) error {
+	return c.Tx(ctx, c.rebuildEntryFTS)
 }
 
-func (c *Core) rebuildKnowledgeFTS(tx *sqlx.Tx) error {
-	var docs []struct {
+func (c *Core) rebuildEntryFTS(tx *sqlx.Tx) error {
+	var entries []struct {
 		RowID   int64  `db:"rowid"`
 		Slug    string `db:"slug"`
 		Global  bool   `db:"global"`
@@ -1224,14 +1224,14 @@ func (c *Core) rebuildKnowledgeFTS(tx *sqlx.Tx) error {
 		Stamp   int64  `db:"stamp"`
 		Size    int64  `db:"size"`
 	}
-	if err := tx.Select(&docs, `SELECT k.rowid, k.slug, k.global, p.key AS pkey, k.title, k.summary,
+	if err := tx.Select(&entries, `SELECT k.rowid, k.slug, k.global, p.key AS pkey, k.title, k.summary,
  COALESCE(s.mtime, -1) AS stamp, COALESCE(s.size, -1) AS size
  FROM entry k JOIN project p ON p.id = k.project_id
  LEFT JOIN entry_search_state s ON s.rowid = k.rowid`); err != nil {
 		return err
 	}
-	for _, d := range docs {
-		path := c.docPath(d.Key, d.Global, d.Slug)
+	for _, d := range entries {
+		path := c.entryPath(d.Key, d.Global, d.Slug)
 		st, err := os.Stat(path)
 		if errors.Is(err, os.ErrNotExist) {
 			if _, err := tx.Exec("DELETE FROM entry_fts WHERE rowid = ?", d.RowID); err != nil {
@@ -1252,7 +1252,7 @@ func (c *Core) rebuildKnowledgeFTS(tx *sqlx.Tx) error {
 		if err != nil {
 			return err
 		}
-		fm, body, err := splitDocFile(path, raw)
+		fm, body, err := splitEntryFile(path, raw)
 		if err != nil {
 			return err
 		}

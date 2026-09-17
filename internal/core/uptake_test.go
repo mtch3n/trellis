@@ -27,9 +27,9 @@ func uptakeFor(t *testing.T, c *Core, projectID, provenance string) RecallUptake
 }
 
 func TestRecallOnlyRecordsWhenAsked(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
-	if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+	if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 		Title: "Retry budget", Summary: "retry budget",
 	}); err != nil {
 		t.Fatal(err)
@@ -44,9 +44,9 @@ func TestRecallOnlyRecordsWhenAsked(t *testing.T) {
 }
 
 func TestUptakePairsAnInjectionWithTheReadThatFollows(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
-	doc, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{
 		Title: "Retry budget", Summary: "retry budget",
 	})
 	if err != nil {
@@ -60,7 +60,7 @@ func TestUptakePairsAnInjectionWithTheReadThatFollows(t *testing.T) {
 		t.Fatalf("before the read: %+v, want injected 1 opened 0", got)
 	}
 
-	if _, err := c.ReadKnowledge(ctx, p.ID, doc.Slug); err != nil {
+	if _, err := c.ReadEntry(ctx, p.ID, entry.Slug); err != nil {
 		t.Fatalf("ReadKnowledge: %v", err)
 	}
 	if got := uptakeFor(t, c, p.ID, "authored"); got.Injected != 1 || got.Opened != 1 {
@@ -69,9 +69,9 @@ func TestUptakePairsAnInjectionWithTheReadThatFollows(t *testing.T) {
 }
 
 func TestUptakeIgnoresAReadThatCameFirst(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
-	doc, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{
 		Title: "Retry budget", Summary: "retry budget",
 	})
 	if err != nil {
@@ -79,7 +79,7 @@ func TestUptakeIgnoresAReadThatCameFirst(t *testing.T) {
 	}
 	// An entry the agent had already opened is not evidence that the later
 	// injection did anything.
-	if _, err := c.ReadKnowledge(ctx, p.ID, doc.Slug); err != nil {
+	if _, err := c.ReadEntry(ctx, p.ID, entry.Slug); err != nil {
 		t.Fatal(err)
 	}
 	inject(t, c, p.ID, "retry budget")
@@ -89,9 +89,9 @@ func TestUptakeIgnoresAReadThatCameFirst(t *testing.T) {
 }
 
 func TestUptakeDoesNotCreditAnotherSessionsRead(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
-	doc, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{
 		Title: "Retry budget", Summary: "retry budget",
 	})
 	if err != nil {
@@ -104,7 +104,7 @@ func TestUptakeDoesNotCreditAnotherSessionsRead(t *testing.T) {
 	if _, err := c.db.Exec(
 		`INSERT INTO event (ts, actor, entity_type, entity_id, action)
 		 VALUES (?, 'agent:someone-else', 'entry', ?, 'read')`,
-		c.clock.NowMS(), doc.ID); err != nil {
+		c.clock.NowMS(), entry.ID); err != nil {
 		t.Fatal(err)
 	}
 	if got := uptakeFor(t, c, p.ID, "authored"); got.Opened != 0 {
@@ -113,16 +113,16 @@ func TestUptakeDoesNotCreditAnotherSessionsRead(t *testing.T) {
 }
 
 func TestUptakeSeparatesIngestionPaths(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 
-	authored, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+	authored, err := c.CreateEntry(ctx, p.ID, NewEntry{
 		Title: "Retry budget authored", Summary: "retry budget", Provenance: "authored",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+	if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 		Title: "Retry budget extracted", Summary: "retry budget", Provenance: "extracted",
 	}); err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestUptakeSeparatesIngestionPaths(t *testing.T) {
 	if n := inject(t, c, p.ID, "retry budget"); n != 2 {
 		t.Fatalf("recall returned %d hits, want both entries", n)
 	}
-	if _, err := c.ReadKnowledge(ctx, p.ID, authored.Slug); err != nil {
+	if _, err := c.ReadEntry(ctx, p.ID, authored.Slug); err != nil {
 		t.Fatal(err)
 	}
 
@@ -145,10 +145,10 @@ func TestUptakeSeparatesIngestionPaths(t *testing.T) {
 }
 
 func TestUptakeRecordsEvenWhenTheLimitIsReached(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 	for _, title := range []string{"Retry budget", "Retry jitter", "Retry ceiling"} {
-		if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+		if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 			Title: title, Summary: "retry budget",
 		}); err != nil {
 			t.Fatal(err)

@@ -35,7 +35,7 @@ func TestGraphStillRoutesAQualifiedCardRef(t *testing.T) {
 // review-cli #10: a relative document argument must mean the current
 // project, not wherever the card happens to live, and must say so loudly
 // rather than silently reading the wrong one.
-func TestLinkRelativeDocMeansTheCurrentProject(t *testing.T) {
+func TestLinkRelativeEntryMeansTheCurrentProject(t *testing.T) {
 	targetEnv(t)
 	refOf(t, "knowledge", "new", "--title", "Design", "--project", "ALPHA")
 	refOf(t, "knowledge", "new", "--title", "Design", "--project", "BETA")
@@ -57,7 +57,7 @@ func TestLinkRelativeDocMeansTheCurrentProject(t *testing.T) {
 // An address doc still crosses projects on purpose: link's documented
 // exception (the 2026-09-16 address design spec, "Cross-project
 // operations").
-func TestLinkStillCrossesProjectsWithAnAddressedDoc(t *testing.T) {
+func TestLinkStillCrossesProjectsWithAnAddressedEntry(t *testing.T) {
 	targetEnv(t)
 	refOf(t, "knowledge", "new", "--title", "Runbook", "--project", "BETA")
 	runCmd(t, "link", "1", "/BETA/vault/runbook")

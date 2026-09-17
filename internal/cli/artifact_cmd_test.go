@@ -95,7 +95,7 @@ func TestArtifactRmAcceptsAName(t *testing.T) {
 	}
 }
 
-func TestArtifactAddCleansUpOnBadDocLink(t *testing.T) {
+func TestArtifactAddCleansUpOnBadEntryLink(t *testing.T) {
 	projectEnv(t)
 
 	// Try to add artifact with bad doc reference

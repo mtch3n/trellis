@@ -16,7 +16,7 @@ import (
 
 // A web save sends title, summary and body together. Each one present must be
 // written, and each one absent must keep its value.
-func TestKnowledgeEditWritesTitleAndSummary(t *testing.T) {
+func TestEntryEditWritesTitleAndSummary(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
@@ -32,14 +32,14 @@ func TestKnowledgeEditWritesTitleAndSummary(t *testing.T) {
 	if _, err := c.CreateBoard(ctx, p.ID, "default", true); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := c.CreateKnowledge(ctx, p.ID, core.NewKnowledge{Title: "Before", Summary: "old summary", Body: "old body\n"})
+	entry, err := c.CreateEntry(ctx, p.ID, core.NewEntry{Title: "Before", Summary: "old summary", Body: "old body\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	patch := func(body string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPatch, "/api/p/EDIT/b/default/knowledge/"+doc.Slug, strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPatch, "/api/p/EDIT/b/default/knowledge/"+entry.Slug, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		s.mux.ServeHTTP(rec, req)
@@ -50,7 +50,7 @@ func TestKnowledgeEditWritesTitleAndSummary(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
 	}
-	got, err := c.LoadKnowledge(ctx, p.ID, doc.Slug)
+	got, err := c.LoadEntry(ctx, p.ID, entry.Slug)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestKnowledgeEditWritesTitleAndSummary(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
 	}
-	got, err = c.LoadKnowledge(ctx, p.ID, doc.Slug)
+	got, err = c.LoadEntry(ctx, p.ID, entry.Slug)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestKnowledgeEditWritesTitleAndSummary(t *testing.T) {
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("stale status = %d, want 409, body = %s", rec.Code, rec.Body)
 	}
-	got, err = c.LoadKnowledge(ctx, p.ID, doc.Slug)
+	got, err = c.LoadEntry(ctx, p.ID, entry.Slug)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestKnowledgeEditWritesTitleAndSummary(t *testing.T) {
 }
 
 // EditKnowledgeMetadata tests changing type, private, tags, and labels via PATCH.
-func TestKnowledgeEditMetadata(t *testing.T) {
+func TestEntryEditMetadata(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
@@ -110,14 +110,14 @@ func TestKnowledgeEditMetadata(t *testing.T) {
 	if _, err := c.CreateLabel(ctx, p.ID, "reviewed", ""); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := c.CreateKnowledge(ctx, p.ID, core.NewKnowledge{Title: "Metadata", Body: "original\n"})
+	entry, err := c.CreateEntry(ctx, p.ID, core.NewEntry{Title: "Metadata", Body: "original\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	patch := func(body string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPatch, "/api/p/META/b/default/knowledge/"+doc.Slug, strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPatch, "/api/p/META/b/default/knowledge/"+entry.Slug, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		s.mux.ServeHTTP(rec, req)
@@ -129,7 +129,7 @@ func TestKnowledgeEditMetadata(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
 	}
-	got, err := c.LoadKnowledge(ctx, p.ID, doc.Slug)
+	got, err := c.LoadEntry(ctx, p.ID, entry.Slug)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestKnowledgeEditMetadata(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
 	}
-	got, err = c.LoadKnowledge(ctx, p.ID, doc.Slug)
+	got, err = c.LoadEntry(ctx, p.ID, entry.Slug)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestKnowledgeEditMetadata(t *testing.T) {
 
 // A template that rejects an entry without sources must still be usable from
 // the web, so the create request carries sources and template fields.
-func TestKnowledgeCreateCarriesSources(t *testing.T) {
+func TestEntryCreateCarriesSources(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
@@ -187,12 +187,12 @@ func TestKnowledgeCreateCarriesSources(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("a decision with a source: status = %d, want 201, body = %s", rec.Code, rec.Body)
 	}
-	doc, err := c.LoadKnowledge(ctx, p.ID, "chose-sqlite")
+	entry, err := c.LoadEntry(ctx, p.ID, "chose-sqlite")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(doc.Sources) != 1 || doc.Sources[0] != "https://sqlite.org/whentouse.html" {
-		t.Fatalf("sources = %v", doc.Sources)
+	if len(entry.Sources) != 1 || entry.Sources[0] != "https://sqlite.org/whentouse.html" {
+		t.Fatalf("sources = %v", entry.Sources)
 	}
 }
 
@@ -202,7 +202,7 @@ func TestKnowledgeCreateCarriesSources(t *testing.T) {
 // vector search. A private entry created over HTTP must be private from its
 // first write: the file on disk must say so from the moment CreateKnowledge
 // returns, not after a follow-up request.
-func TestKnowledgeCreatePrivateOverHTTPIsPrivateFromFirstWrite(t *testing.T) {
+func TestEntryCreatePrivateOverHTTPIsPrivateFromFirstWrite(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
@@ -231,7 +231,7 @@ func TestKnowledgeCreatePrivateOverHTTPIsPrivateFromFirstWrite(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("private create status = %d, body = %s", rec.Code, rec.Body)
 	}
-	var created core.Knowledge
+	var created core.Entry
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
@@ -247,11 +247,11 @@ func TestKnowledgeCreatePrivateOverHTTPIsPrivateFromFirstWrite(t *testing.T) {
 		t.Errorf("file written by the create request is missing private: true:\n%s", raw)
 	}
 
-	doc, err := c.LoadKnowledge(ctx, p.ID, created.Slug)
+	entry, err := c.LoadEntry(ctx, p.ID, created.Slug)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !doc.Private {
+	if !entry.Private {
 		t.Fatal("reloaded doc Private = false, want true")
 	}
 }

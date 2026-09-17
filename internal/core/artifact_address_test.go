@@ -8,14 +8,14 @@ import (
 )
 
 func TestEscalateRefusesASlugTheVaultHolds(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 	other := seededProject2(t, c)
-	mine, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Conventions", Body: "mine\n"})
+	mine, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Conventions", Body: "mine\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	theirs, err := c.CreateKnowledge(ctx, other.ID, NewKnowledge{Title: "Conventions", Body: "theirs\n"})
+	theirs, err := c.CreateEntry(ctx, other.ID, NewEntry{Title: "Conventions", Body: "theirs\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,17 +37,17 @@ func TestEscalateRefusesASlugTheVaultHolds(t *testing.T) {
 }
 
 func TestEscalationBackfillsVaultStubs(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 	other := seededProject2(t, c)
-	if _, err := c.CreateKnowledge(ctx, other.ID, NewKnowledge{
+	if _, err := c.CreateEntry(ctx, other.ID, NewEntry{
 		Title: "Notes", Body: "See [[/GLOBAL/vault/conventions]].\n"}); err != nil {
 		t.Fatal(err)
 	}
 	if kinds, _ := lintKinds(t, c, other.ID); kinds["stub"] != 1 {
 		t.Fatalf("before escalation: %v, want one stub", kinds)
 	}
-	target, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Conventions"})
+	target, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Conventions"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func screenShot(t *testing.T) string {
 }
 
 func TestArtifactsAreFoundByIdNameAndAddress(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 	a, err := c.CreateArtifact(ctx, p.ID, screenShot(t))
 	if err != nil {
@@ -107,7 +107,7 @@ func TestArtifactsAreFoundByIdNameAndAddress(t *testing.T) {
 
 // A row can outlive its file, and its name is still its address.
 func TestArtifactNamesStayUniqueWhenTheFileIsGone(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 	source := screenShot(t)
 	first, err := c.CreateArtifact(ctx, p.ID, source)
@@ -127,7 +127,7 @@ func TestArtifactNamesStayUniqueWhenTheFileIsGone(t *testing.T) {
 }
 
 func TestGraphNamesArtifactsByAddress(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	ctx := t.Context()
 	card, err := c.CreateCard(ctx, p.ID, b.ID, NewCard{Title: "attach evidence"})
 	if err != nil {

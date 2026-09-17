@@ -74,7 +74,7 @@ func newArtifactAddCmd() *cobra.Command {
 						return errors.Join(err, deleteErr)
 					}
 				} else if refs[1] != "" {
-					if _, err := app.Core.LinkArtifactToDoc(cmd.Context(), app.Project.ID, refs[1], artifact.ID); err != nil {
+					if _, err := app.Core.LinkArtifactToEntry(cmd.Context(), app.Project.ID, refs[1], artifact.ID); err != nil {
 						deleteErr := app.Core.DeleteArtifact(cmd.Context(), app.Project.ID, artifact.ID)
 						return errors.Join(err, deleteErr)
 					}
@@ -104,7 +104,7 @@ func newArtifactLinkCmd() *cobra.Command {
 					if err != nil {
 						return err
 					}
-					entry, err := app.Core.LinkArtifactToDoc(cmd.Context(), app.Project.ID, ref, a.ID)
+					entry, err := app.Core.LinkArtifactToEntry(cmd.Context(), app.Project.ID, ref, a.ID)
 					if err != nil {
 						return err
 					}
@@ -153,7 +153,7 @@ func newArtifactUnlinkCmd() *cobra.Command {
 				{Collection: address.CollectionVault, Value: doc},
 			}, func(app *appCtx, refs []string) error {
 				if refs[1] != "" {
-					entry, err := app.Core.UnlinkArtifactFromDoc(cmd.Context(), app.Project.ID, refs[1], args[0])
+					entry, err := app.Core.UnlinkArtifactFromEntry(cmd.Context(), app.Project.ID, refs[1], args[0])
 					if err != nil {
 						return err
 					}
@@ -194,7 +194,7 @@ func newArtifactLsCmd() *cobra.Command {
 				{Collection: address.CollectionCards, Value: card},
 				{Collection: address.CollectionVault, Value: doc},
 			}, func(app *appCtx, refs []string) error {
-				var cardIDValue, docIDValue string
+				var cardIDValue, entryIDValue string
 				if refs[0] != "" {
 					var err error
 					if cardIDValue, err = cardID(cmd, app, refs[0]); err != nil {
@@ -202,13 +202,13 @@ func newArtifactLsCmd() *cobra.Command {
 					}
 				}
 				if refs[1] != "" {
-					entry, err := app.Core.LoadKnowledge(cmd.Context(), app.Project.ID, refs[1])
+					entry, err := app.Core.LoadEntry(cmd.Context(), app.Project.ID, refs[1])
 					if err != nil {
 						return err
 					}
-					docIDValue = entry.ID
+					entryIDValue = entry.ID
 				}
-				items, err := app.Core.ListArtifacts(cmd.Context(), app.Project.ID, cardIDValue, docIDValue)
+				items, err := app.Core.ListArtifacts(cmd.Context(), app.Project.ID, cardIDValue, entryIDValue)
 				if err != nil {
 					return err
 				}

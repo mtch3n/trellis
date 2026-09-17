@@ -16,7 +16,7 @@ func fileErrCode(err error) string {
 }
 
 func TestArtifactFileResolvesARegisteredArtifact(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	a := addArtifact(t, c, p.ID, "serve.png", "\x89PNG\r\n\x1a\nx")
 
 	got, path, err := c.ArtifactFile(t.Context(), p.ID, a.Name)
@@ -35,7 +35,7 @@ func TestArtifactFileResolvesARegisteredArtifact(t *testing.T) {
 // A project id that does not exist must fail the same way any other refusal
 // does, not with a raw sql.ErrNoRows that the web layer would map to 500.
 func TestArtifactFileWithUnknownProjectIsNotFound(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	a := addArtifact(t, c, p.ID, "serve.png", "\x89PNG\r\n\x1a\nx")
 
 	_, _, err := c.ArtifactFile(t.Context(), "no-such-project", a.Name)
@@ -96,7 +96,7 @@ func TestArtifactFileRefuses(t *testing.T) {
 	}
 	for name, setup := range cases {
 		t.Run(name, func(t *testing.T) {
-			c, p, _ := kbCore(t)
+			c, p, _ := vaultCore(t)
 			a := addArtifact(t, c, p.ID, "base.png", "\x89PNG\r\n\x1a\nx")
 			ref := setup(t, c, p.ID, a)
 			if _, _, err := c.ArtifactFile(t.Context(), p.ID, ref); fileErrCode(err) != "artifact_not_found" {

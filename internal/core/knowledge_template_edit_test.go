@@ -14,39 +14,39 @@ func decisionBody(extra string) string {
 	return "# Chose SQLite\n\n## Context\n\nc\n\n## Options considered\n\no\n\n## Decision\n\nd\n\n## Consequences\n\nq\n" + extra
 }
 
-func newDecision(t *testing.T, c *Core, projectID string) Knowledge {
+func newDecision(t *testing.T, c *Core, projectID string) Entry {
 	t.Helper()
-	doc, err := c.CreateKnowledge(t.Context(), projectID, NewKnowledge{
+	entry, err := c.CreateEntry(t.Context(), projectID, NewEntry{
 		Title: "Chose SQLite", Template: "decision", Body: decisionBody(""),
 		Sources: []string{"https://sqlite.org/whentouse.html"},
 	})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	return doc
+	return entry
 }
 
 // An edit is held to the entry's template, as creation is. The reject
 // template refuses the edit and leaves the file as it was.
 func TestEditUnderARejectTemplateIsRefused(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc := newDecision(t, c, p.ID)
-	before, err := os.ReadFile(doc.Path)
+	c, p, _ := vaultCore(t)
+	entry := newDecision(t, c, p.ID)
+	before, err := os.ReadFile(entry.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	for name, edit := range map[string]KnowledgeEdit{
+	for name, edit := range map[string]EntryEdit{
 		"a section removed": {Body: new("# Chose SQLite\n\n## Context\n\nc\n")},
 		"sources cleared":   {Sources: new([]string{})},
 	} {
-		edit.IfVersion = &doc.Version
-		_, err := c.EditKnowledgeFields(t.Context(), p.ID, doc.Slug, edit)
+		edit.IfVersion = &entry.Version
+		_, err := c.EditEntryFields(t.Context(), p.ID, entry.Slug, edit)
 		if code := errCode(t, err); code != "template_violation" {
 			t.Errorf("%s: code = %s (%v)", name, code, err)
 		}
 	}
-	if after, _ := os.ReadFile(doc.Path); string(after) != string(before) {
+	if after, _ := os.ReadFile(entry.Path); string(after) != string(before) {
 		t.Errorf("a refused edit changed the file:\n%s", after)
 	}
 }
@@ -54,19 +54,19 @@ func TestEditUnderARejectTemplateIsRefused(t *testing.T) {
 // The verify rule reads in the edit's own transaction. With one database
 // connection, a second transaction would wait forever, so this has a deadline.
 func TestEditRunsTheVerifyRule(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc := newDecision(t, c, p.ID)
+	c, p, _ := vaultCore(t)
+	entry := newDecision(t, c, p.ID)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	_, err := c.EditKnowledgeFields(ctx, p.ID, doc.Slug, KnowledgeEdit{
-		Body: new(decisionBody("See [[no-such-entry]].\n")), IfVersion: &doc.Version,
+	_, err := c.EditEntryFields(ctx, p.ID, entry.Slug, EntryEdit{
+		Body: new(decisionBody("See [[no-such-entry]].\n")), IfVersion: &entry.Version,
 	})
 	if code := errCode(t, err); code != "template_violation" || !strings.Contains(err.Error(), "no-such-entry") {
 		t.Fatalf("edit citing a missing entry: %v", err)
 	}
-	if _, err := c.EditKnowledgeFields(ctx, p.ID, doc.Slug, KnowledgeEdit{
-		Body: new(decisionBody("See [[chose-sqlite]].\n")), IfVersion: &doc.Version,
+	if _, err := c.EditEntryFields(ctx, p.ID, entry.Slug, EntryEdit{
+		Body: new(decisionBody("See [[chose-sqlite]].\n")), IfVersion: &entry.Version,
 	}); err != nil {
 		t.Fatalf("edit citing an existing entry: %v", err)
 	}
@@ -74,13 +74,13 @@ func TestEditRunsTheVerifyRule(t *testing.T) {
 
 // A warn template lets the edit through and says what is missing.
 func TestEditUnderAWarnTemplateWarns(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Latency", Template: "research"})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Latency", Template: "research"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := c.EditKnowledgeFields(t.Context(), p.ID, doc.Slug, KnowledgeEdit{
-		Body: new("# Latency\n\n## Question\n\nq\n"), IfVersion: &doc.Version,
+	got, err := c.EditEntryFields(t.Context(), p.ID, entry.Slug, EntryEdit{
+		Body: new("# Latency\n\n## Question\n\nq\n"), IfVersion: &entry.Version,
 	})
 	if err != nil {
 		t.Fatalf("EditKnowledgeFields: %v", err)
@@ -93,26 +93,26 @@ func TestEditUnderAWarnTemplateWarns(t *testing.T) {
 // Switching checks the new template; clearing checks nothing; an unknown
 // name is refused.
 func TestEditSwitchesAndClearsTheTemplate(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Loose", Body: "just text\n"})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Loose", Body: "just text\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.Template != "" {
-		t.Fatalf("an entry created without --template has template %q", doc.Template)
+	if entry.Template != "" {
+		t.Fatalf("an entry created without --template has template %q", entry.Template)
 	}
 
-	_, err = c.EditKnowledgeFields(t.Context(), p.ID, doc.Slug, KnowledgeEdit{Template: new("decision"), IfVersion: &doc.Version})
+	_, err = c.EditEntryFields(t.Context(), p.ID, entry.Slug, EntryEdit{Template: new("decision"), IfVersion: &entry.Version})
 	if code := errCode(t, err); code != "template_violation" {
 		t.Errorf("switch to decision: %v", err)
 	}
-	_, err = c.EditKnowledgeFields(t.Context(), p.ID, doc.Slug, KnowledgeEdit{Template: new("nope"), IfVersion: &doc.Version})
+	_, err = c.EditEntryFields(t.Context(), p.ID, entry.Slug, EntryEdit{Template: new("nope"), IfVersion: &entry.Version})
 	if code := errCode(t, err); code != "unknown_template" {
 		t.Errorf("switch to nope: %v", err)
 	}
 
 	dec := newDecision(t, c, p.ID)
-	cleared, err := c.EditKnowledgeFields(t.Context(), p.ID, dec.Slug, KnowledgeEdit{
+	cleared, err := c.EditEntryFields(t.Context(), p.ID, dec.Slug, EntryEdit{
 		Template: new(""), Body: new("free text\n"), IfVersion: &dec.Version,
 	})
 	if err != nil {
@@ -130,7 +130,7 @@ func TestEditSwitchesAndClearsTheTemplate(t *testing.T) {
 // Hand edits are Lint's to report: a broken template, and one that is gone.
 // An entry whose template is gone can still be edited.
 func TestLintReportsTemplateProblemsFromHandEdits(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	broken := newDecision(t, c, p.ID)
 	raw, err := os.ReadFile(broken.Path)
 	if err != nil {
@@ -140,7 +140,7 @@ func TestLintReportsTemplateProblemsFromHandEdits(t *testing.T) {
 	if err := os.WriteFile(broken.Path, []byte(hand), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	orphan, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Orphan", Template: "research"})
+	orphan, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Orphan", Template: "research"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,11 +168,11 @@ func TestLintReportsTemplateProblemsFromHandEdits(t *testing.T) {
 		t.Errorf("findings = %v, want %v", kinds, want)
 	}
 
-	cur, err := c.LoadKnowledge(t.Context(), p.ID, orphan.Slug)
+	cur, err := c.LoadEntry(t.Context(), p.ID, orphan.Slug)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := c.EditKnowledgeFields(t.Context(), p.ID, orphan.Slug, KnowledgeEdit{Body: new("still editable\n"), IfVersion: &cur.Version})
+	got, err := c.EditEntryFields(t.Context(), p.ID, orphan.Slug, EntryEdit{Body: new("still editable\n"), IfVersion: &cur.Version})
 	if err != nil {
 		t.Fatalf("edit an entry whose template is gone: %v", err)
 	}
@@ -184,13 +184,13 @@ func TestLintReportsTemplateProblemsFromHandEdits(t *testing.T) {
 // Set writes and removes the fields a template asks for; built-in fields
 // have their own options.
 func TestEditSetsTemplateFields(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Owned", Body: "x\n"})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Owned", Body: "x\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := c.EditKnowledgeFields(t.Context(), p.ID, doc.Slug, KnowledgeEdit{
-		Set: map[string]string{"owner": "alice"}, IfVersion: &doc.Version,
+	got, err := c.EditEntryFields(t.Context(), p.ID, entry.Slug, EntryEdit{
+		Set: map[string]string{"owner": "alice"}, IfVersion: &entry.Version,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -198,7 +198,7 @@ func TestEditSetsTemplateFields(t *testing.T) {
 	if raw, _ := os.ReadFile(got.Path); !strings.Contains(string(raw), "owner: alice") {
 		t.Fatalf("file after set:\n%s", raw)
 	}
-	got, err = c.EditKnowledgeFields(t.Context(), p.ID, doc.Slug, KnowledgeEdit{
+	got, err = c.EditEntryFields(t.Context(), p.ID, entry.Slug, EntryEdit{
 		Set: map[string]string{"owner": ""}, IfVersion: &got.Version,
 	})
 	if err != nil {
@@ -207,7 +207,7 @@ func TestEditSetsTemplateFields(t *testing.T) {
 	if raw, _ := os.ReadFile(got.Path); strings.Contains(string(raw), "owner:") {
 		t.Fatalf("file after removal:\n%s", raw)
 	}
-	_, err = c.EditKnowledgeFields(t.Context(), p.ID, doc.Slug, KnowledgeEdit{
+	_, err = c.EditEntryFields(t.Context(), p.ID, entry.Slug, EntryEdit{
 		Set: map[string]string{"template": "decision"}, IfVersion: &got.Version,
 	})
 	if code := errCode(t, err); code != "reserved_field" {
@@ -217,8 +217,8 @@ func TestEditSetsTemplateFields(t *testing.T) {
 
 // A refusal lists each problem apart from its one-sentence message.
 func TestTemplateViolationListsProblems(t *testing.T) {
-	c, p, _ := kbCore(t)
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Bare", Template: "decision", Body: "x\n"})
+	c, p, _ := vaultCore(t)
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Bare", Template: "decision", Body: "x\n"})
 	e, ok := errors.AsType[*Error](err)
 	if !ok || e.Code != "template_violation" || strings.Contains(e.Msg, "\n") || len(e.Problems) < 2 {
 		t.Fatalf("err = %#v", err)

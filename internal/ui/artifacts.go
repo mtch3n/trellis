@@ -19,19 +19,19 @@ type artifactItem struct {
 	URL string `json:"url,omitempty"`
 }
 
-// knowledgeItem is a knowledge entry as the UI list endpoints return it. Its
+// entryItem is a knowledge entry as the UI list endpoints return it. Its
 // Artifacts field shadows the embedded one; encoding/json/v2 resolves that in
 // favour of the shallower field.
-type knowledgeItem struct {
-	core.Knowledge
+type entryItem struct {
+	core.Entry
 	Artifacts []artifactItem `json:"artifacts,omitempty"`
 }
 
-func knowledgeItems(projectKey string, docs []core.Knowledge) []knowledgeItem {
-	out := make([]knowledgeItem, len(docs))
-	for i, d := range docs {
-		out[i].Knowledge = d
-		for _, a := range d.Artifacts {
+func entryItems(projectKey string, entries []core.Entry) []entryItem {
+	out := make([]entryItem, len(entries))
+	for i, e := range entries {
+		out[i].Entry = e
+		for _, a := range e.Artifacts {
 			item := artifactItem{ArtifactRef: a}
 			if !a.Missing {
 				item.URL = artifactURL(projectKey, a.Name)

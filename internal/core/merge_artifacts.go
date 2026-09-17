@@ -172,7 +172,7 @@ func (m *merger) moveArtifacts() error {
 // already has under it (doc_relations.go's resolveArtifactName is scoped to
 // the document's own project, which is DST's by the time this runs).
 func (m *merger) rewriteArtifactNames(path, text string) (string, error) {
-	fm, body, err := splitDocFile(path, []byte(text))
+	fm, body, err := splitEntryFile(path, []byte(text))
 	if err != nil {
 		return "", err
 	}
@@ -186,5 +186,5 @@ func (m *merger) rewriteArtifactNames(path, text string) (string, error) {
 	if !changed {
 		return text, nil
 	}
-	return RenderDoc(fm, body), nil
+	return RenderEntry(fm, body), nil
 }

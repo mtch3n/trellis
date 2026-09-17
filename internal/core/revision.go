@@ -141,13 +141,13 @@ func (c *Core) revisionToKeep(entryPath string, version int64, raw []byte) (stri
 	return dest, true, nil
 }
 
-// captureKnowledgeRevision retains raw as version's copy of entryPath when
+// captureEntryRevision retains raw as version's copy of entryPath when
 // revisionToKeep says to, then trims down to historyKeep. It returns the path
 // written, or "" when revisionToKeep declined (capture disabled, that version
 // already retained, or raw unchanged from the newest revision) -- so a caller
 // that captures a version speculatively, before the write it belongs to is
 // known to have landed, can remove exactly this file if it does not.
-func (c *Core) captureKnowledgeRevision(entryPath string, version int64, raw []byte) (string, error) {
+func (c *Core) captureEntryRevision(entryPath string, version int64, raw []byte) (string, error) {
 	dest, keep, err := c.revisionToKeep(entryPath, version, raw)
 	if err != nil || !keep {
 		return "", err
@@ -287,21 +287,21 @@ func resolveDiffRange(versions []int64, from, to int64, historyCmd string) (int6
 	return from, to, nil
 }
 
-// ListKnowledgeRevisions lists an entry's retained versions, newest first.
+// ListEntryRevisions lists an entry's retained versions, newest first.
 // Knowledge revisions carry no actor: the entry file has no author field, and
 // a direct edit has no Trellis actor at all.
-func (c *Core) ListKnowledgeRevisions(ctx context.Context, projectID, slug string) ([]RevisionInfo, error) {
-	doc, err := c.LoadKnowledge(ctx, projectID, slug)
+func (c *Core) ListEntryRevisions(ctx context.Context, projectID, slug string) ([]RevisionInfo, error) {
+	entry, err := c.LoadEntry(ctx, projectID, slug)
 	if err != nil {
 		return nil, err
 	}
-	versions, err := sortedRevisionVersions(revisionDir(doc.Path))
+	versions, err := sortedRevisionVersions(revisionDir(entry.Path))
 	if err != nil {
 		return nil, err
 	}
 	out := make([]RevisionInfo, len(versions))
 	for i, v := range versions {
-		st, err := os.Stat(revisionFilePath(doc.Path, v))
+		st, err := os.Stat(revisionFilePath(entry.Path, v))
 		if err != nil {
 			return nil, err
 		}
@@ -310,31 +310,31 @@ func (c *Core) ListKnowledgeRevisions(ctx context.Context, projectID, slug strin
 	return out, nil
 }
 
-// DiffKnowledge returns a unified diff between two retained versions of an
+// DiffEntry returns a unified diff between two retained versions of an
 // entry's whole file, frontmatter included.
-func (c *Core) DiffKnowledge(ctx context.Context, projectID, slug string, from, to int64) (RevisionDiff, error) {
-	doc, err := c.LoadKnowledge(ctx, projectID, slug)
+func (c *Core) DiffEntry(ctx context.Context, projectID, slug string, from, to int64) (RevisionDiff, error) {
+	entry, err := c.LoadEntry(ctx, projectID, slug)
 	if err != nil {
 		return RevisionDiff{}, err
 	}
-	versions, err := sortedRevisionVersions(revisionDir(doc.Path))
+	versions, err := sortedRevisionVersions(revisionDir(entry.Path))
 	if err != nil {
 		return RevisionDiff{}, err
 	}
-	from, to, err = resolveDiffRange(versions, from, to, "trellis knowledge history "+doc.Slug)
+	from, to, err = resolveDiffRange(versions, from, to, "trellis knowledge history "+entry.Slug)
 	if err != nil {
 		return RevisionDiff{}, err
 	}
-	fromRaw, err := os.ReadFile(revisionFilePath(doc.Path, from))
+	fromRaw, err := os.ReadFile(revisionFilePath(entry.Path, from))
 	if err != nil {
 		return RevisionDiff{}, err
 	}
-	toRaw, err := os.ReadFile(revisionFilePath(doc.Path, to))
+	toRaw, err := os.ReadFile(revisionFilePath(entry.Path, to))
 	if err != nil {
 		return RevisionDiff{}, err
 	}
 	diff := udiff.Unified(
-		fmt.Sprintf("%s@v%d", doc.Slug, from), fmt.Sprintf("%s@v%d", doc.Slug, to),
+		fmt.Sprintf("%s@v%d", entry.Slug, from), fmt.Sprintf("%s@v%d", entry.Slug, to),
 		string(fromRaw), string(toRaw))
 	return RevisionDiff{From: from, To: to, Diff: diff}, nil
 }

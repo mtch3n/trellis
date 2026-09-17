@@ -18,17 +18,17 @@ type DupeCluster struct {
 // embeddings are deliberately not here — they are added when this layer is
 // measured to miss, not before.
 func (c *Core) Dupes(ctx context.Context, projectID string) ([]DupeCluster, error) {
-	docs, err := c.ListKnowledge(ctx, projectID, KnowledgeFilter{})
+	entries, err := c.ListEntries(ctx, projectID, EntryFilter{})
 	if err != nil {
 		return nil, err
 	}
 	seen := map[string]bool{}
 	clusters := []DupeCluster{}
-	for _, d := range docs {
-		if seen[d.Slug] {
+	for _, e := range entries {
+		if seen[e.Slug] {
 			continue
 		}
-		terms := significantTerms(d.Title)
+		terms := significantTerms(e.Title)
 		if len(terms) == 0 {
 			continue
 		}
@@ -38,18 +38,18 @@ func (c *Core) Dupes(ctx context.Context, projectID string) ([]DupeCluster, erro
 		for _, t := range terms {
 			quoted = append(quoted, ftsPhrase(t))
 		}
-		hits, err := c.matchKnowledge(ctx, projectID, strings.Join(quoted, " OR "), 10)
+		hits, err := c.matchEntries(ctx, projectID, strings.Join(quoted, " OR "), 10)
 		if err != nil {
 			return nil, err
 		}
-		cluster := []string{d.Slug}
+		cluster := []string{e.Slug}
 		for _, h := range hits {
 			addr, err := address.Parse(h.Ref)
 			if err != nil {
 				return nil, err
 			}
 			slug := addr.Name
-			if slug == d.Slug || seen[slug] {
+			if slug == e.Slug || seen[slug] {
 				continue
 			}
 			if overlap(terms, significantTerms(h.Title)) >= 2 {
@@ -58,7 +58,7 @@ func (c *Core) Dupes(ctx context.Context, projectID string) ([]DupeCluster, erro
 			}
 		}
 		if len(cluster) > 1 {
-			seen[d.Slug] = true
+			seen[e.Slug] = true
 			clusters = append(clusters, DupeCluster{Slugs: cluster, Terms: strings.Join(terms, " ")})
 		}
 	}

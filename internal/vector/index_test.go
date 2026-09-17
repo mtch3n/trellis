@@ -61,7 +61,7 @@ func TestIndexUpsertSearchAndPrune(t *testing.T) {
 	}
 	defer idx.Close()
 	ctx := context.Background()
-	if n, err := idx.Upsert(ctx, []Document{{ID: "a", Title: "Concurrency", Content: "locks"}, {ID: "b", Title: "Other", Content: "unrelated"}}, "p"); err != nil || n != 2 {
+	if n, err := idx.Upsert(ctx, []Entry{{ID: "a", Title: "Concurrency", Content: "locks"}, {ID: "b", Title: "Other", Content: "unrelated"}}, "p"); err != nil || n != 2 {
 		t.Fatalf("upsert n=%d err=%v", n, err)
 	}
 	hits, err := idx.Search(ctx, "p", "locking", 2)
@@ -97,7 +97,7 @@ func TestNewWithEagerStoreConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer idx.Close()
-	if _, err := idx.Upsert(t.Context(), []Document{{ID: "eager", Content: "works"}}, "p"); err != nil {
+	if _, err := idx.Upsert(t.Context(), []Entry{{ID: "eager", Content: "works"}}, "p"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -120,15 +120,15 @@ func TestUpsertSkipsUnchangedAndPreservesOnEmbeddingFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer idx.Close()
-	doc := Document{ID: "stable", Title: "Stable", Content: "same"}
-	if n, err := idx.Upsert(t.Context(), []Document{doc}, "p"); err != nil || n != 1 {
+	entry := Entry{ID: "stable", Title: "Stable", Content: "same"}
+	if n, err := idx.Upsert(t.Context(), []Entry{entry}, "p"); err != nil || n != 1 {
 		t.Fatalf("first upsert n=%d err=%v", n, err)
 	}
 	before, err := os.ReadFile(count)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n, err := idx.Upsert(t.Context(), []Document{doc}, "p"); err != nil || n != 0 {
+	if n, err := idx.Upsert(t.Context(), []Entry{entry}, "p"); err != nil || n != 0 {
 		t.Fatalf("unchanged upsert n=%d err=%v", n, err)
 	}
 	after, err := os.ReadFile(count)
@@ -141,7 +141,7 @@ func TestUpsertSkipsUnchangedAndPreservesOnEmbeddingFailure(t *testing.T) {
 	if err := os.WriteFile(failed, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := idx.Upsert(t.Context(), []Document{{ID: doc.ID, Title: doc.Title, Content: "changed"}}, "p"); err == nil {
+	if _, err := idx.Upsert(t.Context(), []Entry{{ID: entry.ID, Title: entry.Title, Content: "changed"}}, "p"); err == nil {
 		t.Fatal("expected embedding failure")
 	}
 	if got, err := idx.Count(t.Context(), "p"); err != nil || got != 1 {
@@ -180,10 +180,10 @@ func TestIndexesUseSeparateVirtualTablesAndDatabases(t *testing.T) {
 	if a.virtualTable == b.virtualTable || a.shadowTable == b.shadowTable {
 		t.Fatalf("project vector tables collided: %q and %q", a.virtualTable, b.virtualTable)
 	}
-	if _, err := a.Upsert(t.Context(), []Document{{ID: "a-doc", Content: "alpha"}}, "a"); err != nil {
+	if _, err := a.Upsert(t.Context(), []Entry{{ID: "a-doc", Content: "alpha"}}, "a"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.Upsert(t.Context(), []Document{{ID: "b-doc", Content: "bravo"}}, "b"); err != nil {
+	if _, err := b.Upsert(t.Context(), []Entry{{ID: "b-doc", Content: "bravo"}}, "b"); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := a.Count(t.Context(), "a"); err != nil || got != 1 {

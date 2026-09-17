@@ -9,10 +9,10 @@ import (
 // which finds nothing when the text is a sentence rather than a query. If this
 // test ever fails at the Search step, recall has lost its reason to exist.
 func TestRecallFindsWhatAPhraseSearchCannot(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 
-	if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+	if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 		Title:   "Lease renewal on claim",
 		Summary: "A claim starts the lease and a note renews it.",
 	}); err != nil {
@@ -42,10 +42,10 @@ func TestRecallFindsWhatAPhraseSearchCannot(t *testing.T) {
 }
 
 func TestRecallCarriesTheLineThatDecidesWhetherToOpen(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 
-	doc, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{
 		Title:   "Vector index rebuild",
 		Summary: "Rebuilds on every write above ten thousand rows",
 	})
@@ -63,7 +63,7 @@ func TestRecallCarriesTheLineThatDecidesWhetherToOpen(t *testing.T) {
 
 	// A pinned recap is written for exactly this job, so it outranks summary.
 	if _, err := c.db.Exec(`UPDATE entry SET recap = ? WHERE id = ?`,
-		"Rebuild is O(n) and blocks writes", doc.ID); err != nil {
+		"Rebuild is O(n) and blocks writes", entry.ID); err != nil {
 		t.Fatalf("setting recap: %v", err)
 	}
 	hits, err = c.Recall(ctx, p.ID, "vector rebuild cost", RecallOpts{})
@@ -76,10 +76,10 @@ func TestRecallCarriesTheLineThatDecidesWhetherToOpen(t *testing.T) {
 }
 
 func TestRecallOmitsRefsTheCallerAlreadyHolds(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 
-	doc, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{
 		Title: "Staleness and leases", Summary: "When a quiet lease may be taken over",
 	})
 	if err != nil {
@@ -94,7 +94,7 @@ func TestRecallOmitsRefsTheCallerAlreadyHolds(t *testing.T) {
 		t.Fatalf("Recall returned %d hits, want 1", len(hits))
 	}
 
-	hits, err = c.Recall(ctx, p.ID, "staleness", RecallOpts{Exclude: []string{doc.Ref}})
+	hits, err = c.Recall(ctx, p.ID, "staleness", RecallOpts{Exclude: []string{entry.Ref}})
 	if err != nil {
 		t.Fatalf("Recall: %v", err)
 	}
@@ -103,14 +103,14 @@ func TestRecallOmitsRefsTheCallerAlreadyHolds(t *testing.T) {
 	}
 }
 
-func TestRecallPutsKnowledgeBeforeCards(t *testing.T) {
-	c, p, b := kbCore(t)
+func TestRecallPutsEntriesBeforeCards(t *testing.T) {
+	c, p, b := vaultCore(t)
 	ctx := t.Context()
 
 	if _, err := c.CreateCard(ctx, p.ID, b.ID, NewCard{Title: "Fix telemetry pipeline"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
-	if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+	if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 		Title: "Telemetry pipeline decision", Summary: "Why batching beat streaming",
 	}); err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
@@ -129,11 +129,11 @@ func TestRecallPutsKnowledgeBeforeCards(t *testing.T) {
 }
 
 func TestRecallHonoursLimit(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 
 	for _, title := range []string{"Retry budget", "Retry jitter", "Retry ceiling"} {
-		if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: title, Summary: "retry"}); err != nil {
+		if _, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: title, Summary: "retry"}); err != nil {
 			t.Fatalf("CreateKnowledge: %v", err)
 		}
 	}
@@ -148,7 +148,7 @@ func TestRecallHonoursLimit(t *testing.T) {
 }
 
 func TestRecallWithoutUsableTermsIsEmptyNotAnError(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 
 	hits, err := c.Recall(t.Context(), p.ID, "ok can you do this for me", RecallOpts{})
 	if err != nil {
@@ -185,13 +185,13 @@ func TestRecallTermsAreStableForTheSameText(t *testing.T) {
 }
 
 func TestRecallLiftsHitsConnectedToOtherHits(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 
 	// Equal textual match; only the link graph tells them apart.
 	mk := func(title, body string) {
 		t.Helper()
-		if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+		if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 			Title: title, Summary: "retry budget", Body: body,
 		}); err != nil {
 			t.Fatalf("CreateKnowledge %s: %v", title, err)
@@ -215,12 +215,12 @@ func TestRecallLiftsHitsConnectedToOtherHits(t *testing.T) {
 }
 
 func TestRecallCountsALinkToAHubForLessThanALinkToARarity(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 
 	mk := func(title, body string) {
 		t.Helper()
-		if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+		if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 			Title: title, Summary: "retry budget", Body: body,
 		}); err != nil {
 			t.Fatalf("CreateKnowledge %s: %v", title, err)
@@ -230,7 +230,7 @@ func TestRecallCountsALinkToAHubForLessThanALinkToARarity(t *testing.T) {
 	mk("Retry rarity", "retry budget, cited by almost nothing")
 	// Five entries that do not match the query but do make the hub a hub.
 	for n := range 5 {
-		if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+		if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 			Title:   "Unrelated " + string(rune('a'+n)),
 			Summary: "nothing to do with the query",
 			Body:    "points at [[retry-hub]]",
@@ -261,11 +261,11 @@ func TestRecallCountsALinkToAHubForLessThanALinkToARarity(t *testing.T) {
 }
 
 func TestRecallWithoutLinksKeepsFTSOrder(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 
 	for _, title := range []string{"Retry budget", "Retry jitter", "Retry ceiling"} {
-		if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+		if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 			Title: title, Summary: "retry", Body: "no links here",
 		}); err != nil {
 			t.Fatalf("CreateKnowledge: %v", err)
@@ -289,14 +289,14 @@ func TestRecallWithoutLinksKeepsFTSOrder(t *testing.T) {
 	}
 }
 
-func TestRecallNarrowedToAKnowledgeDimensionDropsCards(t *testing.T) {
-	c, p, b := kbCore(t)
+func TestRecallNarrowedToAnEntryDimensionDropsCards(t *testing.T) {
+	c, p, b := vaultCore(t)
 	ctx := t.Context()
 
 	if _, err := c.CreateCard(ctx, p.ID, b.ID, NewCard{Title: "Fix retry budget"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
-	if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+	if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 		Title: "Retry budget decision", Summary: "retry budget", Provenance: "extracted",
 	}); err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
@@ -322,11 +322,11 @@ func TestRecallNarrowedToAKnowledgeDimensionDropsCards(t *testing.T) {
 }
 
 func TestRecallHoldsOutAnIngestionPath(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 
 	for _, prov := range []string{"authored", "extracted"} {
-		if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+		if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 			Title: "Retry budget " + prov, Summary: "retry budget", Provenance: prov,
 		}); err != nil {
 			t.Fatalf("CreateKnowledge: %v", err)

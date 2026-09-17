@@ -530,15 +530,15 @@ func (c *Core) CheckTemplate(ctx context.Context, projectID, name, slug string) 
 	if err != nil {
 		return nil, err
 	}
-	doc, err := c.LoadKnowledge(ctx, projectID, slug)
+	entry, err := c.LoadEntry(ctx, projectID, slug)
 	if err != nil {
 		return nil, err
 	}
-	raw, err := os.ReadFile(doc.Path)
+	raw, err := os.ReadFile(entry.Path)
 	if err != nil {
 		return nil, err
 	}
-	fm, body, err := splitDocFile(doc.Path, raw)
+	fm, body, err := splitEntryFile(entry.Path, raw)
 	if err != nil {
 		return nil, err
 	}

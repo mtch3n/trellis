@@ -95,7 +95,7 @@ func TestServerCardLifecycleAndEmbeddedSPA(t *testing.T) {
 	}
 }
 
-func TestServerKnowledgeGraphLabelsAndStealRoutes(t *testing.T) {
+func TestServerVaultGraphLabelsAndStealRoutes(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
@@ -131,31 +131,31 @@ func TestServerKnowledgeGraphLabelsAndStealRoutes(t *testing.T) {
 	if created.Code != http.StatusCreated {
 		t.Fatalf("knowledge create status = %d, body = %s", created.Code, created.Body)
 	}
-	var doc core.Knowledge
-	if err := json.Unmarshal(created.Body.Bytes(), &doc); err != nil {
+	var entry core.Entry
+	if err := json.Unmarshal(created.Body.Bytes(), &entry); err != nil {
 		t.Fatal(err)
 	}
-	if doc.Slug == "" || doc.Version == 0 {
-		t.Fatalf("created knowledge = %+v", doc)
+	if entry.Slug == "" || entry.Version == 0 {
+		t.Fatalf("created knowledge = %+v", entry)
 	}
 
 	listed := request(http.MethodGet, "/api/p/P5TEST/b/default/knowledge", "")
-	if listed.Code != http.StatusOK || !bytes.Contains(listed.Body.Bytes(), []byte(`"slug":"`+doc.Slug+`"`)) {
+	if listed.Code != http.StatusOK || !bytes.Contains(listed.Body.Bytes(), []byte(`"slug":"`+entry.Slug+`"`)) {
 		t.Fatalf("knowledge list status = %d, body = %s", listed.Code, listed.Body)
 	}
-	projectKnowledge := request(http.MethodGet, "/api/p/P5TEST/knowledge", "")
-	if projectKnowledge.Code != http.StatusOK || !bytes.Contains(projectKnowledge.Body.Bytes(), []byte(`"slug":"`+doc.Slug+`"`)) {
-		t.Fatalf("project knowledge status = %d, body = %s", projectKnowledge.Code, projectKnowledge.Body)
+	projectEntries := request(http.MethodGet, "/api/p/P5TEST/knowledge", "")
+	if projectEntries.Code != http.StatusOK || !bytes.Contains(projectEntries.Body.Bytes(), []byte(`"slug":"`+entry.Slug+`"`)) {
+		t.Fatalf("project knowledge status = %d, body = %s", projectEntries.Code, projectEntries.Body)
 	}
-	globalKnowledge := request(http.MethodGet, "/api/global/knowledge", "")
-	if globalKnowledge.Code != http.StatusOK {
-		t.Fatalf("global knowledge status = %d, body = %s", globalKnowledge.Code, globalKnowledge.Body)
+	globalEntries := request(http.MethodGet, "/api/global/knowledge", "")
+	if globalEntries.Code != http.StatusOK {
+		t.Fatalf("global knowledge status = %d, body = %s", globalEntries.Code, globalEntries.Body)
 	}
-	edited := request(http.MethodPatch, "/api/p/P5TEST/b/default/knowledge/"+doc.Slug, `{"body":"second","version":1}`)
+	edited := request(http.MethodPatch, "/api/p/P5TEST/b/default/knowledge/"+entry.Slug, `{"body":"second","version":1}`)
 	if edited.Code != http.StatusOK || !bytes.Contains(edited.Body.Bytes(), []byte("second")) {
 		t.Fatalf("knowledge edit status = %d, body = %s", edited.Code, edited.Body)
 	}
-	graph := request(http.MethodGet, "/api/p/P5TEST/b/default/graph/"+doc.Slug, "")
+	graph := request(http.MethodGet, "/api/p/P5TEST/b/default/graph/"+entry.Slug, "")
 	if graph.Code != http.StatusOK || !bytes.Contains(graph.Body.Bytes(), []byte(`"nodes"`)) {
 		t.Fatalf("graph status = %d, body = %s", graph.Code, graph.Body)
 	}
@@ -398,7 +398,7 @@ func TestServerBoardListsCardsByPriorityThenRank(t *testing.T) {
 	}
 }
 
-func TestServerProjectEventsPageThroughCardAndKnowledgeHistory(t *testing.T) {
+func TestServerProjectEventsPageThroughCardAndEntryHistory(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
@@ -426,12 +426,12 @@ func TestServerProjectEventsPageThroughCardAndKnowledgeHistory(t *testing.T) {
 	if _, err := c.ClaimCard(ctx, card.ID, 60_000, false, ""); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := c.CreateKnowledge(ctx, p.ID, core.NewKnowledge{Title: "Findings", Body: "first secret\n"})
+	entry, err := c.CreateEntry(ctx, p.ID, core.NewEntry{Title: "Findings", Body: "first secret\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	body := "second secret\n"
-	if _, err := c.EditKnowledgeFields(ctx, p.ID, doc.Slug, core.KnowledgeEdit{Body: &body, IfVersion: &doc.Version}); err != nil {
+	if _, err := c.EditEntryFields(ctx, p.ID, entry.Slug, core.EntryEdit{Body: &body, IfVersion: &entry.Version}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -472,7 +472,7 @@ func TestServerProjectEventsPageThroughCardAndKnowledgeHistory(t *testing.T) {
 		case event.Kind == "card" && event.Action == "claimed":
 			claimed = event.Ref == "EVT-1" && event.Actor == "ui-events-test"
 		case event.Kind == "entry" && event.Action == "edited":
-			edited = event.Ref == "/EVT/vault/"+doc.Slug
+			edited = event.Ref == "/EVT/vault/"+entry.Slug
 		}
 	}
 	if !moved || !claimed || !edited {

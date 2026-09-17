@@ -293,15 +293,15 @@ func (c *Core) ResolveArtifact(ctx context.Context, projectID, arg string) (Arti
 	return out, err
 }
 
-// LinkArtifactToDoc adds an artifact to an entry's `artifacts` list. The list
+// LinkArtifactToEntry adds an artifact to an entry's `artifacts` list. The list
 // lives in the entry's file, so this is an edit of that file, and the link row
 // follows from it. Linking a name already listed changes nothing.
-func (c *Core) LinkArtifactToDoc(ctx context.Context, projectID, slug, artifactRef string) (Knowledge, error) {
+func (c *Core) LinkArtifactToEntry(ctx context.Context, projectID, slug, artifactRef string) (Entry, error) {
 	a, err := c.ResolveArtifact(ctx, projectID, artifactRef)
 	if err != nil {
-		return Knowledge{}, err
+		return Entry{}, err
 	}
-	return c.editDocArtifacts(ctx, projectID, slug, func(names []string) ([]string, bool) {
+	return c.editEntryArtifacts(ctx, projectID, slug, func(names []string) ([]string, bool) {
 		if slices.Contains(names, a.Name) {
 			return names, false
 		}
@@ -309,11 +309,11 @@ func (c *Core) LinkArtifactToDoc(ctx context.Context, projectID, slug, artifactR
 	})
 }
 
-// UnlinkArtifactFromDoc removes an artifact from an entry's list. The reference
+// UnlinkArtifactFromEntry removes an artifact from an entry's list. The reference
 // is resolved when it can be; when the artifact is gone it is taken as written,
 // so a stub can still be cleared. Removing a
 // name that is not listed changes nothing.
-func (c *Core) UnlinkArtifactFromDoc(ctx context.Context, projectID, slug, artifactRef string) (Knowledge, error) {
+func (c *Core) UnlinkArtifactFromEntry(ctx context.Context, projectID, slug, artifactRef string) (Entry, error) {
 	name := artifactRef
 	a, err := c.ResolveArtifact(ctx, projectID, artifactRef)
 	switch e, ok := errors.AsType[*Error](err); {
@@ -330,9 +330,9 @@ func (c *Core) UnlinkArtifactFromDoc(ctx context.Context, projectID, slug, artif
 			}
 		}
 	default:
-		return Knowledge{}, err
+		return Entry{}, err
 	}
-	return c.editDocArtifacts(ctx, projectID, slug, func(names []string) ([]string, bool) {
+	return c.editEntryArtifacts(ctx, projectID, slug, func(names []string) ([]string, bool) {
 		if !slices.Contains(names, name) {
 			return names, false
 		}
@@ -340,32 +340,32 @@ func (c *Core) UnlinkArtifactFromDoc(ctx context.Context, projectID, slug, artif
 	})
 }
 
-// editDocArtifacts reads an entry's artifact list from its file, lets change
+// editEntryArtifacts reads an entry's artifact list from its file, lets change
 // produce the next one, and writes it through EditKnowledgeFields. The list is
 // read from the file rather than from derived link rows, which can lag the file
 // after a database restore; rewriting the file from a lagging copy would drop
 // names. IfVersion makes a concurrent edit between the read and the write a
 // conflict instead of a lost update.
-func (c *Core) editDocArtifacts(ctx context.Context, projectID, slug string,
-	change func(names []string) ([]string, bool)) (Knowledge, error) {
-	doc, err := c.LoadKnowledge(ctx, projectID, slug)
+func (c *Core) editEntryArtifacts(ctx context.Context, projectID, slug string,
+	change func(names []string) ([]string, bool)) (Entry, error) {
+	entry, err := c.LoadEntry(ctx, projectID, slug)
 	if err != nil {
-		return Knowledge{}, err
+		return Entry{}, err
 	}
-	raw, err := os.ReadFile(doc.Path)
+	raw, err := os.ReadFile(entry.Path)
 	if err != nil {
-		return Knowledge{}, err
+		return Entry{}, err
 	}
-	fm, _, err := splitDocFile(doc.Path, raw)
+	fm, _, err := splitEntryFile(entry.Path, raw)
 	if err != nil {
-		return Knowledge{}, err
+		return Entry{}, err
 	}
 	next, changed := change(dedupeNames(fm.Artifacts))
 	if !changed {
-		return doc, nil
+		return entry, nil
 	}
-	return c.EditKnowledgeFields(ctx, projectID, slug,
-		KnowledgeEdit{Artifacts: &next, IfVersion: &doc.Version})
+	return c.EditEntryFields(ctx, projectID, slug,
+		EntryEdit{Artifacts: &next, IfVersion: &entry.Version})
 }
 
 // UnlinkArtifactFromCard removes a card's link to an artifact. Removing a link
@@ -394,7 +394,7 @@ func namesAdded(before, after []string) []string {
 // ListArtifacts lists a project's artifacts, or only those linked to one card
 // or one entry. Unresolved names are not artifacts and are not listed here; an
 // entry's stubs appear in its computed Artifacts.
-func (c *Core) ListArtifacts(ctx context.Context, projectID, cardID, docID string) ([]Artifact, error) {
+func (c *Core) ListArtifacts(ctx context.Context, projectID, cardID, entryID string) ([]Artifact, error) {
 	out := []Artifact{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var err error
@@ -404,11 +404,11 @@ func (c *Core) ListArtifacts(ctx context.Context, projectID, cardID, docID strin
 				`SELECT a.* FROM artifact a JOIN link l ON l.to_type = 'artifact' AND l.to_id = a.id
 				 WHERE a.project_id = ? AND l.from_type = 'card' AND l.from_id = ?
 				 ORDER BY a.updated_at DESC`, projectID, cardID)
-		case docID != "":
+		case entryID != "":
 			err = tx.Select(&out,
 				`SELECT a.* FROM artifact a JOIN link l ON l.to_type = 'artifact' AND l.to_id = a.id
 				 WHERE a.project_id = ? AND l.from_type = 'entry' AND l.from_id = ? AND l.rel = 'artifact'
-				 ORDER BY l.rowid`, projectID, docID)
+				 ORDER BY l.rowid`, projectID, entryID)
 		default:
 			err = tx.Select(&out,
 				`SELECT * FROM artifact WHERE project_id = ? ORDER BY updated_at DESC`, projectID)

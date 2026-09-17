@@ -33,9 +33,9 @@ type Core struct {
 	// and injects it here; Core never looks it up itself.
 	root string
 
-	// knowledgeChanged is a best-effort derived-state hook. Source writes do
+	// entryChanged is a best-effort derived-state hook. Source writes do
 	// not fail when an optional embedding provider is unavailable.
-	knowledgeChanged func(context.Context, string) error
+	entryChanged func(context.Context, string) error
 
 	// dropDerivedFn releases derived state that is keyed by a project's key --
 	// the vector tables -- before the project is removed or merged away.
@@ -106,13 +106,13 @@ func (c *Core) ApplyConfig(cfg config.Config) {
 	c.SetHistoryKeep(cfg.History.EffectiveKeep())
 }
 
-func (c *Core) SetKnowledgeChanged(fn func(context.Context, string) error) {
-	c.knowledgeChanged = fn
+func (c *Core) SetEntryChanged(fn func(context.Context, string) error) {
+	c.entryChanged = fn
 }
 
-func (c *Core) notifyKnowledgeChanged(ctx context.Context, projectID string) {
-	if c.knowledgeChanged != nil {
-		_ = c.knowledgeChanged(ctx, projectID)
+func (c *Core) notifyEntryChanged(ctx context.Context, projectID string) {
+	if c.entryChanged != nil {
+		_ = c.entryChanged(ctx, projectID)
 	}
 }
 

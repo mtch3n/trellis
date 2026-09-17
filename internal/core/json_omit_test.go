@@ -8,8 +8,8 @@ import (
 
 // encoding/json/v2's omitempty never drops false or 0; these flags are meant
 // to be absent unless set, so they use omitzero.
-func TestKnowledgeFlagsAreOmittedWhenFalse(t *testing.T) {
-	plain, err := json.Marshal(Knowledge{Slug: "a"})
+func TestEntryFlagsAreOmittedWhenFalse(t *testing.T) {
+	plain, err := json.Marshal(Entry{Slug: "a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -18,7 +18,7 @@ func TestKnowledgeFlagsAreOmittedWhenFalse(t *testing.T) {
 			t.Errorf("%s present in %s", key, plain)
 		}
 	}
-	set, err := json.Marshal(Knowledge{Slug: "a", Global: true, Private: true})
+	set, err := json.Marshal(Entry{Slug: "a", Global: true, Private: true})
 	if err != nil {
 		t.Fatal(err)
 	}

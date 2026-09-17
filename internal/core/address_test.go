@@ -2,24 +2,24 @@ package core
 
 import "testing"
 
-func TestDocAddress(t *testing.T) {
-	if got := DocAddress("XPSCTL", false, "design"); got != "/XPSCTL/vault/design" {
+func TestEntryAddress(t *testing.T) {
+	if got := EntryAddress("XPSCTL", false, "design"); got != "/XPSCTL/vault/design" {
 		t.Errorf("project entry = %q", got)
 	}
-	if got := DocAddress("XPSCTL", true, "design"); got != "/GLOBAL/vault/design" {
+	if got := EntryAddress("XPSCTL", true, "design"); got != "/GLOBAL/vault/design" {
 		t.Errorf("vault entry = %q", got)
 	}
 }
 
 // The SQL fragment and the Go helper must never disagree: search results are
 // compared with and passed back to commands that use the Go form.
-func TestDocAddressSQLMatchesGo(t *testing.T) {
-	c, p, _ := kbCore(t)
+func TestEntryAddressSQLMatchesGo(t *testing.T) {
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
-	if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Local entry"}); err != nil {
+	if _, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Local entry"}); err != nil {
 		t.Fatal(err)
 	}
-	shared, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Vault entry"})
+	shared, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Vault entry"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestDocAddressSQLMatchesGo(t *testing.T) {
 		Global bool   `db:"global"`
 		Ref    string `db:"ref"`
 	}
-	if err := c.db.Select(&rows, `SELECT k.slug, k.global, `+docAddressSQL+` AS ref
+	if err := c.db.Select(&rows, `SELECT k.slug, k.global, `+entryAddressSQL+` AS ref
 		FROM entry k JOIN project p ON p.id = k.project_id ORDER BY k.slug`); err != nil {
 		t.Fatal(err)
 	}
@@ -39,22 +39,22 @@ func TestDocAddressSQLMatchesGo(t *testing.T) {
 		t.Fatalf("rows = %+v", rows)
 	}
 	for _, r := range rows {
-		if want := DocAddress(p.Key, r.Global, r.Slug); r.Ref != want {
+		if want := EntryAddress(p.Key, r.Global, r.Slug); r.Ref != want {
 			t.Errorf("SQL address %q, Go address %q", r.Ref, want)
 		}
 	}
 }
 
 func TestSearchRecallAndVectorHitsCarryAddresses(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
-	doc, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Lease renewal", Body: "A claim starts the lease.\n"})
+	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Lease renewal", Body: "A claim starts the lease.\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	const want = "/XPSCTL/vault/lease-renewal"
-	if doc.Ref != want {
-		t.Errorf("created ref = %q, want %q", doc.Ref, want)
+	if entry.Ref != want {
+		t.Errorf("created ref = %q, want %q", entry.Ref, want)
 	}
 
 	hits, err := c.Search(ctx, p.ID, "lease", SearchOpts{})
@@ -76,7 +76,7 @@ func TestSearchRecallAndVectorHitsCarryAddresses(t *testing.T) {
 			refs = append(refs, h.Ref)
 		}
 	}
-	hit, err := c.KnowledgeHit(ctx, doc.ID, p.ID, false, "")
+	hit, err := c.EntryHit(ctx, entry.ID, p.ID, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,13 +94,13 @@ func TestSearchRecallAndVectorHitsCarryAddresses(t *testing.T) {
 // A vault entry that links somewhere is named by its vault address in that
 // target's backlinks, not by the key of the project it came from.
 func TestBacklinksNameAVaultSourceByItsVaultAddress(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
-	target, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Target"})
+	target, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Target"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	source, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Source", Body: "See [[target]].\n"})
+	source, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Source", Body: "See [[target]].\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,12 +117,12 @@ func TestBacklinksNameAVaultSourceByItsVaultAddress(t *testing.T) {
 }
 
 func TestGraphNamesEntriesByAddress(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
-	if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Target"}); err != nil {
+	if _, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Target"}); err != nil {
 		t.Fatal(err)
 	}
-	source, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Source", Body: "See [[target]].\n"})
+	source, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Source", Body: "See [[target]].\n"})
 	if err != nil {
 		t.Fatal(err)
 	}

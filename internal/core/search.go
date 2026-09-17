@@ -47,16 +47,16 @@ func (c *Core) SearchCards(ctx context.Context, projectID string, query string, 
 	return cards, err
 }
 
-// KnowledgeHit is the search hit for one entry, found by id: how a vector
+// EntryHit is the search hit for one entry, found by id: how a vector
 // match becomes a result. Unless allProjects is set, the entry must belong to
 // projectID or the vault. A non-empty label must be on the entry. A miss is
 // sql.ErrNoRows.
-func (c *Core) KnowledgeHit(ctx context.Context, docID, projectID string, allProjects bool, label string) (SearchHit, error) {
-	q := `SELECT 'knowledge' AS kind, ` + docAddressSQL + ` AS ref, k.title,
+func (c *Core) EntryHit(ctx context.Context, entryID, projectID string, allProjects bool, label string) (SearchHit, error) {
+	q := `SELECT 'knowledge' AS kind, ` + entryAddressSQL + ` AS ref, k.title,
              CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
              k.template AS detail, 0 AS unreviewed
       FROM entry k JOIN project p ON p.id = k.project_id WHERE k.id = ?`
-	args := []any{docID}
+	args := []any{entryID}
 	if !allProjects {
 		q += ` AND (k.project_id = ? OR k.global = 1)`
 		args = append(args, projectID)
@@ -138,7 +138,7 @@ func (c *Core) Search(ctx context.Context, projectID, query string, o SearchOpts
 	if o.Limit <= 0 {
 		o.Limit = 50
 	}
-	if err := c.SyncKnowledgeSearch(ctx); err != nil {
+	if err := c.SyncEntrySearch(ctx); err != nil {
 		return nil, err
 	}
 	hits := []SearchHit{}
@@ -149,17 +149,17 @@ func (c *Core) Search(ctx context.Context, projectID, query string, o SearchOpts
 	now := c.clock.NowMS()
 
 	scope, args := "c.project_id = ?", []any{projectID}
-	docScope, docArgs := "(k.project_id = ? OR k.global = 1)", []any{projectID}
+	entryScopeSQL, entryArgs := "(k.project_id = ? OR k.global = 1)", []any{projectID}
 	if o.AllProjects {
 		scope, args = "1 = 1", nil
-		docScope, docArgs = "1 = 1", nil
+		entryScopeSQL, entryArgs = "1 = 1", nil
 	}
 
-	labelJoin, docLabelJoin := "", ""
+	labelJoin, entryLabelJoin := "", ""
 	if o.Label != "" {
 		labelJoin = ` JOIN card_label cl ON cl.card_id = c.id
 		              JOIN label lb ON lb.id = cl.label_id AND lb.name = ?`
-		docLabelJoin = ` JOIN entry_label kl ON kl.entry_id = k.id
+		entryLabelJoin = ` JOIN entry_label kl ON kl.entry_id = k.id
 		                 JOIN label lb2 ON lb2.id = kl.label_id AND lb2.name = ?`
 	}
 
@@ -184,28 +184,28 @@ func (c *Core) Search(ctx context.Context, projectID, query string, o SearchOpts
 			return err
 		}
 
-		docQueryArgs := []any{now} // the unreviewed test in the SELECT clause
+		entryQueryArgs := []any{now} // the unreviewed test in the SELECT clause
 		if o.Label != "" {
-			docQueryArgs = append(docQueryArgs, o.Label)
+			entryQueryArgs = append(entryQueryArgs, o.Label)
 		}
-		docQueryArgs = append(docQueryArgs, docArgs...)
-		docQueryArgs = append(docQueryArgs, match, o.Limit)
-		var docs []SearchHit
-		if err := tx.Select(&docs, `
+		entryQueryArgs = append(entryQueryArgs, entryArgs...)
+		entryQueryArgs = append(entryQueryArgs, match, o.Limit)
+		var entries []SearchHit
+		if err := tx.Select(&entries, `
 			SELECT 'knowledge' AS kind,
-			       `+docAddressSQL+` AS ref,
+			       `+entryAddressSQL+` AS ref,
 			       k.title,
 			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
 			       k.template AS detail,
 			       (k.global = 1 AND k.verify_by IS NOT NULL AND k.verify_by < ?) AS unreviewed
 			FROM entry k
 			JOIN entry_fts ON entry_fts.rowid = k.rowid
-			JOIN project p ON p.id = k.project_id`+docLabelJoin+`
-			WHERE `+docScope+` AND entry_fts MATCH ?
-			ORDER BY entry_fts.rank LIMIT ?`, docQueryArgs...); err != nil {
+			JOIN project p ON p.id = k.project_id`+entryLabelJoin+`
+			WHERE `+entryScopeSQL+` AND entry_fts MATCH ?
+			ORDER BY entry_fts.rank LIMIT ?`, entryQueryArgs...); err != nil {
 			return err
 		}
-		hits = append(hits, docs...)
+		hits = append(hits, entries...)
 		return nil
 	})
 	if len(hits) > o.Limit {
@@ -221,21 +221,21 @@ func ftsPhrase(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
-// matchKnowledge runs one FTS5 expression over the entries a project can see.
+// matchEntries runs one FTS5 expression over the entries a project can see.
 // The expression reaches MATCH untouched, so callers inside core may compose
 // operators; Search quotes its caller's text into a phrase before calling in.
-func (c *Core) matchKnowledge(ctx context.Context, projectID, match string, limit int) ([]SearchHit, error) {
+func (c *Core) matchEntries(ctx context.Context, projectID, match string, limit int) ([]SearchHit, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	if err := c.SyncKnowledgeSearch(ctx); err != nil {
+	if err := c.SyncEntrySearch(ctx); err != nil {
 		return nil, err
 	}
 	hits := []SearchHit{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		return tx.Select(&hits, `
 			SELECT 'knowledge' AS kind,
-			       `+docAddressSQL+` AS ref,
+			       `+entryAddressSQL+` AS ref,
 			       k.title,
 			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
 			       k.template AS detail,
@@ -250,7 +250,7 @@ func (c *Core) matchKnowledge(ctx context.Context, projectID, match string, limi
 	return hits, err
 }
 
-// ListSearchKnowledge is the corpus every vector index build, count and prune
+// ListSearchEntries is the corpus every vector index build, count and prune
 // reads. Private entries are dropped here rather than at each call site. Nothing
 // enforces that a vector path reads its corpus from here: a new builder that
 // queried the knowledge table directly would reintroduce them. Routing every
@@ -261,10 +261,10 @@ func (c *Core) matchKnowledge(ctx context.Context, projectID, match string, limi
 // after the file changes, which is the read that matters: filtering in SQL
 // would still select a document just marked private, and would never again
 // select one just un-marked.
-func (c *Core) ListSearchKnowledge(ctx context.Context, projectID string) ([]Knowledge, error) {
-	docs := []Knowledge{}
+func (c *Core) ListSearchEntries(ctx context.Context, projectID string) ([]Entry, error) {
+	entries := []Entry{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		var all []Knowledge
+		var all []Entry
 		if err := tx.Select(&all,
 			`SELECT * FROM entry WHERE project_id = ? OR global = 1 ORDER BY updated_at DESC`,
 			projectID); err != nil {
@@ -274,14 +274,14 @@ func (c *Core) ListSearchKnowledge(ctx context.Context, projectID string) ([]Kno
 			if err := c.refreshFromFile(tx, &all[i]); err != nil {
 				return err
 			}
-			if err := c.docView(tx, &all[i]); err != nil {
+			if err := c.entryView(tx, &all[i]); err != nil {
 				return err
 			}
 			if !all[i].Private {
-				docs = append(docs, all[i])
+				entries = append(entries, all[i])
 			}
 		}
 		return nil
 	})
-	return docs, err
+	return entries, err
 }

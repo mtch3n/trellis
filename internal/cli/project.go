@@ -165,7 +165,7 @@ func mergeTable(p core.MergePlan, applied bool) string {
 	for _, group := range []struct {
 		name  string
 		moves core.ItemMoves
-	}{{"knowledge", p.Knowledge}, {"artifacts", p.Artifacts}} {
+	}{{"knowledge", p.Entries}, {"artifacts", p.Artifacts}} {
 		fmt.Fprintf(&b, "%-9s %d moved, %d collapsed, %d renamed, %d in conflict\n", group.name,
 			group.moves.Moved, len(group.moves.Collapsed), len(group.moves.Renamed), len(group.moves.Conflicts))
 		for _, r := range group.moves.Renamed {
@@ -184,7 +184,7 @@ func mergeTable(p core.MergePlan, applied bool) string {
 	for _, d := range p.ConfigDropped {
 		fmt.Fprintf(&b, "config  %s=%s dropped (%s keeps %q)\n", d.Key, d.Src, p.Dst, d.Dst)
 	}
-	for _, addr := range p.DocumentsRewritten {
+	for _, addr := range p.EntriesRewritten {
 		fmt.Fprintf(&b, "rewrite %s\n", addr)
 	}
 	for _, r := range p.Pins.Rewrite {

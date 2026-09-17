@@ -52,7 +52,7 @@ func newKnowledgeNewCmd() *cobra.Command {
 				return err
 			}
 			return withTargets([]refArg{{Collection: address.CollectionBoards, Value: board}}, func(app *appCtx, refs []string) error {
-				doc, err := app.Core.CreateKnowledge(cmd.Context(), app.Project.ID, core.NewKnowledge{
+				entry, err := app.Core.CreateEntry(cmd.Context(), app.Project.ID, core.NewEntry{
 					Title: title.String(), Body: body.String(), Template: template,
 					Provenance: provenance,
 					Summary:    summary.String(), Board: refs[0], Tags: tags, Labels: labels,
@@ -62,9 +62,9 @@ func newKnowledgeNewCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return Emit(cmd, doc, func() string {
-					out := doc.Ref + "\n" + doc.Path
-					for _, w := range doc.Warnings {
+				return Emit(cmd, entry, func() string {
+					out := entry.Ref + "\n" + entry.Path
+					for _, w := range entry.Warnings {
 						out += "\nwarning: " + w
 					}
 					return out
@@ -97,26 +97,26 @@ func newKnowledgeShowCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
-				doc, err := app.Core.ReadKnowledge(cmd.Context(), app.Project.ID, ref)
+				entry, err := app.Core.ReadEntry(cmd.Context(), app.Project.ID, ref)
 				if err != nil {
 					return err
 				}
-				back, err := app.Core.Backlinks(cmd.Context(), doc.ID)
+				back, err := app.Core.Backlinks(cmd.Context(), entry.ID)
 				if err != nil {
 					return err
 				}
 				view := struct {
-					core.Knowledge
+					core.Entry
 					Backlinks  []core.Backlink `json:"backlinks,omitempty"`
 					Unreviewed bool            `json:"unreviewed,omitzero"`
-				}{Knowledge: doc, Backlinks: back, Unreviewed: doc.Unreviewed(time.Now().UnixMilli())}
+				}{Entry: entry, Backlinks: back, Unreviewed: entry.Unreviewed(time.Now().UnixMilli())}
 				return Emit(cmd, view, func() string {
 					var b strings.Builder
-					b.WriteString(doc.Ref)
+					b.WriteString(entry.Ref)
 					if view.Unreviewed {
-						fmt.Fprintf(&b, "  (unreviewed since %s)", msDate(*doc.ReviewedAt))
+						fmt.Fprintf(&b, "  (unreviewed since %s)", msDate(*entry.ReviewedAt))
 					}
-					b.WriteString("\n" + doc.Title + "\n\n" + doc.BodyMD)
+					b.WriteString("\n" + entry.Title + "\n\n" + entry.BodyMD)
 					if len(back) > 0 {
 						b.WriteString("\nBacklinks:\n")
 						for _, l := range back {
@@ -138,12 +138,12 @@ func newKnowledgeShowCmd() *cobra.Command {
 // docs must carry a Private flag refreshed from the file, as ListKnowledge and
 // ColdKnowledge both provide. The mirror alone is one read stale after a hand
 // edit, which is exactly when this matters.
-func withholdContent(docs []core.Knowledge) {
-	for i := range docs {
-		docs[i].BodyMD = ""
-		if docs[i].Private {
-			docs[i].Summary, docs[i].Recap = "", nil
-			docs[i].Fields = make(map[string]any)
+func withholdContent(entries []core.Entry) {
+	for i := range entries {
+		entries[i].BodyMD = ""
+		if entries[i].Private {
+			entries[i].Summary, entries[i].Recap = "", nil
+			entries[i].Fields = make(map[string]any)
 		}
 	}
 }
@@ -155,7 +155,7 @@ func newKnowledgeHistoryCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
-				revs, err := app.Core.ListKnowledgeRevisions(cmd.Context(), app.Project.ID, ref)
+				revs, err := app.Core.ListEntryRevisions(cmd.Context(), app.Project.ID, ref)
 				if err != nil {
 					return err
 				}
@@ -181,7 +181,7 @@ func newKnowledgeDiffCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
-				d, err := app.Core.DiffKnowledge(cmd.Context(), app.Project.ID, ref, from, to)
+				d, err := app.Core.DiffEntry(cmd.Context(), app.Project.ID, ref, from, to)
 				if err != nil {
 					return err
 				}
@@ -194,25 +194,25 @@ func newKnowledgeDiffCmd() *cobra.Command {
 	return cmd
 }
 
-// renderKnowledgeList is the text form of `knowledge ls`. It is a function
+// renderEntryList is the text form of `knowledge ls`. It is a function
 // rather than a closure so it can be tested directly: Emit selects JSON
 // whenever stdout is captured.
-// renderKnowledgeList is the text form of `knowledge ls`: a tree grouped by
+// renderEntryList is the text form of `knowledge ls`: a tree grouped by
 // directory, since a knowledge slug may now be path-shaped. A root-level
 // entry — the majority of any small vault — renders exactly as it always
 // has; an entry under a directory gets a header line for that directory the
 // first time it appears. JSON output (Emit's other branch) stays a flat
 // array; a client can group it the same way from the slug.
-func renderKnowledgeList(docs []core.Knowledge) string {
-	sorted := slices.Clone(docs)
-	slices.SortFunc(sorted, func(a, b core.Knowledge) int { return cmp.Compare(a.Slug, b.Slug) })
+func renderEntryList(entries []core.Entry) string {
+	sorted := slices.Clone(entries)
+	slices.SortFunc(sorted, func(a, b core.Entry) int { return cmp.Compare(a.Slug, b.Slug) })
 	var b strings.Builder
 	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 	lastDir := ""
-	for _, d := range sorted {
-		dir, leaf := "", d.Slug
-		if i := strings.LastIndex(d.Slug, "/"); i >= 0 {
-			dir, leaf = d.Slug[:i], d.Slug[i+1:]
+	for _, e := range sorted {
+		dir, leaf := "", e.Slug
+		if i := strings.LastIndex(e.Slug, "/"); i >= 0 {
+			dir, leaf = e.Slug[:i], e.Slug[i+1:]
 		}
 		if dir != lastDir {
 			if dir != "" {
@@ -225,12 +225,12 @@ func renderKnowledgeList(docs []core.Knowledge) string {
 			indent = "  "
 		}
 		mark := ""
-		if d.Missing {
+		if e.Missing {
 			mark = "missing"
-		} else if d.Private {
+		} else if e.Private {
 			mark = "private"
 		}
-		fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\n", indent, leaf, d.Template, d.Provenance, mark, d.Title)
+		fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\n", indent, leaf, e.Template, e.Provenance, mark, e.Title)
 	}
 	w.Flush()
 	return strings.TrimRight(b.String(), "\n")
@@ -245,7 +245,7 @@ func newKnowledgeLsCmd() *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withBoard(func(app *appCtx) error {
-				filter := core.KnowledgeFilter{Templates: templates, Provenances: provenances, Tags: tags}
+				filter := core.EntryFilter{Templates: templates, Provenances: provenances, Tags: tags}
 				if thisBoard {
 					filter.BoardID = app.Board.ID
 				}
@@ -256,19 +256,19 @@ func newKnowledgeLsCmd() *cobra.Command {
 					}
 					filter.Dir = dir
 				}
-				var docs []core.Knowledge
+				var entries []core.Entry
 				var err error
 				if cold {
-					docs, err = app.Core.ColdKnowledge(cmd.Context(), app.Project.ID)
+					entries, err = app.Core.ColdEntries(cmd.Context(), app.Project.ID)
 				} else {
-					docs, err = app.Core.ListKnowledge(cmd.Context(), app.Project.ID, filter)
+					entries, err = app.Core.ListEntries(cmd.Context(), app.Project.ID, filter)
 				}
 				if err != nil {
 					return err
 				}
-				withholdContent(docs)
-				return Emit(cmd, map[string]any{"knowledge": docs}, func() string {
-					return renderKnowledgeList(docs)
+				withholdContent(entries)
+				return Emit(cmd, map[string]any{"knowledge": entries}, func() string {
+					return renderEntryList(entries)
 				})
 			})
 		},
@@ -352,7 +352,7 @@ func newKnowledgeEditCmd() *cobra.Command {
 					"trellis knowledge edit "+args[0]+" --body @notes.md")
 			}
 			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
-				edit := core.KnowledgeEdit{Set: fields}
+				edit := core.EntryEdit{Set: fields}
 				if body.Changed() {
 					b := body.String()
 					edit.Body = &b
@@ -395,13 +395,13 @@ func newKnowledgeEditCmd() *cobra.Command {
 				if ifVersion > 0 {
 					edit.IfVersion = &ifVersion
 				}
-				doc, err := app.Core.EditKnowledgeFields(cmd.Context(), app.Project.ID, ref, edit)
+				entry, err := app.Core.EditEntryFields(cmd.Context(), app.Project.ID, ref, edit)
 				if err != nil {
 					return err
 				}
-				return Emit(cmd, doc, func() string {
-					out := "wrote " + doc.Path
-					for _, w := range doc.Warnings {
+				return Emit(cmd, entry, func() string {
+					out := "wrote " + entry.Path
+					for _, w := range entry.Warnings {
 						out += "\nwarning: " + w
 					}
 					return out
@@ -427,7 +427,7 @@ func newKnowledgeRmCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0]}, func(app *appCtx, ref string) error {
-				if err := app.Core.DeleteKnowledge(cmd.Context(), app.Project.ID, ref); err != nil {
+				if err := app.Core.DeleteEntry(cmd.Context(), app.Project.ID, ref); err != nil {
 					return err
 				}
 				return Emit(cmd, map[string]string{"deleted": args[0]},
@@ -445,15 +445,15 @@ func newKnowledgeMvCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0]}, func(app *appCtx, ref string) error {
-				slug, err := knowledgeSlugArg(ref)
+				slug, err := entrySlugArg(ref)
 				if err != nil {
 					return err
 				}
-				doc, err := app.Core.MoveKnowledge(cmd.Context(), app.Project.ID, slug, args[1], newDir)
+				entry, err := app.Core.MoveEntry(cmd.Context(), app.Project.ID, slug, args[1], newDir)
 				if err != nil {
 					return err
 				}
-				return Emit(cmd, doc, func() string { return "moved to " + doc.Slug })
+				return Emit(cmd, entry, func() string { return "moved to " + entry.Slug })
 			})
 		},
 	}
@@ -461,12 +461,12 @@ func newKnowledgeMvCmd() *cobra.Command {
 	return cmd
 }
 
-// knowledgeSlugArg reduces a knowledge reference to the bare slug
+// entrySlugArg reduces a knowledge reference to the bare slug
 // MoveKnowledge takes: unlike LoadKnowledge, it resolves a slug directly and
 // does not parse an address itself. withTarget has already decided which
 // project an address names, so only the address's own name segment is still
 // needed here.
-func knowledgeSlugArg(ref string) (string, error) {
+func entrySlugArg(ref string) (string, error) {
 	v := strings.TrimSpace(ref)
 	if !strings.HasPrefix(v, "/") {
 		return v, nil
@@ -492,13 +492,13 @@ func newKnowledgePinCmd() *cobra.Command {
 				{Collection: address.CollectionBoards, Value: board},
 			}, func(app *appCtx, refs []string) error {
 				if remove {
-					if err := app.Core.UnpinKnowledge(cmd.Context(), app.Project.ID, refs[0], refs[1]); err != nil {
+					if err := app.Core.UnpinEntry(cmd.Context(), app.Project.ID, refs[0], refs[1]); err != nil {
 						return err
 					}
 					return Emit(cmd, map[string]string{"unpinned": args[0]},
 						func() string { return "unpinned " + args[0] })
 				}
-				pin, err := app.Core.PinKnowledge(cmd.Context(), app.Project.ID, refs[0], recap.String(), refs[1])
+				pin, err := app.Core.PinEntry(cmd.Context(), app.Project.ID, refs[0], recap.String(), refs[1])
 				if err != nil {
 					return err
 				}
@@ -581,7 +581,7 @@ func newKnowledgeLintCmd() *cobra.Command {
 					var b strings.Builder
 					w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 					for _, f := range findings {
-						fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", f.Kind, f.Doc, f.Ref, f.Fix)
+						fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", f.Kind, f.Entry, f.Ref, f.Fix)
 					}
 					w.Flush()
 					return strings.TrimRight(b.String(), "\n")
@@ -599,7 +599,7 @@ func newKnowledgeNominateCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0]}, func(app *appCtx, ref string) error {
-				if err := app.Core.NominateKnowledge(cmd.Context(), app.Project.ID, ref, reason.String()); err != nil {
+				if err := app.Core.NominateEntry(cmd.Context(), app.Project.ID, ref, reason.String()); err != nil {
 					return err
 				}
 				return Emit(cmd, map[string]string{"nominated": args[0]},
@@ -651,11 +651,11 @@ func newKnowledgeEscalateCmd() *cobra.Command {
 				return err
 			}
 			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0]}, func(app *appCtx, ref string) error {
-				doc, err := app.Core.EscalateKnowledge(cmd.Context(), app.Project.ID, ref, reason.String())
+				entry, err := app.Core.EscalateKnowledge(cmd.Context(), app.Project.ID, ref, reason.String())
 				if err != nil {
 					return err
 				}
-				return Emit(cmd, doc, func() string { return "escalated to " + doc.Ref })
+				return Emit(cmd, entry, func() string { return "escalated to " + entry.Ref })
 			})
 		},
 	}
@@ -678,11 +678,11 @@ func newKnowledgeDemoteCmd() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			doc, err := c.DemoteKnowledge(cmd.Context(), args[0], reason.String())
+			entry, err := c.DemoteEntry(cmd.Context(), args[0], reason.String())
 			if err != nil {
 				return err
 			}
-			return Emit(cmd, doc, func() string { return "demoted to " + doc.Ref })
+			return Emit(cmd, entry, func() string { return "demoted to " + entry.Ref })
 		},
 	}
 	cmd.Flags().Var(&reason, "reason", "why it does not belong globally")
@@ -703,7 +703,7 @@ func newKnowledgeVerifyCmd() *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			if err := c.VerifyKnowledge(cmd.Context(), args[0]); err != nil {
+			if err := c.VerifyEntry(cmd.Context(), args[0]); err != nil {
 				return err
 			}
 			return Emit(cmd, map[string]string{"verified": args[0]},

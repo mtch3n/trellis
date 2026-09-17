@@ -71,10 +71,10 @@ func currentVector() (*vecsearch.Index, *projectContext, error) {
 	return idx, pctx, nil
 }
 
-func knowledgeVectorDocs(docs []core.Knowledge) []vecsearch.Document {
-	out := make([]vecsearch.Document, 0, len(docs))
-	for _, d := range docs {
-		out = append(out, vecsearch.Document{ID: d.ID, Title: d.Title, Slug: d.Slug, Template: d.Template, Content: d.BodyMD})
+func vectorEntries(entries []core.Entry) []vecsearch.Entry {
+	out := make([]vecsearch.Entry, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, vecsearch.Entry{ID: e.ID, Title: e.Title, Slug: e.Slug, Template: e.Template, Content: e.BodyMD})
 	}
 	return out
 }
@@ -98,7 +98,7 @@ func newVectorStatusCmd() *cobra.Command {
 			return err
 		}
 		defer idx.Close()
-		docs, err := pctx.Core.ListSearchKnowledge(cmd.Context(), pctx.Project.ID)
+		entries, err := pctx.Core.ListSearchEntries(cmd.Context(), pctx.Project.ID)
 		if err != nil {
 			return err
 		}
@@ -106,11 +106,11 @@ func newVectorStatusCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		staleCount := len(docs) - count
+		staleCount := len(entries) - count
 		if staleCount < 0 {
 			staleCount = 0
 		}
-		return Emit(cmd, map[string]any{"enabled": true, "configured_documents": len(docs), "indexed_documents": count, "stale_documents": staleCount}, func() string { return fmt.Sprintf("vector enabled; %d/%d documents indexed", count, len(docs)) })
+		return Emit(cmd, map[string]any{"enabled": true, "configured_documents": len(entries), "indexed_documents": count, "stale_documents": staleCount}, func() string { return fmt.Sprintf("vector enabled; %d/%d documents indexed", count, len(entries)) })
 	}}
 }
 
@@ -137,11 +137,11 @@ func newVectorRebuildCmd() *cobra.Command {
 		}
 		defer idx.Close()
 		defer pctx.db.Close()
-		docs, err := pctx.Core.ListSearchKnowledge(cmd.Context(), pctx.Project.ID)
+		entries, err := pctx.Core.ListSearchEntries(cmd.Context(), pctx.Project.ID)
 		if err != nil {
 			return err
 		}
-		n, err := idx.Rebuild(cmd.Context(), knowledgeVectorDocs(docs), pctx.Project.ID)
+		n, err := idx.Rebuild(cmd.Context(), vectorEntries(entries), pctx.Project.ID)
 		if err != nil {
 			return err
 		}
@@ -166,13 +166,13 @@ func newVectorPruneCmd() *cobra.Command {
 		}
 		defer idx.Close()
 		defer pctx.db.Close()
-		docs, err := pctx.Core.ListSearchKnowledge(cmd.Context(), pctx.Project.ID)
+		entries, err := pctx.Core.ListSearchEntries(cmd.Context(), pctx.Project.ID)
 		if err != nil {
 			return err
 		}
-		keep := make([]string, 0, len(docs))
-		for _, d := range docs {
-			keep = append(keep, d.ID)
+		keep := make([]string, 0, len(entries))
+		for _, e := range entries {
+			keep = append(keep, e.ID)
 		}
 		n, err := idx.Prune(cmd.Context(), keep, pctx.Project.ID)
 		if err != nil {

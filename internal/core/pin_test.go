@@ -3,15 +3,15 @@ package core
 import "testing"
 
 func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Concurrency model", Summary: "Leases, not locks", Body: "# Concurrency model\n\nBody.\n",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	pin, err := c.PinKnowledge(t.Context(), p.ID, "concurrency-model", "", "")
+	pin, err := c.PinEntry(t.Context(), p.ID, "concurrency-model", "", "")
 	if err != nil {
 		t.Fatalf("PinKnowledge: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
 	}
 
 	// The entry moves on; the recap does not. That must be visible.
-	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "Rewritten entirely.\n", &doc.Version); err != nil {
+	if _, err := c.EditEntry(t.Context(), p.ID, entry.Slug, "Rewritten entirely.\n", &entry.Version); err != nil {
 		t.Fatal(err)
 	}
 	pins, err = c.Pins(t.Context(), p.ID, "", 0)
@@ -39,7 +39,7 @@ func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
 		t.Fatalf("Pins = %+v, want the recap marked stale after the entry changed", pins)
 	}
 
-	if err := c.UnpinKnowledge(t.Context(), p.ID, doc.Slug, ""); err != nil {
+	if err := c.UnpinEntry(t.Context(), p.ID, entry.Slug, ""); err != nil {
 		t.Fatal(err)
 	}
 	if pins, _ := c.Pins(t.Context(), p.ID, "", 0); len(pins) != 0 {
@@ -47,8 +47,8 @@ func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
 	}
 }
 func TestPinWithoutBoardUpdatesExistingPin(t *testing.T) {
-	c, p, _ := kbCore(t)
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	c, p, _ := vaultCore(t)
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Concurrency model", Summary: "Leases, not locks", Body: "# Concurrency model\n\nBody.\n",
 	})
 	if err != nil {
@@ -56,12 +56,12 @@ func TestPinWithoutBoardUpdatesExistingPin(t *testing.T) {
 	}
 
 	// Pin the same entry twice without a board
-	_, err = c.PinKnowledge(t.Context(), p.ID, "concurrency-model", "", "")
+	_, err = c.PinEntry(t.Context(), p.ID, "concurrency-model", "", "")
 	if err != nil {
 		t.Fatalf("First PinKnowledge: %v", err)
 	}
 
-	pin2, err := c.PinKnowledge(t.Context(), p.ID, "concurrency-model", "Updated recap", "")
+	pin2, err := c.PinEntry(t.Context(), p.ID, "concurrency-model", "Updated recap", "")
 	if err != nil {
 		t.Fatalf("Second PinKnowledge: %v", err)
 	}
@@ -83,10 +83,10 @@ func TestPinWithoutBoardUpdatesExistingPin(t *testing.T) {
 }
 
 func TestPinCreatedWhilePrivateThenUnprivateShowsStale(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 
 	// Create an entry
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Secret credentials", Body: "private\n",
 	})
 	if err != nil {
@@ -94,10 +94,10 @@ func TestPinCreatedWhilePrivateThenUnprivateShowsStale(t *testing.T) {
 	}
 
 	// Set it as private by editing the file
-	setPrivateInFile(t, doc.Path, true)
+	setPrivateInFile(t, entry.Path, true)
 
 	// Pin while private (creates pin with NULL recap)
-	pin, err := c.PinKnowledge(t.Context(), p.ID, doc.Slug, "", "")
+	pin, err := c.PinEntry(t.Context(), p.ID, entry.Slug, "", "")
 	if err != nil {
 		t.Fatalf("PinKnowledge: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestPinCreatedWhilePrivateThenUnprivateShowsStale(t *testing.T) {
 	}
 	var foundPin Pin
 	for _, p := range pins {
-		if p.Slug == doc.Slug {
+		if p.Slug == entry.Slug {
 			foundPin = p
 			break
 		}
@@ -125,7 +125,7 @@ func TestPinCreatedWhilePrivateThenUnprivateShowsStale(t *testing.T) {
 	}
 
 	// Now mark as non-private by editing the file
-	setPrivateInFile(t, doc.Path, false)
+	setPrivateInFile(t, entry.Path, false)
 
 	// Check pins again - should now be stale (has no recap but is non-private)
 	pins, err = c.Pins(t.Context(), p.ID, "", 0)
@@ -133,7 +133,7 @@ func TestPinCreatedWhilePrivateThenUnprivateShowsStale(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, p := range pins {
-		if p.Slug == doc.Slug {
+		if p.Slug == entry.Slug {
 			foundPin = p
 			break
 		}
@@ -160,16 +160,16 @@ func TestPinCreatedWhilePrivateThenUnprivateShowsStale(t *testing.T) {
 }
 
 func TestEscalateMovesTheEntryAndKeepsReferences(t *testing.T) {
-	c, p, _ := kbCore(t)
-	target, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Postgres conventions"})
+	c, p, _ := vaultCore(t)
+	target, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Postgres conventions"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Setup", Body: "Follow [[postgres-conventions]].\n"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.NominateKnowledge(t.Context(), p.ID, target.Slug, "every repo re-derives this"); err != nil {
+	if err := c.NominateEntry(t.Context(), p.ID, target.Slug, "every repo re-derives this"); err != nil {
 		t.Fatal(err)
 	}
 	noms, err := c.Nominations(t.Context(), p.ID)
@@ -203,7 +203,7 @@ func TestEscalateMovesTheEntryAndKeepsReferences(t *testing.T) {
 		t.Errorf("lint = %+v, want no stub: the reference still resolves", findings)
 	}
 
-	if _, err := c.DemoteKnowledge(t.Context(), target.Slug, "wrong call"); err != nil {
+	if _, err := c.DemoteEntry(t.Context(), target.Slug, "wrong call"); err != nil {
 		t.Fatalf("DemoteKnowledge: %v", err)
 	}
 }

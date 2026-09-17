@@ -51,7 +51,7 @@ func TestParseInlineTagsIgnoresHeadings(t *testing.T) {
 
 func TestFrontmatterRoundTrip(t *testing.T) {
 	fm := Frontmatter{Title: "Concurrency model", Template: "decision", Tags: []string{"sqlite"}}
-	raw := RenderDoc(fm, "# Concurrency model\n\nLeases, not locks.\n")
+	raw := RenderEntry(fm, "# Concurrency model\n\nLeases, not locks.\n")
 	back, body, err := SplitFrontmatter(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestFrontmatterExtraKeysRoundTrip(t *testing.T) {
 	if fm.Extra["owner"] != "alice" || fm.Extra["severity"] != "high" {
 		t.Fatalf("Extra = %+v, want owner and severity kept", fm.Extra)
 	}
-	out := RenderDoc(fm, body)
+	out := RenderEntry(fm, body)
 	back, _, err := SplitFrontmatter(out)
 	if err != nil {
 		t.Fatal(err)
@@ -104,9 +104,9 @@ func TestFrontmatterExtraKeysRoundTrip(t *testing.T) {
 func TestFrontmatterExtraKeysRenderInStableOrder(t *testing.T) {
 	a := Frontmatter{Title: "X", Extra: map[string]any{"zebra": "z", "apple": "a", "mango": "m"}}
 	b := Frontmatter{Title: "X", Extra: map[string]any{"mango": "m", "apple": "a", "zebra": "z"}}
-	rendered := RenderDoc(a, "body\n")
+	rendered := RenderEntry(a, "body\n")
 	for range 20 {
-		if got := RenderDoc(b, "body\n"); got != rendered {
+		if got := RenderEntry(b, "body\n"); got != rendered {
 			t.Fatalf("rendering is not deterministic:\n%q\n%q", rendered, got)
 		}
 	}
@@ -117,7 +117,7 @@ func TestFrontmatterExtraKeysRenderInStableOrder(t *testing.T) {
 
 func TestFrontmatterWithNoExtraKeysIsUnchanged(t *testing.T) {
 	fm := Frontmatter{Title: "Plain", Template: "decision"}
-	got := RenderDoc(fm, "body\n")
+	got := RenderEntry(fm, "body\n")
 	want := "---\ntitle: Plain\ntemplate: decision\n---\n\nbody\n"
 	if got != want {
 		t.Errorf("RenderDoc with no Extra = %q, want %q", got, want)
@@ -126,7 +126,7 @@ func TestFrontmatterWithNoExtraKeysIsUnchanged(t *testing.T) {
 
 func TestFrontmatterSourcesRoundTrip(t *testing.T) {
 	fm := Frontmatter{Title: "X", Sources: []string{"https://example.com", "[[design-doc]]"}}
-	raw := RenderDoc(fm, "body\n")
+	raw := RenderEntry(fm, "body\n")
 	back, _, err := SplitFrontmatter(raw)
 	if err != nil {
 		t.Fatal(err)

@@ -83,7 +83,7 @@ func NewServer(c *core.Core, db *sqlx.DB, listen, dbPath string) *Server {
 // NewServerWithSearch lets the daemon give HTTP and IPC the same long-lived
 // retrieval service and provider lifecycle.
 func NewServerWithSearch(c *core.Core, db *sqlx.DB, listen, root string, search *retrieval.Service) *Server {
-	c.SetKnowledgeChanged(search.ReconcileProject)
+	c.SetEntryChanged(search.ReconcileProject)
 	c.SetDropDerived(search.DropProject)
 	actor := webActor()
 	s := &Server{
@@ -141,17 +141,17 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/comments", s.handleCreateComment)
 	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/cards/{card}/relations", s.handleCreateCardRelation)
 	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/cards/{card}/relations/{rel}/{ref}", s.handleDeleteCardRelation)
-	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/knowledge", s.handleKnowledgeList)
-	s.mux.HandleFunc("GET /api/p/{key}/knowledge", s.handleProjectKnowledgeList)
-	s.mux.HandleFunc("GET /api/p/{key}/links/knowledge", s.handleKnowledgeLinks)
-	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}/history", s.handleKnowledgeHistory)
-	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}/diff", s.handleKnowledgeDiff)
-	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}", s.handleGetKnowledge)
+	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/knowledge", s.handleEntryList)
+	s.mux.HandleFunc("GET /api/p/{key}/knowledge", s.handleProjectEntryList)
+	s.mux.HandleFunc("GET /api/p/{key}/links/knowledge", s.handleEntryLinks)
+	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}/history", s.handleEntryHistory)
+	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}/diff", s.handleEntryDiff)
+	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}", s.handleGetEntry)
 	s.mux.HandleFunc("GET /api/p/{key}/artifacts/{name}", s.handleArtifact)
-	s.mux.HandleFunc("GET /api/global/knowledge", s.handleGlobalKnowledgeList)
-	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/knowledge", s.handleKnowledgeCreate)
-	s.mux.HandleFunc("PATCH /api/p/{key}/b/{board}/knowledge/{slug}", s.handleKnowledgeEdit)
-	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/knowledge/{slug}", s.handleDeleteKnowledge)
+	s.mux.HandleFunc("GET /api/global/knowledge", s.handleGlobalEntryList)
+	s.mux.HandleFunc("POST /api/p/{key}/b/{board}/knowledge", s.handleEntryCreate)
+	s.mux.HandleFunc("PATCH /api/p/{key}/b/{board}/knowledge/{slug}", s.handleEntryEdit)
+	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/knowledge/{slug}", s.handleDeleteEntry)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/graph/{entity}", s.handleGraph)
 	s.mux.HandleFunc("GET /api/p/{key}/labels", s.handleLabels)
 	s.mux.HandleFunc("POST /api/p/{key}/labels", s.handleCreateLabel)
@@ -846,7 +846,7 @@ type claimRequest struct {
 type commentRequest struct {
 	Body string `json:"body"`
 }
-type knowledgeRequest struct {
+type entryRequest struct {
 	Title    string `json:"title"`
 	Body     string `json:"body"`
 	Summary  string `json:"summary"`
@@ -1075,7 +1075,7 @@ func (s *Server) handleDeleteCardRelation(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, relations)
 }
 
-func (s *Server) handleKnowledgeList(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleEntryList(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	p, b, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
@@ -1083,16 +1083,16 @@ func (s *Server) handleKnowledgeList(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusNotFound, err.Error())
 		return
 	}
-	docs, err := s.core.ListKnowledge(ctx, p.ID, core.KnowledgeFilter{BoardID: b.ID})
+	entries, err := s.core.ListEntries(ctx, p.ID, core.EntryFilter{BoardID: b.ID})
 	if err != nil {
 		s.coreError(w, err)
 		return
 	}
-	withoutContent(docs)
-	writeJSON(w, http.StatusOK, knowledgeItems(p.Key, docs))
+	withoutContent(entries)
+	writeJSON(w, http.StatusOK, entryItems(p.Key, entries))
 }
 
-func (s *Server) handleProjectKnowledgeList(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleProjectEntryList(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	var p core.Project
@@ -1100,16 +1100,16 @@ func (s *Server) handleProjectKnowledgeList(w http.ResponseWriter, r *http.Reque
 		s.error(w, http.StatusNotFound, "project not found")
 		return
 	}
-	docs, err := s.core.ListKnowledge(ctx, p.ID, core.KnowledgeFilter{})
+	entries, err := s.core.ListEntries(ctx, p.ID, core.EntryFilter{})
 	if err != nil {
 		s.coreError(w, err)
 		return
 	}
-	withoutContent(docs)
-	writeJSON(w, http.StatusOK, knowledgeItems(p.Key, docs))
+	withoutContent(entries)
+	writeJSON(w, http.StatusOK, entryItems(p.Key, entries))
 }
 
-func (s *Server) handleKnowledgeLinks(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleEntryLinks(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	p, err := s.projectByKey(ctx, r.PathValue("key"))
@@ -1117,7 +1117,7 @@ func (s *Server) handleKnowledgeLinks(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
-	links, err := s.core.KnowledgeLinks(ctx, p.ID)
+	links, err := s.core.EntryLinks(ctx, p.ID)
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -1241,24 +1241,24 @@ func (s *Server) handleTemplateReinstall(w http.ResponseWriter, r *http.Request)
 	s.writeTemplateResponse(w, http.StatusOK, t)
 }
 
-func (s *Server) handleGlobalKnowledgeList(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGlobalEntryList(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
-	docs, err := s.core.ListGlobalKnowledge(ctx)
+	entries, err := s.core.ListGlobalEntries(ctx)
 	if err != nil {
 		s.coreError(w, err)
 		return
 	}
-	withoutContent(docs)
+	withoutContent(entries)
 	// An artifact belongs to a project; the global list spans every project
 	// (and the vault, which has none), so it never carries artifacts.
-	for i := range docs {
-		docs[i].Artifacts = nil
+	for i := range entries {
+		entries[i].Artifacts = nil
 	}
-	writeJSON(w, http.StatusOK, docs)
+	writeJSON(w, http.StatusOK, entries)
 }
 
-func (s *Server) handleGetKnowledge(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGetEntry(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	p, err := s.projectByKey(ctx, r.PathValue("key"))
@@ -1266,14 +1266,14 @@ func (s *Server) handleGetKnowledge(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
-	doc, err := s.core.ReadKnowledge(ctx, p.ID, r.PathValue("slug"))
+	entry, err := s.core.ReadEntry(ctx, p.ID, r.PathValue("slug"))
 	if err != nil {
 		s.coreError(w, err)
 		return
 	}
 	// Build the knowledgeItem response with artifacts
-	item := knowledgeItem{Knowledge: doc}
-	for _, a := range doc.Artifacts {
+	item := entryItem{Entry: entry}
+	for _, a := range entry.Artifacts {
 		artifactItem := artifactItem{ArtifactRef: a}
 		if !a.Missing {
 			artifactItem.URL = artifactURL(p.Key, a.Name)
@@ -1283,7 +1283,7 @@ func (s *Server) handleGetKnowledge(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, item)
 }
 
-func (s *Server) handleKnowledgeCreate(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleEntryCreate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	p, b, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
@@ -1291,12 +1291,12 @@ func (s *Server) handleKnowledgeCreate(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusNotFound, err.Error())
 		return
 	}
-	var in knowledgeRequest
+	var in entryRequest
 	if !decodeJSON(w, r, &in) || strings.TrimSpace(in.Title) == "" {
 		s.error(w, http.StatusBadRequest, "knowledge title required")
 		return
 	}
-	doc, err := s.write.CreateKnowledge(ctx, p.ID, core.NewKnowledge{
+	entry, err := s.write.CreateEntry(ctx, p.ID, core.NewEntry{
 		Title: in.Title, Body: in.Body, Summary: in.Summary, Template: in.Template,
 		Private: in.Private, Board: b.Name, Sources: in.Sources, Set: in.Set, Dir: in.Dir,
 	})
@@ -1304,12 +1304,12 @@ func (s *Server) handleKnowledgeCreate(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, doc)
+	writeJSON(w, http.StatusCreated, entry)
 }
 
-// knowledgePatch is a save from the editor. A field that is absent keeps its
+// entryPatch is a save from the editor. A field that is absent keeps its
 // value; one that is present replaces it.
-type knowledgePatch struct {
+type entryPatch struct {
 	Title    *string   `json:"title"`
 	Summary  *string   `json:"summary"`
 	Body     *string   `json:"body"`
@@ -1324,7 +1324,7 @@ type knowledgePatch struct {
 	Version *int64            `json:"version"`
 }
 
-func (s *Server) handleKnowledgeEdit(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleEntryEdit(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	p, _, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
@@ -1332,12 +1332,12 @@ func (s *Server) handleKnowledgeEdit(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusNotFound, err.Error())
 		return
 	}
-	var in knowledgePatch
+	var in entryPatch
 	if !decodeJSON(w, r, &in) {
 		s.error(w, http.StatusBadRequest, "invalid knowledge JSON")
 		return
 	}
-	doc, err := s.write.EditKnowledgeFields(ctx, p.ID, r.PathValue("slug"), core.KnowledgeEdit{
+	entry, err := s.write.EditEntryFields(ctx, p.ID, r.PathValue("slug"), core.EntryEdit{
 		Title: in.Title, Summary: in.Summary, Body: in.Body, IfVersion: in.Version,
 		Template: in.Template, Private: in.Private, Tags: in.Tags, Labels: in.Labels,
 		Sources: in.Sources, Set: in.Set,
@@ -1346,10 +1346,10 @@ func (s *Server) handleKnowledgeEdit(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, doc)
+	writeJSON(w, http.StatusOK, entry)
 }
 
-func (s *Server) handleDeleteKnowledge(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	p, _, err := s.projectAndBoard(ctx, r.PathValue("key"), r.PathValue("board"))
@@ -1358,7 +1358,7 @@ func (s *Server) handleDeleteKnowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slug := r.PathValue("slug")
-	if err := s.write.DeleteKnowledge(ctx, p.ID, slug); err != nil {
+	if err := s.write.DeleteEntry(ctx, p.ID, slug); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -1375,8 +1375,8 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	}
 	entity := r.PathValue("entity")
 	startID := ""
-	if doc, docErr := s.core.LoadKnowledge(ctx, p.ID, entity); docErr == nil {
-		startID = doc.ID
+	if entry, entryErr := s.core.LoadEntry(ctx, p.ID, entity); entryErr == nil {
+		startID = entry.ID
 	} else if card, cardErr := s.core.GetCard(ctx, p.ID, core.ParseCardRef(entity)); cardErr == nil {
 		startID = card.ID
 	} else {
@@ -1602,13 +1602,13 @@ func (s *Server) error(w http.ResponseWriter, status int, msg string) {
 
 // withoutContent removes body and (for private entries) summary/recap from knowledge
 // entries, matching the CLI's withholdContent behavior for listings.
-func withoutContent(docs []core.Knowledge) {
-	for i := range docs {
-		docs[i].BodyMD = ""
-		if docs[i].Private {
-			docs[i].Summary = ""
-			docs[i].Recap = nil
-			docs[i].Fields = make(map[string]any)
+func withoutContent(entries []core.Entry) {
+	for i := range entries {
+		entries[i].BodyMD = ""
+		if entries[i].Private {
+			entries[i].Summary = ""
+			entries[i].Recap = nil
+			entries[i].Fields = make(map[string]any)
 		}
 	}
 }

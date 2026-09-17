@@ -11,9 +11,9 @@ import (
 	"github.com/mtch3n/trellis/internal/core"
 )
 
-func showEntry(t *testing.T, ref string) core.Knowledge {
+func showEntry(t *testing.T, ref string) core.Entry {
 	t.Helper()
-	var got core.Knowledge
+	var got core.Entry
 	if err := json.Unmarshal([]byte(runCmd(t, "knowledge", "show", ref, "--json")), &got); err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestKnowledgeEditReplacesAndClearsTagsAndLabels(t *testing.T) {
 	runCmd(t, "label", "new", "priority", "--description", "Priority")
 	runCmd(t, "label", "new", "reviewed", "--description", "Reviewed")
 	runCmd(t, "knowledge", "new", "--title", "Tagged")
-	edit := func(args ...string) core.Knowledge {
+	edit := func(args ...string) core.Entry {
 		t.Helper()
 		v := showEntry(t, "tagged").Version
 		runCmd(t, append(append([]string{"knowledge", "edit", "tagged"}, args...), "--if-version", strconv.FormatInt(v, 10))...)

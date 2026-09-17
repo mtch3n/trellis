@@ -17,8 +17,8 @@ import (
 // copy is the fallback when os.Rename cannot move a directory in one step
 // (crossing a filesystem boundary), since a revision directory can hold many
 // files.
-func moveRevisionDirIfExists(oldDocPath, newDocPath string) (moved bool, err error) {
-	oldDir, newDir := revisionDir(oldDocPath), revisionDir(newDocPath)
+func moveRevisionDirIfExists(oldEntryPath, newEntryPath string) (moved bool, err error) {
+	oldDir, newDir := revisionDir(oldEntryPath), revisionDir(newEntryPath)
 	if _, err := os.Stat(oldDir); errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	} else if err != nil {
@@ -49,7 +49,7 @@ func moveRevisionDirIfExists(oldDocPath, newDocPath string) (moved bool, err err
 	return true, nil
 }
 
-// MoveKnowledge renames or relocates an entry within its own project's
+// MoveEntry renames or relocates an entry within its own project's
 // vault, never replacing anything at the destination. It refuses a global
 // entry (demote first) and a destination directory that resembles an
 // existing one (see refuseResemblingDir), and it moves the entry's revision
@@ -58,16 +58,16 @@ func moveRevisionDirIfExists(oldDocPath, newDocPath string) (moved bool, err err
 // Wikilinks that resolve to the entry, in any entry of the project including
 // itself, are rewritten to name the new path in the same transaction (see
 // rewriteInboundWikilinks), and undone with the move.
-func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string, newDir bool) (Knowledge, error) {
+func (c *Core) MoveEntry(ctx context.Context, projectID, ref, newPath string, newDir bool) (Entry, error) {
 	newSlug, err := SlugifyPath(newPath)
 	if err != nil {
-		return Knowledge{}, err
+		return Entry{}, err
 	}
 	if newSlug == "" {
-		return Knowledge{}, ErrUsage("missing_path", "knowledge mv needs a destination path",
+		return Entry{}, ErrUsage("missing_path", "knowledge mv needs a destination path",
 			"trellis knowledge mv "+ref+" new/path")
 	}
-	var doc Knowledge
+	var entry Entry
 	var src, dest string
 	var revMoved bool
 	var rewrites []fileWrite
@@ -115,11 +115,11 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		// (/KEY/vault/x), not just a bare slug: parse it the way loadDoc
 		// does, so a /GLOBAL address is refused up front and one naming
 		// another project reports wrong_project instead of not-found.
-		d, derr := readDocArg(ref, key)
+		d, derr := readEntryArg(ref, key)
 		if derr != nil {
 			return derr
 		}
-		if d.scope == docVault {
+		if d.scope == entryVault {
 			return ErrUsage("global_entry", ref+" is in the global vault; demote it first",
 				"trellis knowledge demote "+ref)
 		}
@@ -127,16 +127,16 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		if rerr != nil {
 			return rerr
 		}
-		if err := tx.Get(&doc, `SELECT * FROM entry WHERE project_id = ? AND slug = ?`, projectID, resolved); err != nil {
+		if err := tx.Get(&entry, `SELECT * FROM entry WHERE project_id = ? AND slug = ?`, projectID, resolved); err != nil {
 			return err
 		}
-		doc.Path = c.docPath(key, doc.Global, doc.Slug)
-		if doc.Global {
-			return ErrUsage("global_entry", doc.Slug+" is in the global vault; demote it first",
-				"trellis knowledge demote "+doc.Slug)
+		entry.Path = c.entryPath(key, entry.Global, entry.Slug)
+		if entry.Global {
+			return ErrUsage("global_entry", entry.Slug+" is in the global vault; demote it first",
+				"trellis knowledge demote "+entry.Slug)
 		}
-		if newSlug == doc.Slug {
-			return ErrUsage("same_path", doc.Slug+" is already there", "")
+		if newSlug == entry.Slug {
+			return ErrUsage("same_path", entry.Slug+" is already there", "")
 		}
 		var taken int
 		if err := tx.Get(&taken, `SELECT COUNT(*) FROM entry WHERE project_id = ? AND slug = ?`,
@@ -154,8 +154,8 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		if err := c.refuseResemblingDir(tx, projectID, destDir, newDir); err != nil {
 			return err
 		}
-		src = doc.Path
-		dest, err = moveFileTo(doc.Path, c.docPath(key, false, newSlug))
+		src = entry.Path
+		dest, err = moveFileTo(entry.Path, c.entryPath(key, false, newSlug))
 		if err != nil {
 			return err
 		}
@@ -164,25 +164,25 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 			return err
 		}
 		now := c.clock.NowMS()
-		oldSlug := doc.Slug
+		oldSlug := entry.Slug
 		if _, err := tx.Exec(`UPDATE entry SET slug = ?, updated_at = ? WHERE id = ?`,
-			newSlug, now, doc.ID); err != nil {
+			newSlug, now, entry.ID); err != nil {
 			return err
 		}
-		doc.Slug, doc.Path, doc.UpdatedAt = newSlug, dest, now
-		if err := c.recordEvent(tx, "entry", doc.ID, "moved", "", oldSlug, newSlug); err != nil {
+		entry.Slug, entry.Path, entry.UpdatedAt = newSlug, dest, now
+		if err := c.recordEvent(tx, "entry", entry.ID, "moved", "", oldSlug, newSlug); err != nil {
 			return err
 		}
 		// A move changes the entry's address the same way escalate and
 		// demote do; a wikilink written to the new path before this move,
 		// still a stub, becomes resolvable now.
-		if err := c.resolveDocStubs(tx, &doc); err != nil {
+		if err := c.resolveEntryStubs(tx, &entry); err != nil {
 			return err
 		}
-		if err := c.rewriteInboundWikilinks(tx, &doc, key, oldSlug, &rewrites); err != nil {
+		if err := c.rewriteInboundWikilinks(tx, &entry, key, oldSlug, &rewrites); err != nil {
 			return err
 		}
-		if err := c.docView(tx, &doc); err != nil {
+		if err := c.entryView(tx, &entry); err != nil {
 			return err
 		}
 		done = true
@@ -193,7 +193,7 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		// durable state, not a guess, decides which side of the move the
 		// file belongs on, exactly as EscalateKnowledge already resolves this.
 		var landed string
-		qerr := c.db.Get(&landed, `SELECT slug FROM entry WHERE id = ?`, doc.ID)
+		qerr := c.db.Get(&landed, `SELECT slug FROM entry WHERE id = ?`, entry.ID)
 		if writeLanded(landed == newSlug, qerr) {
 			err = nil
 		} else {
@@ -220,9 +220,9 @@ func (c *Core) MoveKnowledge(ctx context.Context, projectID, ref, newPath string
 		}
 	}
 	if err == nil {
-		c.notifyKnowledgeChanged(ctx, projectID)
+		c.notifyEntryChanged(ctx, projectID)
 	}
-	return doc, err
+	return entry, err
 }
 
 // fileWrite is a file a transaction replaced, with what it held before, so
@@ -244,14 +244,14 @@ type fileWrite struct {
 // the edit. Every file is appended to undo as soon as it is written, so the
 // caller can restore it if anything later fails. A referring entry whose file
 // is gone is skipped; lint reports its links.
-func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, oldSlug string, undo *[]fileWrite) error {
+func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, entry *Entry, projectKey, oldSlug string, undo *[]fileWrite) error {
 	var rows []struct {
 		FromID string `db:"from_id"`
 		Raw    string `db:"to_raw"`
 	}
 	if err := tx.Select(&rows, `SELECT from_id, to_raw FROM link
 		WHERE from_type = 'entry' AND to_type = 'entry' AND rel = 'wikilink' AND to_id = ?
-		ORDER BY from_id`, doc.ID); err != nil {
+		ORDER BY from_id`, entry.ID); err != nil {
 		return err
 	}
 	raws := map[string]map[string]bool{}
@@ -265,12 +265,12 @@ func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, 
 	}
 	newTarget := func(old string) string {
 		if strings.HasPrefix(old, "/") {
-			return DocAddress(projectKey, false, doc.Slug)
+			return EntryAddress(projectKey, false, entry.Slug)
 		}
-		return doc.Slug
+		return entry.Slug
 	}
 	for _, fromID := range order {
-		var from Knowledge
+		var from Entry
 		if err := tx.Get(&from, `SELECT * FROM entry WHERE id = ?`, fromID); err != nil {
 			return err
 		}
@@ -287,7 +287,7 @@ func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, 
 		if ContentHash(string(raw)) != from.ContentHash {
 			return changedOnDisk(from.Slug)
 		}
-		fm, body, err := splitDocFile(from.Path, raw)
+		fm, body, err := splitEntryFile(from.Path, raw)
 		if err != nil {
 			return err
 		}
@@ -304,12 +304,12 @@ func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, 
 		if newBody == body {
 			continue
 		}
-		if _, err := c.captureKnowledgeRevision(from.Path, from.Version, raw); err != nil {
+		if _, err := c.captureEntryRevision(from.Path, from.Version, raw); err != nil {
 			return err
 		}
 		now := c.clock.NowMS()
 		fm.Updated = msToRFC3339(now)
-		out := RenderDoc(fm, newBody)
+		out := RenderEntry(fm, newBody)
 		if err := replaceIfUnchanged(from.Path, []byte(out), from.ContentHash); err != nil {
 			if errors.Is(err, errFileChanged) {
 				return changedOnDisk(from.Slug)
@@ -328,7 +328,7 @@ func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, 
 		// The spec's copy table asks for the new file too, captured after any
 		// Trellis write; the pre-write capture above only ever retained the
 		// version this rewrite replaced.
-		revisionDest, err := c.captureKnowledgeRevision(from.Path, from.Version, []byte(out))
+		revisionDest, err := c.captureEntryRevision(from.Path, from.Version, []byte(out))
 		if err != nil {
 			return err
 		}
@@ -337,7 +337,7 @@ func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, 
 			WHERE id = ?`, from.ContentHash, from.MTime, from.Size, from.Version, from.UpdatedAt, from.ID); err != nil {
 			return err
 		}
-		if err := c.syncDocRelations(tx, &from, fm, newBody); err != nil {
+		if err := c.syncEntryRelations(tx, &from, fm, newBody); err != nil {
 			return err
 		}
 		value := newBody
@@ -347,13 +347,13 @@ func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, 
 		if err := c.recordEvent(tx, "entry", from.ID, "edited", "body", "", value); err != nil {
 			return err
 		}
-		if from.ID == doc.ID {
-			doc.BodyMD, doc.ContentHash, doc.MTime, doc.Size = from.BodyMD, from.ContentHash, from.MTime, from.Size
-			doc.Version, doc.UpdatedAt = from.Version, from.UpdatedAt
+		if from.ID == entry.ID {
+			entry.BodyMD, entry.ContentHash, entry.MTime, entry.Size = from.BodyMD, from.ContentHash, from.MTime, from.Size
+			entry.Version, entry.UpdatedAt = from.Version, from.UpdatedAt
 		}
 	}
 	if len(*undo) > 0 {
-		return c.rebuildKnowledgeFTS(tx)
+		return c.rebuildEntryFTS(tx)
 	}
 	return nil
 }

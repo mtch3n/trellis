@@ -3,11 +3,11 @@ package core
 import "testing"
 
 func TestDupesClustersOverlappingTitles(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	for _, title := range []string{
 		"Postgres user conventions", "Postgres user naming conventions", "Arc GPU power",
 	} {
-		if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 			Title: title, Body: "Body for " + title + ".\n"}); err != nil {
 			t.Fatal(err)
 		}

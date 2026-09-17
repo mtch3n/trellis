@@ -51,24 +51,24 @@ type FeedEvent struct {
 // corresponding entity is not the one this event is about, or no longer
 // exists.
 type feedRow struct {
-	Seq          int64  `db:"seq"`
-	TS           int64  `db:"ts"`
-	Actor        string `db:"actor"`
-	Kind         string `db:"kind"`
-	Action       string `db:"action"`
-	Field        string `db:"field"`
-	OldValue     string `db:"old_value"`
-	NewValue     string `db:"new_value"`
-	CardRef      string `db:"card_ref"`
-	CardTitle    string `db:"card_title"`
-	KBKey        string `db:"kb_key"`
-	KBSlug       string `db:"kb_slug"`
-	KBTitle      string `db:"kb_title"`
-	KBTemplate   string `db:"kb_template"`
-	BoardName    string `db:"board_name"`
-	LabelName    string `db:"label_name"`
-	CommentRef   string `db:"comment_ref"`
-	CommentTitle string `db:"comment_title"`
+	Seq           int64  `db:"seq"`
+	TS            int64  `db:"ts"`
+	Actor         string `db:"actor"`
+	Kind          string `db:"kind"`
+	Action        string `db:"action"`
+	Field         string `db:"field"`
+	OldValue      string `db:"old_value"`
+	NewValue      string `db:"new_value"`
+	CardRef       string `db:"card_ref"`
+	CardTitle     string `db:"card_title"`
+	EntryKey      string `db:"entry_key"`
+	EntrySlug     string `db:"entry_slug"`
+	EntryTitle    string `db:"entry_title"`
+	EntryTemplate string `db:"entry_template"`
+	BoardName     string `db:"board_name"`
+	LabelName     string `db:"label_name"`
+	CommentRef    string `db:"comment_ref"`
+	CommentTitle  string `db:"comment_title"`
 }
 
 // toFeedEvent applies the feed's disclosure policy. It is the only place that
@@ -89,10 +89,10 @@ func (r feedRow) toFeedEvent() FeedEvent {
 			ev.Title = r.CardTitle
 		}
 	case "entry":
-		if r.KBKey != "" {
-			ev.Ref = DocAddress(r.KBKey, r.KBKey == GlobalKey, r.KBSlug)
-			ev.Title = r.KBTitle
-			ev.Template = r.KBTemplate
+		if r.EntryKey != "" {
+			ev.Ref = EntryAddress(r.EntryKey, r.EntryKey == GlobalKey, r.EntrySlug)
+			ev.Title = r.EntryTitle
+			ev.Template = r.EntryTemplate
 		}
 	case "board":
 		if r.BoardName != "" {
@@ -181,10 +181,10 @@ func (c *Core) EventFeed(ctx context.Context, q EventQuery) ([]FeedEvent, *int64
 		    COALESCE(e.new_value, '') AS new_value,
 		    COALESCE(c.ref, '') AS card_ref,
 		    COALESCE(c.title, '') AS card_title,
-		    COALESCE(CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE pk.key END, '') AS kb_key,
-		    COALESCE(k.slug, '') AS kb_slug,
-		    COALESCE(k.title, '') AS kb_title,
-		    COALESCE(k.template, '') AS kb_template,
+		    COALESCE(CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE pk.key END, '') AS entry_key,
+		    COALESCE(k.slug, '') AS entry_slug,
+		    COALESCE(k.title, '') AS entry_title,
+		    COALESCE(k.template, '') AS entry_template,
 		    COALESCE(b.name, '') AS board_name,
 		    COALESCE(l.name, '') AS label_name,
 		    COALESCE(nc.ref, '') AS comment_ref,

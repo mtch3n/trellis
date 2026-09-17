@@ -12,7 +12,7 @@ import (
 	"github.com/mtch3n/trellis/internal/store"
 )
 
-func TestKnowledgeLinksEndpoint(t *testing.T) {
+func TestEntryLinksEndpoint(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
@@ -46,7 +46,7 @@ func TestKnowledgeLinksEndpoint(t *testing.T) {
 	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
 		t.Fatalf("expected application/json, got %q", ct)
 	}
-	var empty []core.KnowledgeLink
+	var empty []core.EntryLink
 	if err := json.UnmarshalRead(resp.Body, &empty); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestKnowledgeLinksEndpoint(t *testing.T) {
 
 	// 3. JSON shape test
 	// Create a document with a link
-	_, err = c.CreateKnowledge(context.Background(), p.ID, core.NewKnowledge{
+	_, err = c.CreateEntry(context.Background(), p.ID, core.NewEntry{
 		Title: "Source",
 		Body:  "[[target]]\n",
 		Board: b.Name,
@@ -86,7 +86,7 @@ func TestKnowledgeLinksEndpoint(t *testing.T) {
 	if respJSON.StatusCode != http.StatusOK {
 		t.Fatalf("got status %d", respJSON.StatusCode)
 	}
-	var links []core.KnowledgeLink
+	var links []core.EntryLink
 	if err := json.UnmarshalRead(respJSON.Body, &links); err != nil {
 		t.Fatal(err)
 	}

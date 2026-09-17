@@ -9,15 +9,15 @@ import (
 	"time"
 )
 
-func TestPruneRevisionsTrimsKnowledgeAndCards(t *testing.T) {
-	c, p, b := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Log", Body: "v1\n"})
+func TestPruneRevisionsTrimsEntriesAndCards(t *testing.T) {
+	c, p, b := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Log", Body: "v1\n"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	version := doc.Version
+	version := entry.Version
 	for i := 2; i <= 4; i++ {
-		edited, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, fmt.Sprintf("v%d\n", i), &version)
+		edited, err := c.EditEntry(t.Context(), p.ID, entry.Slug, fmt.Sprintf("v%d\n", i), &version)
 		if err != nil {
 			t.Fatalf("EditKnowledge v%d: %v", i, err)
 		}
@@ -45,7 +45,7 @@ func TestPruneRevisionsTrimsKnowledgeAndCards(t *testing.T) {
 	if n == 0 {
 		t.Fatal("PruneRevisions removed nothing")
 	}
-	entries, err := os.ReadDir(revisionDir(doc.Path))
+	entries, err := os.ReadDir(revisionDir(entry.Path))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,13 +62,13 @@ func TestPruneRevisionsTrimsKnowledgeAndCards(t *testing.T) {
 }
 
 func TestPruneOrphanHistoryRemovesADirectoryNoEntryAccountsFor(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Kept", Body: "v1\n"})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Kept", Body: "v1\n"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
 	// What removing a file and its row outside Trellis leaves behind.
-	stray := filepath.Join(filepath.Dir(doc.Path), ".removed-by-hand.md")
+	stray := filepath.Join(filepath.Dir(entry.Path), ".removed-by-hand.md")
 	if err := os.MkdirAll(stray, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestPruneOrphanHistoryRemovesADirectoryNoEntryAccountsFor(t *testing.T) {
 	if _, err := os.Stat(stray); !os.IsNotExist(err) {
 		t.Error("the stray revision directory still exists")
 	}
-	if _, err := os.Stat(revisionDir(doc.Path)); err != nil {
+	if _, err := os.Stat(revisionDir(entry.Path)); err != nil {
 		t.Errorf("the live entry's revisions were removed too: %v", err)
 	}
 }
@@ -94,12 +94,12 @@ func TestPruneOrphanHistoryRemovesADirectoryNoEntryAccountsFor(t *testing.T) {
 // An entry whose file was deleted by hand still has its row, and its history
 // holds the only copy of the content left. Pruning must not take it.
 func TestPruneOrphanHistoryKeepsTheHistoryOfAnEntryWhoseFileIsGone(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Gone", Body: "the only copy\n"})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Gone", Body: "the only copy\n"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if err := os.Remove(doc.Path); err != nil {
+	if err := os.Remove(entry.Path); err != nil {
 		t.Fatal(err)
 	}
 
@@ -110,7 +110,7 @@ func TestPruneOrphanHistoryKeepsTheHistoryOfAnEntryWhoseFileIsGone(t *testing.T)
 	if n != 0 {
 		t.Fatalf("removed %d, want 0: the row still registers this entry", n)
 	}
-	raw, err := os.ReadFile(revisionFilePath(doc.Path, 1))
+	raw, err := os.ReadFile(revisionFilePath(entry.Path, 1))
 	if err != nil {
 		t.Fatalf("version 1 must survive: %v", err)
 	}
@@ -124,12 +124,12 @@ func TestPruneOrphanHistoryKeepsTheHistoryOfAnEntryWhoseFileIsGone(t *testing.T)
 // whose name starts with ".", exactly like a revision directory, but neither
 // is one, and --orphan-history must never touch either -- review-knowledge #1.
 func TestPruneOrphanHistoryLeavesGitAndObsidianAlone(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Kept", Body: "v1\n"})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Kept", Body: "v1\n"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	vault := filepath.Dir(doc.Path)
+	vault := filepath.Dir(entry.Path)
 
 	gitDir := filepath.Join(vault, ".git")
 	if err := os.MkdirAll(gitDir, 0o700); err != nil {
@@ -170,7 +170,7 @@ func TestPruneOrphanHistoryLeavesGitAndObsidianAlone(t *testing.T) {
 	if _, err := os.Stat(obsidianFile); err != nil {
 		t.Errorf(".obsidian/workspace.json must survive: %v", err)
 	}
-	if _, err := os.Stat(revisionDir(doc.Path)); err != nil {
+	if _, err := os.Stat(revisionDir(entry.Path)); err != nil {
 		t.Errorf("the live entry's own revisions were removed too: %v", err)
 	}
 }
@@ -180,15 +180,15 @@ func TestPruneOrphanHistoryLeavesGitAndObsidianAlone(t *testing.T) {
 // orphaned; and a nested directory must not be walked -- and its orphan
 // reported -- twice.
 func TestHealthAndPruneDoNotOverCount(t *testing.T) {
-	c, p1, _ := kbCore(t)
+	c, p1, _ := vaultCore(t)
 	p2 := seededProject2(t, c)
 
 	// p2 escalates an entry into the shared global vault.
-	doc, err := c.CreateKnowledge(t.Context(), p2.ID, NewKnowledge{Title: "Shared", Body: "v1\n"})
+	entry, err := c.CreateEntry(t.Context(), p2.ID, NewEntry{Title: "Shared", Body: "v1\n"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	escalated, err := c.EscalateKnowledge(t.Context(), p2.ID, doc.Slug, "shared runbook")
+	escalated, err := c.EscalateKnowledge(t.Context(), p2.ID, entry.Slug, "shared runbook")
 	if err != nil {
 		t.Fatalf("EscalateKnowledge: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestHealthAndPruneDoNotOverCount(t *testing.T) {
 	// p1 has a nested entry, so its directory is both walked directly (it is
 	// a vault by virtue of holding an entry) and as part of recursing its
 	// parent vault.
-	nested, err := c.CreateKnowledge(t.Context(), p1.ID, NewKnowledge{Title: "Rollback", Body: "v1\n", Dir: "deployment"})
+	nested, err := c.CreateEntry(t.Context(), p1.ID, NewEntry{Title: "Rollback", Body: "v1\n", Dir: "deployment"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge nested: %v", err)
 	}
@@ -232,8 +232,8 @@ func TestHealthAndPruneDoNotOverCount(t *testing.T) {
 // maintenance stats route uses; it must agree with what PruneOrphanHistory
 // would actually remove.
 func TestOrphanHistoryCountMatchesWhatPruneRemoves(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Kept", Body: "v1\n"})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Kept", Body: "v1\n"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestOrphanHistoryCountMatchesWhatPruneRemoves(t *testing.T) {
 		t.Fatalf("OrphanHistoryCount = %d, err = %v, want 0 before any stray directory exists", n, err)
 	}
 
-	stray := filepath.Join(filepath.Dir(doc.Path), ".removed-by-hand.md")
+	stray := filepath.Join(filepath.Dir(entry.Path), ".removed-by-hand.md")
 	if err := os.MkdirAll(stray, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -304,18 +304,18 @@ func TestParseRetentionAcceptsDaysWeeksAndGoDurations(t *testing.T) {
 }
 
 func TestHealthReportsRevisionsAndOrphans(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc1, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Watched", Body: "v1\n"})
+	c, p, _ := vaultCore(t)
+	entry1, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Watched", Body: "v1\n"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
 	// Create and edit to get multiple revisions
-	if _, err := c.EditKnowledge(t.Context(), p.ID, doc1.Slug, "v2\n", &doc1.Version); err != nil {
+	if _, err := c.EditEntry(t.Context(), p.ID, entry1.Slug, "v2\n", &entry1.Version); err != nil {
 		t.Fatalf("EditKnowledge: %v", err)
 	}
 
 	// A revision directory no row accounts for.
-	stray := filepath.Join(filepath.Dir(doc1.Path), ".orphan.md")
+	stray := filepath.Join(filepath.Dir(entry1.Path), ".orphan.md")
 	if err := os.MkdirAll(stray, 0o700); err != nil {
 		t.Fatal(err)
 	}

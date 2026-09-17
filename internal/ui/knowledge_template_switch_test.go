@@ -15,7 +15,7 @@ import (
 
 // A browser switches an entry to a strict template and meets it in the same
 // save, reads a refusal as a list, and creates an entry inside a directory.
-func TestKnowledgeTemplateSwitchFromTheWeb(t *testing.T) {
+func TestEntryTemplateSwitchFromTheWeb(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
@@ -44,12 +44,12 @@ func TestKnowledgeTemplateSwitchFromTheWeb(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create in ops: %d %s", rec.Code, rec.Body)
 	}
-	var doc core.Knowledge
-	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+	var entry core.Entry
+	if err := json.Unmarshal(rec.Body.Bytes(), &entry); err != nil {
 		t.Fatal(err)
 	}
-	if doc.Slug != "ops/rollback" {
-		t.Fatalf("slug = %q, want ops/rollback", doc.Slug)
+	if entry.Slug != "ops/rollback" {
+		t.Fatalf("slug = %q, want ops/rollback", entry.Slug)
 	}
 	path := "/ops%2Frollback"
 
@@ -77,7 +77,7 @@ func TestKnowledgeTemplateSwitchFromTheWeb(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("switch with sources: %d %s", rec.Code, rec.Body)
 	}
-	got, err := c.ReadKnowledge(ctx, p.ID, "ops/rollback")
+	got, err := c.ReadEntry(ctx, p.ID, "ops/rollback")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -97,7 +97,7 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 		actor = fmt.Sprintf("daemon:%d", os.Getpid())
 	}
 	c := core.New(db, core.RealClock{}, actor, root)
-	if err := c.SyncKnowledgeSearch(parent); err != nil {
+	if err := c.SyncEntrySearch(parent); err != nil {
 		return err
 	}
 	cfg, cfgErr := config.Load(root)
@@ -112,7 +112,7 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	// file or a project override says.
 	c.ApplyConfig(cfg)
 	search := retrieval.NewService(c, db, dbPath, cfg, root)
-	c.SetKnowledgeChanged(search.ReconcileProject)
+	c.SetEntryChanged(search.ReconcileProject)
 	c.SetDropDerived(search.DropProject)
 	address := net.JoinHostPort(bind, fmt.Sprint(port))
 	// ui.enabled off means the daemon is IPC-only: agents keep the shared

@@ -33,7 +33,7 @@ func parseDiffRange(r *http.Request) (from, to int64, err error) {
 	return from, to, nil
 }
 
-func (s *Server) handleKnowledgeHistory(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleEntryHistory(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	p, err := s.projectByKey(ctx, r.PathValue("key"))
@@ -41,7 +41,7 @@ func (s *Server) handleKnowledgeHistory(w http.ResponseWriter, r *http.Request) 
 		s.coreError(w, err)
 		return
 	}
-	revs, err := s.core.ListKnowledgeRevisions(ctx, p.ID, r.PathValue("slug"))
+	revs, err := s.core.ListEntryRevisions(ctx, p.ID, r.PathValue("slug"))
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -49,7 +49,7 @@ func (s *Server) handleKnowledgeHistory(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, revs)
 }
 
-func (s *Server) handleKnowledgeDiff(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleEntryDiff(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	p, err := s.projectByKey(ctx, r.PathValue("key"))
@@ -62,7 +62,7 @@ func (s *Server) handleKnowledgeDiff(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	d, err := s.core.DiffKnowledge(ctx, p.ID, r.PathValue("slug"), from, to)
+	d, err := s.core.DiffEntry(ctx, p.ID, r.PathValue("slug"), from, to)
 	if err != nil {
 		s.coreError(w, err)
 		return

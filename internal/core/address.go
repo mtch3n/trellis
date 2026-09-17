@@ -9,19 +9,19 @@ import (
 	"github.com/mtch3n/trellis/internal/address"
 )
 
-// DocAddress is a knowledge entry's canonical address: /KEY/vault/<slug>,
+// EntryAddress is a knowledge entry's canonical address: /KEY/vault/<slug>,
 // or /GLOBAL/vault/<slug> once it is in the vault. key is ignored for a
 // vault entry.
-func DocAddress(key string, global bool, slug string) string {
+func EntryAddress(key string, global bool, slug string) string {
 	if global {
 		return address.GlobalEntry(slug).String()
 	}
 	return address.Entry(key, slug).String()
 }
 
-// docAddressSQL is DocAddress in SQL, for queries that alias knowledge as k
-// and project as p. TestDocAddressSQLMatchesGo holds the two together.
-const docAddressSQL = `'/' || CASE WHEN k.global = 1 THEN '` + address.GlobalKey +
+// entryAddressSQL is DocAddress in SQL, for queries that alias knowledge as k
+// and project as p. TestEntryAddressSQLMatchesGo holds the two together.
+const entryAddressSQL = `'/' || CASE WHEN k.global = 1 THEN '` + address.GlobalKey +
 	`' ELSE p.key END || '/vault/' || k.slug`
 
 func ParseAddress(arg, collection string) (address.Address, error) {
@@ -59,35 +59,35 @@ func projectKeyOf(tx *sqlx.Tx, projectID string) (string, error) {
 	return key, err
 }
 
-type docScope int
+type entryScope int
 
 const (
-	docRelative docScope = iota
-	docOwn
-	docVault
+	entryRelative entryScope = iota
+	entryOwn
+	entryVault
 )
 
-type docArg struct {
+type entryArg struct {
 	slug  string
-	scope docScope
+	scope entryScope
 }
 
-func readDocArg(arg, projectKey string) (docArg, error) {
+func readEntryArg(arg, projectKey string) (entryArg, error) {
 	target, _ := address.SplitAnchor(strings.TrimSpace(arg))
 	if !strings.HasPrefix(target, "/") {
-		return docArg{target, docRelative}, nil
+		return entryArg{target, entryRelative}, nil
 	}
 	p, err := ParseAddress(target, address.CollectionVault)
 	if err != nil {
-		return docArg{}, err
+		return entryArg{}, err
 	}
 	if p.Project == address.GlobalKey {
-		return docArg{p.Name, docVault}, nil
+		return entryArg{p.Name, entryVault}, nil
 	}
 	if p.Project == projectKey {
-		return docArg{p.Name, docOwn}, nil
+		return entryArg{p.Name, entryOwn}, nil
 	}
-	return docArg{}, wrongProject(arg, p, projectKey)
+	return entryArg{}, wrongProject(arg, p, projectKey)
 }
 func vaultSlug(arg string) (string, error) {
 	target, _ := address.SplitAnchor(strings.TrimSpace(arg))

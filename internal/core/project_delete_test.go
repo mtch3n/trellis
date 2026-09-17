@@ -17,7 +17,7 @@ func count(t *testing.T, c *Core, query string, args ...any) int {
 }
 
 func TestDeleteProjectRemovesEverythingItOwns(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	ctx := t.Context()
 	card, err := c.CreateCard(ctx, p.ID, b.ID, NewCard{Title: "doomed"})
 	if err != nil {
@@ -26,11 +26,11 @@ func TestDeleteProjectRemovesEverythingItOwns(t *testing.T) {
 	if _, err := c.CreateComment(ctx, card.ID, "a note"); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Design", Body: "See [[elsewhere]].\n"})
+	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Design", Body: "See [[elsewhere]].\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.LinkCardToDoc(ctx, p.ID, CardRef{UUID: card.ID}, doc.Slug); err != nil {
+	if err := c.LinkCardToEntry(ctx, p.ID, CardRef{UUID: card.ID}, entry.Slug); err != nil {
 		t.Fatal(err)
 	}
 
@@ -54,13 +54,13 @@ func TestDeleteProjectRemovesEverythingItOwns(t *testing.T) {
 		{`SELECT COUNT(*) FROM card WHERE project_id = ?`, []any{p.ID}},
 		{`SELECT COUNT(*) FROM comment WHERE card_id = ?`, []any{card.ID}},
 		{`SELECT COUNT(*) FROM entry WHERE project_id = ?`, []any{p.ID}},
-		{`SELECT COUNT(*) FROM link WHERE from_id IN (?, ?) OR to_id IN (?, ?)`, []any{card.ID, doc.ID, card.ID, doc.ID}},
+		{`SELECT COUNT(*) FROM link WHERE from_id IN (?, ?) OR to_id IN (?, ?)`, []any{card.ID, entry.ID, card.ID, entry.ID}},
 	} {
 		if n := count(t, c, check.query, check.args...); n != 0 {
 			t.Errorf("%s = %d, want 0", check.query, n)
 		}
 	}
-	if _, err := os.Stat(doc.Path); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(entry.Path); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the entry's file should be gone, stat = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(c.root, "projects", p.Key)); !errors.Is(err, os.ErrNotExist) {
@@ -90,7 +90,7 @@ func TestDeleteProjectWithNoDirectory(t *testing.T) {
 }
 
 func TestDeleteProjectRefusesWhileAnAgentHoldsACard(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	ctx := t.Context()
 	card, err := c.CreateCard(ctx, p.ID, b.ID, NewCard{Title: "in flight"})
 	if err != nil {
@@ -115,13 +115,13 @@ func TestDeleteProjectRefusesWhileAnAgentHoldsACard(t *testing.T) {
 }
 
 func TestDeleteProjectRefusesWhileItOwnsVaultEntries(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
-	doc, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Postgres conventions"})
+	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Postgres conventions"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	escalated, err := c.EscalateKnowledge(ctx, p.ID, doc.Slug, "every repo re-derives this")
+	escalated, err := c.EscalateKnowledge(ctx, p.ID, entry.Slug, "every repo re-derives this")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestDeleteProjectRefusesWhileItOwnsVaultEntries(t *testing.T) {
 	if _, err := os.Stat(escalated.Path); err != nil {
 		t.Errorf("the vault entry's file must be untouched: %v", err)
 	}
-	if n := count(t, c, `SELECT COUNT(*) FROM entry WHERE id = ?`, doc.ID); n != 1 {
+	if n := count(t, c, `SELECT COUNT(*) FROM entry WHERE id = ?`, entry.ID); n != 1 {
 		t.Error("the vault entry's row must be untouched")
 	}
 }

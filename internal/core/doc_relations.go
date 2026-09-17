@@ -12,24 +12,24 @@ import (
 	"github.com/mtch3n/trellis/internal/address"
 )
 
-// syncDocRelations rewrites everything derived from a doc's text: its
+// syncEntryRelations rewrites everything derived from a doc's text: its
 // wikilinks, its inline #tags and its frontmatter tags and labels. Derived data
 // is replaced rather than merged, because the file is the record: a link deleted
 // from the text must disappear from the graph.
-func (c *Core) syncDocRelations(tx *sqlx.Tx, doc *Knowledge, fm Frontmatter, body string) error {
+func (c *Core) syncEntryRelations(tx *sqlx.Tx, entry *Entry, fm Frontmatter, body string) error {
 	if _, err := tx.Exec(
-		`DELETE FROM link WHERE from_type = 'entry' AND from_id = ? AND rel = 'wikilink'`, doc.ID); err != nil {
+		`DELETE FROM link WHERE from_type = 'entry' AND from_id = ? AND rel = 'wikilink'`, entry.ID); err != nil {
 		return err
 	}
 	for _, ref := range ParseWikilinks(body) {
-		toID, err := c.resolveDocRef(tx, doc.ProjectID, ref)
+		toID, err := c.resolveEntryRef(tx, entry.ProjectID, ref)
 		if err != nil {
 			return err
 		}
 		if _, err := tx.Exec(
 			`INSERT OR IGNORE INTO link (from_type, from_id, to_type, to_id, to_raw, anchor, rel)
 			 VALUES ('entry', ?, 'entry', ?, ?, ?, 'wikilink')`,
-			doc.ID, toID, ref.Raw, nullIfEmpty(ref.Anchor)); err != nil {
+			entry.ID, toID, ref.Raw, nullIfEmpty(ref.Anchor)); err != nil {
 			return err
 		}
 	}
@@ -39,18 +39,18 @@ func (c *Core) syncDocRelations(tx *sqlx.Tx, doc *Knowledge, fm Frontmatter, bod
 	// the record. The names are deduplicated here rather than by the UNIQUE
 	// constraint, which cannot collapse rows whose anchor is NULL.
 	if _, err := tx.Exec(
-		`DELETE FROM link WHERE from_type = 'entry' AND from_id = ? AND rel = 'artifact'`, doc.ID); err != nil {
+		`DELETE FROM link WHERE from_type = 'entry' AND from_id = ? AND rel = 'artifact'`, entry.ID); err != nil {
 		return err
 	}
 	for _, name := range dedupeNames(fm.Artifacts) {
-		toID, err := c.resolveArtifactName(tx, doc.ProjectID, name)
+		toID, err := c.resolveArtifactName(tx, entry.ProjectID, name)
 		if err != nil {
 			return err
 		}
 		if _, err := tx.Exec(
 			`INSERT INTO link (from_type, from_id, to_type, to_id, to_raw, rel)
 			 VALUES ('entry', ?, 'artifact', ?, ?, 'artifact')`,
-			doc.ID, toID, name); err != nil {
+			entry.ID, toID, name); err != nil {
 			return err
 		}
 	}
@@ -58,39 +58,39 @@ func (c *Core) syncDocRelations(tx *sqlx.Tx, doc *Knowledge, fm Frontmatter, bod
 	// Tags come from both the frontmatter and the body; labels only from the
 	// frontmatter, because a label is a controlled vocabulary and inventing one
 	// mid-sentence is how vocabularies rot.
-	if _, err := tx.Exec(`DELETE FROM entry_tag WHERE entry_id = ?`, doc.ID); err != nil {
+	if _, err := tx.Exec(`DELETE FROM entry_tag WHERE entry_id = ?`, entry.ID); err != nil {
 		return err
 	}
 	tags := append(append([]string{}, fm.Tags...), ParseInlineTags(body)...)
 	for _, name := range dedupe(tags) {
-		tag, err := c.CreateOrGetTag(tx, doc.ProjectID, name)
+		tag, err := c.CreateOrGetTag(tx, entry.ProjectID, name)
 		if err != nil {
 			return err
 		}
 		if _, err := tx.Exec(
-			`INSERT OR IGNORE INTO entry_tag (entry_id, tag_id) VALUES (?, ?)`, doc.ID, tag.ID); err != nil {
+			`INSERT OR IGNORE INTO entry_tag (entry_id, tag_id) VALUES (?, ?)`, entry.ID, tag.ID); err != nil {
 			return err
 		}
 	}
 
-	if _, err := tx.Exec(`DELETE FROM entry_label WHERE entry_id = ?`, doc.ID); err != nil {
+	if _, err := tx.Exec(`DELETE FROM entry_label WHERE entry_id = ?`, entry.ID); err != nil {
 		return err
 	}
 	for _, name := range dedupe(fm.Labels) {
-		label, err := c.getLabelTx(tx, doc.ProjectID, name)
+		label, err := c.getLabelTx(tx, entry.ProjectID, name)
 		if err != nil {
 			return ErrNotFound("label_not_found", "no label "+name+" in this project",
 				`trellis label new `+name+` --description "..."`)
 		}
 		if _, err := tx.Exec(
-			`INSERT OR IGNORE INTO entry_label (entry_id, label_id) VALUES (?, ?)`, doc.ID, label.ID); err != nil {
+			`INSERT OR IGNORE INTO entry_label (entry_id, label_id) VALUES (?, ?)`, entry.ID, label.ID); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// resolveDocRef turns a reference into a doc id, or NULL for a stub. An
+// resolveEntryRef turns a reference into a doc id, or NULL for a stub. An
 // unresolved link is listed by `knowledge lint`, never an error: writing a link
 // to something not yet written is how a vault gets built.
 //
@@ -100,7 +100,7 @@ func (c *Core) syncDocRelations(tx *sqlx.Tx, doc *Knowledge, fm Frontmatter, bod
 // target exactly, and reading that project by name is already allowed. A
 // project or entry that does not exist yet leaves a stub, which
 // resolveDocStubs fills in when the entry is created or escalated.
-func (c *Core) resolveDocRef(tx *sqlx.Tx, projectID string, ref Reference) (any, error) {
+func (c *Core) resolveEntryRef(tx *sqlx.Tx, projectID string, ref Reference) (any, error) {
 	var q string
 	var args []any
 	switch ref.ProjectKey {
@@ -160,11 +160,11 @@ type Backlink struct {
 }
 
 // Backlinks answers "what points here" for cards and docs alike.
-func (c *Core) Backlinks(ctx context.Context, docID string) ([]Backlink, error) {
+func (c *Core) Backlinks(ctx context.Context, entryID string) ([]Backlink, error) {
 	out := []Backlink{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		return tx.Select(&out,
-			`SELECT 'entry' AS from_type, `+docAddressSQL+` AS ref, k.title,
+			`SELECT 'entry' AS from_type, `+entryAddressSQL+` AS ref, k.title,
 			        COALESCE(l.anchor, '') AS anchor
 			 FROM link l JOIN entry k ON k.id = l.from_id
 			 JOIN project p ON p.id = k.project_id
@@ -173,19 +173,19 @@ func (c *Core) Backlinks(ctx context.Context, docID string) ([]Backlink, error) 
 			 SELECT 'card', c.ref, c.title, COALESCE(l.anchor, '')
 			 FROM link l JOIN card c ON c.id = l.from_id
 			 WHERE l.to_type = 'entry' AND l.to_id = ? AND l.from_type = 'card'
-			 ORDER BY ref`, docID, docID)
+			 ORDER BY ref`, entryID, entryID)
 	})
 	return out, err
 }
 
-// LinkCardToDoc is the structured card-to-doc relationship (§10.2):
+// LinkCardToEntry is the structured card-to-doc relationship (§10.2):
 //
 //	trellis link XPSCTL-12 design#concurrency
 //	trellis link XPSCTL-12 /OTHER/vault/runbook#rollback
 //
 // The target may be in another project; link rows carry no foreign key, and
 // wikilinks cross projects too.
-func (c *Core) LinkCardToDoc(ctx context.Context, projectID string, cardRef CardRef, target string) error {
+func (c *Core) LinkCardToEntry(ctx context.Context, projectID string, cardRef CardRef, target string) error {
 	if t, _ := address.SplitAnchor(strings.TrimSpace(target)); strings.HasPrefix(strings.TrimSpace(t), "/") {
 		if _, err := ParseAddress(strings.TrimSpace(t), address.CollectionVault); err != nil {
 			return err
@@ -197,7 +197,7 @@ func (c *Core) LinkCardToDoc(ctx context.Context, projectID string, cardRef Card
 			return err
 		}
 		ref := ParseReference(target)
-		toID, err := c.resolveDocRef(tx, projectID, ref)
+		toID, err := c.resolveEntryRef(tx, projectID, ref)
 		if err != nil {
 			return err
 		}
@@ -228,12 +228,12 @@ func dedupe(in []string) []string {
 	return out
 }
 
-// resolveDocStubs backfills inbound links that were left dangling because the
+// resolveEntryStubs backfills inbound links that were left dangling because the
 // target did not exist when they were written. Creating an entry is what turns
 // a stub into an edge: without this, a reference written ahead of its target —
 // or one orphaned by a delete and then re-created — would stay a lint finding
 // forever (§10.4).
-func (c *Core) resolveDocStubs(tx *sqlx.Tx, doc *Knowledge) error {
+func (c *Core) resolveEntryStubs(tx *sqlx.Tx, entry *Entry) error {
 	type stub struct {
 		FromType  string `db:"from_type"`
 		FromID    string `db:"from_id"`
@@ -252,23 +252,23 @@ func (c *Core) resolveDocStubs(tx *sqlx.Tx, doc *Knowledge) error {
 		return err
 	}
 	for _, s := range stubs {
-		if s.FromID == doc.ID {
+		if s.FromID == entry.ID {
 			continue // a doc referring to itself before it existed
 		}
-		toID, err := c.resolveDocRef(tx, s.ProjectID, ParseReference(s.ToRaw))
+		toID, err := c.resolveEntryRef(tx, s.ProjectID, ParseReference(s.ToRaw))
 		if err != nil {
 			return err
 		}
 		// Only the entry just created may claim a stub. Any other resolution
 		// belongs to a link that was never dangling in the first place.
-		if id, ok := toID.(string); !ok || id != doc.ID {
+		if id, ok := toID.(string); !ok || id != entry.ID {
 			continue
 		}
 		if _, err := tx.Exec(
 			`UPDATE link SET to_id = ?
 			 WHERE from_type = ? AND from_id = ? AND to_type = 'entry'
 			   AND to_raw = ? AND to_id IS NULL`,
-			doc.ID, s.FromType, s.FromID, s.ToRaw); err != nil {
+			entry.ID, s.FromType, s.FromID, s.ToRaw); err != nil {
 			return err
 		}
 	}
@@ -306,21 +306,21 @@ func dedupeNames(in []string) []string {
 	return out
 }
 
-// KnowledgeLink is a link out of a knowledge entry. From and To are
+// EntryLink is a link out of a knowledge entry. From and To are
 // canonical addresses; To is nil for a stub.
-type KnowledgeLink struct {
+type EntryLink struct {
 	From   string  `json:"from"`
 	To     *string `json:"to"`
 	Raw    string  `json:"raw"`
 	Anchor string  `json:"anchor"`
 }
 
-// KnowledgeLinks lists the links out of a project's knowledge entries,
+// EntryLinks lists the links out of a project's knowledge entries,
 // including the ones it escalated to the vault, ordered by source and then raw
 // target. A private entry's links are left out: where it links says what it
 // is about. The flag is read from the files, not the mirror.
-func (c *Core) KnowledgeLinks(ctx context.Context, projectID string) ([]KnowledgeLink, error) {
-	links := []KnowledgeLink{}
+func (c *Core) EntryLinks(ctx context.Context, projectID string) ([]EntryLink, error) {
+	links := []EntryLink{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var rows []struct {
 			FromID string  `db:"from_id"`
@@ -354,12 +354,12 @@ func (c *Core) KnowledgeLinks(ctx context.Context, projectID string) ([]Knowledg
 		}
 		for _, r := range rows {
 			if !private[r.FromID] {
-				links = append(links, KnowledgeLink{From: r.From, To: r.To, Raw: r.Raw, Anchor: r.Anchor})
+				links = append(links, EntryLink{From: r.From, To: r.To, Raw: r.Raw, Anchor: r.Anchor})
 			}
 		}
 		return nil
 	})
-	slices.SortFunc(links, func(a, b KnowledgeLink) int {
+	slices.SortFunc(links, func(a, b EntryLink) int {
 		return cmp.Or(strings.Compare(a.From, b.From), strings.Compare(a.Raw, b.Raw))
 	})
 	return links, err

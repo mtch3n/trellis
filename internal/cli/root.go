@@ -55,7 +55,7 @@ func openCore() (*core.Core, *sqlx.DB, error) {
 		return nil, nil, err
 	}
 	c := core.New(db, core.RealClock{}, cliActor(), root)
-	if err := c.SyncKnowledgeSearch(context.Background()); err != nil {
+	if err := c.SyncEntrySearch(context.Background()); err != nil {
 		db.Close()
 		return nil, nil, fmt.Errorf("rebuild knowledge search: %w", err)
 	}
@@ -65,7 +65,7 @@ func openCore() (*core.Core, *sqlx.DB, error) {
 	}
 	c.ApplyConfig(cfg)
 	search := retrieval.NewService(c, db, path, cfg, root)
-	c.SetKnowledgeChanged(search.ReconcileProject)
+	c.SetEntryChanged(search.ReconcileProject)
 	c.SetDropDerived(search.DropProject)
 	return c, db, nil
 }

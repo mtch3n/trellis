@@ -55,7 +55,7 @@ func TestSlugWithSlashEncoded(t *testing.T) {
 		}
 	}
 
-	doc, err := s.write.CreateKnowledge(ctx, p.ID, core.NewKnowledge{
+	entry, err := s.write.CreateEntry(ctx, p.ID, core.NewEntry{
 		Title: "Rollback Runbook",
 		Body:  "How to roll back.",
 		Board: "board1",
@@ -64,26 +64,26 @@ func TestSlugWithSlashEncoded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(doc.Slug, "/") {
-		t.Fatalf("slug %q has no slash; the test needs one", doc.Slug)
+	if !strings.Contains(entry.Slug, "/") {
+		t.Fatalf("slug %q has no slash; the test needs one", entry.Slug)
 	}
-	enc := url.PathEscape(doc.Slug)
+	enc := url.PathEscape(entry.Slug)
 	if !strings.Contains(enc, "%2F") {
 		t.Fatalf("escaped slug %q keeps a raw slash", enc)
 	}
 	project := "/api/p/SLUG/knowledge/" + enc
 	board := "/api/p/SLUG/b/board1/knowledge/" + enc
 
-	var edited core.Knowledge
+	var edited core.Entry
 	decode("patch", request(http.MethodPatch, board, `{"body":"How to roll back safely.","version":1}`), http.StatusOK, &edited)
-	if edited.Slug != doc.Slug || edited.Version != 2 {
-		t.Fatalf("patched entry = %s v%d, want %s v2", edited.Slug, edited.Version, doc.Slug)
+	if edited.Slug != entry.Slug || edited.Version != 2 {
+		t.Fatalf("patched entry = %s v%d, want %s v2", edited.Slug, edited.Version, entry.Slug)
 	}
 
-	var got core.Knowledge
+	var got core.Entry
 	decode("get", request(http.MethodGet, project, ""), http.StatusOK, &got)
-	if got.Slug != doc.Slug {
-		t.Fatalf("get returned %q, want %q", got.Slug, doc.Slug)
+	if got.Slug != entry.Slug {
+		t.Fatalf("get returned %q, want %q", got.Slug, entry.Slug)
 	}
 
 	var revs []json.RawMessage

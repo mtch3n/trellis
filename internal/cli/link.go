@@ -30,10 +30,10 @@ func newLinkCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
-				if err := conflictIfDocElsewhere(app, args[0], args[1]); err != nil {
+				if err := conflictIfEntryElsewhere(app, args[0], args[1]); err != nil {
 					return err
 				}
-				if err := app.Core.LinkCardToDoc(cmd.Context(), app.Project.ID,
+				if err := app.Core.LinkCardToEntry(cmd.Context(), app.Project.ID,
 					core.ParseCardRef(ref), args[1]); err != nil {
 					return err
 				}
@@ -44,7 +44,7 @@ func newLinkCmd() *cobra.Command {
 	}
 }
 
-// conflictIfDocElsewhere refuses a relative doc argument that would silently
+// conflictIfEntryElsewhere refuses a relative doc argument that would silently
 // resolve in another project than the one standing in the working directory:
 // a relative reference means the current project everywhere else in the CLI,
 // so "design" must not quietly become the card's project's design when they
@@ -53,8 +53,8 @@ func newLinkCmd() *cobra.Command {
 // checked, and only once a current project actually resolves; with none, the
 // card's project is the only candidate, exactly as withTargets falls back
 // elsewhere.
-func conflictIfDocElsewhere(app *appCtx, cardArg, doc string) error {
-	if strings.HasPrefix(strings.TrimSpace(doc), "/") {
+func conflictIfEntryElsewhere(app *appCtx, cardArg, entry string) error {
+	if strings.HasPrefix(strings.TrimSpace(entry), "/") {
 		return nil
 	}
 	r, err := resolveProject(context.Background(), app.Core)
@@ -153,8 +153,8 @@ func resolveEntity(cmd *cobra.Command, app *appCtx, collection, ref string) (str
 	ctx := cmd.Context()
 	switch collection {
 	case address.CollectionVault:
-		doc, err := app.Core.LoadKnowledge(ctx, app.Project.ID, ref)
-		return doc.ID, err
+		entry, err := app.Core.LoadEntry(ctx, app.Project.ID, ref)
+		return entry.ID, err
 	case address.CollectionCards:
 		card, err := app.Core.GetCard(ctx, app.Project.ID, core.ParseCardRef(ref))
 		return card.ID, err
@@ -162,8 +162,8 @@ func resolveEntity(cmd *cobra.Command, app *appCtx, collection, ref string) (str
 		a, err := app.Core.ResolveArtifact(ctx, app.Project.ID, ref)
 		return a.ID, err
 	}
-	if doc, err := app.Core.LoadKnowledge(ctx, app.Project.ID, ref); err == nil {
-		return doc.ID, nil
+	if entry, err := app.Core.LoadEntry(ctx, app.Project.ID, ref); err == nil {
+		return entry.ID, nil
 	}
 	card, err := app.Core.GetCard(ctx, app.Project.ID, core.ParseCardRef(ref))
 	if err != nil {

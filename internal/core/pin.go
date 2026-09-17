@@ -34,7 +34,7 @@ type Pin struct {
 	CreatedAt int64   `db:"created_at" json:"created_at"`
 }
 
-// PinKnowledge pins an entry, with the recap the agent wrote. Summarizing is
+// PinEntry pins an entry, with the recap the agent wrote. Summarizing is
 // what a model is good at and a CLI is not, so trellis never generates one: with
 // no recap supplied it falls back to the frontmatter summary, then to the first
 // paragraph.
@@ -43,19 +43,19 @@ type Pin struct {
 // any recap supplied for it is discarded rather than stored: a stored one would
 // never be shown, and would sit in entry.recap and the event log until the
 // entry was un-marked and it was injected after all.
-func (c *Core) PinKnowledge(ctx context.Context, projectID, slug, recap, board string) (Pin, error) {
+func (c *Core) PinEntry(ctx context.Context, projectID, slug, recap, board string) (Pin, error) {
 	var pin Pin
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		var doc Knowledge
-		if err := c.loadDoc(tx, projectID, slug, &doc); err != nil {
+		var entry Entry
+		if err := c.loadEntry(tx, projectID, slug, &entry); err != nil {
 			return err
 		}
 		var text string
-		if !doc.Private {
-			text = cmp.Or(strings.TrimSpace(recap), doc.Summary, FirstParagraph(doc.BodyMD))
+		if !entry.Private {
+			text = cmp.Or(strings.TrimSpace(recap), entry.Summary, FirstParagraph(entry.BodyMD))
 			if text == "" {
 				return ErrUsage("no_recap", "this entry has no summary to fall back on",
-					`trellis knowledge pin `+doc.Slug+` --recap "one line an agent can act on"`)
+					`trellis knowledge pin `+entry.Slug+` --recap "one line an agent can act on"`)
 			}
 		}
 
@@ -72,12 +72,12 @@ func (c *Core) PinKnowledge(ctx context.Context, projectID, slug, recap, board s
 		// NULL for a private entry, written explicitly rather than left alone
 		// so the rule holds whatever the row carried before.
 		var stored, hash *string
-		if !doc.Private {
-			stored, hash = &text, &doc.ContentHash
+		if !entry.Private {
+			stored, hash = &text, &entry.ContentHash
 		}
 		if _, err := tx.Exec(
 			`UPDATE entry SET recap = ?, recap_hash = ? WHERE id = ?`,
-			stored, hash, doc.ID); err != nil {
+			stored, hash, entry.ID); err != nil {
 			return err
 		}
 
@@ -90,42 +90,42 @@ func (c *Core) PinKnowledge(ctx context.Context, projectID, slug, recap, board s
 		if _, err := tx.Exec(
 			`INSERT INTO pin (id, entry_id, board_id, created_at) VALUES (?, ?, ?, ?)
 			 ON CONFLICT `+conflict+` DO UPDATE SET created_at = excluded.created_at`,
-			NewCardID(), doc.ID, boardID, now); err != nil {
+			NewCardID(), entry.ID, boardID, now); err != nil {
 			return err
 		}
-		pin = Pin{Slug: doc.Slug, Title: doc.Title, Recap: text, BoardName: boardName, CreatedAt: now}
-		return c.recordEvent(tx, "entry", doc.ID, "pinned", "", "", text)
+		pin = Pin{Slug: entry.Slug, Title: entry.Title, Recap: text, BoardName: boardName, CreatedAt: now}
+		return c.recordEvent(tx, "entry", entry.ID, "pinned", "", "", text)
 	})
 	return pin, err
 }
 
-// UnpinKnowledge removes a pin. The recap survives on the row: unpinning is a
+// UnpinEntry removes a pin. The recap survives on the row: unpinning is a
 // decision about injection, not about the summary being wrong.
-func (c *Core) UnpinKnowledge(ctx context.Context, projectID, slug, board string) error {
+func (c *Core) UnpinEntry(ctx context.Context, projectID, slug, board string) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
-		var doc Knowledge
-		if err := c.loadDoc(tx, projectID, slug, &doc); err != nil {
+		var entry Entry
+		if err := c.loadEntry(tx, projectID, slug, &entry); err != nil {
 			return err
 		}
 		var res sql.Result
 		var err error
 		if board == "" {
-			res, err = tx.Exec(`DELETE FROM pin WHERE entry_id = ? AND board_id IS NULL`, doc.ID)
+			res, err = tx.Exec(`DELETE FROM pin WHERE entry_id = ? AND board_id IS NULL`, entry.ID)
 		} else {
 			b, berr := c.boardByName(tx, projectID, board)
 			if berr != nil {
 				return berr
 			}
-			res, err = tx.Exec(`DELETE FROM pin WHERE entry_id = ? AND board_id = ?`, doc.ID, b.ID)
+			res, err = tx.Exec(`DELETE FROM pin WHERE entry_id = ? AND board_id = ?`, entry.ID, b.ID)
 		}
 		if err != nil {
 			return err
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
-			return ErrNotFound("not_pinned", doc.Slug+" is not pinned there",
+			return ErrNotFound("not_pinned", entry.Slug+" is not pinned there",
 				"trellis knowledge pins")
 		}
-		return c.recordEvent(tx, "entry", doc.ID, "unpinned", "", "", "")
+		return c.recordEvent(tx, "entry", entry.ID, "unpinned", "", "", "")
 	})
 }
 
@@ -206,29 +206,29 @@ type Nomination struct {
 	CreatedAt int64  `db:"created_at" json:"created_at"`
 }
 
-// NominateKnowledge records a candidate for escalation. No threshold blocks
+// NominateEntry records a candidate for escalation. No threshold blocks
 // one: a genuinely new insight can deserve global status immediately, and a gate
 // that argues with the nominator is a gate nobody uses (§10.7).
-func (c *Core) NominateKnowledge(ctx context.Context, projectID, slug, reason string) error {
+func (c *Core) NominateEntry(ctx context.Context, projectID, slug, reason string) error {
 	if strings.TrimSpace(reason) == "" {
 		return ErrUsage("missing_reason", "a nomination carries evidence, not just an opinion",
 			`trellis knowledge nominate `+slug+` --reason "every repo re-derives this"`)
 	}
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
-		var doc Knowledge
-		if err := c.loadDoc(tx, projectID, slug, &doc); err != nil {
+		var entry Entry
+		if err := c.loadEntry(tx, projectID, slug, &entry); err != nil {
 			return err
 		}
-		if doc.Global {
-			return ErrUsage("already_global", doc.Slug+" is already global", "trellis knowledge show "+doc.Slug)
+		if entry.Global {
+			return ErrUsage("already_global", entry.Slug+" is already global", "trellis knowledge show "+entry.Slug)
 		}
 		if _, err := tx.Exec(
 			`INSERT INTO nomination (id, entry_id, actor, reason, created_at) VALUES (?, ?, ?, ?, ?)
 			 ON CONFLICT (entry_id, actor) DO UPDATE SET reason = excluded.reason`,
-			NewCardID(), doc.ID, c.actor, reason, c.clock.NowMS()); err != nil {
+			NewCardID(), entry.ID, c.actor, reason, c.clock.NowMS()); err != nil {
 			return err
 		}
-		return c.recordEvent(tx, "entry", doc.ID, "nominated", "", "", reason)
+		return c.recordEvent(tx, "entry", entry.ID, "nominated", "", "", reason)
 	})
 }
 
@@ -266,8 +266,8 @@ const GlobalReviewDays = 180
 // The human gate is enforced by the caller (§10.8): core has no opinion about
 // who is typing, and an --i-am-human flag is exactly what an agent would reach
 // for, so none exists anywhere.
-func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason string) (Knowledge, error) {
-	var doc Knowledge
+func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason string) (Entry, error) {
+	var entry Entry
 	var src, dest string
 	var revMoved bool
 	var done bool
@@ -294,23 +294,23 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 			}
 		}()
 
-		if err := c.loadDoc(tx, projectID, slug, &doc); err != nil {
+		if err := c.loadEntry(tx, projectID, slug, &entry); err != nil {
 			return err
 		}
-		if doc.Global {
-			return ErrUsage("already_global", doc.Slug+" is already global", "")
+		if entry.Global {
+			return ErrUsage("already_global", entry.Slug+" is already global", "")
 		}
 		var taken int
-		if err := tx.Get(&taken, `SELECT COUNT(*) FROM entry WHERE global = 1 AND slug = ?`, doc.Slug); err != nil {
+		if err := tx.Get(&taken, `SELECT COUNT(*) FROM entry WHERE global = 1 AND slug = ?`, entry.Slug); err != nil {
 			return err
 		}
 		if taken > 0 {
 			return ErrConflict("global_slug_taken",
-				"the global vault already has an entry named "+doc.Slug,
-				"trellis knowledge show GLOBAL/"+doc.Slug)
+				"the global vault already has an entry named "+entry.Slug,
+				"trellis knowledge show GLOBAL/"+entry.Slug)
 		}
-		src = doc.Path
-		dest, err = moveFileTo(doc.Path, c.docPath(GlobalKey, true, doc.Slug))
+		src = entry.Path
+		dest, err = moveFileTo(entry.Path, c.entryPath(GlobalKey, true, entry.Slug))
 		if err != nil {
 			return err
 		}
@@ -327,19 +327,19 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 		if _, err := tx.Exec(
 			`UPDATE entry SET global = 1, board_id = NULL, verify_by = ?,
 			                      verified_at = ?, updated_at = ? WHERE id = ?`,
-			reviewBy, now, now, doc.ID); err != nil {
+			reviewBy, now, now, entry.ID); err != nil {
 			return err
 		}
-		doc.Global, doc.Path, doc.ReviewBy, doc.ReviewedAt = true, dest, &reviewBy, &now
+		entry.Global, entry.Path, entry.ReviewBy, entry.ReviewedAt = true, dest, &reviewBy, &now
 		// Links written to the vault address before the entry got there are
 		// stubs; escalating is what makes them resolvable.
-		if err := c.resolveDocStubs(tx, &doc); err != nil {
+		if err := c.resolveEntryStubs(tx, &entry); err != nil {
 			return err
 		}
-		if err := c.recordEvent(tx, "entry", doc.ID, "promoted", "", "", reason); err != nil {
+		if err := c.recordEvent(tx, "entry", entry.ID, "promoted", "", "", reason); err != nil {
 			return err
 		}
-		if err := c.docView(tx, &doc); err != nil {
+		if err := c.entryView(tx, &entry); err != nil {
 			return err
 		}
 		done = true
@@ -351,7 +351,7 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 		// move the file belongs on, and when it landed the escalate is a
 		// success no matter what Commit reported.
 		var landed bool
-		qerr := c.db.Get(&landed, `SELECT global FROM entry WHERE id = ?`, doc.ID)
+		qerr := c.db.Get(&landed, `SELECT global FROM entry WHERE id = ?`, entry.ID)
 		if writeLanded(landed, qerr) {
 			err = nil
 		} else {
@@ -365,13 +365,13 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 			}
 		}
 	}
-	return doc, err
+	return entry, err
 }
 
-// DemoteKnowledge returns a global entry to its origin project. An escalation
+// DemoteEntry returns a global entry to its origin project. An escalation
 // mistake must not be permanent.
-func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowledge, error) {
-	var doc Knowledge
+func (c *Core) DemoteEntry(ctx context.Context, slug, reason string) (Entry, error) {
+	var entry Entry
 	var src, dest string
 	var revMoved bool
 	var done bool
@@ -406,20 +406,20 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 		if rerr != nil {
 			return rerr
 		}
-		gerr := tx.Get(&doc, `SELECT * FROM entry WHERE slug = ? AND global = 1`, exactSlug)
+		gerr := tx.Get(&entry, `SELECT * FROM entry WHERE slug = ? AND global = 1`, exactSlug)
 		if errors.Is(gerr, sql.ErrNoRows) {
 			return ErrNotFound("not_global", "no global entry "+slug, "trellis knowledge ls --global")
 		}
 		if gerr != nil {
 			return gerr
 		}
-		doc.Path = c.docPath(GlobalKey, true, doc.Slug)
+		entry.Path = c.entryPath(GlobalKey, true, entry.Slug)
 		var key string
-		if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, doc.ProjectID); err != nil {
+		if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, entry.ProjectID); err != nil {
 			return err
 		}
-		src = doc.Path
-		dest, err = moveFileTo(doc.Path, c.docPath(key, false, doc.Slug))
+		src = entry.Path
+		dest, err = moveFileTo(entry.Path, c.entryPath(key, false, entry.Slug))
 		if err != nil {
 			return err
 		}
@@ -433,18 +433,18 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 		}
 		if _, err := tx.Exec(
 			`UPDATE entry SET global = 0, verify_by = NULL, updated_at = ? WHERE id = ?`,
-			c.clock.NowMS(), doc.ID); err != nil {
+			c.clock.NowMS(), entry.ID); err != nil {
 			return err
 		}
-		doc.Global, doc.Path, doc.ReviewBy = false, dest, nil
+		entry.Global, entry.Path, entry.ReviewBy = false, dest, nil
 		// Links to the project address resolve once the entry is back.
-		if err := c.resolveDocStubs(tx, &doc); err != nil {
+		if err := c.resolveEntryStubs(tx, &entry); err != nil {
 			return err
 		}
-		if err := c.recordEvent(tx, "entry", doc.ID, "demoted", "", "", reason); err != nil {
+		if err := c.recordEvent(tx, "entry", entry.ID, "demoted", "", "", reason); err != nil {
 			return err
 		}
-		if err := c.docView(tx, &doc); err != nil {
+		if err := c.entryView(tx, &entry); err != nil {
 			return err
 		}
 		done = true
@@ -456,7 +456,7 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 		// move the file belongs on, and when it landed the demote is a
 		// success no matter what Commit reported.
 		var landed bool
-		qerr := c.db.Get(&landed, `SELECT global FROM entry WHERE id = ?`, doc.ID)
+		qerr := c.db.Get(&landed, `SELECT global FROM entry WHERE id = ?`, entry.ID)
 		if writeLanded(!landed, qerr) {
 			err = nil
 		} else {
@@ -470,13 +470,13 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 			}
 		}
 	}
-	return doc, err
+	return entry, err
 }
 
-// VerifyKnowledge resets the review clock on a global entry.
-func (c *Core) VerifyKnowledge(ctx context.Context, slug string) error {
+// VerifyEntry resets the review clock on a global entry.
+func (c *Core) VerifyEntry(ctx context.Context, slug string) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
-		var doc Knowledge
+		var entry Entry
 		parsedSlug, err := vaultSlug(slug)
 		if err != nil {
 			return err
@@ -485,7 +485,7 @@ func (c *Core) VerifyKnowledge(ctx context.Context, slug string) error {
 		if rerr != nil {
 			return rerr
 		}
-		err = tx.Get(&doc, `SELECT * FROM entry WHERE slug = ? AND global = 1`, exactSlug)
+		err = tx.Get(&entry, `SELECT * FROM entry WHERE slug = ? AND global = 1`, exactSlug)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound("not_global", "no global entry "+slug, "trellis knowledge ls --global")
 		}
@@ -495,17 +495,17 @@ func (c *Core) VerifyKnowledge(ctx context.Context, slug string) error {
 		now := c.clock.NowMS()
 		reviewBy := now + int64(GlobalReviewDays)*24*60*60*1000
 		if _, err := tx.Exec(
-			`UPDATE entry SET verified_at = ?, verify_by = ? WHERE id = ?`, now, reviewBy, doc.ID); err != nil {
+			`UPDATE entry SET verified_at = ?, verify_by = ? WHERE id = ?`, now, reviewBy, entry.ID); err != nil {
 			return err
 		}
-		return c.recordEvent(tx, "entry", doc.ID, "verified", "", "", "")
+		return c.recordEvent(tx, "entry", entry.ID, "verified", "", "", "")
 	})
 }
 
 // Unreviewed reports whether a global entry is past its review date, which is
 // said out loud at every point of use rather than filed in a report nobody reads.
-func (d Knowledge) Unreviewed(nowMS int64) bool {
-	return d.Global && d.ReviewBy != nil && nowMS > *d.ReviewBy
+func (e Entry) Unreviewed(nowMS int64) bool {
+	return e.Global && e.ReviewBy != nil && nowMS > *e.ReviewBy
 }
 
 // moveFile moves src into destDir, refusing to replace anything already

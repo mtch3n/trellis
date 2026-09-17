@@ -32,21 +32,21 @@ type MergeOptions struct {
 
 // MergePlan is what a merge would do, or did.
 type MergePlan struct {
-	Src                string       `json:"src"`
-	Dst                string       `json:"dst"`
-	Ready              bool         `json:"ready"`
-	Refused            string       `json:"refused"`
-	Boards             []BoardMove  `json:"boards"`
-	Cards              CardMoves    `json:"cards"`
-	Knowledge          ItemMoves    `json:"knowledge"`
-	Artifacts          ItemMoves    `json:"artifacts"`
-	Labels             NameMoves    `json:"labels"`
-	Tags               NameMoves    `json:"tags"`
-	ConfigDropped      []ConfigDrop `json:"config_dropped"`
-	DocumentsRewritten []string     `json:"documents_rewritten"`
-	Pins               PinRewrites  `json:"pins"`
-	Backup             string       `json:"backup,omitempty"`
-	Warnings           []string     `json:"warnings,omitempty"`
+	Src              string       `json:"src"`
+	Dst              string       `json:"dst"`
+	Ready            bool         `json:"ready"`
+	Refused          string       `json:"refused"`
+	Boards           []BoardMove  `json:"boards"`
+	Cards            CardMoves    `json:"cards"`
+	Entries          ItemMoves    `json:"knowledge"`
+	Artifacts        ItemMoves    `json:"artifacts"`
+	Labels           NameMoves    `json:"labels"`
+	Tags             NameMoves    `json:"tags"`
+	ConfigDropped    []ConfigDrop `json:"config_dropped"`
+	EntriesRewritten []string     `json:"documents_rewritten"`
+	Pins             PinRewrites  `json:"pins"`
+	Backup           string       `json:"backup,omitempty"`
+	Warnings         []string     `json:"warnings,omitempty"`
 
 	dstID string
 	files []string // every file the merge moves or rewrites, as it was before
@@ -152,7 +152,7 @@ func (c *Core) runMerge(ctx context.Context, srcKey, dstKey string, opts MergeOp
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		m := &merger{
 			c: c, tx: tx, plan: &plan, opts: opts, apply: apply, stage: stage, backedUp: backedUp,
-			docPath: map[string]string{}, fromSrc: map[string]bool{}, addr: map[string]string{},
+			entryPath: map[string]string{}, fromSrc: map[string]bool{}, addr: map[string]string{},
 			renamed: map[string]string{}, boardSlug: map[string]string{}, origPath: map[string]string{},
 			artRenamed: map[string]string{},
 		}
@@ -188,7 +188,7 @@ func mergeNotReady(p MergePlan) error {
 	}
 	var names []string
 	vault := false
-	for _, group := range [][]MergeConflict{p.Knowledge.Conflicts, p.Artifacts.Conflicts} {
+	for _, group := range [][]MergeConflict{p.Entries.Conflicts, p.Artifacts.Conflicts} {
 		for _, conflict := range group {
 			names = append(names, conflict.Name)
 			vault = vault || conflict.Vault
@@ -276,8 +276,8 @@ func (c *Core) afterMerge(ctx context.Context, plan *MergePlan) {
 			warn("rewriting %s: %v; it still names %s", r.Path, err, r.From)
 		}
 	}
-	if c.knowledgeChanged != nil {
-		if err := c.knowledgeChanged(ctx, plan.dstID); err != nil {
+	if c.entryChanged != nil {
+		if err := c.entryChanged(ctx, plan.dstID); err != nil {
 			warn("refreshing %s's derived search state: %v", plan.Dst, err)
 		}
 	}
@@ -319,13 +319,13 @@ type merger struct {
 
 	boardSlug      map[string]string // SRC board slug -> its slug in DST
 	srcDefaultSlug string            // DST slug of SRC's default board, or ""
-	docPath        map[string]string // document id -> where its file is now
+	entryPath      map[string]string // document id -> where its file is now
 	fromSrc        map[string]bool   // documents that came from SRC and still exist
 	addr           map[string]string // SRC document address -> its address now
 	renamed        map[string]string // SRC slug -> its slug in DST, for renamed entries
 	origPath       map[string]string // SRC document id -> its file path before the merge
 	artRenamed     map[string]string // SRC artifact name -> its name in DST, for renamed artifacts
-	docMoves       []docMove
+	entryMoves     []entryMove
 	artMoves       []artifactMove
 }
 
@@ -341,17 +341,17 @@ func (m *merger) run(srcKey, dstKey string) error {
 		return nil
 	}
 	// Every conflict is known before anything changes.
-	for _, detect := range []func() error{m.planDocs, m.planArtifacts} {
+	for _, detect := range []func() error{m.planEntries, m.planArtifacts} {
 		if err := detect(); err != nil {
 			return err
 		}
 	}
-	m.plan.Ready = len(m.plan.Knowledge.Conflicts) == 0 && len(m.plan.Artifacts.Conflicts) == 0
+	m.plan.Ready = len(m.plan.Entries.Conflicts) == 0 && len(m.plan.Artifacts.Conflicts) == 0
 	if m.apply && !m.plan.Ready {
 		return mergeNotReady(*m.plan)
 	}
 	for _, step := range []func() error{
-		m.boards, m.labels, m.tags, m.cards, m.moveDocs, m.moveArtifacts,
+		m.boards, m.labels, m.tags, m.cards, m.moveEntries, m.moveArtifacts,
 		m.references, m.config, m.pins, m.retire,
 	} {
 		if err := step(); err != nil {
@@ -579,7 +579,7 @@ func (m *merger) retire() error {
 			return err
 		}
 	}
-	if err := m.c.rebuildKnowledgeFTS(m.tx); err != nil {
+	if err := m.c.rebuildEntryFTS(m.tx); err != nil {
 		return err
 	}
 	if err := m.c.recordEvent(m.tx, "project", m.dst.ID, "merged", "project", m.src.Key, m.dst.Key); err != nil {

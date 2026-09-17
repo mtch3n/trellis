@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func findingsFor(t *testing.T, c *Core, projectID string, doc Knowledge) []LintFinding {
+func findingsFor(t *testing.T, c *Core, projectID string, entry Entry) []LintFinding {
 	t.Helper()
 	all, err := c.Lint(t.Context(), projectID)
 	if err != nil {
@@ -13,32 +13,32 @@ func findingsFor(t *testing.T, c *Core, projectID string, doc Knowledge) []LintF
 	}
 	var out []LintFinding
 	for _, f := range all {
-		if f.Doc == doc.Ref {
+		if f.Entry == entry.Ref {
 			out = append(out, f)
 		}
 	}
 	return out
 }
 
-func entryNaming(t *testing.T, c *Core, projectID, title string, names ...string) Knowledge {
+func entryNaming(t *testing.T, c *Core, projectID, title string, names ...string) Entry {
 	t.Helper()
-	doc, err := c.CreateKnowledge(t.Context(), projectID, NewKnowledge{Title: title})
+	entry, err := c.CreateEntry(t.Context(), projectID, NewEntry{Title: title})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	setArtifactsInFile(t, doc.Path, names...)
-	if _, err := c.LoadKnowledge(t.Context(), projectID, doc.Slug); err != nil {
+	setArtifactsInFile(t, entry.Path, names...)
+	if _, err := c.LoadEntry(t.Context(), projectID, entry.Slug); err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
-	return doc
+	return entry
 }
 
 func TestLintReportsAMissingArtifact(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc := entryNaming(t, c, p.ID, "Absent", "absent.pdf")
+	c, p, _ := vaultCore(t)
+	entry := entryNaming(t, c, p.ID, "Absent", "absent.pdf")
 
 	var found bool
-	for _, f := range findingsFor(t, c, p.ID, doc) {
+	for _, f := range findingsFor(t, c, p.ID, entry) {
 		if f.Kind == "missing_artifact" && f.Ref == "absent.pdf" {
 			found = true
 			if !strings.Contains(f.Fix, "artifact add") {
@@ -55,10 +55,10 @@ func TestLintReportsAMissingArtifact(t *testing.T) {
 }
 
 func TestLintIsQuietAboutAResolvedArtifact(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	a := addArtifact(t, c, p.ID, "fine.png", "\x89PNG\r\n\x1a\nx")
-	doc := entryNaming(t, c, p.ID, "Fine", a.Name)
-	for _, f := range findingsFor(t, c, p.ID, doc) {
+	entry := entryNaming(t, c, p.ID, "Fine", a.Name)
+	for _, f := range findingsFor(t, c, p.ID, entry) {
 		if f.Kind == "missing_artifact" {
 			t.Errorf("unexpected finding %+v", f)
 		}
@@ -68,10 +68,10 @@ func TestLintIsQuietAboutAResolvedArtifact(t *testing.T) {
 // Orphan means disconnected from other entries and cards. A file attached to
 // an entry does not connect it to anything, and the orphan fix says so.
 func TestAnEntryLinkedOnlyToAnArtifactIsStillAnOrphan(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	a := addArtifact(t, c, p.ID, "alone.png", "\x89PNG\r\n\x1a\nx")
-	doc := entryNaming(t, c, p.ID, "Alone", a.Name)
-	for _, f := range findingsFor(t, c, p.ID, doc) {
+	entry := entryNaming(t, c, p.ID, "Alone", a.Name)
+	for _, f := range findingsFor(t, c, p.ID, entry) {
 		if f.Kind == "orphan" {
 			return
 		}

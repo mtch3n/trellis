@@ -3,14 +3,14 @@ package core
 import "testing"
 
 func TestReadsCountOnlyDeliberateReads(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Postgres conventions", Body: "The naming rule.\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	cold, err := c.ColdKnowledge(t.Context(), p.ID)
+	cold, err := c.ColdEntries(t.Context(), p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,21 +22,21 @@ func TestReadsCountOnlyDeliberateReads(t *testing.T) {
 	if _, err := c.Lint(t.Context(), p.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
 		t.Fatal(err)
 	}
-	if cold, _ := c.ColdKnowledge(t.Context(), p.ID); len(cold) != 1 {
+	if cold, _ := c.ColdEntries(t.Context(), p.ID); len(cold) != 1 {
 		t.Error("an internal lookup must not count as a read")
 	}
 
-	if _, err := c.ReadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+	if _, err := c.ReadEntry(t.Context(), p.ID, entry.Slug); err != nil {
 		t.Fatal(err)
 	}
-	if cold, _ := c.ColdKnowledge(t.Context(), p.ID); len(cold) != 0 {
+	if cold, _ := c.ColdEntries(t.Context(), p.ID); len(cold) != 0 {
 		t.Error("after a real read the entry is no longer cold")
 	}
 
-	if err := c.NominateKnowledge(t.Context(), p.ID, doc.Slug, "needed everywhere"); err != nil {
+	if err := c.NominateEntry(t.Context(), p.ID, entry.Slug, "needed everywhere"); err != nil {
 		t.Fatal(err)
 	}
 	noms, err := c.Nominations(t.Context(), p.ID)

@@ -76,7 +76,7 @@ func bodyAbsoluteAddresses(body string) []string {
 // ship) changes only this function.
 func (c *Core) resolvesInternalReference(tx *sqlx.Tx, projectID, s string) (ok, isRef bool, err error) {
 	if target, is := wikilinkTarget(s); is {
-		toID, err := c.resolveDocRef(tx, projectID, ParseReference(target))
+		toID, err := c.resolveEntryRef(tx, projectID, ParseReference(target))
 		return toID != nil, true, err
 	}
 	trimmed := strings.TrimSpace(s)
@@ -167,7 +167,7 @@ func (c *Core) verifyFieldValues(tx *sqlx.Tx, projectID string, values []string)
 func (c *Core) verifyBody(tx *sqlx.Tx, projectID, body string) ([]string, error) {
 	var unresolved []string
 	for _, ref := range ParseWikilinks(body) {
-		toID, err := c.resolveDocRef(tx, projectID, ref)
+		toID, err := c.resolveEntryRef(tx, projectID, ref)
 		if err != nil {
 			return nil, err
 		}

@@ -81,11 +81,11 @@ func SplitFrontmatter(raw string) (Frontmatter, string, error) {
 	return fm, body, nil
 }
 
-// splitDocFile is SplitFrontmatter for a file read from path, and names that
+// splitEntryFile is SplitFrontmatter for a file read from path, and names that
 // file when the header does not parse. SplitFrontmatter sees only the text, but
 // its callers sweep the whole vault, and one bad value in any file fails every
 // command; an error that does not say which file is one nobody can act on.
-func splitDocFile(path string, raw []byte) (Frontmatter, string, error) {
+func splitEntryFile(path string, raw []byte) (Frontmatter, string, error) {
 	fm, body, err := SplitFrontmatter(string(raw))
 	if e, ok := errors.AsType[*Error](err); ok {
 		named := *e
@@ -95,8 +95,8 @@ func splitDocFile(path string, raw []byte) (Frontmatter, string, error) {
 	return fm, body, err
 }
 
-// RenderDoc writes frontmatter and body back to file form.
-func RenderDoc(fm Frontmatter, body string) string {
+// RenderEntry writes frontmatter and body back to file form.
+func RenderEntry(fm Frontmatter, body string) string {
 	header, err := yaml.Marshal(fm)
 	if err != nil { // a struct of strings cannot fail to marshal
 		panic(err)

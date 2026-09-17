@@ -13,7 +13,7 @@ func TestEventFeedOrdersBySeqAndPages(t *testing.T) {
 	// event before either card exists, so every query here is filtered to
 	// Kinds: []string{"card"} — otherwise the very first page would return
 	// that board event, not "one".
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	card1, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "one"})
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)
@@ -51,7 +51,7 @@ func TestEventFeedOrdersBySeqAndPages(t *testing.T) {
 }
 
 func TestEventFeedDefaultAndMaxLimit(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 
 	// The default (1000) and the cap (5000) only bite past that many rows.
 	// Driving that many writes through CreateCard would make this the
@@ -93,7 +93,7 @@ func TestEventFeedDefaultAndMaxLimit(t *testing.T) {
 }
 
 func TestEventFeedFiltersByKind(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "card"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestEventFeedFiltersByKind(t *testing.T) {
 // events to "comment", and the CLI's own help text said "note" until this
 // fix.
 func TestEventFeedRejectsAnUnknownKind(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "card"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
@@ -128,12 +128,12 @@ func TestEventFeedRejectsAnUnknownKind(t *testing.T) {
 }
 
 func TestEventFeedExcludesReadByDefaultButNotWhenAsked(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Runbook"})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Runbook"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if _, err := c.ReadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+	if _, err := c.ReadEntry(t.Context(), p.ID, entry.Slug); err != nil {
 		t.Fatalf("ReadKnowledge: %v", err)
 	}
 
@@ -157,16 +157,16 @@ func TestEventFeedExcludesReadByDefaultButNotWhenAsked(t *testing.T) {
 }
 
 func TestEventFeedFiltersByTemplate(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "unrelated"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
-	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Bug", Template: "finding", Sources: []string{"https://example.com/report"},
 	}); err != nil {
 		t.Fatalf("CreateKnowledge finding: %v", err)
 	}
-	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Notes", Template: ""}); err != nil {
+	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Notes", Template: ""}); err != nil {
 		t.Fatalf("CreateKnowledge note: %v", err)
 	}
 
@@ -180,7 +180,7 @@ func TestEventFeedFiltersByTemplate(t *testing.T) {
 }
 
 func TestEventFeedNotActorSkipsItsOwnWrites(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "mine"}); err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestEventFeedNotActorSkipsItsOwnWrites(t *testing.T) {
 }
 
 func TestEventFeedScopesByProject(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	p2 := seededProject2(t, c)
 	b2 := seededBoard(t, c, p2)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "in p"}); err != nil {
@@ -225,7 +225,7 @@ func TestEventFeedScopesByProject(t *testing.T) {
 }
 
 func TestEventFeedNeverReturnsEditedContent(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Old Title"})
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)
@@ -259,7 +259,7 @@ func TestEventFeedNeverReturnsEditedContent(t *testing.T) {
 }
 
 func TestEventFeedCardMovedCarriesColumnNames(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "moves"})
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)
@@ -285,7 +285,7 @@ func TestEventFeedCardMovedCarriesColumnNames(t *testing.T) {
 }
 
 func TestEventFeedDeletedCardHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Gone"})
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)
@@ -327,13 +327,13 @@ func TestEventFeedDeletedCardHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *test
 	}
 }
 
-func TestEventFeedDeletedKnowledgeHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Temporary"})
+func TestEventFeedDeletedEntryHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Temporary"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if err := c.DeleteKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+	if err := c.DeleteEntry(t.Context(), p.ID, entry.Slug); err != nil {
 		t.Fatalf("DeleteKnowledge: %v", err)
 	}
 
@@ -366,13 +366,13 @@ func TestEventFeedDeletedKnowledgeHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t 
 }
 
 func TestEventFeedPrivateEntryCarriesRefAndTitleOnly(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Prod credentials", Private: true})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Prod credentials", Private: true})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
 	body := "the actual secret body"
-	if _, err := c.EditKnowledgeFields(t.Context(), p.ID, doc.Slug, KnowledgeEdit{Body: &body, IfVersion: &doc.Version}); err != nil {
+	if _, err := c.EditEntryFields(t.Context(), p.ID, entry.Slug, EntryEdit{Body: &body, IfVersion: &entry.Version}); err != nil {
 		t.Fatalf("EditKnowledgeFields: %v", err)
 	}
 
@@ -399,7 +399,7 @@ func TestEventFeedPrivateEntryCarriesRefAndTitleOnly(t *testing.T) {
 }
 
 func TestEventFeedCommentRefIsItsCardsRef(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Has a comment"})
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)
@@ -417,13 +417,13 @@ func TestEventFeedCommentRefIsItsCardsRef(t *testing.T) {
 	}
 }
 
-func TestEventFeedKnowledgeRefUsesGlobalForAnEscalatedDoc(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Widely useful"})
+func TestEventFeedEntryRefUsesGlobalForAnEscalatedEntry(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Widely useful"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if _, err := c.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "applies everywhere"); err != nil {
+	if _, err := c.EscalateKnowledge(t.Context(), p.ID, entry.Slug, "applies everywhere"); err != nil {
 		t.Fatalf("EscalateKnowledge: %v", err)
 	}
 
@@ -433,7 +433,7 @@ func TestEventFeedKnowledgeRefUsesGlobalForAnEscalatedDoc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EventFeed: %v", err)
 	}
-	if want := DocAddress("", true, doc.Slug); len(events) != 1 || events[0].Ref != want {
+	if want := EntryAddress("", true, entry.Slug); len(events) != 1 || events[0].Ref != want {
 		t.Fatalf("events = %+v, want ref %s", events, want)
 	}
 }
@@ -441,12 +441,12 @@ func TestEventFeedKnowledgeRefUsesGlobalForAnEscalatedDoc(t *testing.T) {
 // A template filter still shows the deletion of an entry, whose row, and
 // template, are gone.
 func TestEventFeedTemplateFilterKeepsDeletions(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Latency", Template: "research"})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Latency", Template: "research"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.DeleteKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+	if err := c.DeleteEntry(t.Context(), p.ID, entry.Slug); err != nil {
 		t.Fatal(err)
 	}
 	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Templates: []string{"research"}})

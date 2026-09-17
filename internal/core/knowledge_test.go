@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func kbCore(t *testing.T) (*Core, Project, Board) {
+func vaultCore(t *testing.T) (*Core, Project, Board) {
 	t.Helper()
 	c := testCore(t)
 	p := seededProject(t, c)
@@ -17,20 +17,20 @@ func kbCore(t *testing.T) (*Core, Project, Board) {
 	return c, p, b
 }
 
-func TestCreateKnowledgeWritesFileAndRow(t *testing.T) {
-	c, p, _ := kbCore(t)
+func TestCreateEntryWritesFileAndRow(t *testing.T) {
+	c, p, _ := vaultCore(t)
 
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Concurrency model", Template: "decision", Summary: "Leases, not locks",
 		Sources: []string{"https://example.com/design-notes"},
 	})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if doc.Slug != "concurrency-model" || doc.Ref != "/XPSCTL/vault/concurrency-model" {
-		t.Errorf("slug/ref = %q/%q", doc.Slug, doc.Ref)
+	if entry.Slug != "concurrency-model" || entry.Ref != "/XPSCTL/vault/concurrency-model" {
+		t.Errorf("slug/ref = %q/%q", entry.Slug, entry.Ref)
 	}
-	raw, err := os.ReadFile(doc.Path)
+	raw, err := os.ReadFile(entry.Path)
 	if err != nil {
 		t.Fatalf("the file must exist: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestCreateKnowledgeWritesFileAndRow(t *testing.T) {
 	}
 
 	// A second entry with the same title gets a distinct slug, like board slugs.
-	dup, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Concurrency model"})
+	dup, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Concurrency model"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,24 +56,24 @@ func TestCreateKnowledgeWritesFileAndRow(t *testing.T) {
 }
 
 func TestExternalEditWins(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Notes"})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Notes"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Someone edits the file in Obsidian: new title, new body, new tag.
-	edited := RenderDoc(Frontmatter{Title: "Edited elsewhere", Tags: []string{"sqlite"}},
+	edited := RenderEntry(Frontmatter{Title: "Edited elsewhere", Tags: []string{"sqlite"}},
 		"Changed by hand. See [[nowhere]].\n")
-	if err := os.WriteFile(doc.Path, []byte(edited), 0o600); err != nil {
+	if err := os.WriteFile(entry.Path, []byte(edited), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// Make the change visible to a stat-based check regardless of timer
 	// granularity.
 	past := time.Unix(0, 0)
-	_ = os.Chtimes(doc.Path, past, past)
+	_ = os.Chtimes(entry.Path, past, past)
 
-	got, err := c.LoadKnowledge(t.Context(), p.ID, "notes")
+	got, err := c.LoadEntry(t.Context(), p.ID, "notes")
 	if err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
@@ -83,20 +83,20 @@ func TestExternalEditWins(t *testing.T) {
 	if len(got.Tags) != 1 || got.Tags[0] != "sqlite" {
 		t.Errorf("Tags = %v, want [sqlite] from the edited frontmatter", got.Tags)
 	}
-	if got.Version <= doc.Version {
+	if got.Version <= entry.Version {
 		t.Errorf("Version = %d, want a bump after the external edit", got.Version)
 	}
 }
 
 func TestWikilinksResolveAndStub(t *testing.T) {
-	c, p, _ := kbCore(t)
-	target, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	c, p, _ := vaultCore(t)
+	target, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Concurrency model", Body: "# Concurrency model\n\n## Parallel safety\n\nLeases.\n",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	src, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	src, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Design",
 		Body: "Builds on [[concurrency-model#parallel safety]] and [[not-written-yet]].\n" +
 			"Also [[concurrency-model#no such heading]].\n",
@@ -129,9 +129,9 @@ func TestWikilinksResolveAndStub(t *testing.T) {
 	}
 }
 
-func TestLinkCardToDocAndOrphanLint(t *testing.T) {
-	c, p, b := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+func TestLinkCardToEntryAndOrphanLint(t *testing.T) {
+	c, p, b := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Runbook", Body: "# Runbook\n\n## Steps\n\n1. Do it.\n",
 	})
 	if err != nil {
@@ -146,11 +146,11 @@ func TestLinkCardToDocAndOrphanLint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.LinkCardToDoc(t.Context(), p.ID, CardRef{Seq: card.Seq}, "runbook#steps"); err != nil {
+	if err := c.LinkCardToEntry(t.Context(), p.ID, CardRef{Seq: card.Seq}, "runbook#steps"); err != nil {
 		t.Fatalf("LinkCardToDoc: %v", err)
 	}
 
-	back, err := c.Backlinks(t.Context(), doc.ID)
+	back, err := c.Backlinks(t.Context(), entry.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,17 +162,17 @@ func TestLinkCardToDocAndOrphanLint(t *testing.T) {
 	}
 }
 
-func TestDeleteKnowledgeRemovesFileAndStubsInboundLinks(t *testing.T) {
-	c, p, _ := kbCore(t)
-	target, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Target"})
+func TestDeleteEntryRemovesFileAndStubsInboundLinks(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	target, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Target"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Source", Body: "See [[target]].\n"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.DeleteKnowledge(t.Context(), p.ID, "target"); err != nil {
+	if err := c.DeleteEntry(t.Context(), p.ID, "target"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(target.Path); !os.IsNotExist(err) {
@@ -187,13 +187,13 @@ func TestDeleteKnowledgeRemovesFileAndStubsInboundLinks(t *testing.T) {
 	}
 }
 
-func TestSearchSpansCardsAndKnowledge(t *testing.T) {
-	c, p, b := kbCore(t)
+func TestSearchSpansCardsAndEntries(t *testing.T) {
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{
 		Title: "fix wal checkpoint stall"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "WAL checkpointing", Body: "Readers never block writers.\n"}); err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestSearchSpansCardsAndKnowledge(t *testing.T) {
 }
 
 func TestSearchByLabelCoversBothStores(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	if _, err := c.CreateLabel(t.Context(), p.ID, "research", "a spike or investigation"); err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestSearchByLabelCoversBothStores(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Spike results", Labels: []string{"research"}, Body: "spike findings\n"}); err != nil {
 		t.Fatal(err)
 	}
@@ -234,8 +234,8 @@ func TestSearchByLabelCoversBothStores(t *testing.T) {
 }
 
 func TestSearchMatchesTheSummary(t *testing.T) {
-	c, p, _ := kbCore(t)
-	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	c, p, _ := vaultCore(t)
+	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Concurrency model", Summary: "Leases, not locks; writes renew",
 		Body: "# Concurrency model\n\nDetail elsewhere.\n",
 	}); err != nil {
@@ -254,8 +254,8 @@ func TestSearchMatchesTheSummary(t *testing.T) {
 // what turns the stub into a real edge, so the backlink appears without the
 // referring document being touched again.
 func TestCreatingEntryResolvesInboundStubs(t *testing.T) {
-	c, p, _ := kbCore(t)
-	src, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	c, p, _ := vaultCore(t)
+	src, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Design", Body: "Depends on [[lease-protocol]].\n",
 	})
 	if err != nil {
@@ -269,7 +269,7 @@ func TestCreatingEntryResolvesInboundStubs(t *testing.T) {
 		t.Fatalf("findings = %+v, want the forward reference reported as a stub", findings)
 	}
 
-	target, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	target, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Lease protocol", Body: "How leases are taken.\n",
 	})
 	if err != nil {
@@ -301,21 +301,21 @@ func TestCreatingEntryResolvesInboundStubs(t *testing.T) {
 // A deleted entry leaves its inbound references as stubs; re-creating it under
 // the same slug must adopt them again rather than stranding them.
 func TestRecreatingEntryReclaimsStubbedLinks(t *testing.T) {
-	c, p, _ := kbCore(t)
-	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	c, p, _ := vaultCore(t)
+	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Lease protocol", Body: "First cut.\n",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Design", Body: "Depends on [[lease-protocol]].\n",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.DeleteKnowledge(t.Context(), p.ID, "lease-protocol"); err != nil {
+	if err := c.DeleteEntry(t.Context(), p.ID, "lease-protocol"); err != nil {
 		t.Fatal(err)
 	}
-	again, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	again, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Lease protocol", Body: "Second cut.\n",
 	})
 	if err != nil {
@@ -331,31 +331,31 @@ func TestRecreatingEntryReclaimsStubbedLinks(t *testing.T) {
 }
 
 func TestProvenanceDefaultsToAuthored(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Lease renewal"})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Lease renewal"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if doc.Provenance != "authored" {
-		t.Errorf("provenance = %q, want authored", doc.Provenance)
+	if entry.Provenance != "authored" {
+		t.Errorf("provenance = %q, want authored", entry.Provenance)
 	}
 }
 
 func TestProvenanceReachesBothTheFileAndTheRow(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 
-	doc, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{
 		Title: "Lease renewal", Provenance: "extracted",
 	})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if doc.Provenance != "extracted" {
-		t.Errorf("row provenance = %q", doc.Provenance)
+	if entry.Provenance != "extracted" {
+		t.Errorf("row provenance = %q", entry.Provenance)
 	}
 	// The file is the source of truth, so the mark has to be in it.
-	raw, err := os.ReadFile(doc.Path)
+	raw, err := os.ReadFile(entry.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,24 +365,24 @@ func TestProvenanceReachesBothTheFileAndTheRow(t *testing.T) {
 }
 
 func TestProvenanceSurvivesAnEdit(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 
-	doc, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{
 		Title: "Lease renewal", Provenance: "prompted",
 	})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
 	// A mark that does not survive an edit cannot anchor an experiment.
-	edited, err := c.EditKnowledge(ctx, p.ID, doc.Slug, "rewritten body\n", &doc.Version)
+	edited, err := c.EditEntry(ctx, p.ID, entry.Slug, "rewritten body\n", &entry.Version)
 	if err != nil {
 		t.Fatalf("EditKnowledge: %v", err)
 	}
 	if edited.Provenance != "prompted" {
 		t.Errorf("provenance after edit = %q, want prompted", edited.Provenance)
 	}
-	raw, err := os.ReadFile(doc.Path)
+	raw, err := os.ReadFile(entry.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,8 +392,8 @@ func TestProvenanceSurvivesAnEdit(t *testing.T) {
 }
 
 func TestUnknownProvenanceIsRejectedWithTheAllowedSet(t *testing.T) {
-	c, p, _ := kbCore(t)
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	c, p, _ := vaultCore(t)
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Lease renewal", Provenance: "vibes",
 	})
 	if err == nil {
@@ -407,14 +407,14 @@ func TestUnknownProvenanceIsRejectedWithTheAllowedSet(t *testing.T) {
 }
 
 func TestProvenanceIsReadBackFromTheFile(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 
-	doc, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Lease renewal"})
+	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Lease renewal"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	raw, err := os.ReadFile(doc.Path)
+	raw, err := os.ReadFile(entry.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,11 +422,11 @@ func TestProvenanceIsReadBackFromTheFile(t *testing.T) {
 	if edited == string(raw) {
 		t.Fatal("expected a provenance line to rewrite")
 	}
-	if err := os.WriteFile(doc.Path, []byte(edited), 0o644); err != nil {
+	if err := os.WriteFile(entry.Path, []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// The file is the record; editing it out of band must win.
-	got, err := c.ReadKnowledge(ctx, p.ID, doc.Slug)
+	got, err := c.ReadEntry(ctx, p.ID, entry.Slug)
 	if err != nil {
 		t.Fatalf("ReadKnowledge: %v", err)
 	}
@@ -435,13 +435,13 @@ func TestProvenanceIsReadBackFromTheFile(t *testing.T) {
 	}
 }
 
-func TestListKnowledgeFiltersByTypeAndProvenance(t *testing.T) {
-	c, p, _ := kbCore(t)
+func TestListEntriesFiltersByTypeAndProvenance(t *testing.T) {
+	c, p, _ := vaultCore(t)
 	ctx := t.Context()
 
 	mk := func(title, template, prov string, sources ...string) {
 		t.Helper()
-		if _, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{
+		if _, err := c.CreateEntry(ctx, p.ID, NewEntry{
 			Title: title, Template: template, Provenance: prov, Sources: sources,
 		}); err != nil {
 			t.Fatalf("CreateKnowledge %s: %v", title, err)
@@ -453,35 +453,35 @@ func TestListKnowledgeFiltersByTypeAndProvenance(t *testing.T) {
 
 	cases := []struct {
 		name string
-		f    KnowledgeFilter
+		f    EntryFilter
 		want int
 	}{
-		{"zero value lists everything", KnowledgeFilter{}, 3},
-		{"one type", KnowledgeFilter{Templates: []string{"decision"}}, 1},
-		{"two types", KnowledgeFilter{Templates: []string{"decision", "finding"}}, 2},
-		{"one provenance", KnowledgeFilter{Provenances: []string{"extracted"}}, 1},
-		{"both dimensions", KnowledgeFilter{
+		{"zero value lists everything", EntryFilter{}, 3},
+		{"one type", EntryFilter{Templates: []string{"decision"}}, 1},
+		{"two types", EntryFilter{Templates: []string{"decision", "finding"}}, 2},
+		{"one provenance", EntryFilter{Provenances: []string{"extracted"}}, 1},
+		{"both dimensions", EntryFilter{
 			Templates: []string{"decision"}, Provenances: []string{"authored"}}, 1},
-		{"both dimensions, no overlap", KnowledgeFilter{
+		{"both dimensions, no overlap", EntryFilter{
 			Templates: []string{"decision"}, Provenances: []string{"extracted"}}, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			docs, err := c.ListKnowledge(ctx, p.ID, tc.f)
+			entries, err := c.ListEntries(ctx, p.ID, tc.f)
 			if err != nil {
 				t.Fatalf("ListKnowledge: %v", err)
 			}
-			if len(docs) != tc.want {
-				t.Errorf("got %d entries, want %d", len(docs), tc.want)
+			if len(entries) != tc.want {
+				t.Errorf("got %d entries, want %d", len(entries), tc.want)
 			}
 		})
 	}
 }
 
-func TestKnowledgeFilterBuildsTheSameQueryEveryTime(t *testing.T) {
+func TestEntryFilterBuildsTheSameQueryEveryTime(t *testing.T) {
 	// The clauses come out of a map, and map order reaching the query would
 	// make the same filter produce different SQL between runs.
-	f := KnowledgeFilter{Templates: []string{"decision"}, Provenances: []string{"extracted"}}
+	f := EntryFilter{Templates: []string{"decision"}, Provenances: []string{"extracted"}}
 	first, _ := f.where()
 	for range 20 {
 		if got, _ := f.where(); got != first {
@@ -490,15 +490,15 @@ func TestKnowledgeFilterBuildsTheSameQueryEveryTime(t *testing.T) {
 	}
 }
 
-func TestCreateKnowledgeSetWritesExtraFields(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+func TestCreateEntrySetWritesExtraFields(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Rollback the API", Template: "runbook", Set: map[string]string{"owner": "alice"},
 	})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	raw, err := os.ReadFile(doc.Path)
+	raw, err := os.ReadFile(entry.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -511,9 +511,9 @@ func TestCreateKnowledgeSetWritesExtraFields(t *testing.T) {
 	}
 }
 
-func TestCreateKnowledgeSetRefusesANamedField(t *testing.T) {
-	c, p, _ := kbCore(t)
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+func TestCreateEntrySetRefusesANamedField(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "X", Set: map[string]string{"title": "Y"},
 	})
 	if e, ok := errors.AsType[*Error](err); !ok || e.Code != "reserved_field" {
@@ -521,8 +521,8 @@ func TestCreateKnowledgeSetRefusesANamedField(t *testing.T) {
 	}
 }
 
-func TestCreateKnowledgeRejectsAMissingRequiredField(t *testing.T) {
-	c, p, _ := kbCore(t)
+func TestCreateEntryRejectsAMissingRequiredField(t *testing.T) {
+	c, p, _ := vaultCore(t)
 	dir, err := c.templatesDir()
 	if err != nil {
 		t.Fatal(err)
@@ -532,22 +532,22 @@ func TestCreateKnowledgeRejectsAMissingRequiredField(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "X", Template: "strict"})
+	_, err = c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "X", Template: "strict"})
 	e, ok := errors.AsType[*Error](err)
 	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "owner") {
 		t.Fatalf("err = %v, want template_violation naming owner", err)
 	}
-	docs, err := c.ListKnowledge(t.Context(), p.ID, KnowledgeFilter{})
+	entries, err := c.ListEntries(t.Context(), p.ID, EntryFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(docs) != 0 {
+	if len(entries) != 0 {
 		t.Error("a rejected template must write nothing")
 	}
 }
 
-func TestCreateKnowledgeWarnsInsteadOfRejecting(t *testing.T) {
-	c, p, _ := kbCore(t)
+func TestCreateEntryWarnsInsteadOfRejecting(t *testing.T) {
+	c, p, _ := vaultCore(t)
 	dir, err := c.templatesDir()
 	if err != nil {
 		t.Fatal(err)
@@ -557,17 +557,17 @@ func TestCreateKnowledgeWarnsInsteadOfRejecting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "X", Template: "lenient"})
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "X", Template: "lenient"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if len(doc.Warnings) != 1 || !strings.Contains(doc.Warnings[0], "owner") {
-		t.Errorf("Warnings = %v, want one naming owner", doc.Warnings)
+	if len(entry.Warnings) != 1 || !strings.Contains(entry.Warnings[0], "owner") {
+		t.Errorf("Warnings = %v, want one naming owner", entry.Warnings)
 	}
 }
 
-func TestCreateKnowledgeChecksSectionsOnlyWhenBodyIsSupplied(t *testing.T) {
-	c, p, _ := kbCore(t)
+func TestCreateEntryChecksSectionsOnlyWhenBodyIsSupplied(t *testing.T) {
+	c, p, _ := vaultCore(t)
 	dir, err := c.templatesDir()
 	if err != nil {
 		t.Fatal(err)
@@ -577,13 +577,13 @@ func TestCreateKnowledgeChecksSectionsOnlyWhenBodyIsSupplied(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "From skeleton", Template: "sectioned",
 	}); err != nil {
 		t.Fatalf("skeleton body: %v", err)
 	}
 
-	_, err = c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	_, err = c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Missing a section", Template: "sectioned", Body: "# Missing a section\n\nNo headings here.\n",
 	})
 	e, ok := errors.AsType[*Error](err)
@@ -592,19 +592,19 @@ func TestCreateKnowledgeChecksSectionsOnlyWhenBodyIsSupplied(t *testing.T) {
 	}
 }
 
-func TestCreateKnowledgeRecordsSourcesAndReadsThemBack(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+func TestCreateEntryRecordsSourcesAndReadsThemBack(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Cited", Sources: []string{"https://example.com", "  "},
 	})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if len(doc.Sources) != 1 || doc.Sources[0] != "https://example.com" {
-		t.Fatalf("Sources = %v, want the blank entry dropped", doc.Sources)
+	if len(entry.Sources) != 1 || entry.Sources[0] != "https://example.com" {
+		t.Fatalf("Sources = %v, want the blank entry dropped", entry.Sources)
 	}
 
-	got, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
@@ -613,9 +613,9 @@ func TestCreateKnowledgeRecordsSourcesAndReadsThemBack(t *testing.T) {
 	}
 }
 
-func TestEditKnowledgeReplacesSources(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+func TestEditEntryReplacesSources(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Backfilled", Sources: []string{"https://example.com"},
 	})
 	if err != nil {
@@ -623,15 +623,15 @@ func TestEditKnowledgeReplacesSources(t *testing.T) {
 	}
 
 	next := []string{"https://example.com", "https://example.org"}
-	got, err := c.EditKnowledgeFields(t.Context(), p.ID, doc.Slug,
-		KnowledgeEdit{Sources: &next, IfVersion: &doc.Version})
+	got, err := c.EditEntryFields(t.Context(), p.ID, entry.Slug,
+		EntryEdit{Sources: &next, IfVersion: &entry.Version})
 	if err != nil {
 		t.Fatalf("EditKnowledgeFields: %v", err)
 	}
 	if len(got.Sources) != 2 {
 		t.Errorf("Sources = %v, want two", got.Sources)
 	}
-	raw, err := os.ReadFile(doc.Path)
+	raw, err := os.ReadFile(entry.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -650,29 +650,29 @@ func TestEditKnowledgeReplacesSources(t *testing.T) {
 // the same slug before that runs must not adopt that stale history as its
 // own: its "version 1" would then really be an old, possibly private,
 // entry's last version.
-func TestCreateKnowledgeRefusesAStaleRevisionDirectory(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Old", Body: "the old private body\n"})
+func TestCreateEntryRefusesAStaleRevisionDirectory(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Old", Body: "the old private body\n"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if _, err := os.Stat(revisionFilePath(doc.Path, 1)); err != nil {
+	if _, err := os.Stat(revisionFilePath(entry.Path, 1)); err != nil {
 		t.Fatalf("version 1 must exist before the simulated outside removal: %v", err)
 	}
 	// What removing a file and its row outside Trellis leaves behind: the
 	// revision directory survives on its own.
-	if err := os.Remove(doc.Path); err != nil {
+	if err := os.Remove(entry.Path); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.db.Exec(`DELETE FROM entry WHERE id = ?`, doc.ID); err != nil {
+	if _, err := c.db.Exec(`DELETE FROM entry WHERE id = ?`, entry.ID); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Old", Body: "brand new body\n"}); !isCode(err, "stale_history") {
+	if _, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Old", Body: "brand new body\n"}); !isCode(err, "stale_history") {
 		t.Fatalf("err = %v, want stale_history", err)
 	}
 	// The refusal must not have written anything either.
-	if _, err := os.Stat(doc.Path); !os.IsNotExist(err) {
+	if _, err := os.Stat(entry.Path); !os.IsNotExist(err) {
 		t.Errorf("CreateKnowledge left a file behind despite refusing: %v", err)
 	}
 }
@@ -683,15 +683,15 @@ func TestCreateKnowledgeRefusesAStaleRevisionDirectory(t *testing.T) {
 // here: an empty template is a meaningful value, "none", not "unknown, keep
 // the old one".
 func TestRemovingTemplateByHandClearsTheRow(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Plan", Template: "runbook"})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Plan", Template: "runbook"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if doc.Template != "runbook" {
-		t.Fatalf("Template = %q, want runbook", doc.Template)
+	if entry.Template != "runbook" {
+		t.Fatalf("Template = %q, want runbook", entry.Template)
 	}
-	raw, err := os.ReadFile(doc.Path)
+	raw, err := os.ReadFile(entry.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -700,11 +700,11 @@ func TestRemovingTemplateByHandClearsTheRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	fm.Template = ""
-	if err := os.WriteFile(doc.Path, []byte(RenderDoc(fm, body)), 0o600); err != nil {
+	if err := os.WriteFile(entry.Path, []byte(RenderEntry(fm, body)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
@@ -713,46 +713,46 @@ func TestRemovingTemplateByHandClearsTheRow(t *testing.T) {
 	}
 }
 
-func TestKnowledgeFieldsFromSet(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+func TestEntryFieldsFromSet(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Test entry",
 		Set:   map[string]string{"owner": "alice", "severity": "high"},
 	})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if doc.Fields == nil {
+	if entry.Fields == nil {
 		t.Error("Fields should be non-nil")
 	}
-	if doc.Fields["owner"] != "alice" {
-		t.Errorf("Fields[owner] = %v, want alice", doc.Fields["owner"])
+	if entry.Fields["owner"] != "alice" {
+		t.Errorf("Fields[owner] = %v, want alice", entry.Fields["owner"])
 	}
-	if doc.Fields["severity"] != "high" {
-		t.Errorf("Fields[severity] = %v, want high", doc.Fields["severity"])
+	if entry.Fields["severity"] != "high" {
+		t.Errorf("Fields[severity] = %v, want high", entry.Fields["severity"])
 	}
 }
 
-func TestKnowledgeFieldsEmpty(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+func TestEntryFieldsEmpty(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Plain entry",
 	})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if doc.Fields == nil {
+	if entry.Fields == nil {
 		t.Error("Fields should be non-nil even when empty")
 	}
-	if len(doc.Fields) != 0 {
-		t.Errorf("Fields = %v, want empty map", doc.Fields)
+	if len(entry.Fields) != 0 {
+		t.Errorf("Fields = %v, want empty map", entry.Fields)
 	}
 }
 
-func TestKnowledgeFieldsFromYAMLList(t *testing.T) {
-	c, p, _ := kbCore(t)
+func TestEntryFieldsFromYAMLList(t *testing.T) {
+	c, p, _ := vaultCore(t)
 	// Create a knowledge entry, then modify the file to add a YAML list field
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Team members",
 	})
 	if err != nil {
@@ -767,16 +767,16 @@ func TestKnowledgeFieldsFromYAMLList(t *testing.T) {
 		},
 	}
 	body := "# Team members\n\nThis is our team.\n"
-	raw := RenderDoc(fm, body)
-	if err := os.WriteFile(doc.Path, []byte(raw), 0o600); err != nil {
+	raw := RenderEntry(fm, body)
+	if err := os.WriteFile(entry.Path, []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// Make the change visible to a stat-based check
 	past := time.Unix(0, 0)
-	_ = os.Chtimes(doc.Path, past, past)
+	_ = os.Chtimes(entry.Path, past, past)
 
 	// Load it and check Fields
-	loaded, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	loaded, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}

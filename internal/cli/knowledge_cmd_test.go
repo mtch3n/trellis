@@ -50,8 +50,8 @@ func TestKnowledgeNewPrivateFlag(t *testing.T) {
 
 // The renderer is tested directly: Emit picks JSON when stdout is captured, so
 // asserting the marker through the command would assert nothing.
-func TestRenderKnowledgeListMarksPrivate(t *testing.T) {
-	got := renderKnowledgeList([]core.Knowledge{
+func TestRenderEntryListMarksPrivate(t *testing.T) {
+	got := renderEntryList([]core.Entry{
 		{Slug: "staging-credentials", Template: "reference", Title: "Staging credentials", Private: true},
 		{Slug: "recall-ranking", Template: "decision", Title: "Recall ranking"},
 	})
@@ -80,13 +80,13 @@ func TestRenderKnowledgeListMarksPrivate(t *testing.T) {
 func newEntry(t *testing.T, args ...string) string {
 	t.Helper()
 	out := runCmd(t, append([]string{"knowledge", "new", "--json"}, args...)...)
-	var doc struct {
+	var entry struct {
 		Path string `json:"path"`
 	}
-	if err := json.Unmarshal([]byte(out), &doc); err != nil || doc.Path == "" {
-		t.Fatalf("knowledge new output %q: path %q, err %v", out, doc.Path, err)
+	if err := json.Unmarshal([]byte(out), &entry); err != nil || entry.Path == "" {
+		t.Fatalf("knowledge new output %q: path %q, err %v", out, entry.Path, err)
 	}
-	return doc.Path
+	return entry.Path
 }
 
 // markPrivateByHand sets the flag the way an author with an editor would,
@@ -209,13 +209,13 @@ func TestKnowledgeLsDisclosesNoContent(t *testing.T) {
 			}
 
 			var listing struct {
-				Knowledge []map[string]any `json:"knowledge"`
+				Entries []map[string]any `json:"knowledge"`
 			}
 			if err := json.Unmarshal([]byte(out), &listing); err != nil {
 				t.Fatalf("decode %q: %v", out, err)
 			}
 			entries := map[string]map[string]any{}
-			for _, e := range listing.Knowledge {
+			for _, e := range listing.Entries {
 				slug, _ := e["slug"].(string)
 				entries[slug] = e
 				if _, ok := e["body"]; ok {
@@ -276,15 +276,15 @@ func TestKnowledgeFieldsInJSON(t *testing.T) {
 	out := runCmd(t, "knowledge", "new", "--title", "Public entry",
 		"--set", "owner=alice", "--set", "severity=high", "--json")
 
-	var doc core.Knowledge
-	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+	var entry core.Entry
+	if err := json.Unmarshal([]byte(out), &entry); err != nil {
 		t.Fatalf("json.Unmarshal: %v\n%s", err, out)
 	}
-	if doc.Fields == nil {
+	if entry.Fields == nil {
 		t.Error("Fields should be non-nil")
 	}
-	if doc.Fields["owner"] != "alice" {
-		t.Errorf("Fields[owner] = %v, want alice", doc.Fields["owner"])
+	if entry.Fields["owner"] != "alice" {
+		t.Errorf("Fields[owner] = %v, want alice", entry.Fields["owner"])
 	}
 }
 
@@ -298,20 +298,20 @@ func TestKnowledgeFieldsPrivateListJSON(t *testing.T) {
 	// List entries with JSON output
 	out := runCmd(t, "knowledge", "ls", "--json")
 
-	var result map[string][]core.Knowledge
+	var result map[string][]core.Entry
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
 		t.Fatalf("json.Unmarshal: %v\n%s", err, out)
 	}
 
-	docs, ok := result["knowledge"]
+	entries, ok := result["knowledge"]
 	if !ok {
 		t.Fatalf("response missing 'knowledge' key: %s", out)
 	}
 
-	var secret core.Knowledge
-	for _, doc := range docs {
-		if doc.Title == "Secret entry" {
-			secret = doc
+	var secret core.Entry
+	for _, entry := range entries {
+		if entry.Title == "Secret entry" {
+			secret = entry
 			break
 		}
 	}

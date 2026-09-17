@@ -136,7 +136,7 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 	if len(terms) == 0 {
 		return []RecallHit{}, nil
 	}
-	if err := c.SyncKnowledgeSearch(ctx); err != nil {
+	if err := c.SyncEntrySearch(ctx); err != nil {
 		return nil, err
 	}
 	quoted := make([]string, 0, len(terms))
@@ -155,14 +155,14 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 		provClause, provArgs := inClause("k.provenance", o.Provenances)
 		narrowed := typeClause != "" || provClause != ""
 
-		docArgs := append([]any{projectID}, typeArgs...)
-		docArgs = append(docArgs, provArgs...)
-		docArgs = append(docArgs, match, fetch)
+		entryArgs := append([]any{projectID}, typeArgs...)
+		entryArgs = append(entryArgs, provArgs...)
+		entryArgs = append(entryArgs, match, fetch)
 
-		var docs []RecallHit
-		if err := tx.Select(&docs, `
+		var entries []RecallHit
+		if err := tx.Select(&entries, `
 			SELECT 'knowledge' AS kind, k.id,
-			       `+docAddressSQL+` AS ref,
+			       `+entryAddressSQL+` AS ref,
 			       k.title,
 			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
 			       k.template AS detail,
@@ -172,7 +172,7 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 			JOIN project p ON p.id = k.project_id
 			WHERE (k.project_id = ? OR k.global = 1)`+typeClause+provClause+`
 			  AND entry_fts MATCH ?
-			ORDER BY entry_fts.rank LIMIT ?`, docArgs...); err != nil {
+			ORDER BY entry_fts.rank LIMIT ?`, entryArgs...); err != nil {
 			return err
 		}
 		var cards []RecallHit
@@ -190,11 +190,11 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 			}
 		}
 
-		boost, err := recallLinkBoosts(tx, docs, cards)
+		boost, err := recallLinkBoosts(tx, entries, cards)
 		if err != nil {
 			return err
 		}
-		rankRecall(docs, boost)
+		rankRecall(entries, boost)
 		rankRecall(cards, boost)
 
 		// Knowledge outranks cards: recall exists to surface what was written
@@ -203,7 +203,7 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 		// below, which is how recording silently stopped whenever the limit
 		// was actually reached.
 	fill:
-		for _, group := range [][]RecallHit{docs, cards} {
+		for _, group := range [][]RecallHit{entries, cards} {
 			for _, h := range group {
 				if len(hits) == o.Limit {
 					break fill

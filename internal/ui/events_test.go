@@ -34,13 +34,13 @@ func TestProjectEventsComeFromTheFeed(t *testing.T) {
 	if _, err := c.CreateCard(ctx, p.ID, b.ID, core.NewCard{Title: "Ship it"}); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := c.CreateKnowledge(ctx, p.ID, core.NewKnowledge{
+	entry, err := c.CreateEntry(ctx, p.ID, core.NewEntry{
 		Title: "Cache stampede", Template: "finding", Sources: []string{"https://example.com/incident"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.ReadKnowledge(ctx, p.ID, doc.Slug); err != nil {
+	if _, err := c.ReadEntry(ctx, p.ID, entry.Slug); err != nil {
 		t.Fatal(err)
 	}
 
@@ -72,7 +72,7 @@ func TestProjectEventsComeFromTheFeed(t *testing.T) {
 		}
 		if ev.Kind == "entry" && ev.Action == "created" {
 			sawFinding = true
-			if ev.Template != "finding" || ev.Title != "Cache stampede" || ev.Ref != doc.Ref {
+			if ev.Template != "finding" || ev.Title != "Cache stampede" || ev.Ref != entry.Ref {
 				t.Errorf("knowledge event = %+v, want template, title and ref", ev)
 			}
 		}

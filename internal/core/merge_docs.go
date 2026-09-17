@@ -11,7 +11,7 @@ import (
 	"github.com/mtch3n/trellis/internal/address"
 )
 
-type docRow struct {
+type entryRow struct {
 	ID     string `db:"id"`
 	Slug   string `db:"slug"`
 	Global bool   `db:"global"`
@@ -20,20 +20,20 @@ type docRow struct {
 	Path string `db:"-"`
 }
 
-// docMove is what happens to one SRC document: it moves under slug, or, when
+// entryMove is what happens to one SRC document: it moves under slug, or, when
 // into is set, it collapses into DST's identical entry.
-type docMove struct {
-	doc        docRow
+type entryMove struct {
+	entry      entryRow
 	slug       string
 	into       string
 	intoGlobal bool
 }
 
-// planDocs decides every SRC document's fate before anything changes.
+// planEntries decides every SRC document's fate before anything changes.
 // Identical bytes under one slug collapse; different content is a conflict,
 // renamed only on request and never for a vault entry.
-func (m *merger) planDocs() error {
-	var src, dst []docRow
+func (m *merger) planEntries() error {
+	var src, dst []entryRow
 	if err := m.tx.Select(&src,
 		`SELECT id, slug, global FROM entry WHERE project_id = ? ORDER BY slug`, m.src.ID); err != nil {
 		return err
@@ -43,23 +43,23 @@ func (m *merger) planDocs() error {
 		return err
 	}
 	for i := range src {
-		src[i].Path = m.c.docPath(m.src.Key, src[i].Global, src[i].Slug)
+		src[i].Path = m.c.entryPath(m.src.Key, src[i].Global, src[i].Slug)
 	}
 	for i := range dst {
-		dst[i].Path = m.c.docPath(m.dst.Key, dst[i].Global, dst[i].Slug)
+		dst[i].Path = m.c.entryPath(m.dst.Key, dst[i].Global, dst[i].Slug)
 	}
-	bySlug, taken := map[string]docRow{}, map[string]bool{}
-	for _, d := range dst {
-		bySlug[d.Slug], taken[d.Slug] = d, true
+	bySlug, taken := map[string]entryRow{}, map[string]bool{}
+	for _, e := range dst {
+		bySlug[e.Slug], taken[e.Slug] = e, true
 	}
 	for _, s := range src {
 		taken[s.Slug] = true
 	}
-	out := &m.plan.Knowledge
+	out := &m.plan.Entries
 	// movable reports whether s can move under slug, recording a conflict
 	// when its file is gone or an untracked file already holds the
 	// destination. The plan must see what the apply would trip over.
-	movable := func(s docRow, slug string) bool {
+	movable := func(s entryRow, slug string) bool {
 		if _, err := os.Lstat(s.Path); err != nil {
 			out.Conflicts = append(out.Conflicts, MergeConflict{Name: s.Slug, Reason: "its file is missing: " + s.Path})
 			return false
@@ -67,7 +67,7 @@ func (m *merger) planDocs() error {
 		if s.Global {
 			return true
 		}
-		dest := m.c.docPath(m.dst.Key, false, slug)
+		dest := m.c.entryPath(m.dst.Key, false, slug)
 		if _, err := os.Lstat(dest); err == nil {
 			out.Conflicts = append(out.Conflicts, MergeConflict{Name: s.Slug, Reason: "a file with no entry is already at " + dest})
 			return false
@@ -75,11 +75,11 @@ func (m *merger) planDocs() error {
 		return true
 	}
 	for _, s := range src {
-		m.docPath[s.ID], m.origPath[s.ID], m.fromSrc[s.ID] = s.Path, s.Path, true
-		d, clash := bySlug[s.Slug]
+		m.entryPath[s.ID], m.origPath[s.ID], m.fromSrc[s.ID] = s.Path, s.Path, true
+		e, clash := bySlug[s.Slug]
 		if !clash {
 			if movable(s, s.Slug) {
-				m.docMoves = append(m.docMoves, docMove{doc: s, slug: s.Slug})
+				m.entryMoves = append(m.entryMoves, entryMove{entry: s, slug: s.Slug})
 			}
 			continue
 		}
@@ -87,13 +87,13 @@ func (m *merger) planDocs() error {
 		if err != nil {
 			return err
 		}
-		dstHash, err := fileHash(d.Path)
+		dstHash, err := fileHash(e.Path)
 		if err != nil {
 			return err
 		}
 		switch {
 		case srcHash == dstHash && !s.Global:
-			m.docMoves = append(m.docMoves, docMove{doc: s, slug: s.Slug, into: d.ID, intoGlobal: d.Global})
+			m.entryMoves = append(m.entryMoves, entryMove{entry: s, slug: s.Slug, into: e.ID, intoGlobal: e.Global})
 			out.Collapsed = append(out.Collapsed, s.Slug)
 		case s.Global || !m.opts.RenameConflicts:
 			out.Conflicts = append(out.Conflicts,
@@ -102,7 +102,7 @@ func (m *merger) planDocs() error {
 			slug := freeName(s.Slug+"-"+Slugify(m.src.Key), taken)
 			taken[slug] = true
 			if movable(s, slug) {
-				m.docMoves = append(m.docMoves, docMove{doc: s, slug: slug})
+				m.entryMoves = append(m.entryMoves, entryMove{entry: s, slug: slug})
 				out.Renamed = append(out.Renamed, Rename{From: s.Slug, To: slug})
 			}
 		}
@@ -110,41 +110,41 @@ func (m *merger) planDocs() error {
 	return nil
 }
 
-// moveDocs carries out planDocs. A project entry's file moves into DST's
+// moveEntries carries out planDocs. A project entry's file moves into DST's
 // vault directory; a vault entry stays where it is and only changes origin.
-func (m *merger) moveDocs() error {
-	for _, mv := range m.docMoves {
-		d := mv.doc
-		old := DocAddress(m.src.Key, d.Global, d.Slug)
+func (m *merger) moveEntries() error {
+	for _, mv := range m.entryMoves {
+		e := mv.entry
+		old := EntryAddress(m.src.Key, e.Global, e.Slug)
 		if mv.into != "" {
-			if err := m.collapseDoc(d, mv.into); err != nil {
+			if err := m.collapseEntry(e, mv.into); err != nil {
 				return err
 			}
-			m.addr[old] = DocAddress(m.dst.Key, mv.intoGlobal, mv.slug)
+			m.addr[old] = EntryAddress(m.dst.Key, mv.intoGlobal, mv.slug)
 			continue
 		}
-		path := d.Path
-		if !d.Global {
-			path = m.c.docPath(m.dst.Key, false, mv.slug)
+		path := e.Path
+		if !e.Global {
+			path = m.c.entryPath(m.dst.Key, false, mv.slug)
 		}
 		if _, err := m.tx.Exec(`UPDATE entry SET project_id = ?, slug = ? WHERE id = ?`,
-			m.dst.ID, mv.slug, d.ID); err != nil {
+			m.dst.ID, mv.slug, e.ID); err != nil {
 			return err
 		}
-		if path != d.Path {
+		if path != e.Path {
 			// The entry's revisions move with it, one file at a time, so the
 			// backup holds each and a failure puts each back.
-			revs, err := revisionFiles(d.Path)
+			revs, err := revisionFiles(e.Path)
 			if err != nil {
 				return err
 			}
-			for _, f := range append([]string{d.Path}, revs...) {
+			for _, f := range append([]string{e.Path}, revs...) {
 				if err := m.touch(f); err != nil {
 					return err
 				}
 			}
 			if m.apply {
-				if err := m.stage.move(d.Path, path); err != nil {
+				if err := m.stage.move(e.Path, path); err != nil {
 					return err
 				}
 				for _, f := range revs {
@@ -152,24 +152,24 @@ func (m *merger) moveDocs() error {
 						return err
 					}
 				}
-				m.docPath[d.ID] = path
+				m.entryPath[e.ID] = path
 			}
 		}
-		if !d.Global {
-			m.addr[old] = DocAddress(m.dst.Key, false, mv.slug)
+		if !e.Global {
+			m.addr[old] = EntryAddress(m.dst.Key, false, mv.slug)
 		}
-		if mv.slug != d.Slug {
-			m.renamed[d.Slug] = mv.slug
+		if mv.slug != e.Slug {
+			m.renamed[e.Slug] = mv.slug
 		}
-		m.plan.Knowledge.Moved++
+		m.plan.Entries.Moved++
 	}
 	return nil
 }
 
-// collapseDoc folds a SRC entry into DST's identical one: whatever pointed at
+// collapseEntry folds a SRC entry into DST's identical one: whatever pointed at
 // SRC's row now points at DST's. SRC's file stays in SRC's directory, which
 // is kept with the backup after the commit.
-func (m *merger) collapseDoc(d docRow, into string) error {
+func (m *merger) collapseEntry(e entryRow, into string) error {
 	// One actor's two nominations cannot both survive the unique key: keep
 	// DST's row and append SRC's reason to it, so no evidence is lost.
 	if _, err := m.tx.Exec(
@@ -177,7 +177,7 @@ func (m *merger) collapseDoc(d docRow, into string) error {
 		 SET reason = dn.reason || char(10) || sn.reason, created_at = min(dn.created_at, sn.created_at)
 		 FROM nomination AS sn
 		 WHERE sn.entry_id = ? AND dn.entry_id = ? AND dn.actor = sn.actor AND dn.reason <> sn.reason`,
-		d.ID, into); err != nil {
+		e.ID, into); err != nil {
 		return err
 	}
 	for _, q := range []string{
@@ -185,7 +185,7 @@ func (m *merger) collapseDoc(d docRow, into string) error {
 		`UPDATE OR IGNORE pin SET entry_id = ? WHERE entry_id = ?`,
 		`UPDATE OR IGNORE nomination SET entry_id = ? WHERE entry_id = ?`,
 	} {
-		if _, err := m.tx.Exec(q, into, d.ID); err != nil {
+		if _, err := m.tx.Exec(q, into, e.ID); err != nil {
 			return err
 		}
 	}
@@ -193,16 +193,16 @@ func (m *merger) collapseDoc(d docRow, into string) error {
 	// must run before that row is gone -- otherwise the event lands with a
 	// NULL project_id, which retire()'s later re-homing (WHERE project_id =
 	// src) does not match either, and it never reaches SRC's or DST's feed.
-	if err := m.c.recordEvent(m.tx, "entry", d.ID, "collapsed", "into", "", into); err != nil {
+	if err := m.c.recordEvent(m.tx, "entry", e.ID, "collapsed", "into", "", into); err != nil {
 		return err
 	}
-	if _, err := m.tx.Exec(`DELETE FROM link WHERE from_type = 'entry' AND from_id = ?`, d.ID); err != nil {
+	if _, err := m.tx.Exec(`DELETE FROM link WHERE from_type = 'entry' AND from_id = ?`, e.ID); err != nil {
 		return err
 	}
-	if _, err := m.tx.Exec(`DELETE FROM entry WHERE id = ?`, d.ID); err != nil {
+	if _, err := m.tx.Exec(`DELETE FROM entry WHERE id = ?`, e.ID); err != nil {
 		return err
 	}
-	delete(m.fromSrc, d.ID)
+	delete(m.fromSrc, e.ID)
 	return nil
 }
 
@@ -212,7 +212,7 @@ func (m *merger) collapseDoc(d docRow, into string) error {
 func (m *merger) references() error {
 	// A SRC with no entries still has artifacts and cards that sources:
 	// items cite, so the scan runs whatever SRC holds.
-	ids, err := m.docsCiting(m.src.Key)
+	ids, err := m.entriesCiting(m.src.Key)
 	if err != nil {
 		return err
 	}
@@ -223,7 +223,7 @@ func (m *merger) references() error {
 	}
 	slices.Sort(ids)
 	for _, id := range slices.Compact(ids) {
-		if err := m.rewriteDoc(id); err != nil {
+		if err := m.rewriteEntry(id); err != nil {
 			return err
 		}
 	}
@@ -233,27 +233,27 @@ func (m *merger) references() error {
 	return m.resolveStubs()
 }
 
-// docsCiting lists every document whose file, as it is on disk now, holds a
+// entriesCiting lists every document whose file, as it is on disk now, holds a
 // wikilink into project key, or a sources: address under it. The files are
 // the source of truth; link rows lag behind an edit made outside Trellis
 // until that document is next read, and sources: addresses have no row at
 // all.
-func (m *merger) docsCiting(key string) ([]string, error) {
-	var docs []struct {
+func (m *merger) entriesCiting(key string) ([]string, error) {
+	var entries []struct {
 		ID     string `db:"id"`
 		Slug   string `db:"slug"`
 		Global bool   `db:"global"`
 		Key    string `db:"pkey"`
 	}
-	if err := m.tx.Select(&docs,
+	if err := m.tx.Select(&entries,
 		`SELECT k.id, k.slug, k.global, p.key AS pkey FROM entry k
 		 JOIN project p ON p.id = k.project_id ORDER BY k.id`); err != nil {
 		return nil, err
 	}
 	var ids []string
-	for _, d := range docs {
-		path := m.c.docPath(d.Key, d.Global, d.Slug)
-		if p, ok := m.docPath[d.ID]; ok {
+	for _, d := range entries {
+		path := m.c.entryPath(d.Key, d.Global, d.Slug)
+		if p, ok := m.entryPath[d.ID]; ok {
 			path = p
 		}
 		raw, err := os.ReadFile(path)
@@ -297,7 +297,7 @@ func (m *merger) rewriteSourceAddress(raw string) (string, bool) {
 	}
 	switch p.Collection {
 	case address.CollectionVault:
-		to, ok := m.addr[DocAddress(m.src.Key, false, p.Name)]
+		to, ok := m.addr[EntryAddress(m.src.Key, false, p.Name)]
 		if !ok {
 			return "", false
 		}
@@ -320,7 +320,7 @@ func (m *merger) rewriteSourceAddress(raw string) (string, bool) {
 // whatever the wikilink and artifact-name rewrites already applied to this
 // pass.
 func (m *merger) rewriteSources(path, text string) (string, error) {
-	fm, body, err := splitDocFile(path, []byte(text))
+	fm, body, err := splitEntryFile(path, []byte(text))
 	if err != nil {
 		return "", err
 	}
@@ -334,12 +334,12 @@ func (m *merger) rewriteSources(path, text string) (string, error) {
 	if !changed {
 		return text, nil
 	}
-	return RenderDoc(fm, body), nil
+	return RenderEntry(fm, body), nil
 }
 
-// rewriteDoc rewrites one document's links through RewriteWikilinks, then
+// rewriteEntry rewrites one document's links through RewriteWikilinks, then
 // reloads its row so the link table follows the new text.
-func (m *merger) rewriteDoc(id string) error {
+func (m *merger) rewriteEntry(id string) error {
 	var d struct {
 		Key    string `db:"key"`
 		Slug   string `db:"slug"`
@@ -350,9 +350,9 @@ func (m *merger) rewriteDoc(id string) error {
 		 WHERE k.id = ?`, id); err != nil {
 		return err
 	}
-	docPath := m.c.docPath(d.Key, d.Global, d.Slug)
-	current, original := docPath, docPath
-	if p, ok := m.docPath[id]; ok {
+	entryPath := m.c.entryPath(d.Key, d.Global, d.Slug)
+	current, original := entryPath, entryPath
+	if p, ok := m.entryPath[id]; ok {
 		current, original = p, m.origPath[id]
 	}
 	raw, err := os.ReadFile(current)
@@ -367,7 +367,7 @@ func (m *merger) rewriteDoc(id string) error {
 		}
 		switch {
 		case ref.ProjectKey == m.src.Key:
-			to, ok := m.addr[DocAddress(m.src.Key, false, ref.Slug)]
+			to, ok := m.addr[EntryAddress(m.src.Key, false, ref.Slug)]
 			return to + anchor, ok
 		case ref.ProjectKey == "" && fromSrc:
 			to, ok := m.renamed[ref.Slug]
@@ -389,7 +389,7 @@ func (m *merger) rewriteDoc(id string) error {
 	if text == string(raw) {
 		return nil
 	}
-	m.plan.DocumentsRewritten = append(m.plan.DocumentsRewritten, DocAddress(d.Key, d.Global, d.Slug))
+	m.plan.EntriesRewritten = append(m.plan.EntriesRewritten, EntryAddress(d.Key, d.Global, d.Slug))
 	if err := m.touch(original); err != nil {
 		return err
 	}
@@ -398,14 +398,14 @@ func (m *merger) rewriteDoc(id string) error {
 	}
 	// A rewrite is a Trellis write: the text it replaces is kept as a
 	// revision, like any edit's.
-	var doc Knowledge
-	if err := m.tx.Get(&doc, `SELECT * FROM entry WHERE id = ?`, id); err != nil {
+	var entry Entry
+	if err := m.tx.Get(&entry, `SELECT * FROM entry WHERE id = ?`, id); err != nil {
 		return err
 	}
-	if err := m.c.refreshFromFile(m.tx, &doc); err != nil {
+	if err := m.c.refreshFromFile(m.tx, &entry); err != nil {
 		return err
 	}
-	rev, keep, err := m.c.revisionToKeep(current, doc.Version, raw)
+	rev, keep, err := m.c.revisionToKeep(current, entry.Version, raw)
 	if err != nil {
 		return err
 	}
@@ -420,7 +420,7 @@ func (m *merger) rewriteDoc(id string) error {
 	// Staging that file here first, under the version refreshFromFile is
 	// about to assign, makes its own capture a no-op (revisionToKeep skips a
 	// destination that already exists) and keeps the write inside the undo.
-	nextRev, nextKeep, err := m.c.revisionToKeep(current, doc.Version+1, []byte(text))
+	nextRev, nextKeep, err := m.c.revisionToKeep(current, entry.Version+1, []byte(text))
 	if err != nil {
 		return err
 	}
@@ -432,7 +432,7 @@ func (m *merger) rewriteDoc(id string) error {
 	if err := m.stage.rewrite(current, []byte(text)); err != nil {
 		return err
 	}
-	return m.c.refreshFromFile(m.tx, &doc)
+	return m.c.refreshFromFile(m.tx, &entry)
 }
 
 // rewriteCardTargets updates `trellis link` targets that named a SRC document
@@ -450,7 +450,7 @@ func (m *merger) rewriteCardTargets(prefix string) error {
 	}
 	for _, l := range links {
 		ref := ParseReference(l.ToRaw)
-		to, ok := m.addr[DocAddress(m.src.Key, false, ref.Slug)]
+		to, ok := m.addr[EntryAddress(m.src.Key, false, ref.Slug)]
 		if ref.ProjectKey != m.src.Key || !ok {
 			continue
 		}
@@ -493,7 +493,7 @@ func (m *merger) resolveStubs() error {
 		return err
 	}
 	for _, s := range stubs {
-		toID, err := m.c.resolveDocRef(m.tx, s.ProjectID, ParseReference(s.ToRaw))
+		toID, err := m.c.resolveEntryRef(m.tx, s.ProjectID, ParseReference(s.ToRaw))
 		if err != nil {
 			return err
 		}

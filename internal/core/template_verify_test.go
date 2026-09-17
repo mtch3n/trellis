@@ -20,11 +20,11 @@ func writeCustomTemplate(t *testing.T, c *Core, name, raw string) {
 }
 
 func TestVerifyRejectsWhenSourcesIsMissing(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "cited",
 		"---\nenforce: reject\nrequired: [sources]\nresolve: [sources]\n---\n# {{title}}\n")
 
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Claim", Template: "cited"})
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Claim", Template: "cited"})
 	e, ok := errors.AsType[*Error](err)
 	if !ok || e.Code != "template_violation" || !strings.Contains(strings.Join(e.Problems, "\n"), "sources") {
 		t.Fatalf("err = %v, want template_violation naming sources", err)
@@ -32,10 +32,10 @@ func TestVerifyRejectsWhenSourcesIsMissing(t *testing.T) {
 }
 
 func TestVerifyRejectsAnUnresolvedCardAddress(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Claim", Template: "cited", Sources: []string{"/XPSCTL/cards/XPSCTL-999"},
 	})
 	e, ok := errors.AsType[*Error](err)
@@ -45,10 +45,10 @@ func TestVerifyRejectsAnUnresolvedCardAddress(t *testing.T) {
 }
 
 func TestVerifyRejectsAnUnresolvedWikilink(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Claim", Template: "cited", Sources: []string{"[[missing]]"},
 	})
 	e, ok := errors.AsType[*Error](err)
@@ -58,10 +58,10 @@ func TestVerifyRejectsAnUnresolvedWikilink(t *testing.T) {
 }
 
 func TestVerifyAcceptsAURLAndProse(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Claim", Template: "cited",
 		Sources: []string{"https://example.com/paper", "discussed in standup on Tuesday"},
 	})
@@ -71,19 +71,19 @@ func TestVerifyAcceptsAURLAndProse(t *testing.T) {
 }
 
 func TestVerifyAcceptsAResolvedCardEntryAndArtifact(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "Evidence"})
 	if err != nil {
 		t.Fatalf("CreateCard: %v", err)
 	}
-	entry, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Referenced entry"})
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Referenced entry"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
 	art := addArtifact(t, c, p.ID, "evidence.png", "\x89PNG\r\n\x1a\nx")
 
-	_, err = c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	_, err = c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Claim", Template: "cited",
 		Sources: []string{
 			"/XPSCTL/cards/" + card.Ref,
@@ -97,10 +97,10 @@ func TestVerifyAcceptsAResolvedCardEntryAndArtifact(t *testing.T) {
 }
 
 func TestVerifyBodyRejectsADanglingLink(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "linked", "---\nenforce: reject\nresolve: [body]\n---\n# {{title}}\n")
 
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Claim", Template: "linked", Body: "# Claim\n\nSee [[missing]].\n",
 	})
 	e, ok := errors.AsType[*Error](err)
@@ -110,15 +110,15 @@ func TestVerifyBodyRejectsADanglingLink(t *testing.T) {
 }
 
 func TestNoteTemplateStillAcceptsADanglingBodyLink(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Notes", Body: "# Notes\n\nSee [[not-written-yet]].\n",
 	})
 	if err != nil {
 		t.Fatalf("a template with no verify rule must not block a dangling link: %v", err)
 	}
-	if doc.Slug != "notes" {
-		t.Errorf("slug = %q", doc.Slug)
+	if entry.Slug != "notes" {
+		t.Errorf("slug = %q", entry.Slug)
 	}
 }
 
@@ -126,10 +126,10 @@ func TestNoteTemplateStillAcceptsADanglingBodyLink(t *testing.T) {
 // has the address shape /<key>/(cards|vault|artifacts)/<rest>. Anything
 // else that merely starts with "/" is external and passes unchecked.
 func TestVerifyAcceptsAFilesystemPathSource(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Claim", Template: "cited", Sources: []string{"/usr/share/doc/x.txt:10"},
 	})
 	if err != nil {
@@ -142,10 +142,10 @@ func TestVerifyAcceptsAFilesystemPathSource(t *testing.T) {
 // check only decides whether to bother resolving at all, not whether the
 // address is well-formed.
 func TestVerifyRejectsAnAddressShapedButMalformedSource(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Claim", Template: "cited", Sources: []string{"/XPSCTL/cards/not-a-ref"},
 	})
 	e, ok := errors.AsType[*Error](err)
@@ -160,7 +160,7 @@ func TestVerifyRejectsAnAddressShapedButMalformedSource(t *testing.T) {
 // a card at the same seq. card.ref is unique; match on it the way loadCard
 // already does for a qualified reference.
 func TestVerifyRejectsACardAddressWhoseRefPrefixDoesNotMatch(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
 	var fifth Card
 	for i := 1; i <= 5; i++ {
@@ -174,7 +174,7 @@ func TestVerifyRejectsACardAddressWhoseRefPrefixDoesNotMatch(t *testing.T) {
 		t.Fatalf("ref = %q, want %s-5", fifth.Ref, p.Key)
 	}
 
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Claim", Template: "cited", Sources: []string{"/" + p.Key + "/cards/OTHER-5"},
 	})
 	e, ok := errors.AsType[*Error](err)
@@ -188,9 +188,9 @@ func TestVerifyRejectsACardAddressWhoseRefPrefixDoesNotMatch(t *testing.T) {
 // exactly that row -- an entry's old project address becomes a stub, not a
 // hit, once it lives in the global vault instead.
 func TestVerifyRejectsAnEscalatedEntrysOldProjectAddress(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nresolve: [sources]\n---\n# {{title}}\n")
-	target, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Shared"})
+	target, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Shared"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestVerifyRejectsAnEscalatedEntrysOldProjectAddress(t *testing.T) {
 		t.Fatalf("EscalateKnowledge: %v", err)
 	}
 
-	_, err = c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	_, err = c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Claim", Template: "cited", Sources: []string{"/" + p.Key + "/vault/" + target.Slug},
 	})
 	e, ok := errors.AsType[*Error](err)
@@ -213,13 +213,13 @@ func TestVerifyRejectsAnEscalatedEntrysOldProjectAddress(t *testing.T) {
 // character right before the "/" is neither whitespace, "(", nor the start
 // of the text.
 func TestVerifyBodyIgnoresURLAndRelativePathLookalikes(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	writeCustomTemplate(t, c, "linked", "---\nenforce: reject\nresolve: [body]\n---\n# {{title}}\n")
 
 	body := "# Claim\n\n" +
 		"See https://example.com/foo/cards/bar for the upstream issue.\n" +
 		"Implemented in src/api/cards/handler.go.\n"
-	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+	_, err := c.CreateEntry(t.Context(), p.ID, NewEntry{
 		Title: "Claim", Template: "linked", Body: body,
 	})
 	if err != nil {

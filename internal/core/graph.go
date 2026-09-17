@@ -86,15 +86,15 @@ func (c *Core) Traverse(ctx context.Context, startID string, depth int, rels []s
 				}
 				node.Type, node.Ref, node.Title, node.Done = "card", card.Ref, card.Title, done
 			} else {
-				var doc Knowledge
-				if err := tx.Get(&doc, `SELECT * FROM entry WHERE id = ?`, r.ID); err == nil {
+				var entry Entry
+				if err := tx.Get(&entry, `SELECT * FROM entry WHERE id = ?`, r.ID); err == nil {
 					key := GlobalKey
-					if !doc.Global {
-						if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, doc.ProjectID); err != nil {
+					if !entry.Global {
+						if err := tx.Get(&key, `SELECT key FROM project WHERE id = ?`, entry.ProjectID); err != nil {
 							return err
 						}
 					}
-					node.Type, node.Ref, node.Title = "doc", DocAddress(key, doc.Global, doc.Slug), doc.Title
+					node.Type, node.Ref, node.Title = "doc", EntryAddress(key, entry.Global, entry.Slug), entry.Title
 				} else {
 					var artifact Artifact
 					if err := tx.Get(&artifact, `SELECT * FROM artifact WHERE id = ?`, r.ID); err != nil {

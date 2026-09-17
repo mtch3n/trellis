@@ -350,12 +350,12 @@ func TestMergeCarriesCardRevisionsRelationsAndHistory(t *testing.T) {
 
 func TestMergeFinishesAfterTheCommit(t *testing.T) {
 	f := newMergeFixture(t)
-	f.doc(f.api, "Runbook", "x\n")
+	f.entry(f.api, "Runbook", "x\n")
 	repo := t.TempDir()
 	pinPath := filepath.Join(repo, "api", ".trellis")
 	writeFile(t, pinPath, "/API\n")
 	var notified []string
-	f.c.SetKnowledgeChanged(func(_ context.Context, id string) error {
+	f.c.SetEntryChanged(func(_ context.Context, id string) error {
 		notified = append(notified, id)
 		return nil
 	})
@@ -400,7 +400,7 @@ func TestMergeLeavesAPinThatChanged(t *testing.T) {
 
 func TestMergeReportsAFailedRefresh(t *testing.T) {
 	f := newMergeFixture(t)
-	f.c.SetKnowledgeChanged(func(context.Context, string) error { return errors.New("embedder down") })
+	f.c.SetEntryChanged(func(context.Context, string) error { return errors.New("embedder down") })
 	plan := f.merge(MergeOptions{Apply: true})
 	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "embedder down") {
 		t.Errorf("warnings = %v", plan.Warnings)

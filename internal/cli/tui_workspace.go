@@ -38,13 +38,13 @@ type terminalWorkspace struct {
 	columns                     []core.Column
 	cards                       []core.Card
 	boards                      []core.Board
-	docs                        []core.Knowledge
+	entries                     []core.Entry
 	lists                       []*tview.List
 	laneCards                   [][]core.Card
 	view                        string
 	lane                        int
 	selected                    *core.Card
-	doc                         *core.Knowledge
+	entry                       *core.Entry
 	filter                      string
 	inputMode                   string
 	modal                       bool
@@ -125,7 +125,7 @@ func (w *terminalWorkspace) reload() error {
 	w.boards, w.columns, w.cards = boards, columns, cards.Cards
 	w.header.SetText(fmt.Sprintf(" [::b]TRELLIS[::-]  /  %s  /  %s\n [#9cabb9]Local workspace · %d cards[-]", tuiText(a.Project.Key), tuiText(a.Board.Name), cards.Total))
 	w.sidebar.Clear()
-	w.sidebar.AddItem("Boards", "", '1', func() { w.switchView("board") }).AddItem("Knowledge", "", '2', func() { w.switchView("knowledge") }).AddItem("Activity", "", '3', func() { w.switchView("activity") })
+	w.sidebar.AddItem("Boards", "", '1', func() { w.switchView("board") }).AddItem("Knowledge", "", '2', func() { w.switchView("vault") }).AddItem("Activity", "", '3', func() { w.switchView("activity") })
 	for _, board := range w.boards {
 		label := "  " + board.Name
 		if board.ID == a.Board.ID {
@@ -151,11 +151,11 @@ func (w *terminalWorkspace) switchView(view string) {
 }
 func (w *terminalWorkspace) render() {
 	w.selected = nil
-	w.doc = nil
+	w.entry = nil
 	w.preview.SetText("").ScrollToBeginning()
 	switch w.view {
-	case "knowledge":
-		w.renderKnowledge()
+	case "vault":
+		w.renderVault()
 	case "activity":
 		w.renderActivity()
 	default:
@@ -176,7 +176,7 @@ func (w *terminalWorkspace) layout() {
 		return
 	}
 	switch w.view {
-	case "knowledge":
+	case "vault":
 		if w.width < 90 {
 			w.content.AddItem(w.tree, 0, 1, true)
 		} else {
@@ -269,43 +269,43 @@ func (w *terminalWorkspace) selectCard(index int) {
 	w.preview.SetTitle(" Card · Enter read · e edit · m move · a note ")
 	w.preview.SetText(text).ScrollToBeginning()
 }
-func (w *terminalWorkspace) renderKnowledge() {
+func (w *terminalWorkspace) renderVault() {
 	root := tview.NewTreeNode("Documents").SetColor(tuiAccent)
 	w.tree = tview.NewTreeView().SetRoot(root).SetCurrentNode(root).SetGraphicsColor(tuiMuted)
 	tuiBox(w.tree.Box, "Knowledge")
-	docs, err := w.session.app.Core.ListKnowledge(w.ctx, w.session.app.Project.ID, core.KnowledgeFilter{})
+	entries, err := w.session.app.Core.ListEntries(w.ctx, w.session.app.Project.ID, core.EntryFilter{})
 	if err != nil {
 		w.preview.SetText(tuiText(err.Error()))
 		return
 	}
-	w.docs = docs
-	slices.SortFunc(docs, func(a, b core.Knowledge) int { return strings.Compare(a.Template+"/"+a.Title, b.Template+"/"+b.Title) })
+	w.entries = entries
+	slices.SortFunc(entries, func(a, b core.Entry) int { return strings.Compare(a.Template+"/"+a.Title, b.Template+"/"+b.Title) })
 	groups := map[string]*tview.TreeNode{}
 	var first *tview.TreeNode
-	for _, doc := range docs {
-		if !matchesFilter(w.filter, doc.Title, doc.Slug, doc.BodyMD) {
+	for _, entry := range entries {
+		if !matchesFilter(w.filter, entry.Title, entry.Slug, entry.BodyMD) {
 			continue
 		}
-		group := groups[doc.Template]
+		group := groups[entry.Template]
 		if group == nil {
-			group = tview.NewTreeNode(tuiText(doc.Template)).SetColor(tuiAccent)
-			groups[doc.Template] = group
+			group = tview.NewTreeNode(tuiText(entry.Template)).SetColor(tuiAccent)
+			groups[entry.Template] = group
 			root.AddChild(group)
 		}
-		node := tview.NewTreeNode(tuiText(doc.Title)).SetColor(tuiFG).SetReference(doc)
+		node := tview.NewTreeNode(tuiText(entry.Title)).SetColor(tuiFG).SetReference(entry)
 		group.AddChild(node)
 		if first == nil {
 			first = node
 		}
 	}
 	w.tree.SetChangedFunc(func(node *tview.TreeNode) {
-		if doc, ok := node.GetReference().(core.Knowledge); ok {
-			w.selectDoc(doc)
+		if entry, ok := node.GetReference().(core.Entry); ok {
+			w.selectEntry(entry)
 		}
 	})
 	w.tree.SetSelectedFunc(func(node *tview.TreeNode) {
-		if doc, ok := node.GetReference().(core.Knowledge); ok {
-			w.selectDoc(doc)
+		if entry, ok := node.GetReference().(core.Entry); ok {
+			w.selectEntry(entry)
 			w.reading = true
 			w.layout()
 			w.app.SetFocus(w.preview)
@@ -315,15 +315,15 @@ func (w *terminalWorkspace) renderKnowledge() {
 	})
 	if first != nil {
 		w.tree.SetCurrentNode(first)
-		w.selectDoc(first.GetReference().(core.Knowledge))
+		w.selectEntry(first.GetReference().(core.Entry))
 	} else {
 		w.preview.SetText("\n No matching documents.\n Press n to create a knowledge entry.")
 	}
 }
-func (w *terminalWorkspace) selectDoc(doc core.Knowledge) {
-	w.doc = &doc
-	text := "[::b]" + tuiText(doc.Title) + "[::-]\n[#9cabb9]" + tuiText(doc.Ref) + " · " + tuiText(doc.Template) + "[-]\n\n" + terminalMarkdown(doc.BodyMD)
-	links, err := w.session.app.Core.Backlinks(w.ctx, doc.ID)
+func (w *terminalWorkspace) selectEntry(entry core.Entry) {
+	w.entry = &entry
+	text := "[::b]" + tuiText(entry.Title) + "[::-]\n[#9cabb9]" + tuiText(entry.Ref) + " · " + tuiText(entry.Template) + "[-]\n\n" + terminalMarkdown(entry.BodyMD)
+	links, err := w.session.app.Core.Backlinks(w.ctx, entry.ID)
 	if err != nil {
 		text += "\n\nBacklinks unavailable: " + tuiText(err.Error())
 	} else if len(links) > 0 {
@@ -406,7 +406,7 @@ func terminalMarkdown(body string) string {
 }
 func (w *terminalWorkspace) hints() {
 	text := " Tab panels  / filter  : commands  n new  e edit  m move  ? help  q quit"
-	if w.view == "knowledge" {
+	if w.view == "vault" {
 		text = " Tab panels  / filter  Enter read  e edit  n new  b sidebar  ? help"
 	}
 	if w.reading {
@@ -423,7 +423,7 @@ func (w *terminalWorkspace) hints() {
 func (w *terminalWorkspace) focusContent() {
 	if w.reading || w.view == "activity" {
 		w.app.SetFocus(w.preview)
-	} else if w.view == "knowledge" {
+	} else if w.view == "vault" {
 		w.app.SetFocus(w.tree)
 	} else if len(w.lists) > 0 {
 		w.app.SetFocus(w.lists[w.lane])
@@ -461,7 +461,7 @@ func (w *terminalWorkspace) key(event *tcell.EventKey) *tcell.EventKey {
 		}
 		if w.reading || w.view == "activity" {
 			targets = append(targets, w.preview)
-		} else if w.view == "knowledge" {
+		} else if w.view == "vault" {
 			targets = append(targets, w.tree)
 			if w.width >= 90 {
 				targets = append(targets, w.preview)
@@ -501,7 +501,7 @@ func (w *terminalWorkspace) key(event *tcell.EventKey) *tcell.EventKey {
 		w.switchView("board")
 		return nil
 	case '2':
-		w.switchView("knowledge")
+		w.switchView("vault")
 		return nil
 	case '3':
 		w.switchView("activity")
@@ -648,7 +648,7 @@ func (w *terminalWorkspace) palette() {
 		run          func()
 	}{
 		{"Boards", "Switch to the kanban board", func() { w.switchView("board") }},
-		{"Knowledge", "Browse project documents", func() { w.switchView("knowledge") }},
+		{"Knowledge", "Browse project documents", func() { w.switchView("vault") }},
 		{"Activity", "Recent project events", func() { w.switchView("activity") }},
 		{"New item", "Create a card or document", func() { w.edit(true) }},
 		{"Edit selected", "Edit the selected card or document", func() { w.edit(false) }},
@@ -669,17 +669,17 @@ func (w *terminalWorkspace) edit(create bool) {
 		return
 	}
 	a := w.session.app
-	knowledge := w.view == "knowledge"
-	if !create && ((knowledge && w.doc == nil) || (!knowledge && w.selected == nil)) {
+	vault := w.view == "vault"
+	if !create && ((vault && w.entry == nil) || (!vault && w.selected == nil)) {
 		return
 	}
 	title, body := "", ""
 	var card core.Card
-	var doc core.Knowledge
+	var entry core.Entry
 	if !create {
-		if knowledge {
-			doc = *w.doc
-			title, body = doc.Title, doc.BodyMD
+		if vault {
+			entry = *w.entry
+			title, body = entry.Title, entry.BodyMD
 		} else {
 			card = *w.selected
 			title, body = card.Title, card.BodyMD
@@ -687,18 +687,18 @@ func (w *terminalWorkspace) edit(create bool) {
 	}
 	form := tview.NewForm().SetLabelColor(tuiAccent).SetFieldBackgroundColor(tuiSelected).SetFieldTextColor(tuiFG).SetButtonBackgroundColor(tuiSelected).SetButtonTextColor(tuiFG)
 	tuiBox(form.Box, "Edit · Tab fields · Esc cancel")
-	if create || !knowledge {
+	if create || !vault {
 		form.AddInputField("Title", title, 0, nil, func(v string) { title = v })
 	}
 	form.AddTextArea("Body", body, 0, max(3, min(10, w.height-15)), 0, func(v string) { body = v })
 	errorView := tuiView()
 	form.AddButton("Save", func() {
 		var err error
-		if knowledge {
+		if vault {
 			if create {
-				_, err = a.Core.CreateKnowledge(w.ctx, a.Project.ID, core.NewKnowledge{Title: title, Body: body})
+				_, err = a.Core.CreateEntry(w.ctx, a.Project.ID, core.NewEntry{Title: title, Body: body})
 			} else {
-				_, err = a.Core.EditKnowledge(w.ctx, a.Project.ID, doc.Slug, body, new(doc.Version))
+				_, err = a.Core.EditEntry(w.ctx, a.Project.ID, entry.Slug, body, new(entry.Version))
 			}
 		} else {
 			if create {

@@ -36,7 +36,7 @@ func setArtifactsInFile(t *testing.T, path string, names ...string) {
 		t.Fatal(err)
 	}
 	fm.Artifacts = names
-	if err := os.WriteFile(path, []byte(RenderDoc(fm, body)), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(RenderEntry(fm, body)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -55,24 +55,24 @@ func artifactsInFile(t *testing.T, path string) []string {
 	return fm.Artifacts
 }
 
-func artifactNamesOf(doc Knowledge) []string {
+func artifactNamesOf(entry Entry) []string {
 	names := []string{}
-	for _, r := range doc.Artifacts {
+	for _, r := range entry.Artifacts {
 		names = append(names, r.Name)
 	}
 	return names
 }
 
 func TestEntryArtifactResolves(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	a := addArtifact(t, c, p.ID, "standup.mp3", "ID3 recording")
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Standup"})
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Standup"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	setArtifactsInFile(t, doc.Path, a.Name)
+	setArtifactsInFile(t, entry.Path, a.Name)
 
-	got, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
@@ -86,14 +86,14 @@ func TestEntryArtifactResolves(t *testing.T) {
 }
 
 func TestEntryArtifactThatDoesNotExistIsAStub(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Research"})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Research"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	setArtifactsInFile(t, doc.Path, "not-yet.pdf")
+	setArtifactsInFile(t, entry.Path, "not-yet.pdf")
 
-	got, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
@@ -106,19 +106,19 @@ func TestEntryArtifactThatDoesNotExistIsAStub(t *testing.T) {
 }
 
 func TestRemovingANameFromTheFileRemovesTheLink(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	a := addArtifact(t, c, p.ID, "clip.mp3", "ID3 clip")
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Clip"})
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Clip"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	setArtifactsInFile(t, doc.Path, a.Name)
-	if _, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+	setArtifactsInFile(t, entry.Path, a.Name)
+	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
 
-	setArtifactsInFile(t, doc.Path)
-	got, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	setArtifactsInFile(t, entry.Path)
+	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestRemovingANameFromTheFileRemovesTheLink(t *testing.T) {
 	}
 	var rows int
 	if err := c.db.Get(&rows,
-		`SELECT COUNT(*) FROM link WHERE from_id = ? AND rel = 'artifact'`, doc.ID); err != nil {
+		`SELECT COUNT(*) FROM link WHERE from_id = ? AND rel = 'artifact'`, entry.ID); err != nil {
 		t.Fatal(err)
 	}
 	if rows != 0 {
@@ -139,19 +139,19 @@ func TestRemovingANameFromTheFileRemovesTheLink(t *testing.T) {
 // never find "photo.PNG". The list also keeps the file's order, and a name
 // listed twice links once.
 func TestArtifactNamesKeepCaseAndOrder(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	upper := addArtifact(t, c, p.ID, "Photo.PNG", "\x89PNG\r\n\x1a\nx")
 	notes := addArtifact(t, c, p.ID, "notes.txt", "plain")
 	if upper.Name != "photo.PNG" {
 		t.Fatalf("setup: name = %q; this test relies on the extension keeping its case", upper.Name)
 	}
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Album"})
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Album"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	setArtifactsInFile(t, doc.Path, notes.Name, upper.Name, notes.Name)
+	setArtifactsInFile(t, entry.Path, notes.Name, upper.Name, notes.Name)
 
-	got, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
@@ -166,25 +166,25 @@ func TestArtifactNamesKeepCaseAndOrder(t *testing.T) {
 }
 
 func TestEditingTheBodyKeepsTheArtifactList(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	a := addArtifact(t, c, p.ID, "report.pdf", "%PDF-1.7\n")
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Report"})
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Report"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	setArtifactsInFile(t, doc.Path, a.Name)
-	loaded, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	setArtifactsInFile(t, entry.Path, a.Name)
+	loaded, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
 
-	if _, err := c.EditKnowledge(t.Context(), p.ID, doc.Slug, "a new body\n", &loaded.Version); err != nil {
+	if _, err := c.EditEntry(t.Context(), p.ID, entry.Slug, "a new body\n", &loaded.Version); err != nil {
 		t.Fatalf("EditKnowledge: %v", err)
 	}
-	if got := artifactsInFile(t, doc.Path); !slices.Equal(got, []string{a.Name}) {
+	if got := artifactsInFile(t, entry.Path); !slices.Equal(got, []string{a.Name}) {
 		t.Errorf("file lists %v after a body edit, want [%s]", got, a.Name)
 	}
-	got, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestEditingTheBodyKeepsTheArtifactList(t *testing.T) {
 // A row can claim a name whose file was removed by hand outside Trellis, or
 // whose creation never finished; a new artifact must not reuse the name.
 func TestANameTakenInTheDatabaseIsNotReused(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	if _, err := c.db.Exec(
 		`INSERT INTO artifact (id, project_id, name, kind, mime, size, content_hash, created_at, updated_at)
 		 VALUES (?, ?, 'x.png', 'image', 'image/png', 3, 'h', 1, 1)`,
@@ -210,15 +210,15 @@ func TestANameTakenInTheDatabaseIsNotReused(t *testing.T) {
 }
 
 func TestCreatingAnArtifactResolvesAnEarlierStub(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Later"})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Later"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	setArtifactsInFile(t, doc.Path, "later.pdf")
+	setArtifactsInFile(t, entry.Path, "later.pdf")
 	// This read writes the stub row. Without it there would be nothing to
 	// backfill, and the resync on the next read would hide a missing backfill.
-	if _, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
 
@@ -226,7 +226,7 @@ func TestCreatingAnArtifactResolvesAnEarlierStub(t *testing.T) {
 
 	// The file has not changed, so this read does not resync: the resolution
 	// can only have come from the backfill.
-	got, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
@@ -236,14 +236,14 @@ func TestCreatingAnArtifactResolvesAnEarlierStub(t *testing.T) {
 }
 
 func TestDeletingAnArtifactLeavesEntryLinksAsStubs(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	a := addArtifact(t, c, p.ID, "evidence.png", "\x89PNG\r\n\x1a\nx")
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Evidence"})
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Evidence"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	setArtifactsInFile(t, doc.Path, a.Name)
-	if _, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+	setArtifactsInFile(t, entry.Path, a.Name)
+	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "attach"})
@@ -258,7 +258,7 @@ func TestDeletingAnArtifactLeavesEntryLinksAsStubs(t *testing.T) {
 		t.Fatalf("DeleteArtifact: %v", err)
 	}
 
-	got, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	got, err := c.LoadEntry(t.Context(), p.ID, entry.Slug)
 	if err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
@@ -278,26 +278,26 @@ func TestDeletingAnArtifactLeavesEntryLinksAsStubs(t *testing.T) {
 // Unlinking by the artifact's id, not its name, still removes it from the
 // entry's list.
 func TestUnlinkArtifactFromEntryByID(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	a := addArtifact(t, c, p.ID, "a.png", "\x89PNG\r\n\x1a\na")
 	b := addArtifact(t, c, p.ID, "b.png", "\x89PNG\r\n\x1a\nb")
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "ByID"})
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "ByID"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	setArtifactsInFile(t, doc.Path, a.Name, b.Name)
-	if _, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+	setArtifactsInFile(t, entry.Path, a.Name, b.Name)
+	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
 
-	got, err := c.UnlinkArtifactFromDoc(t.Context(), p.ID, doc.Slug, a.ID)
+	got, err := c.UnlinkArtifactFromEntry(t.Context(), p.ID, entry.Slug, a.ID)
 	if err != nil {
 		t.Fatalf("UnlinkArtifactFromDoc: %v", err)
 	}
 	if names := artifactNamesOf(got); !slices.Equal(names, []string{b.Name}) {
 		t.Errorf("names = %v, want [%s]", names, b.Name)
 	}
-	if file := artifactsInFile(t, doc.Path); !slices.Equal(file, []string{b.Name}) {
+	if file := artifactsInFile(t, entry.Path); !slices.Equal(file, []string{b.Name}) {
 		t.Errorf("file lists %v, want [%s]", file, b.Name)
 	}
 }
@@ -310,7 +310,7 @@ func artifactErrCode(err error) string {
 }
 
 func TestResolveArtifactByIDOrName(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	a := addArtifact(t, c, p.ID, "map.png", "\x89PNG\r\n\x1a\nx")
 
 	byID, err := c.ResolveArtifact(t.Context(), p.ID, a.ID)
@@ -327,34 +327,34 @@ func TestResolveArtifactByIDOrName(t *testing.T) {
 }
 
 func TestLinkArtifactToEntry(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	a := addArtifact(t, c, p.ID, "meeting.mp3", "ID3 meeting")
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Meeting"})
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Meeting"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
 
-	got, err := c.LinkArtifactToDoc(t.Context(), p.ID, doc.Slug, a.Name)
+	got, err := c.LinkArtifactToEntry(t.Context(), p.ID, entry.Slug, a.Name)
 	if err != nil {
 		t.Fatalf("LinkArtifactToDoc: %v", err)
 	}
 	if names := artifactNamesOf(got); !slices.Equal(names, []string{a.Name}) || got.Artifacts[0].Missing {
 		t.Errorf("Artifacts = %+v", got.Artifacts)
 	}
-	if file := artifactsInFile(t, doc.Path); !slices.Equal(file, []string{a.Name}) {
+	if file := artifactsInFile(t, entry.Path); !slices.Equal(file, []string{a.Name}) {
 		t.Errorf("file lists %v, want [%s]", file, a.Name)
 	}
 	var logged int
 	if err := c.db.Get(&logged,
 		`SELECT COUNT(*) FROM event WHERE entity_id = ? AND action = 'artifact_linked' AND new_value = ?`,
-		doc.ID, a.Name); err != nil {
+		entry.ID, a.Name); err != nil {
 		t.Fatal(err)
 	}
 	if logged != 1 {
 		t.Errorf("%d artifact_linked events, want 1", logged)
 	}
 
-	again, err := c.LinkArtifactToDoc(t.Context(), p.ID, doc.Slug, a.ID)
+	again, err := c.LinkArtifactToEntry(t.Context(), p.ID, entry.Slug, a.ID)
 	if err != nil {
 		t.Fatalf("LinkArtifactToDoc again: %v", err)
 	}
@@ -368,63 +368,63 @@ func TestLinkArtifactToEntry(t *testing.T) {
 // the file still lists the names. Linking must read the list from the file;
 // rewriting it from the lagging rows would drop names.
 func TestLinkKeepsNamesTheDatabaseHasLost(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	first := addArtifact(t, c, p.ID, "first.png", "\x89PNG\r\n\x1a\n1")
 	second := addArtifact(t, c, p.ID, "second.png", "\x89PNG\r\n\x1a\n2")
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Pair"})
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Pair"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	setArtifactsInFile(t, doc.Path, first.Name)
-	if _, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+	setArtifactsInFile(t, entry.Path, first.Name)
+	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
-	if _, err := c.db.Exec(`DELETE FROM link WHERE from_id = ? AND rel = 'artifact'`, doc.ID); err != nil {
+	if _, err := c.db.Exec(`DELETE FROM link WHERE from_id = ? AND rel = 'artifact'`, entry.ID); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := c.LinkArtifactToDoc(t.Context(), p.ID, doc.Slug, second.Name); err != nil {
+	if _, err := c.LinkArtifactToEntry(t.Context(), p.ID, entry.Slug, second.Name); err != nil {
 		t.Fatalf("LinkArtifactToDoc: %v", err)
 	}
-	if file := artifactsInFile(t, doc.Path); !slices.Equal(file, []string{first.Name, second.Name}) {
+	if file := artifactsInFile(t, entry.Path); !slices.Equal(file, []string{first.Name, second.Name}) {
 		t.Errorf("file lists %v, want [%s %s]", file, first.Name, second.Name)
 	}
 }
 
 func TestUnlinkArtifactFromEntry(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	a := addArtifact(t, c, p.ID, "a.png", "\x89PNG\r\n\x1a\na")
 	b := addArtifact(t, c, p.ID, "b.png", "\x89PNG\r\n\x1a\nb")
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Two"})
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Two"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	setArtifactsInFile(t, doc.Path, a.Name, b.Name)
-	if _, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+	setArtifactsInFile(t, entry.Path, a.Name, b.Name)
+	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
 
-	got, err := c.UnlinkArtifactFromDoc(t.Context(), p.ID, doc.Slug, a.Name)
+	got, err := c.UnlinkArtifactFromEntry(t.Context(), p.ID, entry.Slug, a.Name)
 	if err != nil {
 		t.Fatalf("UnlinkArtifactFromDoc: %v", err)
 	}
 	if names := artifactNamesOf(got); !slices.Equal(names, []string{b.Name}) {
 		t.Errorf("names = %v, want [%s]", names, b.Name)
 	}
-	if file := artifactsInFile(t, doc.Path); !slices.Equal(file, []string{b.Name}) {
+	if file := artifactsInFile(t, entry.Path); !slices.Equal(file, []string{b.Name}) {
 		t.Errorf("file lists %v, want [%s]", file, b.Name)
 	}
 	var logged int
 	if err := c.db.Get(&logged,
 		`SELECT COUNT(*) FROM event WHERE entity_id = ? AND action = 'artifact_unlinked' AND new_value = ?`,
-		doc.ID, a.Name); err != nil {
+		entry.ID, a.Name); err != nil {
 		t.Fatal(err)
 	}
 	if logged != 1 {
 		t.Errorf("%d artifact_unlinked events, want 1", logged)
 	}
 
-	again, err := c.UnlinkArtifactFromDoc(t.Context(), p.ID, doc.Slug, a.Name)
+	again, err := c.UnlinkArtifactFromEntry(t.Context(), p.ID, entry.Slug, a.Name)
 	if err != nil {
 		t.Fatalf("UnlinkArtifactFromDoc again: %v", err)
 	}
@@ -436,27 +436,27 @@ func TestUnlinkArtifactFromEntry(t *testing.T) {
 // A stub must be clearable: its artifact no longer exists, so the name cannot
 // be resolved, and unlinking must still remove it from the file.
 func TestUnlinkClearsANameWhoseArtifactIsGone(t *testing.T) {
-	c, p, _ := kbCore(t)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Gone"})
+	c, p, _ := vaultCore(t)
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Gone"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	setArtifactsInFile(t, doc.Path, "deleted.pdf")
-	if _, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+	setArtifactsInFile(t, entry.Path, "deleted.pdf")
+	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
 
-	got, err := c.UnlinkArtifactFromDoc(t.Context(), p.ID, doc.Slug, "deleted.pdf")
+	got, err := c.UnlinkArtifactFromEntry(t.Context(), p.ID, entry.Slug, "deleted.pdf")
 	if err != nil {
 		t.Fatalf("UnlinkArtifactFromDoc: %v", err)
 	}
-	if len(got.Artifacts) != 0 || len(artifactsInFile(t, doc.Path)) != 0 {
-		t.Errorf("stub not cleared: Artifacts = %+v, file = %v", got.Artifacts, artifactsInFile(t, doc.Path))
+	if len(got.Artifacts) != 0 || len(artifactsInFile(t, entry.Path)) != 0 {
+		t.Errorf("stub not cleared: Artifacts = %+v, file = %v", got.Artifacts, artifactsInFile(t, entry.Path))
 	}
 }
 
 func TestUnlinkArtifactFromCard(t *testing.T) {
-	c, p, b := kbCore(t)
+	c, p, b := vaultCore(t)
 	a := addArtifact(t, c, p.ID, "shot.png", "\x89PNG\r\n\x1a\nx")
 	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "attach"})
 	if err != nil {
@@ -482,19 +482,19 @@ func TestUnlinkArtifactFromCard(t *testing.T) {
 }
 
 func TestListArtifactsForAnEntry(t *testing.T) {
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	a := addArtifact(t, c, p.ID, "one.png", "\x89PNG\r\n\x1a\n1")
 	b := addArtifact(t, c, p.ID, "two.png", "\x89PNG\r\n\x1a\n2")
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Listed"})
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Listed"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	setArtifactsInFile(t, doc.Path, b.Name, a.Name)
-	if _, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug); err != nil {
+	setArtifactsInFile(t, entry.Path, b.Name, a.Name)
+	if _, err := c.LoadEntry(t.Context(), p.ID, entry.Slug); err != nil {
 		t.Fatalf("LoadKnowledge: %v", err)
 	}
 
-	items, err := c.ListArtifacts(t.Context(), p.ID, "", doc.ID)
+	items, err := c.ListArtifacts(t.Context(), p.ID, "", entry.ID)
 	if err != nil {
 		t.Fatalf("ListArtifacts: %v", err)
 	}

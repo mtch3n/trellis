@@ -35,15 +35,15 @@ func TestACopiedRootActsOnlyOnItsOwnFiles(t *testing.T) {
 	p := seededProject(t, a)
 	seededBoard(t, a, p)
 
-	projectDoc, err := a.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Project Doc", Body: "project body\n"})
+	projectEntry, err := a.CreateEntry(ctx, p.ID, NewEntry{Title: "Project Doc", Body: "project body\n"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge (project entry): %v", err)
 	}
-	sharedSeed, err := a.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Shared Doc", Body: "shared body\n"})
+	sharedSeed, err := a.CreateEntry(ctx, p.ID, NewEntry{Title: "Shared Doc", Body: "shared body\n"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge (to be escalated): %v", err)
 	}
-	globalDoc, err := a.EscalateKnowledge(ctx, p.ID, sharedSeed.Slug, "shared across projects")
+	globalEntry, err := a.EscalateKnowledge(ctx, p.ID, sharedSeed.Slug, "shared across projects")
 	if err != nil {
 		t.Fatalf("EscalateKnowledge: %v", err)
 	}
@@ -76,14 +76,14 @@ func TestACopiedRootActsOnlyOnItsOwnFiles(t *testing.T) {
 	b := New(dbB, FixedClock{MS: 1_757_000_000_001}, "test:b", rootB)
 
 	// Reading acts on B's files only.
-	loadedProject, err := b.LoadKnowledge(ctx, p.ID, projectDoc.Slug)
+	loadedProject, err := b.LoadEntry(ctx, p.ID, projectEntry.Slug)
 	if err != nil {
 		t.Fatalf("LoadKnowledge on B: %v", err)
 	}
 	if !underRoot(loadedProject.Path, rootB) {
 		t.Errorf("project doc path = %q, want it under B's root %q", loadedProject.Path, rootB)
 	}
-	loadedGlobal, err := b.ReadKnowledge(ctx, "", "/GLOBAL/vault/"+globalDoc.Slug)
+	loadedGlobal, err := b.ReadEntry(ctx, "", "/GLOBAL/vault/"+globalEntry.Slug)
 	if err != nil {
 		t.Fatalf("ReadKnowledge (global) on B: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestACopiedRootActsOnlyOnItsOwnFiles(t *testing.T) {
 	}
 
 	// Editing acts on B's files only.
-	edited, err := b.EditKnowledge(ctx, p.ID, projectDoc.Slug, "edited on B\n", &loadedProject.Version)
+	edited, err := b.EditEntry(ctx, p.ID, projectEntry.Slug, "edited on B\n", &loadedProject.Version)
 	if err != nil {
 		t.Fatalf("EditKnowledge on B: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestACopiedRootActsOnlyOnItsOwnFiles(t *testing.T) {
 	}
 
 	// Moving acts on B's files only.
-	moved, err := b.MoveKnowledge(ctx, p.ID, edited.Slug, "moved/on-b", false)
+	moved, err := b.MoveEntry(ctx, p.ID, edited.Slug, "moved/on-b", false)
 	if err != nil {
 		t.Fatalf("MoveKnowledge on B: %v", err)
 	}

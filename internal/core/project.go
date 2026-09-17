@@ -142,7 +142,7 @@ func (c *Core) DeleteProject(ctx context.Context, key string) error {
 		if _, err := tx.Exec(`DELETE FROM project WHERE id = ?`, p.ID); err != nil {
 			return err
 		}
-		if err := c.rebuildKnowledgeFTS(tx); err != nil {
+		if err := c.rebuildEntryFTS(tx); err != nil {
 			return err
 		}
 		return nil

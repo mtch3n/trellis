@@ -73,7 +73,7 @@ func TestCreateArtifactStopsOnAStatErrorInsteadOfLoopingForever(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("needs a directory the process cannot search")
 	}
-	c, p, _ := kbCore(t)
+	c, p, _ := vaultCore(t)
 	source := filepath.Join(t.TempDir(), "notes.txt")
 	if err := os.WriteFile(source, []byte("some text"), 0o600); err != nil {
 		t.Fatal(err)
@@ -109,8 +109,8 @@ func TestCreateArtifactStopsOnAStatErrorInsteadOfLoopingForever(t *testing.T) {
 // reference as written" kept the whole address (/KEY/artifacts/x.png) --
 // which never equals the plain name (x.png) editDocArtifacts's list holds --
 // so the stub is never found and nothing changes, without an error either.
-func TestUnlinkArtifactFromDocByAddressWhenTheArtifactIsGone(t *testing.T) {
-	c, p, _ := kbCore(t)
+func TestUnlinkArtifactFromEntryByAddressWhenTheArtifactIsGone(t *testing.T) {
+	c, p, _ := vaultCore(t)
 	source := filepath.Join(t.TempDir(), "notes.txt")
 	if err := os.WriteFile(source, []byte("some text"), 0o600); err != nil {
 		t.Fatal(err)
@@ -119,11 +119,11 @@ func TestUnlinkArtifactFromDocByAddressWhenTheArtifactIsGone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateArtifact: %v", err)
 	}
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Notes"})
+	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Notes"})
 	if err != nil {
 		t.Fatalf("CreateKnowledge: %v", err)
 	}
-	if _, err := c.LinkArtifactToDoc(t.Context(), p.ID, doc.Slug, artifact.Name); err != nil {
+	if _, err := c.LinkArtifactToEntry(t.Context(), p.ID, entry.Slug, artifact.Name); err != nil {
 		t.Fatalf("LinkArtifactToDoc: %v", err)
 	}
 	address := ArtifactAddress(p.Key, artifact.Name)
@@ -132,11 +132,11 @@ func TestUnlinkArtifactFromDocByAddressWhenTheArtifactIsGone(t *testing.T) {
 		t.Fatalf("DeleteArtifact: %v", err)
 	}
 
-	if _, err := c.UnlinkArtifactFromDoc(t.Context(), p.ID, doc.Slug, address); err != nil {
+	if _, err := c.UnlinkArtifactFromEntry(t.Context(), p.ID, entry.Slug, address); err != nil {
 		t.Fatalf("UnlinkArtifactFromDoc(%s): %v", address, err)
 	}
 
-	raw, err := os.ReadFile(doc.Path)
+	raw, err := os.ReadFile(entry.Path)
 	if err != nil {
 		t.Fatal(err)
 	}

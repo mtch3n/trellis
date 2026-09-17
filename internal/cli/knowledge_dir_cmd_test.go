@@ -48,12 +48,12 @@ func TestKnowledgeMvCommand(t *testing.T) {
 }
 
 func TestKnowledgeLsRendersATreeGroupedByDirectory(t *testing.T) {
-	docs := []core.Knowledge{
+	entries := []core.Entry{
 		{Slug: "recall-ranking", Template: "decision", Title: "Recall ranking"},
 		{Slug: "deployment/rollback", Template: "runbook", Title: "Rollback"},
 		{Slug: "docs/rollback", Template: "decision", Title: "Rollback (docs)"},
 	}
-	out := renderKnowledgeList(docs)
+	out := renderEntryList(entries)
 	if !strings.Contains(out, "deployment/\n") || !strings.Contains(out, "docs/\n") {
 		t.Fatalf("output does not group by directory:\n%s", out)
 	}

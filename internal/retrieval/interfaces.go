@@ -12,12 +12,12 @@ import (
 type Profile string
 
 const (
-	Documents Profile = "documents"
-	Memories  Profile = "memories"
+	Entries  Profile = "entries"
+	Memories Profile = "memories"
 )
 
 type Embedder interface {
-	EmbedDocument(context.Context, string) ([]float32, error)
+	EmbedEntry(context.Context, string) ([]float32, error)
 	EmbedQuery(context.Context, string) ([]float32, error)
 	ModelID() string
 	Dimension() int

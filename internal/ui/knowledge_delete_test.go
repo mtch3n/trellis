@@ -13,7 +13,7 @@ import (
 	"github.com/mtch3n/trellis/internal/store"
 )
 
-func TestDeleteKnowledge(t *testing.T) {
+func TestDeleteEntry(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
@@ -46,13 +46,13 @@ func TestDeleteKnowledge(t *testing.T) {
 		t.Fatalf("create knowledge status = %d, body = %s", createResp.Code, createResp.Body)
 	}
 
-	var doc core.Knowledge
-	if err := json.Unmarshal(createResp.Body.Bytes(), &doc); err != nil {
+	var entry core.Entry
+	if err := json.Unmarshal(createResp.Body.Bytes(), &entry); err != nil {
 		t.Fatal(err)
 	}
 
 	// Test deleting the knowledge entry
-	deleteResp := request(http.MethodDelete, "/api/p/KDEL/b/board1/knowledge/"+doc.Slug, "")
+	deleteResp := request(http.MethodDelete, "/api/p/KDEL/b/board1/knowledge/"+entry.Slug, "")
 	if deleteResp.Code != http.StatusNoContent {
 		t.Fatalf("delete knowledge status = %d, expected 204, body = %s", deleteResp.Code, deleteResp.Body)
 	}
@@ -63,13 +63,13 @@ func TestDeleteKnowledge(t *testing.T) {
 		t.Fatalf("list knowledge status = %d", getResp.Code)
 	}
 
-	var docs []core.Knowledge
-	if err := json.Unmarshal(getResp.Body.Bytes(), &docs); err != nil {
+	var entries []core.Entry
+	if err := json.Unmarshal(getResp.Body.Bytes(), &entries); err != nil {
 		t.Fatal(err)
 	}
 
-	if len(docs) != 0 {
-		t.Fatalf("expected 0 knowledge entries after deletion, got %d", len(docs))
+	if len(entries) != 0 {
+		t.Fatalf("expected 0 knowledge entries after deletion, got %d", len(entries))
 	}
 
 	// Test deleting non-existent knowledge returns 404

@@ -52,18 +52,18 @@ import "github.com/jmoiron/sqlx"
 //
 // Anything already sent to a remote embedder is gone. This cleans up locally
 // and makes no wider claim.
-func (c *Core) purgeDisclosedCopies(tx *sqlx.Tx, doc *Knowledge) error {
+func (c *Core) purgeDisclosedCopies(tx *sqlx.Tx, entry *Entry) error {
 	if _, err := tx.Exec(
-		`UPDATE entry SET recap = NULL, recap_hash = NULL WHERE id = ?`, doc.ID); err != nil {
+		`UPDATE entry SET recap = NULL, recap_hash = NULL WHERE id = ?`, entry.ID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(
 		`UPDATE event SET new_value = NULL, old_value = NULL
 		 WHERE entity_type = 'entry' AND entity_id = ?
 		   AND action IN ('pinned', 'unpinned', 'edited', 'artifact_linked', 'artifact_unlinked')`,
-		doc.ID); err != nil {
+		entry.ID); err != nil {
 		return err
 	}
-	doc.Recap, doc.RecapHash = nil, nil
-	return c.recordEvent(tx, "entry", doc.ID, "privatized", "", "", "")
+	entry.Recap, entry.RecapHash = nil, nil
+	return c.recordEvent(tx, "entry", entry.ID, "privatized", "", "", "")
 }

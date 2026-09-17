@@ -88,11 +88,11 @@ func TestListingsShowTheStoredRef(t *testing.T) {
 	if err := c.BlockCard(ctx, p.ID, ParseCardRef(blocked.Ref), CardRef{Seq: 1}); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := c.CreateKnowledge(ctx, p.ID, NewKnowledge{Title: "Moved notes", Body: "about the sentinel"})
+	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Moved notes", Body: "about the sentinel"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.LinkCardToDoc(ctx, p.ID, CardRef{Seq: 1}, doc.Slug); err != nil {
+	if err := c.LinkCardToEntry(ctx, p.ID, CardRef{Seq: 1}, entry.Slug); err != nil {
 		t.Fatal(err)
 	}
 	// Rewrite the stored ref so every listing must read the column: nothing
@@ -105,7 +105,7 @@ func TestListingsShowTheStoredRef(t *testing.T) {
 	if err != nil || len(blockers) != 1 || blockers[0].Ref != "RENAMED-9" {
 		t.Errorf("Blockers = %+v, %v", blockers, err)
 	}
-	links, err := c.Backlinks(ctx, doc.ID)
+	links, err := c.Backlinks(ctx, entry.ID)
 	if err != nil || len(links) != 1 || links[0].Ref != "RENAMED-9" {
 		t.Errorf("Backlinks = %+v, %v", links, err)
 	}

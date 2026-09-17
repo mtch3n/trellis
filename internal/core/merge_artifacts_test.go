@@ -121,13 +121,13 @@ func TestMergeCollapsedArtifactDoesNotDuplicateACardLink(t *testing.T) {
 
 // A doc names its artifacts by name (doc_relations.go), so collapsing the
 // artifact it names must leave that name in place, not the id underneath it.
-func TestMergeCollapsedArtifactKeepsADocLinksName(t *testing.T) {
+func TestMergeCollapsedArtifactKeepsAnEntryLinksName(t *testing.T) {
 	f := newMergeFixture(t)
 	ctx := t.Context()
 	logo := f.artifact(f.api, "logo.png", "same logo")
 	monoLogo := f.artifact(f.mono, "logo.png", "same logo")
-	doc := f.doc(f.api, "Design", "design doc\n")
-	if _, err := f.c.LinkArtifactToDoc(ctx, f.api.ID, doc.Slug, logo.ID); err != nil {
+	entry := f.entry(f.api, "Design", "design doc\n")
+	if _, err := f.c.LinkArtifactToEntry(ctx, f.api.ID, entry.Slug, logo.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -141,7 +141,7 @@ func TestMergeCollapsedArtifactKeepsADocLinksName(t *testing.T) {
 	if toRaw != "logo.png" {
 		t.Errorf("doc link to_raw = %q, want the artifact's name", toRaw)
 	}
-	items, err := f.c.ListArtifacts(ctx, f.mono.ID, "", doc.ID)
+	items, err := f.c.ListArtifacts(ctx, f.mono.ID, "", entry.ID)
 	if err != nil || len(items) != 1 || items[0].ID != monoLogo.ID {
 		t.Errorf("doc's artifacts after the merge = %+v, %v", items, err)
 	}
@@ -150,13 +150,13 @@ func TestMergeCollapsedArtifactKeepsADocLinksName(t *testing.T) {
 // A SRC document naming a renamed artifact must follow it: left alone, the
 // old name resolves, after the merge, to whatever DST already has under it --
 // a different file with the same name, never the one the document meant.
-func TestMergeRenamedArtifactRewritesTheDocumentThatNamesIt(t *testing.T) {
+func TestMergeRenamedArtifactRewritesTheEntryThatNamesIt(t *testing.T) {
 	f := newMergeFixture(t)
 	ctx := t.Context()
 	f.artifact(f.mono, "shot.png", "mono pixels")
 	shot := f.artifact(f.api, "shot.png", "api pixels")
-	doc := f.doc(f.api, "Design", "design doc\n")
-	if _, err := f.c.LinkArtifactToDoc(ctx, f.api.ID, doc.Slug, shot.ID); err != nil {
+	entry := f.entry(f.api, "Design", "design doc\n")
+	if _, err := f.c.LinkArtifactToEntry(ctx, f.api.ID, entry.Slug, shot.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -165,7 +165,7 @@ func TestMergeRenamedArtifactRewritesTheDocumentThatNamesIt(t *testing.T) {
 	if !slices.Equal(plan.Artifacts.Renamed, []Rename{{From: "shot.png", To: "shot-api.png"}}) {
 		t.Fatalf("renamed = %+v", plan.Artifacts.Renamed)
 	}
-	moved, err := f.c.ReadKnowledge(ctx, f.mono.ID, "design")
+	moved, err := f.c.ReadEntry(ctx, f.mono.ID, "design")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -36,22 +36,22 @@ func (c *Core) privateAfterRefresh(tx *sqlx.Tx, ids []string) (private, missing 
 	if err != nil {
 		return nil, nil, err
 	}
-	var docs []Knowledge
-	if err := tx.Select(&docs, tx.Rebind(q), args...); err != nil {
+	var entries []Entry
+	if err := tx.Select(&entries, tx.Rebind(q), args...); err != nil {
 		return nil, nil, err
 	}
-	for i := range docs {
-		if err := c.refreshFromFile(tx, &docs[i]); err != nil {
+	for i := range entries {
+		if err := c.refreshFromFile(tx, &entries[i]); err != nil {
 			var coreErr *Error
 			if errors.As(err, &coreErr) && coreErr.Code == "file_missing" {
-				private[docs[i].ID] = true
-				missing[docs[i].ID] = true
+				private[entries[i].ID] = true
+				missing[entries[i].ID] = true
 				continue
 			}
 			return nil, nil, err
 		}
-		if docs[i].Private {
-			private[docs[i].ID] = true
+		if entries[i].Private {
+			private[entries[i].ID] = true
 		}
 	}
 	return private, missing, nil

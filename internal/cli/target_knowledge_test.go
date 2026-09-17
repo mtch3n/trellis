@@ -142,15 +142,15 @@ func TestReferenceFlagsNameTheProject(t *testing.T) {
 	refOf(t, "knowledge", "new", "--title", "Runbook", "--project", "BETA")
 
 	out := runCmd(t, "knowledge", "new", "--title", "Side notes", "--board", "/BETA/boards/side", "--json")
-	var doc struct {
+	var entry struct {
 		Ref   string `json:"ref"`
 		Board string `json:"board"`
 	}
-	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+	if err := json.Unmarshal([]byte(out), &entry); err != nil {
 		t.Fatal(err)
 	}
-	if doc.Ref != "/BETA/vault/side-notes" || doc.Board != "Side" {
-		t.Errorf("knowledge new = %+v", doc)
+	if entry.Ref != "/BETA/vault/side-notes" || entry.Board != "Side" {
+		t.Errorf("knowledge new = %+v", entry)
 	}
 
 	runCmd(t, "knowledge", "pin", "runbook", "--board", "/BETA/boards/side", "--recap", "roll back first")

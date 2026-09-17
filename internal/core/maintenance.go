@@ -65,12 +65,12 @@ func (c *Core) Compact(ctx context.Context) error {
 	return nil
 }
 
-// knowledgeWithPaths returns knowledge rows with Path derived and filled in,
+// entriesWithPaths returns knowledge rows with Path derived and filled in,
 // scoped to projectID (empty means every project). It exists for maintenance
 // and health code that walks a file directly rather than through
 // loadDoc/refreshFromFile, which set Path as a side effect of reading one
 // entry's own file.
-func (c *Core) knowledgeWithPaths(tx *sqlx.Tx, projectID string) ([]Knowledge, error) {
+func (c *Core) entriesWithPaths(tx *sqlx.Tx, projectID string) ([]Entry, error) {
 	q := `SELECT k.*, p.key AS pkey FROM entry k JOIN project p ON p.id = k.project_id`
 	var args []any
 	if projectID != "" {
@@ -78,18 +78,18 @@ func (c *Core) knowledgeWithPaths(tx *sqlx.Tx, projectID string) ([]Knowledge, e
 		args = append(args, projectID)
 	}
 	var rows []struct {
-		Knowledge
+		Entry
 		Key string `db:"pkey"`
 	}
 	if err := tx.Select(&rows, q, args...); err != nil {
 		return nil, err
 	}
-	docs := make([]Knowledge, len(rows))
+	entries := make([]Entry, len(rows))
 	for i, r := range rows {
-		docs[i] = r.Knowledge
-		docs[i].Path = c.docPath(r.Key, docs[i].Global, docs[i].Slug)
+		entries[i] = r.Entry
+		entries[i].Path = c.entryPath(r.Key, entries[i].Global, entries[i].Slug)
 	}
-	return docs, nil
+	return entries, nil
 }
 
 // PruneRevisions trims every knowledge entry's and every card's revisions
@@ -97,17 +97,17 @@ func (c *Core) knowledgeWithPaths(tx *sqlx.Tx, projectID string) ([]Knowledge, e
 // this is for after lowering it, when the excess would otherwise wait for
 // the next write. It returns the number of revisions removed.
 func (c *Core) PruneRevisions(ctx context.Context) (int64, error) {
-	var docs []Knowledge
+	var entries []Entry
 	if err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var err error
-		docs, err = c.knowledgeWithPaths(tx, "")
+		entries, err = c.entriesWithPaths(tx, "")
 		return err
 	}); err != nil {
 		return 0, err
 	}
 	var total int64
-	for _, d := range docs {
-		n, err := trimRevisions(d.Path, c.historyKeep)
+	for _, e := range entries {
+		n, err := trimRevisions(e.Path, c.historyKeep)
 		if err != nil {
 			return total, err
 		}
@@ -213,11 +213,11 @@ func (c *Core) PruneOrphanHistory(ctx context.Context) (int64, error) {
 // global vault is walked unconditionally, and another project's entry
 // escalated into it must not be reported as this project's orphan.
 func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]string, error) {
-	var allDocs []Knowledge
+	var allEntries []Entry
 	var keys []string
 	if err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var err error
-		if allDocs, err = c.knowledgeWithPaths(tx, ""); err != nil {
+		if allEntries, err = c.entriesWithPaths(tx, ""); err != nil {
 			return err
 		}
 		kq := `SELECT key FROM project`
@@ -232,15 +232,15 @@ func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]stri
 	}
 
 	// The vaults to walk: every project's own directory, plus the global one.
-	vaults := map[string]bool{c.docDir(GlobalKey, true): true}
+	vaults := map[string]bool{c.vaultDir(GlobalKey, true): true}
 	for _, key := range keys {
-		vaults[c.docDir(key, false)] = true
+		vaults[c.vaultDir(key, false)] = true
 	}
-	live := make(map[string]bool, len(allDocs))
-	for _, d := range allDocs {
-		live[d.Path] = true
-		if projectID == "" || d.ProjectID == projectID {
-			vaults[filepath.Dir(d.Path)] = true
+	live := make(map[string]bool, len(allEntries))
+	for _, e := range allEntries {
+		live[e.Path] = true
+		if projectID == "" || e.ProjectID == projectID {
+			vaults[filepath.Dir(e.Path)] = true
 		}
 	}
 	// A vault nested under another one being walked is walked twice, once by

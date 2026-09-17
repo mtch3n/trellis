@@ -156,7 +156,7 @@ func (s *Service) vectorHits(ctx context.Context, projectID, query string, opts 
 			return nil, err
 		}
 		for _, match := range matches {
-			hit, err := s.core.KnowledgeHit(ctx, match.ID, projectID, opts.AllProjects, opts.Label)
+			hit, err := s.core.EntryHit(ctx, match.ID, projectID, opts.AllProjects, opts.Label)
 			if err != nil {
 				continue
 			}
@@ -170,15 +170,15 @@ func (s *Service) vectorHits(ctx context.Context, projectID, query string, opts 
 }
 
 func (s *Service) Reconcile(ctx context.Context, projectID string, idx *vector.Index) error {
-	docs, err := s.core.ListSearchKnowledge(ctx, projectID)
+	entries, err := s.core.ListSearchEntries(ctx, projectID)
 	if err != nil {
 		return err
 	}
-	items := make([]vector.Document, 0, len(docs))
-	keep := make([]string, 0, len(docs))
-	for _, doc := range docs {
-		items = append(items, vector.Document{ID: doc.ID, Title: doc.Title, Slug: doc.Slug, Template: doc.Template, Content: doc.BodyMD})
-		keep = append(keep, doc.ID)
+	items := make([]vector.Entry, 0, len(entries))
+	keep := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		items = append(items, vector.Entry{ID: entry.ID, Title: entry.Title, Slug: entry.Slug, Template: entry.Template, Content: entry.BodyMD})
+		keep = append(keep, entry.ID)
 	}
 	if _, err := idx.Upsert(ctx, items, projectID); err != nil {
 		return err
@@ -254,14 +254,14 @@ func (s *Service) VectorRebuild(ctx context.Context, projectID string) (int, err
 		return 0, err
 	}
 	defer idx.Close()
-	docs, err := s.core.ListSearchKnowledge(ctx, projectID)
+	entries, err := s.core.ListSearchEntries(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
 	if err := s.Reconcile(ctx, projectID, idx); err != nil {
 		return 0, err
 	}
-	return len(docs), nil
+	return len(entries), nil
 }
 
 func (s *Service) VectorPrune(ctx context.Context, projectID string) (int, error) {
@@ -274,13 +274,13 @@ func (s *Service) VectorPrune(ctx context.Context, projectID string) (int, error
 		return 0, err
 	}
 	defer idx.Close()
-	docs, err := s.core.ListSearchKnowledge(ctx, projectID)
+	entries, err := s.core.ListSearchEntries(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
-	keep := make([]string, 0, len(docs))
-	for _, doc := range docs {
-		keep = append(keep, doc.ID)
+	keep := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		keep = append(keep, entry.ID)
 	}
 	return idx.Prune(ctx, keep, projectID)
 }
