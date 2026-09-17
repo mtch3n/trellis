@@ -165,8 +165,8 @@ func (c *Core) loadCard(tx *sqlx.Tx, projectID string, ref CardRef, out *Card) e
 // looked up in: it is either a card in another project, or no card at all.
 // OTHER-12 typed while working in KEY once opened KEY-12; a ref names one card.
 func cardElsewhere(tx *sqlx.Tx, ref string) error {
-	var holder string
-	err := tx.Get(&holder,
+	var project string
+	err := tx.Get(&project,
 		`SELECT p.key FROM card c JOIN project p ON p.id = c.project_id WHERE c.ref = ?`, ref)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound("card_not_found", "no card "+ref, "trellis card ls")
@@ -174,14 +174,14 @@ func cardElsewhere(tx *sqlx.Tx, ref string) error {
 	if err != nil {
 		return err
 	}
-	return ErrUsage("wrong_project", fmt.Sprintf("%s is a card in project %s", ref, holder),
-		"trellis card show "+address.Card(holder, ref).String())
+	return ErrUsage("wrong_project", fmt.Sprintf("%s is a card in project %s", ref, project),
+		"trellis card show "+address.Card(project, ref).String())
 }
 
-// CardHolder finds the project that holds the card a qualified ref names,
+// CardProject finds the project that holds the card a qualified ref names,
 // wherever its prefix points: after a merge, API-12 lives in MONO. A bare
 // number or a UUID names no project by itself, so found is false.
-func (c *Core) CardHolder(ctx context.Context, ref string) (Project, bool, error) {
+func (c *Core) CardProject(ctx context.Context, ref string) (Project, bool, error) {
 	r := ParseCardRef(ref)
 	if r.ProjectKey == "" {
 		return Project{}, false, nil

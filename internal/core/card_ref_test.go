@@ -62,13 +62,13 @@ func TestACardKeepsItsRefInAnotherProject(t *testing.T) {
 		t.Fatalf("XPSCTL-1 in OTHERPROJ = %+v, %v", got, err)
 	}
 
-	// CardHolder can find where a moved card went
-	holder, found, err := c.CardHolder(ctx, "xpsctl-1")
-	if err != nil || !found || holder.Key != "OTHERPROJ" {
-		t.Errorf("CardHolder = %+v, %v, %v", holder, found, err)
+	// CardProject can find where a moved card went
+	project, found, err := c.CardProject(ctx, "xpsctl-1")
+	if err != nil || !found || project.Key != "OTHERPROJ" {
+		t.Errorf("CardProject = %+v, %v, %v", project, found, err)
 	}
-	if _, found, _ := c.CardHolder(ctx, "12"); found {
-		t.Error("a bare number has no holder")
+	if _, found, _ := c.CardProject(ctx, "12"); found {
+		t.Error("a bare number names no project")
 	}
 
 	// Next card in the destination project has the correct sequence

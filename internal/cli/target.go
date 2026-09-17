@@ -31,7 +31,7 @@ type refArg struct {
 // addresses itself, and a card address must reach core with its project.
 //
 // A qualified card ref names the project that actually holds the card, via
-// core.CardHolder: after a merge, API-12 lives on in MONO, and MONO is what
+// core.CardProject: after a merge, API-12 lives on in MONO, and MONO is what
 // must be compared against every other reference in the command, not API,
 // which is retired. When no card has that ref yet, the prefix itself is the
 // best guess, and core reports project_not_found or project_merged on it.
@@ -40,10 +40,10 @@ func argProject(ctx context.Context, c *core.Core, a refArg) (key, ref string, e
 	if !strings.HasPrefix(v, "/") {
 		if a.Collection == address.CollectionCards {
 			if r := core.ParseCardRef(v); r.ProjectKey != "" {
-				if holder, found, err := c.CardHolder(ctx, v); err != nil {
+				if project, found, err := c.CardProject(ctx, v); err != nil {
 					return "", "", err
 				} else if found {
-					return holder.Key, v, nil
+					return project.Key, v, nil
 				}
 				return r.ProjectKey, v, nil
 			}
@@ -189,7 +189,7 @@ func targetContext(ctx context.Context, c *core.Core, db *sqlx.DB, a refArg, key
 		// is not the same as no pin.
 		return fail(rerr)
 	}
-	// key already names the project that holds the card, per CardHolder in
+	// key already names the project that holds the card, per CardProject in
 	// argProject, so a merged prefix reaches here only via an address that
 	// names the retired key itself -- which must fail with project_merged,
 	// per the project-merge design's "the merged key is reserved".

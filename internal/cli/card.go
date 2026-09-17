@@ -434,7 +434,7 @@ func newCardRenewCmd() *cobra.Command {
 		// Editing a card already extends its claim (§8.4); renew is the
 		// explicit escape hatch for keeping one without changing it.
 		Use:   "renew <card>",
-		Short: "Extend the claim on a card you hold",
+		Short: "Extend your claim on a card",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {

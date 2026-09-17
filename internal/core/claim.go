@@ -328,7 +328,7 @@ func (c *Core) contentionError(claimant Agent) error {
 	return &Error{
 		Code:   "contention",
 		Msg:    fmt.Sprintf("card claimed by %s (last seen %s ago)", claimant.Handle, humanMS(ageMS)),
-		Fix:    "trellis agent ls   # see who holds what",
+		Fix:    "trellis agent ls   # see who has claimed what",
 		Exit:   4,
 		Detail: contentionInfo,
 	}

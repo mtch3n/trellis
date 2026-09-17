@@ -103,7 +103,6 @@ internal/cli/root.go	knowledge-base	1
 internal/cli/root.go	knowledge-ident	1
 internal/cli/root.go	pin-file	1
 internal/cli/search.go	review	2
-internal/cli/target.go	owner	2	# why: CardHolder redirects a merged card ref to the project that now holds it; not a claimant
 internal/cli/target_entry_test.go	escalate	5
 internal/cli/target_entry_test.go	knowledge-ident	19
 internal/cli/target_entry_test.go	lease	5
@@ -141,11 +140,10 @@ internal/core/board.go	new-card-id	1
 internal/core/board_test.go	owner	1
 internal/core/card.go	feed	1
 internal/core/card.go	new-card-id	1
-internal/core/card.go	owner	6	# why: owner json tag (Task 11) + cardElsewhere's project holder + the SQLite write lock, not claimants
+internal/core/card.go	owner	2
 internal/core/card_delete_test.go	feed	1
-internal/core/card_ref_test.go	owner	4	# why: tests CardHolder, the project that holds a merged card ref, not a claimant
 internal/core/claim.go	new-card-id	1
-internal/core/claim.go	owner	2	# why: the SQLite write lock held from BEGIN + ContentionInfo's holder json tag (Task 11)
+internal/core/claim.go	owner	2
 internal/core/column.go	new-card-id	2
 internal/core/column_test.go	new-card-id	3
 internal/core/comment.go	attach	1
@@ -262,7 +260,7 @@ internal/core/private_test.go	corpus	7
 internal/core/project.go	escalate	1
 internal/core/project.go	feed	1
 internal/core/project.go	knowledge-cli	1
-internal/core/project.go	lease	1	# why: project_leased error code, frozen until Task 11
+internal/core/project.go	lease	1
 internal/core/project.go	new-card-id	1
 internal/core/project.go	pin-file	12
 internal/core/project_delete_test.go	escalate	3
@@ -322,8 +320,8 @@ internal/ui/maintenance.go	orphan-file	10
 internal/ui/maintenance_test.go	orphan-file	5
 internal/ui/server.go	feed	4
 internal/ui/server.go	knowledge-ident	10
-internal/ui/server.go	lease	1	# why: stale_leases json tag, frozen until Task 11
-internal/ui/server.go	owner	1	# why: owner json tag, frozen until Task 11
+internal/ui/server.go	lease	1
+internal/ui/server.go	owner	1
 internal/ui/server.go	stale-other	1
 internal/ui/server_test.go	feed	3
 internal/ui/server_test.go	knowledge-ident	6

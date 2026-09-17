@@ -243,7 +243,7 @@ func mergeEnv(t *testing.T) (repo string) {
 // review-cli #4: after a merge, a qualified ref such as API-1 names the
 // project that actually holds the card -- MONO, not the retired API -- so it
 // must not conflict with another reference that already names MONO.
-func TestMergedCardRefNamesItsHolderNotItsPrefix(t *testing.T) {
+func TestMergedCardRefNamesItsProjectNotItsPrefix(t *testing.T) {
 	mergeEnv(t)
 
 	if out := runCmd(t, "card", "block", "1", "--by", "API-1", "--json"); !strings.Contains(out, `"ref":"MONO-1"`) {
@@ -258,7 +258,7 @@ func TestMergedCardRefNamesItsHolderNotItsPrefix(t *testing.T) {
 }
 
 // An ADDRESS under a merged key must still fail with project_merged: only a
-// qualified ref is redirected by CardHolder, because an address names the
+// qualified ref is redirected by CardProject, because an address names the
 // project itself, which no longer exists.
 func TestAnAddressUnderAMergedKeyStillFails(t *testing.T) {
 	mergeEnv(t)
