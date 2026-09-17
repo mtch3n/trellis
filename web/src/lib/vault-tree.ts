@@ -101,3 +101,24 @@ export function ancestorsOf(nodes: TreeNode[], id: string, trail: string[] = [])
   }
   return null
 }
+
+/**
+ * The folders a new entry of this project can go in, as the directory the
+ * server takes: `ops`, `ops/db`. The global vault is left out, because entries
+ * are created in the project and reach the vault only by escalation.
+ */
+export function projectFolders(entries: KnowledgeEntry[]): string[] {
+  const dirs = new Set<string>()
+  for (const entry of entries) {
+    if (entry.global) continue
+    const segments = entry.slug.split('/').slice(0, -1)
+    segments.forEach((_, index) => dirs.add(segments.slice(0, index + 1).join('/')))
+  }
+  return [...dirs].sort((a, b) => a.localeCompare(b))
+}
+
+/** A project folder's tree path as the directory the server takes, or null outside the project. */
+export function folderDir(path: string, projectKey: string): string | null {
+  if (path === projectKey) return ''
+  return path.startsWith(`${projectKey}/`) ? path.slice(projectKey.length + 1) : null
+}

@@ -7,6 +7,7 @@ import { sentence } from '@/lib/format'
 import { Paged } from '@/components/wrappers/Paged'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { shortActor } from '@/lib/cards'
+import { readError } from '@/lib/api'
 
 interface Event {
   seq: number
@@ -29,7 +30,7 @@ function clock(timestamp: number) {
 }
 
 /** Everything every agent did, newest first, across every project. */
-export function ActivityPage() {
+export function EventLogPage() {
   const [events, setEvents] = useState<Event[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -37,7 +38,7 @@ export function ActivityPage() {
     const controller = new AbortController()
     fetch('/api/activity?limit=200', { signal: controller.signal })
       .then(async (response) => {
-        if (!response.ok) throw new Error(await response.text())
+        if (!response.ok) throw new Error(await readError(response))
         return response.json()
       })
       .then(setEvents)
@@ -49,11 +50,11 @@ export function ActivityPage() {
 
   return (
     <main className="px-6 pb-24 lg:px-8">
-      <PageHeader title="Activity" facts={[{ label: 'Events', value: events?.length ?? 0 }]} />
+      <PageHeader title="Event log" facts={[{ label: 'Events', value: events?.length ?? 0 }]} />
 
       {error && (
         <Alert variant="destructive" className="mt-6">
-          <AlertTitle>Could not load activity</AlertTitle>
+          <AlertTitle>Could not load the event log</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
@@ -69,14 +70,14 @@ export function ActivityPage() {
       {events && events.length === 0 && !error && (
         <Empty className="mt-16">
           <EmptyHeader>
-            <EmptyTitle>No activity yet</EmptyTitle>
+            <EmptyTitle>The event log is empty</EmptyTitle>
             <EmptyDescription>What agents do on boards and in the vault shows up here as it happens.</EmptyDescription>
           </EmptyHeader>
         </Empty>
       )}
 
       {events && events.length > 0 && (
-        <Paged items={events} label="Activity pages">
+        <Paged items={events} label="Event log pages">
           {(page) => (
         <Table className="mt-6">
           <TableHeader>

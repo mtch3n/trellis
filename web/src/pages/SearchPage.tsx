@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/wrappers/PageHeader'
 import { sentence } from '@/lib/format'
 import { Paged } from '@/components/wrappers/Paged'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { readError } from '@/lib/api'
 
 interface SearchHit {
   kind: string
@@ -36,7 +37,7 @@ export function SearchPage() {
     setError(null)
     try {
       const response = await fetch(`/api/search?q=${encodeURIComponent(term)}`)
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) throw new Error(await readError(response))
       setHits(await response.json())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Search failed')

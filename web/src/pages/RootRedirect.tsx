@@ -4,6 +4,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import type { ProjectSummary } from '@/components/wrappers/AppShell'
+import { readError } from '@/lib/api'
 
 function score(project: ProjectSummary) {
   const cards = project.columns.reduce((total, column) => total + column.card_count, 0)
@@ -25,7 +26,7 @@ export function RootRedirect() {
     const signal = controller.signal
     fetch('/api/projects', { signal })
       .then(async (response) => {
-        if (!response.ok) throw new Error(await response.text())
+        if (!response.ok) throw new Error(await readError(response))
         return response.json()
       })
       .then(setProjects)

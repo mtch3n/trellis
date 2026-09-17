@@ -49,16 +49,27 @@ class RewriteContentTest(unittest.TestCase):
 class MainTest(unittest.TestCase):
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp())
-        (self.dir / "ops").mkdir()
-        (self.dir / "ops" / ".rollback.md").mkdir()
+        # A single project's own directory: knowledge/ beside artifacts/,
+        # the layout under ~/.trellis/projects/<KEY> -- the shape that let
+        # this script wander into user-uploaded files before it was scoped
+        # to knowledge subtrees.
+        (self.dir / "knowledge" / "ops").mkdir(parents=True)
+        (self.dir / "knowledge" / "ops" / ".rollback.md").mkdir()
+        (self.dir / "artifacts").mkdir()
         self.files = {
-            self.dir / "notes.md": "---\ntitle: N\ntype: note\n---\nn\n",
-            self.dir / "ops" / "rollback.md": "---\ntitle: R\ntype: runbook\n---\nr\n",
-            self.dir / "ops" / ".rollback.md" / "1.md": "---\ntitle: R\ntype: runbook\n---\nold\n",
-            self.dir / "plain.md": "---\ntitle: P\n---\np\n",
+            self.dir / "knowledge" / "notes.md": "---\ntitle: N\ntype: note\n---\nn\n",
+            self.dir / "knowledge" / "ops" / "rollback.md": "---\ntitle: R\ntype: runbook\n---\nr\n",
+            self.dir / "knowledge" / "ops" / ".rollback.md" / "1.md": "---\ntitle: R\ntype: runbook\n---\nold\n",
+            self.dir / "knowledge" / "plain.md": "---\ntitle: P\n---\np\n",
         }
+        # A user-uploaded text artifact that happens to have the same
+        # frontmatter shape as a knowledge entry. Trellis never wrote it,
+        # and this script must never rewrite it either.
+        self.artifact = self.dir / "artifacts" / "notes.md"
+        self.artifact_text = "---\ntitle: uploaded\ntype: note\n---\nnot a knowledge entry\n"
         for path, text in self.files.items():
             path.write_text(text)
+        self.artifact.write_text(self.artifact_text)
 
     def run_main(self, *args):
         out = io.StringIO()
@@ -72,19 +83,28 @@ class MainTest(unittest.TestCase):
         self.assertIn("type: note -> no template", out)
         self.assertIn("type: runbook -> template: runbook", out)
         self.assertIn("would rewrite 3 file(s)", out)
+        self.assertNotIn(str(self.artifact), out)
         for path, text in self.files.items():
             self.assertEqual(path.read_text(), text)
+        self.assertEqual(self.artifact.read_text(), self.artifact_text)
 
     def test_apply_rewrites_revisions_too(self):
         code, _ = self.run_main("--apply")
         self.assertEqual(code, 0)
-        self.assertEqual((self.dir / "notes.md").read_text(), "---\ntitle: N\n---\nn\n")
-        self.assertEqual((self.dir / "ops" / "rollback.md").read_text(), "---\ntitle: R\ntemplate: runbook\n---\nr\n")
-        self.assertEqual((self.dir / "ops" / ".rollback.md" / "1.md").read_text(),
+        self.assertEqual((self.dir / "knowledge" / "notes.md").read_text(), "---\ntitle: N\n---\nn\n")
+        self.assertEqual((self.dir / "knowledge" / "ops" / "rollback.md").read_text(),
+                         "---\ntitle: R\ntemplate: runbook\n---\nr\n")
+        self.assertEqual((self.dir / "knowledge" / "ops" / ".rollback.md" / "1.md").read_text(),
                          "---\ntitle: R\ntemplate: runbook\n---\nold\n")
-        self.assertEqual((self.dir / "plain.md").read_text(), "---\ntitle: P\n---\np\n")
+        self.assertEqual((self.dir / "knowledge" / "plain.md").read_text(), "---\ntitle: P\n---\np\n")
         _, out = self.run_main("--apply")
         self.assertIn("rewrote 0 file(s)", out)
+
+    def test_artifacts_directory_is_never_touched(self):
+        code, out = self.run_main("--apply")
+        self.assertEqual(code, 0)
+        self.assertNotIn(str(self.artifact), out)
+        self.assertEqual(self.artifact.read_text(), self.artifact_text)
 
 
 if __name__ == "__main__":

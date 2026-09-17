@@ -141,20 +141,53 @@ func (c *Core) revisionToKeep(entryPath string, version int64, raw []byte) (stri
 }
 
 // captureKnowledgeRevision retains raw as version's copy of entryPath when
-// revisionToKeep says to, then trims down to historyKeep.
-func (c *Core) captureKnowledgeRevision(entryPath string, version int64, raw []byte) error {
+// revisionToKeep says to, then trims down to historyKeep. It returns the path
+// written, or "" when revisionToKeep declined (capture disabled, that version
+// already retained, or raw unchanged from the newest revision) -- so a caller
+// that captures a version speculatively, before the write it belongs to is
+// known to have landed, can remove exactly this file if it does not.
+func (c *Core) captureKnowledgeRevision(entryPath string, version int64, raw []byte) (string, error) {
 	dest, keep, err := c.revisionToKeep(entryPath, version, raw)
 	if err != nil || !keep {
-		return err
+		return "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
-		return err
+		return "", err
 	}
 	if err := writeAtomic(dest, raw, false); err != nil {
+		return "", err
+	}
+	if _, err := trimRevisions(entryPath, c.historyKeep); err != nil {
+		return "", err
+	}
+	return dest, nil
+}
+
+// discardCapturedRevision removes a revision file captureKnowledgeRevision
+// wrote, when the write it was speculatively captured for turned out not to
+// land. A no-op for "" (nothing was written) and for a file already gone.
+func discardCapturedRevision(dest string) error {
+	if dest == "" {
+		return nil
+	}
+	if err := os.Remove(dest); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	_, err = trimRevisions(entryPath, c.historyKeep)
-	return err
+	dir := filepath.Dir(dest)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if len(entries) > 0 {
+		return nil
+	}
+	if err := os.Remove(dir); err != nil {
+		return err
+	}
+	return syncDirectory(filepath.Dir(dir))
 }
 
 // revisionFiles lists the files in an entry's revision directory, none when
@@ -175,52 +208,6 @@ func revisionFiles(entryPath string) ([]string, error) {
 		}
 	}
 	return files, nil
-}
-
-// moveDir moves the directory at src into destDir, refusing to replace
-// anything already there. Directories cannot be hard-linked the way moveFile
-// links a file to get that refusal for free, so the destination is checked
-// first — os.Rename silently replaces an empty directory it is given no
-// chance to refuse. Rename is atomic and cheap on the common case (same
-// filesystem); when it fails for any other reason, this falls back to a
-// recursive copy, removing the source only once the copy is synced. src not
-// existing is not an error: an entry created before this feature, or with
-// capture disabled, may have no revision directory to move.
-func moveDir(src, destDir string) (string, error) {
-	if _, err := os.Stat(src); errors.Is(err, os.ErrNotExist) {
-		return "", nil
-	} else if err != nil {
-		return "", err
-	}
-	dest := filepath.Join(destDir, baseName(src))
-	if _, err := os.Stat(dest); err == nil {
-		return "", ErrConflict("path_taken", dest+" already exists", "")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", err
-	}
-	if err := os.Rename(src, dest); err != nil {
-		if cerr := copyDirAtomic(dest, src); cerr != nil {
-			return "", cerr
-		}
-		if err := os.RemoveAll(src); err != nil {
-			return "", err
-		}
-	}
-	if err := syncDirectory(destDir); err != nil {
-		return "", err
-	}
-	return dest, syncDirectory(filepath.Dir(src))
-}
-
-// moveDirBack undoes a successful moveDir: dest moves back beside src. A
-// moveDir that found nothing to move returns "", so dest may be empty here;
-// that is a no-op, not an error.
-func moveDirBack(dest, src string) error {
-	if dest == "" {
-		return nil
-	}
-	_, err := moveDir(dest, filepath.Dir(src))
-	return err
 }
 
 // copyDirAtomic copies a flat directory of revision files. Revision

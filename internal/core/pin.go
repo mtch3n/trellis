@@ -267,7 +267,8 @@ const GlobalReviewDays = 180
 // for, so none exists anywhere.
 func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason string) (Knowledge, error) {
 	var doc Knowledge
-	var src, dest, revSrc, revDest string
+	var src, dest string
+	var revMoved bool
 	var done bool
 	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
 		// A failure, or a panic, after the move undoes it before this
@@ -282,12 +283,13 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 					if merr := moveBack(dest, src); merr != nil {
 						err = errors.Join(err, merr)
 					}
+					if revMoved {
+						if _, merr := moveRevisionDirIfExists(dest, src); merr != nil {
+							err = errors.Join(err, merr)
+						}
+					}
 					dest = ""
 				}
-				if merr := moveDirBack(revDest, revSrc); merr != nil {
-					err = errors.Join(err, merr)
-				}
-				revDest = ""
 			}
 		}()
 
@@ -315,12 +317,14 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 		if err != nil {
 			return err
 		}
-		revSrc = revisionDir(src)
-		revMoved, err := moveDir(revSrc, dir)
+		// The revision directory follows the entry to its new subpath, not
+		// to the vault root: revisionDir(dest) may sit several segments
+		// below dir when the slug carries one, exactly the way a plain
+		// `knowledge mv` already moves it.
+		revMoved, err = moveRevisionDirIfExists(src, dest)
 		if err != nil {
 			return err
 		}
-		revDest = revMoved
 		now := c.clock.NowMS()
 		reviewBy := now + int64(GlobalReviewDays)*24*60*60*1000
 		if _, err := tx.Exec(
@@ -357,8 +361,10 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 			if merr := moveBack(dest, src); merr != nil {
 				err = errors.Join(err, merr)
 			}
-			if merr := moveDirBack(revDest, revSrc); merr != nil {
-				err = errors.Join(err, merr)
+			if revMoved {
+				if _, merr := moveRevisionDirIfExists(dest, src); merr != nil {
+					err = errors.Join(err, merr)
+				}
 			}
 		}
 	}
@@ -369,7 +375,8 @@ func (c *Core) EscalateKnowledge(ctx context.Context, projectID, slug, reason st
 // mistake must not be permanent.
 func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowledge, error) {
 	var doc Knowledge
-	var src, dest, revSrc, revDest string
+	var src, dest string
+	var revMoved bool
 	var done bool
 	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
 		// A failure, or a panic, after the move undoes it before this
@@ -384,12 +391,13 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 					if merr := moveBack(dest, src); merr != nil {
 						err = errors.Join(err, merr)
 					}
+					if revMoved {
+						if _, merr := moveRevisionDirIfExists(dest, src); merr != nil {
+							err = errors.Join(err, merr)
+						}
+					}
 					dest = ""
 				}
-				if merr := moveDirBack(revDest, revSrc); merr != nil {
-					err = errors.Join(err, merr)
-				}
-				revDest = ""
 			}
 		}()
 
@@ -421,12 +429,14 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 		if err != nil {
 			return err
 		}
-		revSrc = revisionDir(src)
-		revMoved, err := moveDir(revSrc, dir)
+		// The revision directory follows the entry to its new subpath, not
+		// to the vault root: revisionDir(dest) may sit several segments
+		// below dir when the slug carries one, exactly the way a plain
+		// `knowledge mv` already moves it.
+		revMoved, err = moveRevisionDirIfExists(src, dest)
 		if err != nil {
 			return err
 		}
-		revDest = revMoved
 		if _, err := tx.Exec(
 			`UPDATE knowledge SET global = 0, path = ?, review_by = NULL, updated_at = ? WHERE id = ?`,
 			dest, c.clock.NowMS(), doc.ID); err != nil {
@@ -459,8 +469,10 @@ func (c *Core) DemoteKnowledge(ctx context.Context, slug, reason string) (Knowle
 			if merr := moveBack(dest, src); merr != nil {
 				err = errors.Join(err, merr)
 			}
-			if merr := moveDirBack(revDest, revSrc); merr != nil {
-				err = errors.Join(err, merr)
+			if revMoved {
+				if _, merr := moveRevisionDirIfExists(dest, src); merr != nil {
+					err = errors.Join(err, merr)
+				}
 			}
 		}
 	}

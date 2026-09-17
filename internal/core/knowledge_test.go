@@ -645,6 +645,75 @@ func TestEditKnowledgeReplacesSources(t *testing.T) {
 	}
 }
 
+// review-knowledge #14: a revision directory can outlive the entry it
+// belonged to when its file and row are removed outside Trellis -- the
+// exact state --orphan-history exists to clean up. A new entry created at
+// the same slug before that runs must not adopt that stale history as its
+// own: its "version 1" would then really be an old, possibly private,
+// entry's last version.
+func TestCreateKnowledgeRefusesAStaleRevisionDirectory(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Old", Body: "the old private body\n"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := os.Stat(revisionFilePath(doc.Path, 1)); err != nil {
+		t.Fatalf("version 1 must exist before the simulated outside removal: %v", err)
+	}
+	// What removing a file and its row outside Trellis leaves behind: the
+	// revision directory survives on its own.
+	if err := os.Remove(doc.Path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.db.Exec(`DELETE FROM knowledge WHERE id = ?`, doc.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Old", Body: "brand new body\n"}); !isCode(err, "stale_history") {
+		t.Fatalf("err = %v, want stale_history", err)
+	}
+	// The refusal must not have written anything either.
+	if _, err := os.Stat(doc.Path); !os.IsNotExist(err) {
+		t.Errorf("CreateKnowledge left a file behind despite refusing: %v", err)
+	}
+}
+
+// review-knowledge #15: removing `template:` from a file by hand must clear
+// the row's template too. cmpOr kept the old value whenever the file's was
+// empty, which is right for Title (never meant to become blank) but wrong
+// here: an empty template is a meaningful value, "none", not "unknown, keep
+// the old one".
+func TestRemovingTemplateByHandClearsTheRow(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Plan", Template: "runbook"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if doc.Template != "runbook" {
+		t.Fatalf("Template = %q, want runbook", doc.Template)
+	}
+	raw, err := os.ReadFile(doc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm, body, err := SplitFrontmatter(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm.Template = ""
+	if err := os.WriteFile(doc.Path, []byte(RenderDoc(fm, body)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	if err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+	if got.Template != "" {
+		t.Errorf("Template = %q after removing the key by hand, want empty", got.Template)
+	}
+}
+
 func TestKnowledgeFieldsFromSet(t *testing.T) {
 	c, p, _ := kbCore(t)
 	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{

@@ -3,6 +3,7 @@ import { Separator } from '@/components/ui/separator'
 import { EditForm, InPlaceText } from '@/components/wrappers/EditInPlace'
 import { MarkdownContent } from '@/components/wrappers/MarkdownContent'
 import { MarkdownEditor } from '@/components/wrappers/MarkdownEditor'
+import { joinTitleHeading, splitTitleHeading } from '@/lib/title-heading'
 import type { KnowledgeEntry } from '@/pages/KnowledgePage'
 
 export interface EntryDraft { title: string; summary: string; body: string }
@@ -15,24 +16,33 @@ export interface EntryDraft { title: string; summary: string; body: string }
  * wash when pointed at, and a click on one starts editing it. Editing, they
  * become fields where they stand, in the same type. Edit, Save and Cancel live
  * in the page's action row, so an edit never moves the words.
+ *
+ * A body that opens with the title as an H1, as a template's does, is shown
+ * without it: the title is already set above. Editing leaves the heading out
+ * too, and saving puts it back under the title as saved, so the file's
+ * heading follows a renamed entry.
  */
 export function EntryView({
   entry,
   editing,
+  initialFocus = 'title',
   source,
   onEditingChange,
   onSave,
 }: {
   entry: KnowledgeEntry
   editing: boolean
+  /** Which field takes the cursor when the entry opens already editing. */
+  initialFocus?: 'title' | 'body'
   /** Show the body as markdown source. The page owns the toggle, which sits with Save. */
   source: boolean
   onEditingChange: (editing: boolean) => void
   onSave: (draft: EntryDraft) => Promise<void>
 }) {
   const [draft, setDraft] = useState({ title: entry.title, summary: entry.summary ?? '' })
-  const [focus, setFocus] = useState<'title' | 'summary' | 'body'>('title')
-  const readBody = useRef<() => string>(() => entry.body ?? '')
+  const [focus, setFocus] = useState<'title' | 'summary' | 'body'>(initialFocus)
+  const body = splitTitleHeading(entry.body ?? '', entry.title)
+  const readBody = useRef<() => string>(() => body.rest)
   const registerBody = useCallback((read: () => string) => { readBody.current = read }, [])
 
   // Another entry, or the other mode, starts from what the entry says.
@@ -46,7 +56,8 @@ export function EntryView({
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!draft.title.trim()) return
-    await onSave({ ...draft, body: readBody.current() })
+    const rest = readBody.current()
+    await onSave({ ...draft, body: body.heading ? joinTitleHeading(rest, draft.title) : rest })
   }
 
   // Reading, a click on the words starts editing them, unless it lands on a
@@ -99,7 +110,7 @@ export function EntryView({
       {editing ? (
         <MarkdownEditor
           key={entry.id}
-          value={entry.body ?? ''}
+          value={body.rest}
           source={source}
           onRead={registerBody}
           placeholder="Write the entry"
@@ -108,7 +119,7 @@ export function EntryView({
         />
       ) : (
         <div className="edit-hint" onClick={startEdit('body')}>
-          <MarkdownContent content={entry.body ?? ''} />
+          <MarkdownContent content={body.rest} />
         </div>
       )}
     </>

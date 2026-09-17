@@ -1,10 +1,21 @@
 /**
  * Sentence case for the words the backend stores in lower case: column
- * names, priorities, entry kinds, event actions. Display only; the stored
+ * names, priorities, template names, event actions. Display only; the stored
  * value is what gets sent back.
  */
 export function sentence(word: string) {
   return word ? word.charAt(0).toUpperCase() + word.slice(1) : word
+}
+
+/** Words run together as a sentence reads them: "a, b and c". */
+export function wordList(words: string[]) {
+  if (words.length <= 1) return words.join('')
+  return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`
+}
+
+/** An entry's template as a label; an entry need not have one. */
+export function templateLabel(template?: string) {
+  return template ? sentence(template) : 'No template'
 }
 
 /** How long ago, in the fewest words that still mean something. */

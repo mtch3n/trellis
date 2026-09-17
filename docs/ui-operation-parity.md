@@ -51,7 +51,7 @@ Agents already filter by type with `knowledge ls --type decision` and
 |---|---|---|---|
 | D1 | A "Decisions" virtual folder: let the vault tree group by `type`. Offer a toggle between grouping by type and by folder, defaulting to type while the vault is flat | FE | The TUI already groups by type (`internal/cli/tui_workspace.go:281-291`). See [overlap](#overlap-with-work-in-progress): the tree now builds folders from scope and slug, and grouping by type slots in as a second grouping |
 | D2 | Type filter chips, one per type | FE | Client-side over the loaded list |
-| D3 | A "New entry" button with a type picker, so "New decision" starts from the decision template | Route | Depends on K1 |
+| D3 | A "New entry" button with a type picker, so "New decision" starts from the decision template. **Done:** see [Creating entries and switching templates](#creating-entries-and-switching-templates-done-k1-d3) | Route | Depends on K1 |
 
 ## B. Bugs (verified)
 
@@ -81,7 +81,7 @@ Agents already filter by type with `knowledge ls --type decision` and
 
 | ID | Item | Backend | Detail |
 |---|---|---|---|
-| K1 | Create an entry | Route | `POST .../b/{board}/knowledge` exists but is never called. Its request struct (`server.go:723-729`) lacks `private`, `tags`, `labels` and `provenance`; add them. Coordinate with trellis-2f: its templates plan (TRELLIS-35) will require `sources` on decision and finding entries, and the form must follow |
+| K1 | Create an entry. **Done**, with folder and template: see [Creating entries and switching templates](#creating-entries-and-switching-templates-done-k1-d3) | Route | `POST .../b/{board}/knowledge` exists but is never called. Its request struct (`server.go:723-729`) lacks `private`, `tags`, `labels` and `provenance`; add them. Coordinate with trellis-2f: its templates plan (TRELLIS-35) will require `sources` on decision and finding entries, and the form must follow |
 | K2 | Delete an entry | Route | `DeleteKnowledge` (`knowledge.go:592`). No route exists |
 | K3 | Change type, private, tags, labels or board after creation | Core, Route | **No core support.** `KnowledgeEdit` has only Title, Summary, Body and IfVersion (`knowledge.go:75-80`); today the only way is to edit the frontmatter by hand. Needs core, CLI and API work. Without it, an entry saved as a note cannot be moved into Decisions |
 | K4 | Filters: type and provenance, and cold entries | FE, Route | `KnowledgeFilter` already has DocTypes and Provenances (`knowledge.go:421`). Cold entries need `ColdKnowledge` (`health.go:83`) exposed |
@@ -90,7 +90,7 @@ Agents already filter by type with `knowledge ls --type decision` and
 | K7 | A vault health view | Route | `Lint` (stubs, broken anchors, orphans), `Health` counts, `Dupes` clusters. The graph explorer already lists unlinked entries and stubs, computed on the client |
 | K8 | Global vault lifecycle: the nominations queue, escalate, demote, verify | Route | `pin.go`. The CLI deliberately requires a human for these, and its error tells humans to escalate from the browser with `trellis ui` (`requireHuman`, `internal/cli/knowledge.go:507-530`), so the UI is the intended surface. Mirror the CLI: retype the slug to confirm, and require a reason. `nominate` is agent-only; leave it out |
 | K9 | (low) Uptake analytics, read-only | Route | `RecallUptake` |
-| K10 | Version history for entries and cards: the list of versions, and a diff between two | FE | **The backend is built on trellis-2f's branch, not yet merged.** `GET /api/p/{key}/knowledge/{slug}/history` and `.../diff?from=N&to=M`, and the same pair for cards, whose items also carry `actor`. Omitting both ends means previous against latest; a version no longer kept is 404. Entries keep up to 100 versions in a hidden `.<filename>/` directory beside the file, cards in a `card_revision` table, and `trellis config set history.keep <n>` changes the limit. The diff is plain text and must be rendered as text. Card version numbers have gaps, because a move also bumps the version. `HistoryList` and `DiffView` already exist and should show it |
+| K10 | Version history for entries and cards: the list of versions, and a diff between two | FE | **The backend is built on trellis-2f's branch, not yet merged.** `GET /api/p/{key}/knowledge/{slug}/history` and `.../diff?from=N&to=M`, and the same pair for cards, whose items also carry `actor`. Omitting both ends means previous against latest; a version no longer kept is 404. Entries keep up to 100 versions in a hidden `.<filename>/` directory beside the file, cards in a `card_revision` table, and `trellis config set history.keep <n>` changes the limit. The diff is plain text and must be rendered as text. Card version numbers have gaps, because a move also bumps the version. `DiffView` already exists; the view is to be called History |
 
 ## P. Boards, columns, labels
 
@@ -243,16 +243,8 @@ come first.
     their history items also carry `actor`, and a card revision renders as
     `# <title>\n\n<body>`.
   - Card version numbers have gaps, because a move bumps the version too.
-  - Build it into `HistoryList` and `DiffView` rather than a new view.
-- **K1 and D3 Create an entry (merged).**
-  - `POST /api/p/{key}/b/{board}/knowledge` takes `title`, `summary`, `body`,
-    `template` (note, decision, finding, research, runbook, reference),
-    `sources: string[]` and `set: {field: value}`.
-  - `decision` and `finding` without sources return 400
-    `template_violation`; show the message as it is.
-  - Internal sources must resolve: `[[slug]]`, `/KEY/cards/KEY-12`,
-    `/KEY/knowledge/slug`, `/GLOBAL/knowledge/slug`, `/KEY/artifacts/name`.
-  - Entries now carry `sources`, so show them on the entry page too.
+  - Build it as its own History view, reusing `DiffView`. History means
+    revisions; the card's merged comments-and-events list is its Timeline.
 - **Timeline data (landing with trellis-2f's EventFeed change).** `/events`
   gains `title` and `type` and drops `read` events, so use `title` directly
   instead of looking titles up through the entry list.
@@ -261,9 +253,10 @@ come first.
   - **Unverified trap:** the routes are single-segment (`/knowledge/{slug}`
     in Go, and `:slug` in `App.tsx`), and the navigator links with
     `encodeURIComponent(slug)`.
-  - Check that an entry with a `/` in its slug opens, saves, and shows
-    history. If not, ask trellis-2f for `{slug...}` routes and switch the app
-    route to a splat.
+  - Verified on 7992228: an entry with a `/` in its slug opens, saves, and
+    can be created in a folder. History is unchecked until K10 exists; if it
+    fails, ask trellis-2f for `{slug...}` routes and switch the app route to
+    a splat.
 - **D1 and D2.** A type grouping mode for the vault tree, and type filter
   chips. Both are frontend only.
 - **B2 remainder, labels on board tiles.** Needs `handleBoardCards` to select
@@ -276,6 +269,161 @@ come first.
     your own lease), and K2 (delete an entry).
   - C5 matters most now that web writes have a stable identity: today the UI
     can take a lease but not release it.
+
+### Contracts landed since (f36fa23, from trellis-2f)
+
+- **Board tiles:** `GET .../b/{board}/cards` carries `labels` and `tags`, as
+  sorted arrays that are empty when there are none.
+- **Labels:** `POST /api/p/{key}/labels` with `{name, description}` returns 201
+  and the label. `DELETE /api/p/{key}/labels/{name}` returns 204.
+- **Leases:**
+  - `POST .../cards/{card}/claim` with `{ttl_minutes?}` returns 200 and the
+    card, or 409 when someone else holds it.
+  - `POST .../cards/{card}/release` returns 200.
+- **Notes:** `POST .../cards/{card}/notes` with `{body}` returns 201 and the
+  note, or 400 when the body is empty.
+- **Deleting an entry:** `DELETE /api/p/{key}/b/{board}/knowledge/{slug}`
+  returns 204. Slugs containing `/` travel percent-encoded, and edit, history,
+  diff and delete are tested that way.
+- **Knowledge PATCH** also takes `private`, `tags` and `labels`; a field left
+  out keeps its value.
+- **Coming, do not build on the old shape:**
+  - `type` becomes `template` everywhere: entry JSON (and optional), PATCH,
+    and `/events`. Group and filter by `template`.
+  - Knowledge lists will stop carrying `body`, and for private entries
+    `summary` and `recap` as well. `GET /api/p/{key}/knowledge/{slug}` returns
+    one entry with its body; fetch it when an entry is selected.
+
+### TRELLIS-31 handled; the graph waits on a links route
+
+- The vault page now fetches the open entry from
+  `GET /api/p/{key}/knowledge/{slug}` when it is chosen, and again after a
+  save or a 409.
+- **Graph edges come from the server now.** `buildGraph`
+  (`lib/knowledge-graph.ts`) takes `GET /api/p/{key}/links/knowledge`
+  (f4e56a1) and matches entries to links by address (`entry.ref`, for
+  example `/KEY/knowledge/<slug>`). Nothing parses bodies any more. A link with
+  no target is a stub, labelled with its `raw` text minus the anchor.
+- **Fixed with it:** the rich-text editor escaped `[[wikilinks]]` on save
+  (`\[\[slug]]`), unmaking every link it touched. `restoreWikilinks` in
+  `MarkdownEditorImpl` puts them back. No real data was affected.
+
+### Card relations: done
+
+- **Where it lives.** `RelationsEditor` sits in the card's facts column, fed by
+  aa1a985. Relations come back beside `card` in the detail response, not
+  inside it, and both pages merge them in with `withRelations`.
+- **What it shows.** Rows are grouped by kind. Each shows the other card's
+  ref, title and status; an unfinished blocker is red. The add form picks a
+  kind, then a card by search, and Enter takes the first match. Every row has
+  a remove button.
+- **History.** `related` and `unrelated` events read "Resolved by REL-2" and
+  "No longer blocked by REL-4".
+
+### Card comments: done
+
+- **Backend.** Built on 3c8ab29. The detail's `comments` array (oldest first,
+  `{id, card_id, actor, body, created_at}`) sits beside `card`. New comments
+  go to `POST .../b/{board}/cards/{card}/comments` with `{body}`.
+- **One timeline.** The card's **Timeline** section (the user's word;
+  "history" is reserved for revisions) is `CommentBox` on top, then
+  `CardTimeline` (formerly `HistoryList`) merging comments and `activity` by
+  time. A comment writes no card event, so nothing shows twice. Comments render
+  as markdown on a card surface, and the separate Notes section is gone.
+
+### Vocabulary (user decisions, relayed by trellis-2f)
+
+- A card's merged comments and events are its **Timeline**
+  (`CardTimeline`).
+- The project-wide event stream is the **Event log** (`EventLogPage` at
+  `/event-log`, and the Overview's Event log section).
+- **History** means revisions only.
+- "Activity" and "feed" are retired, in labels and in identifiers.
+- Wire names (`/api/activity`, the card detail's `activity`, `/events`) stay
+  until the backend renames them.
+
+### Templates: done
+
+- **The field.** Built on 7dcb63e. Entries carry `template` (`""` for none),
+  and `type` is gone from the web.
+- **Labels.** The facts column, the Overview and the graph read "Template" and
+  "No template" through `templateLabel` in `lib/format.ts`. The vault filter
+  matches template names.
+- **Saving.** A save whose template only warns shows its `warnings` in a
+  warning toast; a rejecting template's 400 shows its message.
+- **Still open.** D1 grouping by template, and D2 template filter chips.
+
+### Creating entries and switching templates: done (K1, D3)
+
+Built on 5c8e6c0 (`GET /api/templates`) and 7992228 (PATCH `sources` and
+`set`, POST `dir`, errors as `{error, code, problems}`).
+
+- **New entry.** The vault toolbar has a New entry button, and each project
+  folder's row has one that starts inside that folder. `NewEntryDialog` asks
+  for the title, the folder (top level, an existing folder, or a new one
+  typed in), the template, and only what the template needs:
+  - sources when `required` has them;
+  - a select per `choices` field;
+  - a line per other required field, sent as `set`.
+  The chosen template's rules are described under the picker. The body is
+  left empty, so the server writes the template's skeleton, and the new
+  entry opens for editing with the cursor in its body.
+- **Template on an entry.** The facts column starts with a Template select,
+  applied at once like a card's status. An advisory template, or a strict one
+  the entry already meets, switches straight away; warnings go to a toast.
+  A strict template the entry does not meet opens `TemplateSwitchDialog`:
+  - it asks for the sources and fields the entry lacks;
+  - it appends missing sections to the body, empty, in the same save;
+  - it waits while the body is open in the editor, because adding sections
+    would write under the edit.
+- **Sources on an entry.** A Sources group in the facts column lists them.
+  Cards and entries link, URLs open in a new tab, and prose shows as written.
+  Adding and removing apply at once; a strict template can refuse either.
+  A bare `KEY-12` of this project is stored as `/KEY/cards/KEY-12`, so it is
+  checked.
+- **Refusals.** `readRefusal` keeps `problems` apart. Dialogs list them in a
+  `RefusalAlert`; toasts join them after the message.
+- **Every knowledge PATCH needs `version`.** Fact changes send the version on
+  screen. The reload after them advances it, so an open body edit saves over
+  the new version without a false conflict.
+- **Title heading.** Skeletons begin with `# {{title}}`, and trellis-2f keeps
+  it, because editors such as Obsidian show it as the page title. The entry
+  page hides a leading H1 that matches the title, in reading and editing
+  alike, and a save writes it back under the title as saved
+  (`lib/title-heading.ts`).
+- **Template fields (12f5dd0).** Knowledge responses carry `fields`: the
+  frontmatter keys `Frontmatter` does not name, as strings or string lists;
+  lists send `{}` for private entries, so the page reads them from the full
+  entry. The facts column has a Fields group (`FieldsEditor`):
+  - every field the template names, set or not, then any other field;
+  - a select for a field with choices, a line of text for the rest, saved on
+    Enter or when left, through PATCH `set`;
+  - a list is shown, not edited;
+  - a field the template does not name can be removed (`set` to `""`).
+  The switch dialog no longer asks for a field the entry already has, unless
+  its value is outside the choices. Verified: a choice change, a text change,
+  clearing a required field under a strict template (refused, value kept to
+  fix), removing an extra field, and switching an entry that already had the
+  template's fields (only the missing section was added).
+- **Editor.** The rich editor keeps `-` bullets and `---` rules, instead of
+  rewriting them as `*` on the first save. Template guidance comments
+  (`<!-- ... -->`) are kept, shown muted in mono, and not editable in rich
+  text; the source view edits them.
+- **Verified** in the browser on a scratch home, against 7992228:
+  - create with no template;
+  - create with decision and a card source;
+  - create with a user template that has a choice and a required field,
+    inside `ops/db`;
+  - switch to decision with an unresolved source (refused, listed), then with
+    real ones (sections added);
+  - removing the last source under decision (refused);
+  - an advisory switch while editing, then saving the body (no conflict).
+
+### Next, when trellis-2f lands them
+
+- **Wikilinks in rendered markdown are plain text.** `[[slug]]` should
+  render as a link to the entry, a stub looking like one. `MarkdownContent`
+  needs a remark plugin that resolves targets against the entry list.
 
 ### Build, test, verify
 

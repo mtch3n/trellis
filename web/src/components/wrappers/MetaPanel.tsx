@@ -93,7 +93,9 @@ function CollapsibleGroup({
           {count !== undefined && <span className="font-normal">{count}</span>}
         </CollapsibleTrigger>
       </h2>
-      <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-all duration-200 ease-settle data-ending-style:h-0 data-starting-style:h-0">
+      {/* The clip reaches past the column by the rows' hover bleed, so a
+          focused control at a row's edge never scrolls the group sideways. */}
+      <CollapsibleContent className="-mx-2 h-(--collapsible-panel-height) overflow-hidden px-2 transition-all duration-200 ease-settle data-ending-style:h-0 data-starting-style:h-0">
         <div className="pt-2">{children}</div>
       </CollapsibleContent>
     </Collapsible>

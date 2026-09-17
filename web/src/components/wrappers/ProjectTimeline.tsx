@@ -41,7 +41,7 @@ const day = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: 'n
  * Time is proportional while anything happens. A silence longer than two
  * hours becomes a narrow, labelled skip, so a night or a weekend costs almost
  * no width and still shows where it was; the skips can be turned off for true
- * time. It opens fitted to the width, or on now when the history is longer.
+ * time. It opens fitted to the width, or on now when there is more than fits.
  */
 export function ProjectTimeline({
   marks,
@@ -93,7 +93,7 @@ export function ProjectTimeline({
     [marks, axis],
   )
 
-  // A history wider than the strip opens on now.
+  // A record wider than the strip opens on now.
   useLayoutEffect(() => {
     const node = scroller.current
     if (node) node.scrollLeft = node.scrollWidth

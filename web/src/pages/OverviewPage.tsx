@@ -12,9 +12,10 @@ import { MetaGroup } from '@/components/wrappers/MetaPanel'
 import { ProjectTimeline } from '@/components/wrappers/ProjectTimeline'
 import { PageHeader } from '@/components/wrappers/PageHeader'
 import type { KnowledgeEntry } from '@/pages/KnowledgePage'
-import { ago, sentence } from '@/lib/format'
+import { ago, sentence, templateLabel } from '@/lib/format'
 import { buildMarks, type ProjectEvent } from '@/lib/timeline-marks'
 import { cn } from '@/lib/utils'
+import { readError } from '@/lib/api'
 
 interface ColumnCards { name: string; cards: CardInfo[] }
 interface Event {
@@ -31,12 +32,12 @@ interface Snapshot {
   columns: ColumnCards[]
   events: Event[]
   entries: KnowledgeEntry[]
-  history: ProjectEvent[]
+  log: ProjectEvent[]
   loadedAt: number
 }
 
 /** The events endpoint's largest page. */
-const HISTORY_PAGE = 5000
+const EVENT_PAGE = 5000
 
 /**
  * The project at a glance, and where the app lands. PRODUCT.md makes
@@ -44,7 +45,7 @@ const HISTORY_PAGE = 5000
  * happening here" for someone who has forgotten: what is moving and who holds
  * it, what changed last, and what was written down.
  *
- * The first column is the queue and the done column is history; everything
+ * The first column is the queue and the done column is the record; everything
  * between them is work in motion, so those columns get sections of their own
  * and the rest is counted in the rail.
  */
@@ -59,32 +60,32 @@ export function OverviewPage() {
     const { signal } = controller
     const read = async <T,>(url: string): Promise<T> => {
       const response = await fetch(url, { signal })
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) throw new Error(await readError(response))
       return response.json() as Promise<T>
     }
     ;(async () => {
       const projects = await read<ProjectSummary[]>('/api/projects')
       const summary = projects.find((project) => project.key === projectKey) ?? null
       const board = summary?.boards[0]?.slug
-      // The whole history, a page at a time, for the timeline.
-      const readHistory = async () => {
-        const history: ProjectEvent[] = []
+      // The whole event log, a page at a time, for the timeline.
+      const readLog = async () => {
+        const log: ProjectEvent[] = []
         for (let after = 0; ;) {
           const page = await read<{ events: ProjectEvent[]; next: number | null }>(
-            `/api/p/${projectKey}/events?after=${after}&limit=${HISTORY_PAGE}`,
+            `/api/p/${projectKey}/events?after=${after}&limit=${EVENT_PAGE}`,
           )
-          history.push(...page.events)
-          if (page.events.length < HISTORY_PAGE || page.next === null) return history
+          log.push(...page.events)
+          if (page.events.length < EVENT_PAGE || page.next === null) return log
           after = page.next
         }
       }
-      const [columns, events, entries, history] = await Promise.all([
+      const [columns, events, entries, log] = await Promise.all([
         board ? read<ColumnCards[]>(`/api/p/${projectKey}/b/${board}/cards`) : Promise.resolve([]),
         read<Event[]>(`/api/activity?project=${encodeURIComponent(projectKey)}&limit=20`),
         read<KnowledgeEntry[]>(`/api/p/${projectKey}/knowledge`),
-        readHistory(),
+        readLog(),
       ])
-      setData({ summary, columns, events, entries: entries ?? [], history, loadedAt: Date.now() })
+      setData({ summary, columns, events, entries: entries ?? [], log, loadedAt: Date.now() })
       setError(null)
     })().catch((err: unknown) => {
       if (signal.aborted) return
@@ -107,7 +108,7 @@ export function OverviewPage() {
           ? []
           : [{ ref: card.ref, title: card.title, createdAt: card.created_at, owner: card.owner }],
       ),
-      events: data.history,
+      events: data.log,
       titles,
       queue: data.columns[0]?.name ?? '',
       doneColumns: doneNames,
@@ -190,9 +191,9 @@ export function OverviewPage() {
           ))}
 
           <section>
-            <h2 className="text-heading">Recent activity</h2>
+            <h2 className="text-heading">Event log</h2>
             {data.events.length === 0 ? (
-              <p className="mt-3 text-sm text-muted-foreground">No activity yet.</p>
+              <p className="mt-3 text-sm text-muted-foreground">The event log is empty.</p>
             ) : (
               <ol className="mt-3 flex flex-col">
                 {data.events.map((event) => (
@@ -208,10 +209,10 @@ export function OverviewPage() {
               </ol>
             )}
             <Link
-              to="/activity"
+              to="/event-log"
               className="mt-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
-              All activity
+              Full event log
               <ArrowRight className="size-3.5" />
             </Link>
           </section>
@@ -266,7 +267,7 @@ export function OverviewPage() {
                     >
                       <span className="block text-sm leading-snug">{entry.title}</span>
                       <span className="mt-0.5 block text-xs text-muted-foreground">
-                        {sentence(entry.type ?? 'note')}
+                        {templateLabel(entry.template)}
                         {entry.updated_at ? `, ${ago(entry.updated_at)}` : ''}
                       </span>
                     </Link>

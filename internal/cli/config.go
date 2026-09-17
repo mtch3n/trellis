@@ -211,6 +211,9 @@ func newConfigSetCmd() *cobra.Command {
 				if !config.RepoSafe(key) {
 					return core.ErrUsage("not_repo_safe", fmt.Sprintf("%q may not be set by a repository", key), "trellis config ls")
 				}
+				if err := config.ValidateRepoValue(key, value); err != nil {
+					return core.ErrUsage("invalid_value", err.Error(), "trellis config set --repo lease.ttl 30m")
+				}
 				dir, err := repoConfigDir()
 				if err != nil {
 					return err
