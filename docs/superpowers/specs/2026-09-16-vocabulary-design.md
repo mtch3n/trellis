@@ -315,6 +315,7 @@ in a retired word, which catches objects added after this spec was written.
 | `NewCardID` (mints every id) | `NewID` |
 | `resolve.Pin`, `PinFile`, `FindPin`, `ReadPin`, `PinError`, `PinPath` | `resolve.Marker`, `MarkerFile`, `FindMarker`, `ReadMarker`, `MarkerError`, `MarkerPath` |
 | package `vpath`, type `vpath.Path` | package `address`, type `address.Address` |
+| `vpath.ParsePin` (reads a marker's contents) | `address.ParseMarker` |
 | `vpath.CollectionKnowledge`, `KnowledgePath`, `GlobalKnowledgePath`, `CardPath`, `ArtifactPath`, `ProjectPath` | `address.CollectionVault`, `address.Entry`, `address.GlobalEntry`, `address.Card`, `address.Artifact`, `address.Project` |
 | `DocAddress` | `EntryAddress` |
 | `Template.Verify`, `template_verify.go` | `Template.Resolve`, `template_resolve.go` |

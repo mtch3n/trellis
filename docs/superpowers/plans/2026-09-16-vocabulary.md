@@ -716,7 +716,7 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-const entryBefore = "---\ntitle: A\ntemplate: runbook\nsources:\n  - /TR/knowledge/b\n---\nSee [[/TR/knowledge/b]] and /home/me/knowledge/notes.\n"
+const entryBefore = "---\ntitle: A\ntemplate: runbook\nsources:\n  - /TR/knowledge/b\n---\nSee [[/TR/knowledge/b]], [[/TR/knowledge/ops/rollback]] and /home/me/knowledge/notes.\n"
 
 func sha(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
 
@@ -801,7 +801,7 @@ func TestVocabularyMigration(t *testing.T) {
 
 	moved := filepath.Join(root, "projects", "TR", "vault", "a.md")
 	got := readFile(t, moved)
-	want := strings.ReplaceAll(entryBefore, "/TR/knowledge/b", "/TR/vault/b")
+	want := strings.ReplaceAll(entryBefore, "/TR/knowledge/", "/TR/vault/")
 	if got != want {
 		t.Errorf("entry file:\n%s\nwant:\n%s", got, want)
 	}
@@ -1720,10 +1720,10 @@ git commit -m "refactor: promote and verify, and pin.go split by concern"
 - [ ] **Step 1: The marker**
 
 ```bash
-git grep -hoE '\b\w*[Pp]in\w*\b' -- 'internal/resolve/*.go' 'internal/cli/init.go' 'internal/cli/resolve.go' 'internal/cli/config.go' 'internal/cli/doctor.go' 'internal/core/project*.go' | sort | uniq -c
+git grep -hoE '\b\w*[Pp]in\w*\b' -- 'internal/resolve/*.go' 'internal/address/*.go' 'internal/cli/init.go' 'internal/cli/resolve.go' 'internal/cli/config.go' 'internal/cli/doctor.go' 'internal/core/project*.go' | sort | uniq -c
 ```
 
-In those files, every identifier about the `.trellis` file renames `Pin` → `Marker` and `pin` → `marker` (`PinFile` → `MarkerFile`, `findPin` → `findMarker`, `pinBoundary` → `markerBoundary`, `parentPin` → `parentMarker`, `PinPath` → `MarkerPath`, `Unpinnable` → `Unmarkable`, and so on). Identifiers about pinned entries (`core.Pin`, `PinEntry`, `pinTable`, `pins`) keep their names. Use `/tmp/gorename.sh` for each. Comments and messages follow; for example `no .trellis pin found` → `no .trellis marker found`. The error code `bad_pin` and the JSON keys `pin_path`, `pin_written` wait for Task 11.
+In those files, every identifier about the `.trellis` file renames `Pin` → `Marker` and `pin` → `marker` (`PinFile` → `MarkerFile`, `address.ParsePin` → `address.ParseMarker`, `findPin` → `findMarker`, `pinBoundary` → `markerBoundary`, `parentPin` → `parentMarker`, `PinPath` → `MarkerPath`, `Unpinnable` → `Unmarkable`, and so on). Identifiers about pinned entries (`core.Pin`, `PinEntry`, `pinTable`, `pins`) keep their names. Use `/tmp/gorename.sh` for each. Comments and messages follow; for example `no .trellis pin found` → `no .trellis marker found`. The error code `bad_pin` and the JSON keys `pin_path`, `pin_written` wait for Task 11.
 
 - [ ] **Step 2: Diagnostics and duplicates**
 
