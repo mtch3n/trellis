@@ -223,3 +223,46 @@ func ParseReference(raw string) Reference {
 	ref.ProjectKey, ref.Slug = p.Project, p.Name
 	return ref
 }
+
+// RewriteWikilinks replaces link targets in text. fn sees every wikilink that
+// ParseWikilinks would see -- code spans and fenced blocks are skipped the
+// same way -- and returns the new target, anchor included, or false to leave
+// the link alone. An alias after | is kept as written.
+func RewriteWikilinks(text string, fn func(Reference) (string, bool)) string {
+	code := fenceRE.FindAllStringIndex(text, -1)
+	inCode := func(start, end int) bool {
+		for _, span := range code {
+			if start < span[1] && span[0] < end {
+				return true
+			}
+		}
+		return false
+	}
+	var b strings.Builder
+	last := 0
+	for _, m := range wikiLinkRE.FindAllStringSubmatchIndex(text, -1) {
+		if inCode(m[0], m[1]) {
+			continue
+		}
+		raw := strings.TrimSpace(text[m[2]:m[3]])
+		if m[4] >= 0 {
+			raw += text[m[4]:m[5]]
+		}
+		next, ok := fn(ParseReference(raw))
+		if !ok {
+			continue
+		}
+		alias := ""
+		if m[6] >= 0 {
+			alias = text[m[6]:m[7]]
+		}
+		b.WriteString(text[last:m[0]])
+		b.WriteString("[[" + next + alias + "]]")
+		last = m[1]
+	}
+	if last == 0 {
+		return text
+	}
+	b.WriteString(text[last:])
+	return b.String()
+}

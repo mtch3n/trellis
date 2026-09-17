@@ -135,3 +135,30 @@ func TestFrontmatterSourcesRoundTrip(t *testing.T) {
 		t.Errorf("Sources = %v", back.Sources)
 	}
 }
+
+func TestRewriteWikilinks(t *testing.T) {
+	text := "See [[/API/knowledge/runbook#Roll back|the runbook]] and [[design]].\n" +
+		"Inline `[[/API/knowledge/runbook]]` stays.\n" +
+		"```\n[[/API/knowledge/runbook]]\n```\n" +
+		"Also [[/api/knowledge/runbook]] and [[/OTHER/knowledge/runbook]].\n"
+	got := RewriteWikilinks(text, func(ref Reference) (string, bool) {
+		if ref.ProjectKey != "API" || ref.Slug != "runbook" {
+			return "", false
+		}
+		target := "/MONO/knowledge/runbook-api"
+		if i := strings.Index(ref.Raw, "#"); i >= 0 {
+			target += ref.Raw[i:]
+		}
+		return target, true
+	})
+	want := "See [[/MONO/knowledge/runbook-api#Roll back|the runbook]] and [[design]].\n" +
+		"Inline `[[/API/knowledge/runbook]]` stays.\n" +
+		"```\n[[/API/knowledge/runbook]]\n```\n" +
+		"Also [[/MONO/knowledge/runbook-api]] and [[/OTHER/knowledge/runbook]].\n"
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+	if same := RewriteWikilinks(text, func(Reference) (string, bool) { return "", false }); same != text {
+		t.Error("a rewrite that changes nothing altered the text")
+	}
+}

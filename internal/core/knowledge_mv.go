@@ -259,7 +259,16 @@ func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, 
 		if err != nil {
 			return err
 		}
-		newBody := rewriteWikilinkTargets(body, raws[fromID], newTarget)
+		newBody := RewriteWikilinks(body, func(ref Reference) (string, bool) {
+			if !raws[fromID][ref.Raw] {
+				return "", false
+			}
+			target, anchor, hasAnchor := strings.Cut(ref.Raw, "#")
+			if hasAnchor {
+				return newTarget(target) + "#" + anchor, true
+			}
+			return newTarget(target), true
+		})
 		if newBody == body {
 			continue
 		}
@@ -307,39 +316,4 @@ func (c *Core) rewriteInboundWikilinks(tx *sqlx.Tx, doc *Knowledge, projectKey, 
 		return c.rebuildKnowledgeFTS(tx)
 	}
 	return nil
-}
-
-// rewriteWikilinkTargets replaces the target of each wikilink outside code
-// whose text (target and #anchor, as the link rows store it) is in raws,
-// keeping the anchor and any |alias exactly as written.
-func rewriteWikilinkTargets(body string, raws map[string]bool, newTarget func(old string) string) string {
-	code := fenceRE.FindAllStringIndex(body, -1)
-	inCode := func(pos int) bool {
-		for _, f := range code {
-			if pos >= f[0] && pos < f[1] {
-				return true
-			}
-		}
-		return false
-	}
-	var b strings.Builder
-	last := 0
-	for _, m := range wikiLinkRE.FindAllStringSubmatchIndex(body, -1) {
-		if inCode(m[0]) {
-			continue
-		}
-		target := strings.TrimSpace(body[m[2]:m[3]])
-		anchor := ""
-		if m[4] >= 0 {
-			anchor = body[m[4]:m[5]]
-		}
-		if !raws[strings.TrimSpace(target+anchor)] {
-			continue
-		}
-		b.WriteString(body[last:m[2]])
-		b.WriteString(newTarget(target))
-		last = m[3]
-	}
-	b.WriteString(body[last:])
-	return b.String()
 }
