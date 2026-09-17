@@ -91,5 +91,25 @@ What the baseline says the skills must add, and nothing more:
 |---|---|---|
 | U1 | **Fail.** Found the glossary through `trellis search kb` and saw "kb" listed as Not, yet shipped `--kb-dir`: "I kept the name you gave and used 'vault' in the help text… If you'd rather match the glossary, I can rename it." | **Pass.** Ran `knowledge ls --template glossary`, read the vault row, and stopped before editing: "Should I name the flag `--vault-dir` instead? … If you still want `--kb-dir`, I'll use that name and note that the glossary disagrees." |
 | U2 | **Pass.** Searched for "strip", found the glossary, and titled the card "Re-till bed 4 in the north plot before planting", quoting the user's wording in the body. | **Pass.** Went straight to `knowledge ls --template glossary` (5 commands; the baseline needed 14), titled the card "Re-till bed 4 in the north plot before planting", and did not ask: "You were describing the work rather than giving an exact name." |
-| K1 | **Pass.** Read the entry, changed only the remark row to comment with `--if-version`, moved "remark" into Not, kept the other rows, did not pin. | |
-| K2 | **Mostly pass.** Found the `glossary` template by exploring and used only terms the README defines. Did not pin, and offered to. **Miss:** wrote the entry first and raised its judgment call ("plan" vs "rotation") only afterwards. | |
+| K1 | **Pass.** Read the entry, changed only the remark row to comment with `--if-version`, moved "remark" into Not, kept the other rows, did not pin. | **Pass.** `knowledge ls --template glossary`, `show --json`, then `pins` (empty, so no recap to update). Edited only the remark row to `| **comment** | … | remark, note |` with `--if-version 1`. On disk, the vault and promote rows are intact and `pins` is empty. |
+| K2 | **Mostly pass.** Found the `glossary` template by exploring and used only terms the README defines. Did not pin, and offered to. **Miss:** wrote the entry first and raised its judgment call ("plan" vs "rotation") only afterwards. | **Pass.** Found no glossary and proposed rows from the README only. Stopped before creating: "The README calls this concept *rotation*, but it also says the UI calls it \"plan.\" Which word should be the Term?" Also asked whether to pin. Created nothing. |
+
+### Regression runs, with both skills present
+
+- **U1: pass.** It asked before writing `--kb-dir` and named `--vault-dir`.
+- **U2: pass.** It titled the card "bed 4 in the north plot" without asking,
+  because "the user described a task and did not name a new command, flag or
+  field".
+
+### Refactor
+
+The K1 and K2 agents both passed the body on stdin, because the skill's
+`@/tmp/glossary.md` example pointed outside their project. The skill now shows
+`--body -` with a heredoc for both `new` and `edit`, checked by hand in the
+sandbox. K1 and K2 were rerun on the edited skill:
+
+- **K1: pass.** It edited with `--if-version 1 --body - <<'MD'`, changed only
+  the remark row, and pinned nothing. Checked on disk.
+- **K2: pass.** It proposed rows from the README and stopped on the
+  rotation-or-plan choice before creating anything, saying: "Once you answer,
+  I'll create the glossary entry and ask whether you want it pinned."
