@@ -21,10 +21,12 @@ seen. Combine that with the card's claim:
 | Quiet, long idle | Confirm takeover is appropriate, then `claim --steal --reason "..."` |
 | Claim expired | Claim normally |
 
-A claim that is merely quiet is not abandoned. Coding, tests, and reading files
-do not renew a claim, so a working agent looks idle. Prefer waiting or taking
-other work over stealing; the `--reason` is read by the displaced actor and
-should say what made takeover necessary.
+A claim that is merely quiet is not abandoned. Only `card renew` and the
+claimant's own `card edit` push the expiry out — a comment does not, and neither
+does coding, running tests or reading files — so a working agent looks idle, and
+one that only comments looks idle too. Prefer waiting or taking other work over
+stealing; the `--reason` is read by the displaced actor and should say what made
+takeover necessary.
 
 Trellis tells the two cases apart for you. A write refused with `contention`
 means another actor's claim is live, and its message names the claimant; one

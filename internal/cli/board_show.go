@@ -314,7 +314,8 @@ func formatBrief(brief *boardBrief) string {
 		result.WriteString("### do this\n")
 		result.WriteString("  `card new --title \"...\"`      create work\n")
 		result.WriteString("  `card next --claim`           claim next unblocked card\n")
-		result.WriteString("  `card comment <id> --body \"...\"`  log progress (renews claim)\n")
+		result.WriteString("  `card comment <id> --body \"...\"`  log progress\n")
+		result.WriteString("  `card renew <id>`             keep your claim alive\n")
 		result.WriteString("  `card move <id> <column>`     move to column\n")
 		result.WriteString("  `vault new --title ...`       write down what you learned\n")
 	} else {

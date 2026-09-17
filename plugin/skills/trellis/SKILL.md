@@ -109,7 +109,7 @@ trellis vault new --title "..." --template finding --summary "..." --body @notes
   --source https://... --source /XPSCTL/cards/XPSCTL-12   # decision and finding require at least one
 trellis vault new --title "..." --in ops/db      # put the entry in a directory
 trellis vault new --title "..." --private --body @notes.md   # mark as private to withhold content
-trellis vault ls ops                             # one directory; --template, --tag, --cold
+trellis vault ls ops                             # a directory and its subtree; --template, --tag, --cold
 trellis vault edit <entry> --body @notes.md --if-version 2
 trellis vault edit <entry> --set owner=alice --set severity=   # an empty value removes the field
 trellis vault pin <entry> --recap "..."          # --remove to unpin
@@ -145,10 +145,14 @@ Consult `trellis <command> --help` for less common flags instead of guessing.
 ## Claims
 
 Claims default to 30 minutes; `trellis config set claim.ttl 45m` changes that,
-and so does the web UI's settings page. The claimant's own edits and comments
-renew a claim; coding, running tests, and reading files do not. Renew before a
-long stretch without card writes, and check the claim after a long pause — an
-expired claim does not hold.
+and so does the web UI's settings page.
+
+**Only `card renew` and your own `card edit` push the expiry out.** A comment
+does not, and neither does moving the card, coding, running tests or reading
+files. An agent that logs progress with `card comment` alone will lose the card
+when the clock runs out, so `trellis card renew <card> --ttl 60` before any long
+stretch without an edit, and check the claim after a long pause — an expired
+claim does not hold.
 
 Moving a card to the board's done column releases the claim.
 

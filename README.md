@@ -274,8 +274,8 @@ uses an OpenAI-compatible `/v1/embeddings`-style endpoint. Set
 The vector index is derived state. Use `trellis vector prune` to drop the
 vectors whose entry has left the vault, and `trellis vector reindex` to
 invalidate the persisted extension cache so it is rebuilt on the next vector
-query. FTS5 remains available when
-the vector provider is disabled or unavailable.
+query. FTS5 remains available when the vector provider is disabled or
+unavailable.
 
 ### Daemon and local IPC
 

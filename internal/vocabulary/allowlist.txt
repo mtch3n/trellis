@@ -2,7 +2,7 @@
 # plan deletes lines; a line that stays says why after a fourth tab.
 .claude-plugin/marketplace.json	owner	1	# why: the Claude Code marketplace schema's owner field, not a card claimant
 docs/ui-operation-parity.md	feed	1	# why: the handoff's own vocabulary note, retiring the word by naming it
-docs/ui-operation-parity.md	knowledge-ident	4	# why: web component and file names still spelled this way on disk; the web session renames them
+docs/ui-operation-parity.md	knowledge-ident	4	# why: KnowledgePage, KnowledgeNav and lib/knowledge-graph.ts, web names still spelled this way on disk; the web session renames them
 internal/address/address.go	vpath	1	# why: spec file path
 internal/cli/daemon.go	attach	1	# why: workers attaching to a running daemon process
 internal/cli/daemon_control.go	attach	4	# why: a detached child process, not an artifact
@@ -30,7 +30,7 @@ internal/core/entry_dir_test.go	attach	1	# why: a moved entry detaching its revi
 internal/core/entry_dir_test.go	doc	6	# why: a vault directory literally named docs
 internal/core/entry_mv.go	owner	1	# why: what a replaced file held before the write, not a card claimant
 internal/core/entry_path_test.go	doc	2	# why: the docs/dogs pair, a look-alike-directory fixture
-internal/core/entry_race_test.go	attach	1	# why: writing straight to an entry file, outside Trellis
+internal/core/entry_race_test.go	attach	1	# why: attaching a test Policy to a Core, not an artifact
 internal/core/entry_race_test.go	owner	1	# why: the SQLite write lock, not a card claimant
 internal/core/entry_template_edit_test.go	owner	5	# why: an example template field name, not a card claimant
 internal/core/entry_test.go	owner	14	# why: an example template field name, not a card claimant
@@ -38,7 +38,7 @@ internal/core/event_log.go	card-note	1	# why: names the pre-migration entity val
 internal/core/event_log_test.go	card-note	3	# why: a regression test that the entity `note` is refused
 internal/core/label.go	doc	1	# why: the seeded label "docs", user vocabulary for documentation
 internal/core/label_test.go	doc	1	# why: the seeded label "docs", user vocabulary for documentation
-internal/core/lint.go	owner	1	# why: a struct field holding a wikilink, not a card claimant
+internal/core/lint.go	owner	1	# why: a wikilink held by an entry, ordinary English, not a card claimant
 internal/core/markdown.go	owner	1	# why: an example template field name in a doc comment, not a card claimant
 internal/core/markdown_test.go	doc	2	# why: the fixture wikilink [[design-doc]]
 internal/core/markdown_test.go	owner	3	# why: an example template field name, not a card claimant
@@ -78,7 +78,7 @@ scripts/tests/test_rewrite_type_to_template.py	knowledge-ident	10	# why: fixture
 scripts/ui-browser-smoke.sh	document	2	# why: document.querySelector, the DOM API
 scripts/ui-browser-smoke.sh	knowledge-base	1	# why: waits on UI text the web session renames (R35)
 scripts/ui-browser-smoke.sh	knowledge-ident	2	# why: waits on UI text the web session renames (R35)
-scripts/ui-browser-smoke.sh	lease	3	# why: waits on UI text the web session renames (R35)
+scripts/ui-browser-smoke.sh	lease	3	# why: the steal flow's UI label and wait, plus the reason string typed into that form; the web session renames them (R35)
 web/COMPONENTS.md	attach	2
 web/COMPONENTS.md	dangling	1
 web/COMPONENTS.md	document	3
