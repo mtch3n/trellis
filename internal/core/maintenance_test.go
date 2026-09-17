@@ -122,7 +122,7 @@ func TestPruneLeftoverRevisionsKeepsTheHistoryOfAnEntryWhoseFileIsGone(t *testin
 // A vault directory is not exclusively Trellis's: the user may open it in
 // Obsidian (.obsidian/) or version it with git (.git/). Both are directories
 // whose name starts with ".", exactly like a revision directory, but neither
-// is one, and --orphan-history must never touch either -- review-knowledge #1.
+// is one, and --leftover-revisions must never touch either -- review-knowledge #1.
 func TestPruneLeftoverRevisionsLeavesGitAndObsidianAlone(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Kept", Body: "v1\n"})

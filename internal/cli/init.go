@@ -20,7 +20,7 @@ func newInitCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Pin this directory to a project, creating the project if needed",
+		Short: "Mark this directory with a project, creating the project if needed",
 		Long: "Write .trellis here, naming the project -- and, with --board, the board --\n" +
 			"that commands run in this directory act on. Commit the file: every clone\n" +
 			"and worktree then resolves to the same project.\n\n" +

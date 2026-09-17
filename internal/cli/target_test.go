@@ -83,7 +83,7 @@ func TestAMisdirectedOrMalformedAddress(t *testing.T) {
 	targetEnv(t)
 	_, err := execCmd("card", "show", "/BETA/vault/notes")
 	ce := coreErr(t, err)
-	if ce.Code != "wrong_collection" || !strings.Contains(ce.Fix, "trellis knowledge show /BETA/vault/notes") {
+	if ce.Code != "wrong_collection" || !strings.Contains(ce.Fix, "trellis vault show /BETA/vault/notes") {
 		t.Errorf("error = %+v", ce)
 	}
 	_, err = execCmd("card", "show", "/BETA/cards/12")

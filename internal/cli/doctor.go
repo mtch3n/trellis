@@ -53,7 +53,7 @@ func warn(name, detail, fix string) Check {
 func newDoctorCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
-		Short: "Diagnose this Trellis installation",
+		Short: "Check this Trellis installation",
 		Long: "Check the binary, storage root, database, configuration, daemon and search\n" +
 			"backend, and report what to run for anything that is wrong.\n" +
 			"Exits 1 when a check fails; warnings alone exit 0.",

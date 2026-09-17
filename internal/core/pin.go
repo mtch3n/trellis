@@ -55,7 +55,7 @@ func (c *Core) PinEntry(ctx context.Context, projectID, slug, recap, board strin
 			text = cmp.Or(strings.TrimSpace(recap), entry.Summary, FirstParagraph(entry.BodyMD))
 			if text == "" {
 				return ErrUsage("no_recap", "this entry has no summary to fall back on",
-					`trellis knowledge pin `+entry.Slug+` --recap "one line an agent can act on"`)
+					`trellis vault pin `+entry.Slug+` --recap "one line an agent can act on"`)
 			}
 		}
 
@@ -123,7 +123,7 @@ func (c *Core) UnpinEntry(ctx context.Context, projectID, slug, board string) er
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
 			return ErrNotFound("not_pinned", entry.Slug+" is not pinned there",
-				"trellis knowledge pins")
+				"trellis vault pins")
 		}
 		return c.recordEvent(tx, "entry", entry.ID, "unpinned", "", "", "")
 	})
@@ -198,7 +198,7 @@ func (c *Core) pins(tx *sqlx.Tx, projectID, boardID string, limit int) ([]Pin, e
 // what make "refuses to replace" true without a TOCTOU gap. A link across
 // filesystems, or on a filesystem without hard links, falls back to
 // copyAtomic, which refuses the same way. Either way src is only removed once
-// dest is safely in place. knowledge mv calls this directly because, unlike
+// dest is safely in place. vault mv calls this directly because, unlike
 // promote and demote, it can rename the leaf as well as relocate it.
 func moveFileTo(src, dest string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {

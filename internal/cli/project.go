@@ -24,7 +24,7 @@ func newProjectNewCmd() *cobra.Command {
 	var noPreset bool
 	cmd := &cobra.Command{
 		Use:   "new <KEY>",
-		Short: "Create a project without pinning any directory",
+		Short: "Create a project without marking any directory",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, db, err := openCore()
@@ -95,12 +95,12 @@ func newProjectMergeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "merge <SRC> --into <DST>",
 		Short: "Merge one project into another; prints the plan unless --apply",
-		Long: "Move every board, card, knowledge entry and artifact of SRC into DST, keep\n" +
-			"card refs such as SRC-12 working, and retire SRC's key. Without --apply the\n" +
-			"merge only reports what it would do; with --apply it backs up first.\n\n" +
-			"A document or artifact that both projects name, with different content, stops\n" +
-			"the merge; --rename-conflicts renames SRC's side instead. Pins that name SRC\n" +
-			"under the enclosing repository are rewritten: commit them.",
+		Long: "Move every board, card, entry and artifact of SRC into DST, keep card refs\n" +
+			"such as SRC-12 working, and retire SRC's key. Without --apply the merge only\n" +
+			"reports what it would do; with --apply it backs up first.\n\n" +
+			"An entry or artifact that both projects name, with different content, stops\n" +
+			"the merge; --rename-conflicts renames SRC's side instead. Markers that name\n" +
+			"SRC under the enclosing repository are rewritten: commit them.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if into == "" {
@@ -165,7 +165,7 @@ func mergeTable(p core.MergePlan, applied bool) string {
 	for _, group := range []struct {
 		name  string
 		moves core.ItemMoves
-	}{{"knowledge", p.Entries}, {"artifacts", p.Artifacts}} {
+	}{{"entries", p.Entries}, {"artifacts", p.Artifacts}} {
 		fmt.Fprintf(&b, "%-9s %d moved, %d collapsed, %d renamed, %d in conflict\n", group.name,
 			group.moves.Moved, len(group.moves.Collapsed), len(group.moves.Renamed), len(group.moves.Conflicts))
 		for _, r := range group.moves.Renamed {

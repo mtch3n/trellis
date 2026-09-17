@@ -64,8 +64,8 @@ func (c *Core) MoveEntry(ctx context.Context, projectID, ref, newPath string, ne
 		return Entry{}, err
 	}
 	if newSlug == "" {
-		return Entry{}, ErrUsage("missing_path", "knowledge mv needs a destination path",
-			"trellis knowledge mv "+ref+" new/path")
+		return Entry{}, ErrUsage("missing_path", "vault mv needs a destination path",
+			"trellis vault mv "+ref+" new/path")
 	}
 	var entry Entry
 	var src, dest string
@@ -121,7 +121,7 @@ func (c *Core) MoveEntry(ctx context.Context, projectID, ref, newPath string, ne
 		}
 		if d.scope == entryVault {
 			return ErrUsage("global_entry", ref+" is in the global vault; demote it first",
-				"trellis knowledge demote "+ref)
+				"trellis vault demote "+ref)
 		}
 		resolved, rerr := c.resolveSlug(tx, projectID, d.slug, false)
 		if rerr != nil {
@@ -133,7 +133,7 @@ func (c *Core) MoveEntry(ctx context.Context, projectID, ref, newPath string, ne
 		entry.Path = c.entryPath(key, entry.Global, entry.Slug)
 		if entry.Global {
 			return ErrUsage("global_entry", entry.Slug+" is in the global vault; demote it first",
-				"trellis knowledge demote "+entry.Slug)
+				"trellis vault demote "+entry.Slug)
 		}
 		if newSlug == entry.Slug {
 			return ErrUsage("same_path", entry.Slug+" is already there", "")
@@ -145,7 +145,7 @@ func (c *Core) MoveEntry(ctx context.Context, projectID, ref, newPath string, ne
 		}
 		if taken > 0 {
 			return ErrConflict("slug_taken", newSlug+" already exists in this project",
-				"trellis knowledge show "+newSlug)
+				"trellis vault show "+newSlug)
 		}
 		destDir := ""
 		if i := strings.LastIndex(newSlug, "/"); i >= 0 {

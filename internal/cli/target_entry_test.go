@@ -12,7 +12,7 @@ import (
 	"github.com/mtch3n/trellis/internal/store"
 )
 
-// promoteByHand does what a human does at a terminal: escalate is refused to
+// promoteByHand does what a human does at a terminal: promote is refused to
 // agents and needs a TTY, so tests go through core.
 func promoteByHand(t *testing.T, key, slug string) {
 	t.Helper()
@@ -57,7 +57,7 @@ func refsIn(t *testing.T, out, field string) []string {
 func TestEveryPrintedEntryRefOpens(t *testing.T) {
 	targetEnv(t)
 	const want = "/ALPHA/vault/lease-renewal"
-	if got := refOf(t, "knowledge", "new", "--title", "Lease renewal", "--body", "A claim starts the lease.\n"); got != want {
+	if got := refOf(t, "vault", "new", "--title", "Lease renewal", "--body", "A claim starts the lease.\n"); got != want {
 		t.Fatalf("created = %s", got)
 	}
 	refs := refsIn(t, runCmd(t, "search", "lease", "--json"), "results")
@@ -66,8 +66,8 @@ func TestEveryPrintedEntryRefOpens(t *testing.T) {
 		t.Fatalf("refs = %v", refs)
 	}
 	for _, ref := range refs {
-		if got := refOf(t, "knowledge", "show", ref); got != want {
-			t.Errorf("knowledge show %s = %s", ref, got)
+		if got := refOf(t, "vault", "show", ref); got != want {
+			t.Errorf("vault show %s = %s", ref, got)
 		}
 	}
 }
@@ -75,13 +75,13 @@ func TestEveryPrintedEntryRefOpens(t *testing.T) {
 func TestAnEntryAddressNamesItsProject(t *testing.T) {
 	targetEnv(t)
 	const want = "/BETA/vault/runbook"
-	if got := refOf(t, "knowledge", "new", "--title", "Runbook", "--project", "BETA"); got != want {
+	if got := refOf(t, "vault", "new", "--title", "Runbook", "--project", "BETA"); got != want {
 		t.Fatalf("created = %s", got)
 	}
-	if got := refOf(t, "knowledge", "show", want); got != want {
-		t.Errorf("knowledge show = %s", got)
+	if got := refOf(t, "vault", "show", want); got != want {
+		t.Errorf("vault show = %s", got)
 	}
-	_, err := execCmd("knowledge", "show", "runbook")
+	_, err := execCmd("vault", "show", "runbook")
 	if ce := coreErr(t, err); ce.Code != "knowledge_not_found" {
 		t.Errorf("a relative slug stays in ALPHA: %+v", ce)
 	}
@@ -92,11 +92,11 @@ func TestAnEntryAddressNamesItsProject(t *testing.T) {
 func TestAVaultAddressIgnoresAmbientState(t *testing.T) {
 	dir := markerEnv(t, "loose")
 	seedProject(t, "ALPHA")
-	refOf(t, "knowledge", "new", "--title", "Conventions", "--project", "ALPHA")
+	refOf(t, "vault", "new", "--title", "Conventions", "--project", "ALPHA")
 	promoteByHand(t, "ALPHA", "conventions")
 	const want = "/GLOBAL/vault/conventions"
 
-	_, err := execCmd("knowledge", "show", "conventions")
+	_, err := execCmd("vault", "show", "conventions")
 	if ce := coreErr(t, err); ce.Code != "unresolved" {
 		t.Errorf("a relative slug still needs a project: %+v", ce)
 	}
@@ -114,18 +114,18 @@ func TestAVaultAddressIgnoresAmbientState(t *testing.T) {
 	} {
 		state.setup()
 		name := state.name
-		if got := refOf(t, "knowledge", "show", want); got != want {
-			t.Errorf("%s: knowledge show = %s", name, got)
+		if got := refOf(t, "vault", "show", want); got != want {
+			t.Errorf("%s: vault show = %s", name, got)
 		}
 		var shown struct {
 			Version int64 `json:"version"`
 		}
-		if err := json.Unmarshal([]byte(runCmd(t, "knowledge", "show", want, "--json")), &shown); err != nil {
-			t.Fatalf("%s: knowledge show: %v", name, err)
+		if err := json.Unmarshal([]byte(runCmd(t, "vault", "show", want, "--json")), &shown); err != nil {
+			t.Fatalf("%s: vault show: %v", name, err)
 		}
-		if got := refOf(t, "knowledge", "edit", want, "--body", "Edited under "+name+".\n",
+		if got := refOf(t, "vault", "edit", want, "--body", "Edited under "+name+".\n",
 			"--if-version", strconv.FormatInt(shown.Version, 10)); got != want {
-			t.Errorf("%s: knowledge edit = %s", name, got)
+			t.Errorf("%s: vault edit = %s", name, got)
 		}
 		if nodes := refsIn(t, runCmd(t, "graph", want, "--json"), "nodes"); len(nodes) == 0 || nodes[0] != want {
 			t.Errorf("%s: graph = %v", name, nodes)
@@ -139,9 +139,9 @@ func TestReferenceFlagsNameTheProject(t *testing.T) {
 	markerEnv(t, "loose")
 	seedProject(t, "BETA", "Side")
 	refOf(t, "card", "new", "--title", "beta one", "--project", "BETA")
-	refOf(t, "knowledge", "new", "--title", "Runbook", "--project", "BETA")
+	refOf(t, "vault", "new", "--title", "Runbook", "--project", "BETA")
 
-	out := runCmd(t, "knowledge", "new", "--title", "Side notes", "--board", "/BETA/boards/side", "--json")
+	out := runCmd(t, "vault", "new", "--title", "Side notes", "--board", "/BETA/boards/side", "--json")
 	var entry struct {
 		Ref   string `json:"ref"`
 		Board string `json:"board"`
@@ -150,11 +150,11 @@ func TestReferenceFlagsNameTheProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	if entry.Ref != "/BETA/vault/side-notes" || entry.Board != "Side" {
-		t.Errorf("knowledge new = %+v", entry)
+		t.Errorf("vault new = %+v", entry)
 	}
 
-	runCmd(t, "knowledge", "pin", "runbook", "--board", "/BETA/boards/side", "--recap", "roll back first")
-	out = runCmd(t, "knowledge", "pins", "--project", "BETA", "--board", "Side", "--json")
+	runCmd(t, "vault", "pin", "runbook", "--board", "/BETA/boards/side", "--recap", "roll back first")
+	out = runCmd(t, "vault", "pins", "--project", "BETA", "--board", "Side", "--json")
 	var pins struct {
 		Pins []struct {
 			Slug  string `json:"slug"`
@@ -192,10 +192,10 @@ func TestReferenceFlagsThatDisagreeConflict(t *testing.T) {
 	targetEnv(t)
 	for _, args := range [][]string{
 		// a relative positional means the marker's ALPHA
-		{"knowledge", "pin", "runbook", "--board", "/BETA/boards/side", "--recap", "x"},
+		{"vault", "pin", "runbook", "--board", "/BETA/boards/side", "--recap", "x"},
 		{"artifact", "link", "shot.png", "--card", "/BETA/cards/BETA-1"},
 		// two references, two projects
-		{"knowledge", "pin", "/ALPHA/vault/runbook", "--board", "/BETA/boards/side", "--recap", "x"},
+		{"vault", "pin", "/ALPHA/vault/runbook", "--board", "/BETA/boards/side", "--recap", "x"},
 		{"artifact", "link", "/ALPHA/artifacts/shot.png", "--card", "/BETA/cards/BETA-1"},
 	} {
 		_, err := execCmd(args...)
@@ -207,7 +207,7 @@ func TestReferenceFlagsThatDisagreeConflict(t *testing.T) {
 
 func TestLinkAndGraphCrossProjects(t *testing.T) {
 	targetEnv(t)
-	refOf(t, "knowledge", "new", "--title", "Runbook", "--project", "BETA")
+	refOf(t, "vault", "new", "--title", "Runbook", "--project", "BETA")
 	runCmd(t, "link", "1", "/BETA/vault/runbook")
 	nodes := refsIn(t, runCmd(t, "graph", "1", "--json"), "nodes")
 	found := false

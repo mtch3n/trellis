@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+
+	"github.com/mtch3n/trellis/internal/vocabulary"
 )
 
 // Help is the only way an agent discovers what Trellis can do, so every
@@ -41,6 +44,27 @@ func TestHelpListsEveryCommand(t *testing.T) {
 				}
 			}
 		})
+		for _, sub := range cmd.Commands() {
+			walk(sub)
+		}
+	}
+	walk(newRootCmd())
+}
+
+// Help text is how an agent learns the vocabulary, so it must use the
+// glossary's words.
+func TestHelpUsesTheGlossary(t *testing.T) {
+	var walk func(*cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		texts := map[string]string{"use": cmd.Use, "short": cmd.Short, "long": cmd.Long}
+		cmd.LocalFlags().VisitAll(func(f *pflag.Flag) {
+			texts["--"+f.Name] = f.Name + " " + f.Usage
+		})
+		for where, text := range texts {
+			if rules := vocabulary.Find(text); len(rules) > 0 {
+				t.Errorf("%s %s breaks %v: %q", cmd.CommandPath(), where, rules, text)
+			}
+		}
 		for _, sub := range cmd.Commands() {
 			walk(sub)
 		}

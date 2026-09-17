@@ -15,7 +15,7 @@ import (
 )
 
 func newVectorCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "vector", Short: "Manage the optional document vector index"}
+	cmd := &cobra.Command{Use: "vector", Short: "Manage the optional vector index"}
 	cmd.AddCommand(newVectorStatusCmd(), newVectorRebuildCmd(), newVectorPruneCmd(), newVectorReindexCmd(), newVectorCompactCmd())
 	return cmd
 }
@@ -80,7 +80,7 @@ func vectorEntries(entries []core.Entry) []vecsearch.Entry {
 }
 
 func newVectorStatusCmd() *cobra.Command {
-	return &cobra.Command{Use: "status", Short: "Show vector configuration and index health", RunE: func(cmd *cobra.Command, _ []string) error {
+	return &cobra.Command{Use: "status", Short: "Show vector configuration and index coverage", RunE: func(cmd *cobra.Command, _ []string) error {
 		pctx, err := currentProject()
 		if err != nil {
 			return err
@@ -124,7 +124,7 @@ func currentVectorFrom(pctx *projectContext, cfg config.VectorSearchConfig) (*ve
 
 func newVectorRebuildCmd() *cobra.Command {
 	var useDaemon bool
-	cmd := &cobra.Command{Use: "rebuild", Short: "Embed and rebuild the current project's document index", RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "rebuild", Short: "Embed entries and rebuild the current project's vector index", RunE: func(cmd *cobra.Command, _ []string) error {
 		if useDaemon {
 			return vectorDaemon(cmd, "vector_rebuild")
 		}
@@ -153,7 +153,7 @@ func newVectorRebuildCmd() *cobra.Command {
 
 func newVectorPruneCmd() *cobra.Command {
 	var useDaemon bool
-	cmd := &cobra.Command{Use: "prune", Short: "Remove vectors for documents no longer in the knowledge base", RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "prune", Short: "Remove stale vectors, whose entry has left the vault", RunE: func(cmd *cobra.Command, _ []string) error {
 		if useDaemon {
 			return vectorDaemon(cmd, "vector_prune")
 		}

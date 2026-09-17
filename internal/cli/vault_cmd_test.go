@@ -39,10 +39,10 @@ func execCmd(args ...string) (string, error) {
 	return out.String(), err
 }
 
-func TestKnowledgeNewPrivateFlag(t *testing.T) {
+func TestVaultNewPrivateFlag(t *testing.T) {
 	projectEnv(t)
 
-	out := runCmd(t, "knowledge", "new", "--title", "Staging credentials", "--private", "--json")
+	out := runCmd(t, "vault", "new", "--title", "Staging credentials", "--private", "--json")
 	if !strings.Contains(out, `"private":true`) {
 		t.Errorf("output did not report the flag:\n%s", out)
 	}
@@ -79,12 +79,12 @@ func TestRenderEntryListMarksPrivate(t *testing.T) {
 // newEntry creates an entry through the CLI and returns its file path.
 func newEntry(t *testing.T, args ...string) string {
 	t.Helper()
-	out := runCmd(t, append([]string{"knowledge", "new", "--json"}, args...)...)
+	out := runCmd(t, append([]string{"vault", "new", "--json"}, args...)...)
 	var entry struct {
 		Path string `json:"path"`
 	}
 	if err := json.Unmarshal([]byte(out), &entry); err != nil || entry.Path == "" {
-		t.Fatalf("knowledge new output %q: path %q, err %v", out, entry.Path, err)
+		t.Fatalf("vault new output %q: path %q, err %v", out, entry.Path, err)
 	}
 	return entry.Path
 }
@@ -121,10 +121,10 @@ func TestBriefShowsAPrivatePinAsAPointer(t *testing.T) {
 	projectEnv(t)
 
 	newEntry(t, "--title", "Staging credentials", "--private", "--body", "hunter2 opens staging\n")
-	runCmd(t, "knowledge", "pin", "staging-credentials")
+	runCmd(t, "vault", "pin", "staging-credentials")
 
 	path := newEntry(t, "--title", "Deploy runbook", "--body", "ship it\n")
-	runCmd(t, "knowledge", "pin", "deploy-runbook", "--recap", "swordfish deploys")
+	runCmd(t, "vault", "pin", "deploy-runbook", "--recap", "swordfish deploys")
 	markPrivateByHand(t, path)
 
 	for read := 1; read <= 2; read++ {
@@ -158,7 +158,7 @@ func TestBriefStillMarksAStaleRecap(t *testing.T) {
 	projectEnv(t)
 
 	path := newEntry(t, "--title", "Deploy runbook", "--body", "ship it\n")
-	runCmd(t, "knowledge", "pin", "deploy-runbook", "--recap", "ships on green")
+	runCmd(t, "vault", "pin", "deploy-runbook", "--recap", "ships on green")
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -179,26 +179,26 @@ func TestBriefStillMarksAStaleRecap(t *testing.T) {
 	}
 }
 
-// Listing is not reading. Agents always receive the JSON form of `knowledge
-// ls`, so anything in it goes to the model: no entry's body is listed, and a
+// Listing is not reading. Agents always receive the JSON form of `vault ls`,
+// so anything in it goes to the model: no entry's body is listed, and a
 // private entry's summary and recap are withheld too. The flag is set by hand
 // and the listing is the very next command, so the decision has to come from
 // the file; each mode gets a fresh project so neither refreshes for the other.
-func TestKnowledgeLsDisclosesNoContent(t *testing.T) {
+func TestVaultLsDisclosesNoContent(t *testing.T) {
 	for name, args := range map[string][]string{
-		"ls":      {"knowledge", "ls"},
-		"ls-cold": {"knowledge", "ls", "--cold"},
+		"ls":      {"vault", "ls"},
+		"ls-cold": {"vault", "ls", "--cold"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			projectEnv(t)
 
 			newEntry(t, "--title", "Recall ranking", "--summary", "ranks are fused",
 				"--body", "fusion is positional\n")
-			runCmd(t, "knowledge", "pin", "recall-ranking", "--recap", "fused, not scored")
+			runCmd(t, "vault", "pin", "recall-ranking", "--recap", "fused, not scored")
 
 			path := newEntry(t, "--title", "Staging credentials", "--summary", "swordfish opens staging",
 				"--body", "hunter2 is the password\n")
-			runCmd(t, "knowledge", "pin", "staging-credentials", "--recap", "rotated quarterly")
+			runCmd(t, "vault", "pin", "staging-credentials", "--recap", "rotated quarterly")
 			markPrivateByHand(t, path)
 
 			out := runCmd(t, args...)
@@ -269,11 +269,11 @@ func TestABadPrivateValueNamesTheFileInEveryCommand(t *testing.T) {
 	}
 }
 
-func TestKnowledgeFieldsInJSON(t *testing.T) {
+func TestVaultFieldsInJSON(t *testing.T) {
 	projectEnv(t)
 
 	// Create a public entry with fields
-	out := runCmd(t, "knowledge", "new", "--title", "Public entry",
+	out := runCmd(t, "vault", "new", "--title", "Public entry",
 		"--set", "owner=alice", "--set", "severity=high", "--json")
 
 	var entry core.Entry
@@ -288,15 +288,15 @@ func TestKnowledgeFieldsInJSON(t *testing.T) {
 	}
 }
 
-func TestKnowledgeFieldsPrivateListJSON(t *testing.T) {
+func TestVaultFieldsPrivateListJSON(t *testing.T) {
 	projectEnv(t)
 
 	// Create a private entry with fields
-	runCmd(t, "knowledge", "new", "--title", "Secret entry",
+	runCmd(t, "vault", "new", "--title", "Secret entry",
 		"--private", "--set", "owner=alice", "--set", "severity=high")
 
 	// List entries with JSON output
-	out := runCmd(t, "knowledge", "ls", "--json")
+	out := runCmd(t, "vault", "ls", "--json")
 
 	var result map[string][]core.Entry
 	if err := json.Unmarshal([]byte(out), &result); err != nil {

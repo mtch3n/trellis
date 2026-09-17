@@ -92,29 +92,29 @@ func itoaTest(n int64) string {
 	return string(b)
 }
 
-func TestEventsKindFilter(t *testing.T) {
+func TestEventsEntityFilter(t *testing.T) {
 	projectEnv(t)
 	runCmd(t, "card", "new", "--title", "Card")
 	runCmd(t, "label", "new", "urgent", "--description", "needs attention")
 
-	out := runCmd(t, "events", "--kind", "label")
+	out := runCmd(t, "events", "--entity", "label")
 	if strings.Contains(out, `"kind":"card"`) {
-		t.Errorf("--kind label still printed a card event:\n%s", out)
+		t.Errorf("--entity label still printed a card event:\n%s", out)
 	}
 	if !strings.Contains(out, `"kind":"label"`) {
-		t.Errorf("--kind label printed no label event:\n%s", out)
+		t.Errorf("--entity label printed no label event:\n%s", out)
 	}
 }
 
 // review-cli #8: "note" was renamed to "comment" in migration 0021; asking
 // for the stale name must fail loudly instead of printing nothing.
-func TestEventsRejectsAStaleKindName(t *testing.T) {
+func TestEventsRejectsAStaleEntityName(t *testing.T) {
 	projectEnv(t)
 	runCmd(t, "card", "new", "--title", "Card")
 
-	_, err := runCmdErr(t, "events", "--kind", "note")
+	_, err := runCmdErr(t, "events", "--entity", "note")
 	if err == nil {
-		t.Fatal("events --kind note was accepted")
+		t.Fatal("events --entity note was accepted")
 	}
 	if ce := coreErr(t, err); ce.Code != "unknown_event_kind" {
 		t.Errorf("code = %s, want unknown_event_kind", ce.Code)

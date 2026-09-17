@@ -28,6 +28,6 @@ func newCardArchiveCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().BoolVar(&restore, "restore", false, "return an archived card to the board")
+	cmd.Flags().BoolVar(&restore, "restore", false, "restore an archived card to its board")
 	return cmd
 }

@@ -871,7 +871,7 @@ func TestPinsDoNotDiscloseAfterARolledBackPurge(t *testing.T) {
 	}
 }
 
-// The cold listing is the other way `knowledge ls` reaches rows, and it must
+// The cold listing is the other way `vault ls` reaches rows, and it must
 // report the flag the file holds even when it is the first read after a hand
 // edit. A file that is gone cannot be confirmed either way, so it reads as
 // private rather than failing the listing.

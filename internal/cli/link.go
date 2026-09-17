@@ -26,7 +26,7 @@ import (
 func newLinkCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "link <card> <entry[#anchor]>",
-		Short: "Link a card to a knowledge entry",
+		Short: "Link a card to an entry",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
@@ -168,7 +168,7 @@ func resolveEntity(cmd *cobra.Command, app *appCtx, collection, ref string) (str
 	card, err := app.Core.GetCard(ctx, app.Project.ID, core.ParseCardRef(ref))
 	if err != nil {
 		return "", core.ErrNotFound("not_found", "no card or entry "+ref,
-			"trellis card ls   # or: trellis knowledge ls")
+			"trellis card ls   # or: trellis vault ls")
 	}
 	return card.ID, nil
 }

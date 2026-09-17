@@ -41,7 +41,7 @@ func commandFor(p address.Address, arg string) string {
 	case address.CollectionCards:
 		return "trellis card show " + arg
 	case address.CollectionVault:
-		return "trellis knowledge show " + arg
+		return "trellis vault show " + arg
 	case address.CollectionArtifacts:
 		return "trellis artifact ls --project " + p.Project
 	}
@@ -99,7 +99,7 @@ func vaultSlug(arg string) (string, error) {
 		return "", err
 	}
 	if p.Project != address.GlobalKey {
-		return "", ErrUsage("not_global", arg+" is a project entry, not a vault entry", "trellis knowledge show "+arg)
+		return "", ErrUsage("not_global", arg+" is a project entry, not a vault entry", "trellis vault show "+arg)
 	}
 	return p.Name, nil
 }

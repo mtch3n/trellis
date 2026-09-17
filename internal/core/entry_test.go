@@ -646,7 +646,7 @@ func TestEditEntryReplacesSources(t *testing.T) {
 
 // review-knowledge #14: a revision directory can outlive the entry it
 // belonged to when its file and row are removed outside Trellis -- the
-// exact state --orphan-history exists to clean up. A new entry created at
+// exact state --leftover-revisions exists to clean up. A new entry created at
 // the same slug before that runs must not adopt that stale history as its
 // own: its "version 1" would then really be an old, possibly private,
 // entry's last version.

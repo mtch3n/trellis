@@ -10,7 +10,7 @@ import (
 )
 
 // eventEntities lists every entity_type EventLog's WHERE clause matches. A
-// --kind naming anything else -- a stale name from before a rename, such as
+// --entity naming anything else -- a stale name from before a rename, such as
 // "note" before migration 0021 renamed it to "comment" -- must fail loudly
 // rather than quietly match nothing.
 var eventEntities = []string{"card", "entry", "board", "label", "comment"}
@@ -126,7 +126,7 @@ func (c *Core) EventLog(ctx context.Context, q EventQuery) ([]LogEvent, *int64, 
 		if !slices.Contains(eventEntities, k) {
 			return nil, nil, ErrUsage("unknown_event_kind",
 				fmt.Sprintf("%q is not an event entity: %s", k, strings.Join(eventEntities, ", ")),
-				"trellis events --kind "+strings.Join(eventEntities, "|"))
+				"trellis events --entity "+strings.Join(eventEntities, "|"))
 		}
 	}
 	limit := q.Limit

@@ -13,45 +13,45 @@ import (
 func newArtifactCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "artifact",
-		Short: "Store files and attach them to cards or knowledge entries",
-		Long: "An <artifact> argument is an artifact id or its name. Attaching one to a\n" +
-			"knowledge entry adds its name to the entry's `artifacts` frontmatter.",
+		Short: "Store files and link them to cards or entries",
+		Long: "An <artifact> argument is an artifact id or its name. Linking one to an\n" +
+			"entry adds its name to the entry's `artifacts` frontmatter.",
 	}
 	cmd.AddCommand(newArtifactAddCmd(), newArtifactLsCmd(), newArtifactLinkCmd(),
 		newArtifactUnlinkCmd(), newArtifactRmCmd())
 	return cmd
 }
 
-// oneTarget enforces the --card / --doc choice. required means exactly one;
+// oneTarget enforces the --card / --entry choice. required means exactly one;
 // otherwise at most one.
-func oneTarget(card, doc string, required bool, usage string) error {
+func oneTarget(card, entry string, required bool, usage string) error {
 	switch {
-	case card != "" && doc != "":
-		return core.ErrUsage("target_conflict", "pass --card or --doc, not both", usage)
-	case required && card == "" && doc == "":
-		return core.ErrUsage("missing_target", "pass --card <ref> or --doc <slug>", usage)
+	case card != "" && entry != "":
+		return core.ErrUsage("target_conflict", "pass --card or --entry, not both", usage)
+	case required && card == "" && entry == "":
+		return core.ErrUsage("missing_target", "pass --card <card> or --entry <entry>", usage)
 	}
 	return nil
 }
 
-func addTargetFlags(cmd *cobra.Command, card, doc *string, verb string) {
+func addTargetFlags(cmd *cobra.Command, card, entry *string, verb string) {
 	cmd.Flags().StringVar(card, "card", "", verb+" a card reference")
-	cmd.Flags().StringVar(doc, "doc", "", verb+" a knowledge entry slug")
+	cmd.Flags().StringVar(entry, "entry", "", verb+" an entry")
 }
 
 func newArtifactAddCmd() *cobra.Command {
-	var card, doc string
+	var card, entry string
 	cmd := &cobra.Command{
 		Use:   "add <file>",
 		Short: "Copy an image, recording, PDF or other permitted file into Trellis",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := oneTarget(card, doc, false, "trellis artifact add <file> [--card <ref> | --doc <slug>]"); err != nil {
+			if err := oneTarget(card, entry, false, "trellis artifact add <file> [--card <card> | --entry <entry>]"); err != nil {
 				return err
 			}
 			return withTargets([]refArg{
 				{Collection: address.CollectionCards, Value: card},
-				{Collection: address.CollectionVault, Value: doc},
+				{Collection: address.CollectionVault, Value: entry},
 			}, func(app *appCtx, refs []string) error {
 				// Resolve card ID before creating artifact so we fail early if the ref is bad
 				var resolvedCardID string
@@ -83,33 +83,33 @@ func newArtifactAddCmd() *cobra.Command {
 			})
 		},
 	}
-	addTargetFlags(cmd, &card, &doc, "attach to")
+	addTargetFlags(cmd, &card, &entry, "link to")
 	return cmd
 }
 
 func newArtifactLinkCmd() *cobra.Command {
-	var card, doc string
+	var card, entry string
 	cmd := &cobra.Command{
-		Use:   "link <name> --card <card>",
-		Short: "Attach an existing artifact to a card or a knowledge entry",
+		Use:   "link <artifact>",
+		Short: "Link an existing artifact to a card or an entry",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			usage := "trellis artifact link <artifact> --card <ref> | --doc <slug>"
-			if err := oneTarget(card, doc, true, usage); err != nil {
+			usage := "trellis artifact link <artifact> --card <card> | --entry <entry>"
+			if err := oneTarget(card, entry, true, usage); err != nil {
 				return err
 			}
-			if doc != "" {
-				return withTarget(refArg{Collection: address.CollectionVault, Value: doc}, func(app *appCtx, ref string) error {
+			if entry != "" {
+				return withTarget(refArg{Collection: address.CollectionVault, Value: entry}, func(app *appCtx, ref string) error {
 					a, err := app.Core.ResolveArtifact(cmd.Context(), app.Project.ID, args[0])
 					if err != nil {
 						return err
 					}
-					entry, err := app.Core.LinkArtifactToEntry(cmd.Context(), app.Project.ID, ref, a.ID)
+					linked, err := app.Core.LinkArtifactToEntry(cmd.Context(), app.Project.ID, ref, a.ID)
 					if err != nil {
 						return err
 					}
-					return Emit(cmd, map[string]any{"artifact": a.Ref, "doc": entry.Slug},
-						func() string { return entry.Slug + " -> " + a.Ref })
+					return Emit(cmd, map[string]any{"artifact": a.Ref, "doc": linked.Slug},
+						func() string { return linked.Slug + " -> " + a.Ref })
 				})
 			}
 			return withTargets([]refArg{
@@ -131,34 +131,34 @@ func newArtifactLinkCmd() *cobra.Command {
 			})
 		},
 	}
-	addTargetFlags(cmd, &card, &doc, "attach to")
+	addTargetFlags(cmd, &card, &entry, "link to")
 	return cmd
 }
 
 func newArtifactUnlinkCmd() *cobra.Command {
-	var card, doc string
+	var card, entry string
 	cmd := &cobra.Command{
 		Use:   "unlink <artifact>",
-		Short: "Detach an artifact from a card or a knowledge entry",
-		Long: "Detaching from an entry removes the name from its `artifacts` frontmatter.\n" +
+		Short: "Unlink an artifact from a card or an entry",
+		Long: "Unlinking from an entry removes the name from its `artifacts` frontmatter.\n" +
 			"A name whose artifact no longer exists can still be removed.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			usage := "trellis artifact unlink <artifact> --card <ref> | --doc <slug>"
-			if err := oneTarget(card, doc, true, usage); err != nil {
+			usage := "trellis artifact unlink <artifact> --card <card> | --entry <entry>"
+			if err := oneTarget(card, entry, true, usage); err != nil {
 				return err
 			}
 			return withTargets([]refArg{
 				{Collection: address.CollectionCards, Value: card},
-				{Collection: address.CollectionVault, Value: doc},
+				{Collection: address.CollectionVault, Value: entry},
 			}, func(app *appCtx, refs []string) error {
 				if refs[1] != "" {
-					entry, err := app.Core.UnlinkArtifactFromEntry(cmd.Context(), app.Project.ID, refs[1], args[0])
+					unlinked, err := app.Core.UnlinkArtifactFromEntry(cmd.Context(), app.Project.ID, refs[1], args[0])
 					if err != nil {
 						return err
 					}
-					return Emit(cmd, map[string]any{"artifact": args[0], "doc": entry.Slug},
-						func() string { return entry.Slug + " -x- " + args[0] })
+					return Emit(cmd, map[string]any{"artifact": args[0], "doc": unlinked.Slug},
+						func() string { return unlinked.Slug + " -x- " + args[0] })
 				}
 				a, err := app.Core.ResolveArtifact(cmd.Context(), app.Project.ID, args[0])
 				if err != nil {
@@ -176,23 +176,23 @@ func newArtifactUnlinkCmd() *cobra.Command {
 			})
 		},
 	}
-	addTargetFlags(cmd, &card, &doc, "detach from")
+	addTargetFlags(cmd, &card, &entry, "unlink from")
 	return cmd
 }
 
 func newArtifactLsCmd() *cobra.Command {
-	var card, doc string
+	var card, entry string
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List stored artifacts",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := oneTarget(card, doc, false, "trellis artifact ls [--card <ref> | --doc <slug>]"); err != nil {
+			if err := oneTarget(card, entry, false, "trellis artifact ls [--card <card> | --entry <entry>]"); err != nil {
 				return err
 			}
 			return withTargets([]refArg{
 				{Collection: address.CollectionCards, Value: card},
-				{Collection: address.CollectionVault, Value: doc},
+				{Collection: address.CollectionVault, Value: entry},
 			}, func(app *appCtx, refs []string) error {
 				var cardIDValue, entryIDValue string
 				if refs[0] != "" {
@@ -202,11 +202,11 @@ func newArtifactLsCmd() *cobra.Command {
 					}
 				}
 				if refs[1] != "" {
-					entry, err := app.Core.LoadEntry(cmd.Context(), app.Project.ID, refs[1])
+					loaded, err := app.Core.LoadEntry(cmd.Context(), app.Project.ID, refs[1])
 					if err != nil {
 						return err
 					}
-					entryIDValue = entry.ID
+					entryIDValue = loaded.ID
 				}
 				items, err := app.Core.ListArtifacts(cmd.Context(), app.Project.ID, cardIDValue, entryIDValue)
 				if err != nil {
@@ -222,14 +222,14 @@ func newArtifactLsCmd() *cobra.Command {
 			})
 		},
 	}
-	addTargetFlags(cmd, &card, &doc, "only artifacts attached to")
+	addTargetFlags(cmd, &card, &entry, "only artifacts linked to")
 	return cmd
 }
 
 func newArtifactRmCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "rm <artifact>",
-		Short: "Delete an artifact; entries that name it keep the name as a stub",
+		Short: "Delete an artifact; entries that name it keep the name, and lint reports it",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionArtifacts, Value: args[0]}, func(app *appCtx, ref string) error {

@@ -64,7 +64,7 @@ func newBoardShowCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().Bool("brief", false, "show as injection brief")
+	cmd.Flags().Bool("brief", false, "show as the session brief")
 	return cmd
 }
 
@@ -284,10 +284,10 @@ func formatBrief(brief *boardBrief) string {
 	// Trimmed before YOURS and DO THIS, and each line carries the command that
 	// expands it, because an agent that cannot act on a line ignores it (§10.5).
 	if len(brief.pins) > 0 {
-		result.WriteString("### pinned — read fully with: trellis knowledge show <slug>\n")
+		result.WriteString("### pinned — read fully with: trellis vault show <slug>\n")
 		for i, p := range brief.pins {
 			if i >= core.MaxInjectedPins {
-				fmt.Fprintf(&result, "  +%d more: trellis knowledge pins\n", len(brief.pins)-i)
+				fmt.Fprintf(&result, "  +%d more: trellis vault pins\n", len(brief.pins)-i)
 				break
 			}
 			stale := ""
@@ -316,7 +316,7 @@ func formatBrief(brief *boardBrief) string {
 		result.WriteString("  `card next --claim`           claim next unblocked card\n")
 		result.WriteString("  `card comment <id> --body \"...\"`  log progress (renews claim)\n")
 		result.WriteString("  `card move <id> <column>`     move to column\n")
-		result.WriteString("  `knowledge new --title ...`   write down what you learned\n")
+		result.WriteString("  `vault new --title ...`       write down what you learned\n")
 	} else {
 		result.WriteString("board is empty\n")
 	}

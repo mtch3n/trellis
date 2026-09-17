@@ -413,7 +413,7 @@ func TestGlobalEntryListExcludesBody(t *testing.T) {
 // TestGlobalEntryListNeverCarriesArtifacts guards the artifacts spec: an
 // artifact belongs to a project, so the global list, which spans every
 // project (and the vault, which has none), must never carry one, even for an
-// entry that had an artifact linked before it was escalated.
+// entry that had an artifact linked before it was promoted.
 func TestGlobalEntryListNeverCarriesArtifacts(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))

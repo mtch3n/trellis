@@ -52,7 +52,7 @@ func TestCrossProjectStubIsBackfilled(t *testing.T) {
 	}
 	_, diagnostics := lintKinds(t, c, p.ID)
 	if len(diagnostics) != 1 || diagnostics[0].Kind != "stub" ||
-		!strings.Contains(diagnostics[0].Fix, "trellis --project OTHERPROJ knowledge new") {
+		!strings.Contains(diagnostics[0].Fix, "trellis --project OTHERPROJ vault new") {
 		t.Fatalf("diagnostics = %+v, want one stub pointing at OTHERPROJ", diagnostics)
 	}
 	later, err := c.CreateEntry(ctx, other.ID, NewEntry{Title: "Later"})
@@ -214,10 +214,10 @@ func TestMissingHeadingsInForeignAndVaultTargets(t *testing.T) {
 	if len(broken) != 2 {
 		t.Fatalf("broken anchors = %v, want two; diagnostics: %+v", broken, diagnostics)
 	}
-	if fix := broken["/OTHERPROJ/vault/runbook#nope"]; !strings.Contains(fix, "trellis knowledge show /OTHERPROJ/vault/runbook") {
+	if fix := broken["/OTHERPROJ/vault/runbook#nope"]; !strings.Contains(fix, "trellis vault show /OTHERPROJ/vault/runbook") {
 		t.Errorf("foreign fix = %q", fix)
 	}
-	if fix := broken["conventions#missing"]; !strings.Contains(fix, "trellis knowledge show /GLOBAL/vault/conventions") {
+	if fix := broken["conventions#missing"]; !strings.Contains(fix, "trellis vault show /GLOBAL/vault/conventions") {
 		t.Errorf("vault fix = %q", fix)
 	}
 }

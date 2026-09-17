@@ -62,7 +62,7 @@ func (c *Core) PromoteEntry(ctx context.Context, projectID, slug, reason string)
 		if taken > 0 {
 			return ErrConflict("global_slug_taken",
 				"the global vault already has an entry named "+entry.Slug,
-				"trellis knowledge show GLOBAL/"+entry.Slug)
+				"trellis vault show GLOBAL/"+entry.Slug)
 		}
 		src = entry.Path
 		dest, err = moveFileTo(entry.Path, c.entryPath(GlobalKey, true, entry.Slug))
@@ -72,7 +72,7 @@ func (c *Core) PromoteEntry(ctx context.Context, projectID, slug, reason string)
 		// The revision directory follows the entry to its new subpath, not
 		// to the vault root: revisionDir(dest) may sit several segments
 		// below dir when the slug carries one, exactly the way a plain
-		// `knowledge mv` already moves it.
+		// `vault mv` already moves it.
 		revMoved, err = moveRevisionDirIfExists(src, dest)
 		if err != nil {
 			return err
@@ -163,7 +163,7 @@ func (c *Core) DemoteEntry(ctx context.Context, slug, reason string) (Entry, err
 		}
 		gerr := tx.Get(&entry, `SELECT * FROM entry WHERE slug = ? AND global = 1`, exactSlug)
 		if errors.Is(gerr, sql.ErrNoRows) {
-			return ErrNotFound("not_global", "no global entry "+slug, "trellis knowledge ls --global")
+			return ErrNotFound("not_global", "no global entry "+slug, "trellis vault ls --global")
 		}
 		if gerr != nil {
 			return gerr
@@ -181,7 +181,7 @@ func (c *Core) DemoteEntry(ctx context.Context, slug, reason string) (Entry, err
 		// The revision directory follows the entry to its new subpath, not
 		// to the vault root: revisionDir(dest) may sit several segments
 		// below dir when the slug carries one, exactly the way a plain
-		// `knowledge mv` already moves it.
+		// `vault mv` already moves it.
 		revMoved, err = moveRevisionDirIfExists(src, dest)
 		if err != nil {
 			return err
@@ -242,7 +242,7 @@ func (c *Core) VerifyEntry(ctx context.Context, slug string) error {
 		}
 		err = tx.Get(&entry, `SELECT * FROM entry WHERE slug = ? AND global = 1`, exactSlug)
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound("not_global", "no global entry "+slug, "trellis knowledge ls --global")
+			return ErrNotFound("not_global", "no global entry "+slug, "trellis vault ls --global")
 		}
 		if err != nil {
 			return err

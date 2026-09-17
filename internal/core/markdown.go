@@ -46,7 +46,7 @@ type Frontmatter struct {
 	// Extra keeps every frontmatter key this struct does not name. A
 	// template may ask for a field ("owner", "severity") that has no
 	// dedicated column here; without this, yaml.Unmarshal would silently
-	// drop it, and the first `knowledge edit` — which re-renders the
+	// drop it, and the first `vault edit` — which re-renders the
 	// frontmatter from this struct — would erase it from the file.
 	Extra map[string]any `yaml:",inline"`
 }

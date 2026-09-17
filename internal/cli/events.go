@@ -22,16 +22,16 @@ func newEventsCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "events",
-		Short: "Read the event feed",
+		Short: "Read the event log",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runEventsList(cmd, after, limit, entities, actions, templates, notActor, consumer, allProjects, follow)
 		},
 	}
 	cmd.Flags().Int64Var(&after, "after", 0, "only events after this seq")
 	cmd.Flags().IntVar(&limit, "limit", 0, "row cap (default 1000, max 5000)")
-	cmd.Flags().StringSliceVar(&entities, "kind", nil, "card|entry|board|label|comment (repeatable)")
+	cmd.Flags().StringSliceVar(&entities, "entity", nil, "card|entry|board|label|comment (repeatable)")
 	cmd.Flags().StringSliceVar(&actions, "action", nil, "created, edited, moved, ... (repeatable; default: everything but read)")
-	cmd.Flags().StringSliceVar(&templates, "template", nil, "knowledge templates (repeatable)")
+	cmd.Flags().StringSliceVar(&templates, "template", nil, "templates (repeatable)")
 	cmd.Flags().StringVar(&notActor, "not-actor", "", "skip events written by this actor")
 	cmd.Flags().StringVar(&consumer, "consumer", "", "resume after this named consumer's cursor; creates it on first use")
 	cmd.Flags().BoolVar(&allProjects, "all-projects", false, "every project, not just this one")

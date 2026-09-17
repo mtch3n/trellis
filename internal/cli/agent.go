@@ -56,7 +56,7 @@ func newAgentRegisterCmd() *cobra.Command {
 func newAgentLsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
-		Short: "List agents and what they hold",
+		Short: "List agents and the cards they have claimed",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, db, err := openCore()
 			if err != nil {

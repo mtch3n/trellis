@@ -110,7 +110,7 @@ func TestEventLogFiltersByEntity(t *testing.T) {
 	}
 }
 
-// review-cli #8: a stale or misspelled --kind must fail loudly, not match
+// review-cli #8: a stale or misspelled --entity must fail loudly, not match
 // nothing silently. "note" is the exact case: migration 0021 renamed those
 // events to "comment", and the CLI's own help text said "note" until this
 // fix.

@@ -9,13 +9,13 @@ import (
 // such project exists.
 func TestGraphSlugEndingInDigitsIsAnEntryNotACard(t *testing.T) {
 	targetEnv(t)
-	if got := refOf(t, "knowledge", "new", "--title", "Release 2026"); got == "" {
+	if got := refOf(t, "vault", "new", "--title", "Release 2026"); got == "" {
 		t.Fatal("seed entry")
 	}
 	// The slug core.SlugifyPath derives from "Release 2026" is "release-2026",
 	// which address.ValidCardRef also accepts as a card ref of project RELEASE.
-	if got := refOf(t, "knowledge", "show", "release-2026"); got != "/ALPHA/vault/release-2026" {
-		t.Fatalf("knowledge show release-2026 = %s", got)
+	if got := refOf(t, "vault", "show", "release-2026"); got != "/ALPHA/vault/release-2026" {
+		t.Fatalf("vault show release-2026 = %s", got)
 	}
 	nodes := refsIn(t, runCmd(t, "graph", "release-2026", "--json"), "nodes")
 	if len(nodes) == 0 || nodes[0] != "/ALPHA/vault/release-2026" {
@@ -37,8 +37,8 @@ func TestGraphStillRoutesAQualifiedCardRef(t *testing.T) {
 // rather than silently reading the wrong one.
 func TestLinkRelativeEntryMeansTheCurrentProject(t *testing.T) {
 	targetEnv(t)
-	refOf(t, "knowledge", "new", "--title", "Design", "--project", "ALPHA")
-	refOf(t, "knowledge", "new", "--title", "Design", "--project", "BETA")
+	refOf(t, "vault", "new", "--title", "Design", "--project", "ALPHA")
+	refOf(t, "vault", "new", "--title", "Design", "--project", "BETA")
 
 	_, err := execCmd("link", "BETA-1", "design")
 	ce := coreErr(t, err)
@@ -59,7 +59,7 @@ func TestLinkRelativeEntryMeansTheCurrentProject(t *testing.T) {
 // "Cross-project operations").
 func TestLinkStillCrossesProjectsWithAnAddressedEntry(t *testing.T) {
 	targetEnv(t)
-	refOf(t, "knowledge", "new", "--title", "Runbook", "--project", "BETA")
+	refOf(t, "vault", "new", "--title", "Runbook", "--project", "BETA")
 	runCmd(t, "link", "1", "/BETA/vault/runbook")
 	nodes := refsIn(t, runCmd(t, "graph", "1", "--json"), "nodes")
 	found := false

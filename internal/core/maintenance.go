@@ -184,7 +184,7 @@ func (c *Core) LeftoverRevisionsCount(ctx context.Context) (int, error) {
 // returns the number of directories removed.
 //
 // An entry whose file is missing is NOT one of these. The entry is still
-// registered, `knowledge lint` reports the missing file, and its history is
+// registered, `vault lint` reports the missing file, and its history is
 // the only copy of that content left: deleting it here would finish the job
 // the accidental `rm` started.
 func (c *Core) PruneLeftoverRevisions(ctx context.Context) (int64, error) {

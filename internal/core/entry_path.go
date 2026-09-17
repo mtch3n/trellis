@@ -49,7 +49,7 @@ func reservedLeafTaken(slug string) bool {
 }
 
 // SlugifyPath validates and slugifies caller-supplied path input: `--in` on
-// `knowledge new`, and the destination of `knowledge mv`. Every segment is
+// `vault new`, and the destination of `vault mv`. Every segment is
 // slugified the way a flat slug already is, then rejoined with "/". Unlike a
 // title-derived slug, this is text the caller typed on purpose, so every
 // violation is rejected rather than silently fixed — see "A generated slug is
@@ -243,7 +243,7 @@ func (c *Core) refuseResemblingDir(tx *sqlx.Tx, projectID, dir string, allowNew 
 	slices.Sort(similar)
 	return ErrUsage("similar_directory",
 		dir+" is close to existing "+strings.Join(similar, ", ")+"; that may be the same idea spelled two ways",
-		"trellis knowledge new --title \"...\" --in "+dir+" --new-dir")
+		"trellis vault new --title \"...\" --in "+dir+" --new-dir")
 }
 
 // resolveSlug turns CLI or wikilink input into exactly one entry's stored
@@ -278,7 +278,7 @@ func (c *Core) resolveSlug(tx *sqlx.Tx, projectID, input string, includeGlobal b
 			return "", &Error{
 				Code: "ambiguous_slug", Exit: 2,
 				Msg: fmt.Sprintf("%q matches more than one global entry: %s", input, strings.Join(gids, ", ")),
-				Fix: "trellis knowledge rm <id>   # remove the extra ones, then refer to it by slug", Detail: gids,
+				Fix: "trellis vault rm <id>   # remove the extra ones, then refer to it by slug", Detail: gids,
 			}
 		}
 	}
@@ -305,11 +305,11 @@ func (c *Core) resolveSlug(tx *sqlx.Tx, projectID, input string, includeGlobal b
 		return "", &Error{
 			Code: "ambiguous_slug", Exit: 2,
 			Msg: fmt.Sprintf("%q matches more than one entry: %s", input, strings.Join(matches, ", ")),
-			Fix: "trellis knowledge show <full path>", Detail: matches,
+			Fix: "trellis vault show <full path>", Detail: matches,
 		}
 	}
 }
 
 func notFoundSlug(input string) error {
-	return ErrNotFound("knowledge_not_found", "no entry "+input, "trellis knowledge ls")
+	return ErrNotFound("knowledge_not_found", "no entry "+input, "trellis vault ls")
 }

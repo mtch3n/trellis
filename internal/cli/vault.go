@@ -16,24 +16,26 @@ import (
 	"golang.org/x/term"
 )
 
-func newKnowledgeCmd() *cobra.Command {
-	// No "kb" alias: cobra spends three help lines listing aliases, and a
-	// command earns those lines more than a nickname does.
+func newVaultCmd() *cobra.Command {
+	// No alias: cobra spends three help lines listing aliases, and a command
+	// earns those lines more than a nickname does.
 	cmd := &cobra.Command{
-		Use:   "knowledge",
-		Short: "Work with knowledge entries",
+		Use:   "vault",
+		Short: "Work with entries in the project and global vaults",
+		Long: "An <entry> argument is a slug in this project's vault, or an address:\n" +
+			"/KEY/vault/<slug> or /GLOBAL/vault/<slug>.",
 	}
 	cmd.AddCommand(
-		newKnowledgeNewCmd(), newKnowledgeShowCmd(), newKnowledgeLsCmd(), newKnowledgeEditCmd(),
-		newKnowledgeRmCmd(), newKnowledgeMvCmd(), newKnowledgePinCmd(), newKnowledgePinsCmd(), newKnowledgeLintCmd(),
-		newKnowledgeNominateCmd(), newKnowledgeNominationsCmd(), newKnowledgePromoteCmd(),
-		newKnowledgeDemoteCmd(), newKnowledgeVerifyCmd(), newKnowledgeHealthCmd(),
-		newKnowledgeUptakeCmd(), newKnowledgeTemplateCmd(),
-		newKnowledgeHistoryCmd(), newKnowledgeDiffCmd())
+		newVaultNewCmd(), newVaultShowCmd(), newVaultLsCmd(), newVaultEditCmd(),
+		newVaultRmCmd(), newVaultMvCmd(), newVaultPinCmd(), newVaultPinsCmd(), newVaultLintCmd(),
+		newVaultNominateCmd(), newVaultNominationsCmd(), newVaultPromoteCmd(),
+		newVaultDemoteCmd(), newVaultVerifyCmd(), newVaultHealthCmd(),
+		newVaultUptakeCmd(), newVaultTemplateCmd(),
+		newVaultHistoryCmd(), newVaultDiffCmd())
 	return cmd
 }
 
-func newKnowledgeNewCmd() *cobra.Command {
+func newVaultNewCmd() *cobra.Command {
 	var title, body, summary TextValue
 	var template, board, provenance, dir string
 	var tags, labels, setFlags, sources []string
@@ -41,11 +43,11 @@ func newKnowledgeNewCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "new",
-		Short: "Create a knowledge entry",
+		Short: "Create an entry",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !title.Changed() {
 				return core.ErrUsage("missing_title", "an entry needs a title",
-					`trellis knowledge new --title "Concurrency model"`)
+					`trellis vault new --title "Concurrency model"`)
 			}
 			fields, err := parseSetFlags(setFlags)
 			if err != nil {
@@ -76,23 +78,23 @@ func newKnowledgeNewCmd() *cobra.Command {
 	cmd.Flags().Var(&body, "body", "markdown body (default: simple header)")
 	cmd.Flags().Var(&summary, "summary", "one line, used as the pinned recap when none is written")
 	cmd.Flags().StringVar(&template, "template", "", strings.Join(core.Templates(), "|")+" (optional)")
-	cmd.Flags().StringVar(&provenance, "provenance", "", "ingestion path: "+strings.Join(core.Provenances(), "|")+" (default authored)")
-	cmd.Flags().StringVar(&board, "board", "", "associate with a board (association, never ownership)")
+	cmd.Flags().StringVar(&provenance, "provenance", "", "how the entry was ingested: "+strings.Join(core.Provenances(), "|")+" (default authored)")
+	cmd.Flags().StringVar(&board, "board", "", "associate with a board (association, never a claim)")
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "free-form tags")
-	cmd.Flags().StringSliceVar(&labels, "label", nil, "labels from the project vocabulary")
+	cmd.Flags().StringSliceVar(&labels, "label", nil, "labels defined in this project")
 	cmd.Flags().StringArrayVar(&setFlags, "set", nil, "name=value, repeatable; supplies a field the template asks for")
 	cmd.Flags().StringArrayVar(&sources, "source", nil,
-		"cite what a claim is based on: a URL, path:lines, card ref, wikilink or absolute address; repeatable")
+		"evidence for what the entry says: a URL, path:lines, card ref, wikilink or absolute address; repeatable")
 	cmd.Flags().BoolVar(&private, "private", false,
-		"do not transmit this body automatically: no vector index, no recap, no content in the event log, pointer-only injection")
+		"do not transmit this body automatically: no vector index, no recap, no body in the event log, pointer-only injection")
 	cmd.Flags().StringVar(&dir, "in", "", "place the entry in this directory instead of the vault root")
 	cmd.Flags().BoolVar(&newDir, "new-dir", false, "create --in even if it resembles an existing directory")
 	return cmd
 }
 
-func newKnowledgeShowCmd() *cobra.Command {
+func newVaultShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show <slug>",
+		Use:   "show <entry>",
 		Short: "Show one entry with its backlinks",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -114,7 +116,7 @@ func newKnowledgeShowCmd() *cobra.Command {
 					var b strings.Builder
 					b.WriteString(entry.Ref)
 					if view.Unverified {
-						fmt.Fprintf(&b, "  (unreviewed since %s)", msDate(*entry.VerifiedAt))
+						fmt.Fprintf(&b, "  (unverified since %s)", msDate(*entry.VerifiedAt))
 					}
 					b.WriteString("\n" + entry.Title + "\n\n" + entry.BodyMD)
 					if len(back) > 0 {
@@ -132,7 +134,7 @@ func newKnowledgeShowCmd() *cobra.Command {
 
 // withholdContent strips what a listing must not carry. Listing is not
 // reading: agents always receive the JSON form, so a body here would hand
-// every entry in the vault to the model at once, and `knowledge show` is where
+// every entry in the vault to the model at once, and `vault show` is where
 // a body is read. A private entry loses its summary and recap as well.
 //
 // entries must carry a Private flag refreshed from the file, as ListEntries and
@@ -148,9 +150,9 @@ func withholdContent(entries []core.Entry) {
 	}
 }
 
-func newKnowledgeHistoryCmd() *cobra.Command {
+func newVaultHistoryCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "history <slug>",
+		Use:   "history <entry>",
 		Short: "List an entry's retained revisions",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -173,10 +175,10 @@ func newKnowledgeHistoryCmd() *cobra.Command {
 	}
 }
 
-func newKnowledgeDiffCmd() *cobra.Command {
+func newVaultDiffCmd() *cobra.Command {
 	var from, to int64
 	cmd := &cobra.Command{
-		Use:   "diff <slug>",
+		Use:   "diff <entry>",
 		Short: "Show a unified diff between two retained revisions",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -194,10 +196,10 @@ func newKnowledgeDiffCmd() *cobra.Command {
 	return cmd
 }
 
-// renderEntryList is the text form of `knowledge ls`. It is a function
+// renderEntryList is the text form of `vault ls`. It is a function
 // rather than a closure so it can be tested directly: Emit selects JSON
 // whenever stdout is captured.
-// renderEntryList is the text form of `knowledge ls`: a tree grouped by
+// renderEntryList is the text form of `vault ls`: a tree grouped by
 // directory, since an entry slug may now be path-shaped. A root-level
 // entry — the majority of any small vault — renders exactly as it always
 // has; an entry under a directory gets a header line for that directory the
@@ -236,7 +238,7 @@ func renderEntryList(entries []core.Entry) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func newKnowledgeLsCmd() *cobra.Command {
+func newVaultLsCmd() *cobra.Command {
 	var thisBoard, cold bool
 	var templates, provenances, tags []string
 	cmd := &cobra.Command{
@@ -276,15 +278,15 @@ func newKnowledgeLsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&thisBoard, "board-only", false, "this board's entries plus the unscoped ones")
 	cmd.Flags().BoolVar(&cold, "cold", false, "entries nothing has read in 30 days")
 	cmd.Flags().StringSliceVar(&templates, "template", nil, "only these templates: "+strings.Join(core.Templates(), "|"))
-	cmd.Flags().StringSliceVar(&provenances, "provenance", nil, "only these ingestion paths: "+strings.Join(core.Provenances(), "|"))
+	cmd.Flags().StringSliceVar(&provenances, "provenance", nil, "only entries with these provenances: "+strings.Join(core.Provenances(), "|"))
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "only entries with every one of these tags")
 	return cmd
 }
 
-// newKnowledgeHealthCmd is the housekeeping report. Detection is free and runs
+// newVaultHealthCmd is the housekeeping report. Detection is free and runs
 // when asked; every line names the command that acts on it, and nothing here
 // changes anything (§10.10).
-func newKnowledgeHealthCmd() *cobra.Command {
+func newVaultHealthCmd() *cobra.Command {
 	var duplicates bool
 	cmd := &cobra.Command{
 		Use:   "health",
@@ -323,17 +325,17 @@ func newKnowledgeHealthCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().BoolVar(&duplicates, "dupes", false, "list duplicate clusters instead")
+	cmd.Flags().BoolVar(&duplicates, "duplicates", false, "list duplicate clusters instead")
 	return cmd
 }
 
-func newKnowledgeEditCmd() *cobra.Command {
+func newVaultEditCmd() *cobra.Command {
 	var body TextValue
 	var sources, tags, labels, setFlags []string
 	var template, private string
 	var ifVersion int64
 	cmd := &cobra.Command{
-		Use:   "edit <slug>",
+		Use:   "edit <entry>",
 		Short: "Replace an entry's body, sources, template, flags or fields",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -349,7 +351,7 @@ func newKnowledgeEditCmd() *cobra.Command {
 			if !body.Changed() && !setSources && !setTags && !setLabels && !setTemplate && !setPrivate && len(fields) == 0 {
 				return core.ErrUsage("missing_body",
 					"name what to change: --body, --source, --template, --tag, --label, --private or --set",
-					"trellis knowledge edit "+args[0]+" --body @notes.md")
+					"trellis vault edit "+args[0]+" --body @notes.md")
 			}
 			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
 				edit := core.EntryEdit{Set: fields}
@@ -388,7 +390,7 @@ func newKnowledgeEditCmd() *cobra.Command {
 					if perr != nil {
 						return core.ErrUsage("invalid_value",
 							fmt.Sprintf("--private: %q is not true or false", private),
-							"trellis knowledge edit "+args[0]+" --private true")
+							"trellis vault edit "+args[0]+" --private true")
 					}
 					edit.Private = &p
 				}
@@ -416,13 +418,13 @@ func newKnowledgeEditCmd() *cobra.Command {
 	cmd.Flags().StringVar(&template, "template", "", "change the template; \"\" for none")
 	cmd.Flags().StringArrayVar(&setFlags, "set", nil, "name=value, repeatable; writes a field the template asks for (empty value removes it)")
 	cmd.Flags().StringVar(&private, "private", "", "mark private (true|false)")
-	cmd.Flags().Int64Var(&ifVersion, "if-version", 0, "the version you read; required (knowledge show --json)")
+	cmd.Flags().Int64Var(&ifVersion, "if-version", 0, "the version you read; required (vault show --json)")
 	return cmd
 }
 
-func newKnowledgeRmCmd() *cobra.Command {
+func newVaultRmCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "rm <slug>",
+		Use:   "rm <entry>",
 		Short: "Delete an entry and its file",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -437,10 +439,10 @@ func newKnowledgeRmCmd() *cobra.Command {
 	}
 }
 
-func newKnowledgeMvCmd() *cobra.Command {
+func newVaultMvCmd() *cobra.Command {
 	var newDir bool
 	cmd := &cobra.Command{
-		Use:   "mv <ref> <new-path>",
+		Use:   "mv <entry> <new-path>",
 		Short: "Move or rename an entry within its project's vault",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -478,13 +480,13 @@ func entrySlugArg(ref string) (string, error) {
 	return p.Name, nil
 }
 
-func newKnowledgePinCmd() *cobra.Command {
+func newVaultPinCmd() *cobra.Command {
 	var recap TextValue
 	var board string
 	var remove bool
 	cmd := &cobra.Command{
-		Use:   "pin <slug> [--recap ...] [--remove]",
-		Short: "Pin an entry's recap into every session start",
+		Use:   "pin <entry> [--recap ...] [--remove]",
+		Short: "Pin an entry, injecting its recap into the session brief",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTargets([]refArg{
@@ -507,17 +509,17 @@ func newKnowledgePinCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().Var(&recap, "recap", "the summary to inject; you write it, trellis never generates one (discarded for a private entry)")
+	cmd.Flags().Var(&recap, "recap", "text to inject, defaulting to the entry's summary; you write it, trellis never generates one (discarded for a private entry)")
 	cmd.Flags().StringVar(&board, "board", "", "pin to one board (default: project-wide)")
 	cmd.Flags().BoolVar(&remove, "remove", false, "unpin instead")
 	return cmd
 }
 
-func newKnowledgePinsCmd() *cobra.Command {
+func newVaultPinsCmd() *cobra.Command {
 	var stale bool
 	cmd := &cobra.Command{
 		Use:   "pins",
-		Short: "List what session start injects",
+		Short: "List pinned entries",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withBoard(func(app *appCtx) error {
 				pins, err := app.Core.Pins(cmd.Context(), app.Project.ID, app.Board.ID, 0)
@@ -562,10 +564,10 @@ func pinTable(pins []core.Pin) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func newKnowledgeLintCmd() *cobra.Command {
+func newVaultLintCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "lint",
-		Short: "Report stubs, broken anchors and orphans",
+		Short: "Report diagnostics: stubs, broken anchors, orphans, ambiguous links, wrong collections, bad paths, missing artifacts, template violations, unknown templates, unknown fields, deep directories, long directory names, similar directories",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withBoard(func(app *appCtx) error {
 				diagnostics, err := app.Core.Lint(cmd.Context(), app.Project.ID)
@@ -591,11 +593,11 @@ func newKnowledgeLintCmd() *cobra.Command {
 	}
 }
 
-func newKnowledgeNominateCmd() *cobra.Command {
+func newVaultNominateCmd() *cobra.Command {
 	var reason TextValue
 	cmd := &cobra.Command{
-		Use:   "nominate <slug>",
-		Short: "Propose an entry for the global vault",
+		Use:   "nominate <entry>",
+		Short: "Nominate an entry for the global vault",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0]}, func(app *appCtx, ref string) error {
@@ -611,10 +613,10 @@ func newKnowledgeNominateCmd() *cobra.Command {
 	return cmd
 }
 
-func newKnowledgeNominationsCmd() *cobra.Command {
+func newVaultNominationsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "nominations",
-		Short: "The escalation queue, with its evidence",
+		Short: "List nominees, ranked by evidence",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withBoard(func(app *appCtx) error {
 				nominees, err := app.Core.Nominations(cmd.Context(), app.Project.ID)
@@ -627,7 +629,7 @@ func newKnowledgeNominationsCmd() *cobra.Command {
 					}
 					var b strings.Builder
 					w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-					fmt.Fprintln(w, "SLUG\tCITED\tPINNED\tREADS/30d\tACTORS\tNOMS\tREASON")
+					fmt.Fprintln(w, "SLUG\tCITED\tPINNED\tREADS/30d\tACTORS\tNOMINATIONS\tREASON")
 					for _, n := range nominees {
 						fmt.Fprintf(w, "%s\t%d\t%d\t%d\t%d\t%d\t%q — %s\n",
 							n.Slug, n.Cited, n.Pinned, n.Reads, n.Actors, n.Nominations, n.Reason, n.Actor)
@@ -640,10 +642,10 @@ func newKnowledgeNominationsCmd() *cobra.Command {
 	}
 }
 
-func newKnowledgePromoteCmd() *cobra.Command {
+func newVaultPromoteCmd() *cobra.Command {
 	var reason TextValue
 	cmd := &cobra.Command{
-		Use:   "escalate <slug>",
+		Use:   "promote <entry>",
 		Short: "Move an entry to the global vault (human only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -655,7 +657,7 @@ func newKnowledgePromoteCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return Emit(cmd, entry, func() string { return "escalated to " + entry.Ref })
+				return Emit(cmd, entry, func() string { return "promoted to " + entry.Ref })
 			})
 		},
 	}
@@ -663,10 +665,10 @@ func newKnowledgePromoteCmd() *cobra.Command {
 	return cmd
 }
 
-func newKnowledgeDemoteCmd() *cobra.Command {
+func newVaultDemoteCmd() *cobra.Command {
 	var reason TextValue
 	cmd := &cobra.Command{
-		Use:   "demote <slug>",
+		Use:   "demote <entry>",
 		Short: "Return a global entry to its project (human only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -689,10 +691,10 @@ func newKnowledgeDemoteCmd() *cobra.Command {
 	return cmd
 }
 
-func newKnowledgeVerifyCmd() *cobra.Command {
+func newVaultVerifyCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "verify <slug>",
-		Short: "Reset the review clock on a global entry",
+		Use:   "verify <entry>",
+		Short: "Confirm a global entry still holds, resetting verify_by (human only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := requireHuman(args[0]); err != nil {
@@ -720,18 +722,18 @@ func newKnowledgeVerifyCmd() *cobra.Command {
 // (§10.8). A human without a TTY uses trellis ui.
 //
 // This is a guardrail, not a security boundary, and the actor is recorded
-// either way — an escalation that somehow came from an agent is visible in the
+// either way — a promotion that somehow came from an agent is visible in the
 // event log and can be demoted.
 func requireHuman(slug string) error {
 	if os.Getenv("TRELLIS_AGENT") != "" {
 		return core.ErrPolicy("agent_refused",
-			"agents nominate; humans escalate",
-			"trellis knowledge nominate "+slug+` --reason "..."`)
+			"agents nominate; humans promote",
+			"trellis vault nominate "+slug+` --reason "..."`)
 	}
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return core.ErrPolicy("no_tty",
 			"this needs an interactive terminal, or trellis ui",
-			"trellis ui   # then escalate from the browser")
+			"trellis ui")
 	}
 	fmt.Fprintf(os.Stderr, "Retype the slug to confirm (%s): ", slug)
 	var typed string
@@ -743,11 +745,11 @@ func requireHuman(slug string) error {
 
 func msDate(ms int64) string { return time.UnixMilli(ms).UTC().Format("2006-01-02") }
 
-func newKnowledgeUptakeCmd() *cobra.Command {
+func newVaultUptakeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "uptake",
-		Short: "How often a recalled identifier was then opened, by ingestion path",
-		Long: `How often a recalled identifier was then opened, by ingestion path.
+		Short: "How often a recalled ref was then opened, by provenance",
+		Long: `How often a recalled ref was then opened, by provenance.
 
 Injected and never opened is noise, and it was paid for on cache write plus
 every later read in that session. Injected and then opened is a hit. Only

@@ -196,7 +196,7 @@ func mergeNotReady(p MergePlan) error {
 	}
 	fix := "trellis project merge " + p.Src + " --into " + p.Dst + " --rename-conflicts --apply"
 	if vault {
-		fix = "trellis knowledge demote <slug>   # vault entries are never renamed: demote or edit one side"
+		fix = "trellis vault demote <slug>   # vault entries are never renamed: demote or edit one side"
 	}
 	return ErrConflict("merge_conflicts",
 		fmt.Sprintf("%s and %s both hold %s: %s", p.Src, p.Dst,

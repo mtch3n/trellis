@@ -78,14 +78,14 @@ func (c *Core) Health(ctx context.Context, projectID string) ([]HealthLine, erro
 	}
 
 	return []HealthLine{
-		{What: "entries", Count: total, Fix: "trellis knowledge ls"},
-		{What: "never read in " + itoa(ReadWindowDays) + "d", Count: cold, Fix: "trellis knowledge ls --cold"},
-		{What: "stale pinned recaps", Count: stale, Fix: "trellis knowledge pins --stale"},
-		{What: "orphans (no links)", Count: byKind["orphan"], Fix: "trellis knowledge lint"},
-		{What: "stubs", Count: byKind["stub"], Fix: "trellis knowledge lint"},
-		{What: "broken anchors", Count: byKind["broken_anchor"], Fix: "trellis knowledge lint"},
+		{What: "entries", Count: total, Fix: "trellis vault ls"},
+		{What: "never read in " + itoa(ReadWindowDays) + "d", Count: cold, Fix: "trellis vault ls --cold"},
+		{What: "stale pinned recaps", Count: stale, Fix: "trellis vault pins --stale"},
+		{What: "orphans (no links)", Count: byKind["orphan"], Fix: "trellis vault lint"},
+		{What: "stubs", Count: byKind["stub"], Fix: "trellis vault lint"},
+		{What: "broken anchors", Count: byKind["broken_anchor"], Fix: "trellis vault lint"},
 		{What: "revisions", Count: revisions, Fix: "trellis maintenance prune --revisions"},
-		{What: "leftover revision directories", Count: leftoverRevisions, Fix: "trellis maintenance prune --orphan-history"},
+		{What: "leftover revision directories", Count: leftoverRevisions, Fix: "trellis maintenance prune --leftover-revisions"},
 	}, nil
 }
 

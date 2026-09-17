@@ -84,7 +84,7 @@ type ArtifactRef struct {
 	Missing bool   `db:"missing" json:"missing"`
 }
 
-// NewEntry is what `knowledge new` supplies.
+// NewEntry is what `vault new` supplies.
 type NewEntry struct {
 	Title      string
 	Provenance string // authored | prompted | extracted; defaults to authored
@@ -177,7 +177,7 @@ func (c *Core) keyOfEntry(tx *sqlx.Tx, entry *Entry) (string, error) {
 func (c *Core) CreateEntry(ctx context.Context, projectID string, in NewEntry) (Entry, error) {
 	if strings.TrimSpace(in.Title) == "" {
 		return Entry{}, ErrUsage("missing_title", "an entry needs a title",
-			`trellis knowledge new --title "Concurrency model"`)
+			`trellis vault new --title "Concurrency model"`)
 	}
 	provenance, err := checkProvenance(in.Provenance)
 	if err != nil {
@@ -270,7 +270,7 @@ func (c *Core) CreateEntry(ctx context.Context, projectID string, in NewEntry) (
 				if room < 1 {
 					return ErrUsage("path_too_long",
 						dirSlug+" leaves no room for a title-derived slug",
-						"trellis knowledge new --title \"...\" --in <a shorter directory>")
+						"trellis vault new --title \"...\" --in <a shorter directory>")
 				}
 				leaf := strings.TrimRight(Slugify(in.Title)[:room], "-")
 				base = dirSlug + "/" + leaf
@@ -310,13 +310,13 @@ func (c *Core) CreateEntry(ctx context.Context, projectID string, in NewEntry) (
 		path := c.entryPath(key, false, slug)
 		// A revision directory can outlive the entry it belonged to when the
 		// file and row are removed outside Trellis -- exactly what
-		// `maintenance prune --orphan-history` exists for. Adopting it here
+		// `maintenance prune --leftover-revisions` exists for. Adopting it here
 		// would hand this new entry someone else's history, so refuse
 		// instead: run the prune first.
 		if _, err := os.Stat(revisionDir(path)); err == nil {
 			return ErrConflict("stale_history",
 				"a revision history for "+slug+" already exists with no entry using it",
-				"trellis maintenance prune --orphan-history")
+				"trellis maintenance prune --leftover-revisions")
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -435,7 +435,7 @@ func (c *Core) LoadEntry(ctx context.Context, projectID, slug string) (Entry, er
 }
 
 // ReadEntry is LoadEntry plus the read counter that the promotion
-// queue and `knowledge ls --cold` are computed from. Separate from Load so
+// queue and `vault ls --cold` are computed from. Separate from Load so
 // internal lookups — lint, the graph, resolving a link — do not inflate a
 // number that is supposed to mean "a person or agent went and read this".
 func (c *Core) ReadEntry(ctx context.Context, projectID, slug string) (Entry, error) {
@@ -542,7 +542,7 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, entry *Entry) (err error) {
 	st, err := os.Stat(entry.Path)
 	if errors.Is(err, os.ErrNotExist) {
 		return ErrNotFound("file_missing", "the file for "+entry.Slug+" is gone: "+entry.Path,
-			"trellis knowledge rm "+entry.Slug+"   # drop the row too")
+			"trellis vault rm "+entry.Slug+"   # drop the row too")
 	}
 	if err != nil {
 		return err
@@ -770,7 +770,7 @@ func (c *Core) EditEntry(ctx context.Context, projectID, slug, body string, ifVe
 // editor most likely, won the race.
 func changedOnDisk(slug string) error {
 	return ErrConflict("conflict", slug+" changed on disk while it was being edited",
-		"trellis knowledge show "+slug)
+		"trellis vault show "+slug)
 }
 
 // writeLanded resolves the one question a failed tx.Commit leaves open: did
@@ -829,8 +829,8 @@ func (c *Core) EditEntryFields(ctx context.Context, projectID, slug string, in E
 		}
 		if in.IfVersion == nil {
 			return ErrUsage("version_required",
-				"knowledge edit replaces whole fields and needs the version you read",
-				fmt.Sprintf("trellis knowledge show %s --json   # then pass --if-version %d", entry.Slug, entry.Version))
+				"vault edit replaces whole fields and needs the version you read",
+				fmt.Sprintf("trellis vault show %s --json   # then pass --if-version %d", entry.Slug, entry.Version))
 		}
 		// refreshFromFile has already folded in any external edit, so a version
 		// mismatch here means exactly that: someone else changed the file.
@@ -839,7 +839,7 @@ func (c *Core) EditEntryFields(ctx context.Context, projectID, slug string, in E
 				Code: "conflict", Exit: 4,
 				Msg: fmt.Sprintf("%s changed on disk since you read it (you: v%d, now: v%d)",
 					entry.Slug, *in.IfVersion, entry.Version),
-				Fix: "trellis knowledge show " + entry.Slug,
+				Fix: "trellis vault show " + entry.Slug,
 			}
 		}
 		fields := map[string]string{}
@@ -890,7 +890,7 @@ func (c *Core) EditEntryFields(ctx context.Context, projectID, slug string, in E
 		}
 		if in.Title != nil {
 			if strings.TrimSpace(*in.Title) == "" {
-				return ErrUsage("missing_title", "an entry needs a title", "trellis knowledge show "+entry.Slug)
+				return ErrUsage("missing_title", "an entry needs a title", "trellis vault show "+entry.Slug)
 			}
 			fm.Title = *in.Title
 		}
@@ -1104,7 +1104,7 @@ func (c *Core) DeleteEntry(ctx context.Context, projectID, slug string) error {
 		}
 		if err := tx.Get(&entry, q, projectID, exactSlug); err != nil {
 			if err.Error() == "sql: no rows in result set" {
-				return ErrNotFound("knowledge_not_found", "no entry "+slug+" owned by this project", "trellis knowledge ls")
+				return ErrNotFound("knowledge_not_found", "no entry "+slug+" owned by this project", "trellis vault ls")
 			}
 			return err
 		}
@@ -1202,7 +1202,7 @@ func (c *Core) RebuildEntrySearch(ctx context.Context) error {
 
 // SyncEntrySearch indexes only files whose metadata changed, or rows absent
 // from the cache after a migration. Missing files lose their stale search terms
-// but retain metadata so knowledge rm and diagnostics remain usable.
+// but retain metadata so vault rm and diagnostics remain usable.
 func (c *Core) SyncEntrySearch(ctx context.Context) error {
 	return c.Tx(ctx, c.rebuildEntryFTS)
 }
@@ -1296,7 +1296,7 @@ func Provenances() []string { return []string{"authored", "prompted", "extracted
 
 // checkProvenance defaults to authored, which is what the ordinary path is.
 // It does not reject an unrecognised value read back from a file: the file is
-// the source of truth, and `knowledge lint` is where vault problems are
+// the source of truth, and `vault lint` is where vault problems are
 // reported rather than raised mid-write.
 func checkProvenance(v string) (string, error) {
 	if v == "" {
@@ -1307,5 +1307,5 @@ func checkProvenance(v string) (string, error) {
 	}
 	return "", ErrUsage("unknown_provenance",
 		"provenance must be one of "+strings.Join(Provenances(), ", "),
-		`trellis knowledge new --title "..." --provenance extracted`)
+		`trellis vault new --title "..." --provenance extracted`)
 }

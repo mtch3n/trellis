@@ -105,7 +105,7 @@ func newDaemonStartCmd() *cobra.Command {
 		Use:   "start",
 		Short: "Start the daemon in the background",
 		Long: "Start the daemon through the installed service manager when `daemon install`\n" +
-			"has been run, and otherwise as a detached background process.",
+			"has been run, and otherwise as an independent background process.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			status, err := resolveDaemonStatus(cmd.Context())

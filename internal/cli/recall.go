@@ -17,13 +17,13 @@ func newRecallCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "recall <text>",
-		Short: "Surface knowledge and cards bearing on a passage of text",
-		Long: `Surface knowledge and cards bearing on a passage of text.
+		Short: "Surface entries and cards bearing on a passage of text",
+		Long: `Surface entries and cards bearing on a passage of text.
 
 search takes a query someone meant to type and matches it as one phrase. recall
 takes free text — a prompt, an error, a paragraph — lifts the terms worth
-searching out of it, and returns identifiers with the one line that decides
-whether opening each is worth a turn. Bodies stay on disk.
+searching out of it, and returns refs with the one line that decides whether
+opening each is worth a turn. Bodies stay on disk.
 
 Output is JSON whenever stdout is not a terminal, so a caller reads results and
 stops when it is empty. Pass --exclude the refs it already holds.`,
@@ -45,8 +45,8 @@ stops when it is empty. Pass --exclude the refs it already holds.`,
 	cmd.Flags().IntVar(&terms, "terms", 4, "maximum terms lifted from the text")
 	cmd.Flags().StringSliceVar(&exclude, "exclude", nil, "refs to omit, for a caller that already holds them")
 	cmd.Flags().StringSliceVar(&templates, "template", nil, "only these templates; drops cards from the result")
-	cmd.Flags().StringSliceVar(&provenances, "provenance", nil, "only these ingestion paths; drops cards from the result")
-	cmd.Flags().BoolVar(&record, "record", false, "note each hit as injected, so `knowledge uptake` can tell whether it was opened")
+	cmd.Flags().StringSliceVar(&provenances, "provenance", nil, "only entries with these provenances; drops cards from the result")
+	cmd.Flags().BoolVar(&record, "record", false, "record each hit as injected, so `vault uptake` can tell whether it was opened")
 	return cmd
 }
 

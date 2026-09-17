@@ -398,7 +398,7 @@ func newCardClaimCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Int64Var(&ttl, "ttl", 0, "claim duration in minutes (default: config)")
-	cmd.Flags().BoolVar(&steal, "steal", false, "take it from a quiet claimant")
+	cmd.Flags().BoolVar(&steal, "steal", false, "steal the claim from a quiet claimant")
 	cmd.Flags().Var(&reason, "reason", "why you stole it; the displaced agent sees this")
 	addActorFlag(cmd)
 	return cmd
@@ -407,7 +407,7 @@ func newCardClaimCmd() *cobra.Command {
 func newCardReleaseCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "release <card>",
-		Short: "Release a card's claim",
+		Short: "Release your claim on a card",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {

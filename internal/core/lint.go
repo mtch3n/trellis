@@ -117,7 +117,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]Diagnostic, error)
 					// behind) -- is reported the same way: neither aborts the
 					// rest of the vault's lint.
 					out = append(out, Diagnostic{Kind: "unknown_template", Entry: e.Ref, Ref: fm.Template,
-						Fix: "trellis knowledge edit " + e.Ref + " --template <name>   # or --template \"\" for none"})
+						Fix: "trellis vault edit " + e.Ref + " --template <name>   # or --template \"\" for none"})
 				case err != nil:
 					return err
 				default:
@@ -127,7 +127,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]Diagnostic, error)
 					}
 					for _, problem := range problems {
 						out = append(out, Diagnostic{Kind: "template_violation", Entry: e.Ref, Ref: problem,
-							Fix: "trellis knowledge edit " + e.Ref + "   # " + t.Name + ": " + problem})
+							Fix: "trellis vault edit " + e.Ref + "   # " + t.Name + ": " + problem})
 					}
 				}
 			}
@@ -139,7 +139,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]Diagnostic, error)
 			for _, k := range extraKeys {
 				if !knownFields[k] {
 					out = append(out, Diagnostic{Kind: "unknown_field", Entry: e.Ref, Ref: k,
-						Fix: "trellis knowledge template ls   # " + k + " is not in any template's required or choices"})
+						Fix: "trellis vault template ls   # " + k + " is not in any template's required or choices"})
 				}
 			}
 
@@ -168,12 +168,12 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]Diagnostic, error)
 				if len(dirs) >= 3 {
 					out = append(out, Diagnostic{Kind: "deep_directory", Entry: e.Ref,
 						Ref: strings.Join(dirs, "/"),
-						Fix: "trellis knowledge mv " + e.Slug + " <a shallower path>   # depth is a design smell past two levels"})
+						Fix: "trellis vault mv " + e.Slug + " <a shallower path>   # depth is a design smell past two levels"})
 				}
 				for _, seg := range dirs {
 					if len(seg) > 30 {
 						out = append(out, Diagnostic{Kind: "long_directory_name", Entry: e.Ref, Ref: seg,
-							Fix: "trellis knowledge mv " + e.Slug + " <a shorter directory name>"})
+							Fix: "trellis vault mv " + e.Slug + " <a shorter directory name>"})
 					}
 				}
 			}
@@ -188,7 +188,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]Diagnostic, error)
 			for _, b := range dirs[i+1:] {
 				if resembles(a, b) {
 					out = append(out, Diagnostic{Kind: "similar_directory", Ref: a + ", " + b,
-						Fix: "trellis knowledge mv <an entry under one> <the other>   # or leave both if they mean different things"})
+						Fix: "trellis vault mv <an entry under one> <the other>   # or leave both if they mean different things"})
 				}
 			}
 		}
@@ -253,7 +253,7 @@ func linkDiagnostic(c *Core, tx *sqlx.Tx, targets linkTargets, e Entry, raw stri
 				return Diagnostic{}, false, err
 			}
 			if len(matches) > 1 {
-				kind, fix = "ambiguous_link", "trellis knowledge show <full path>   # "+ref.Raw+" matches more than one entry"
+				kind, fix = "ambiguous_link", "trellis vault show <full path>   # "+ref.Raw+" matches more than one entry"
 			}
 		}
 		return Diagnostic{Kind: kind, Entry: e.Ref, Ref: raw, Fix: fix}, true, nil
@@ -266,7 +266,7 @@ func linkDiagnostic(c *Core, tx *sqlx.Tx, targets linkTargets, e Entry, raw stri
 		return Diagnostic{}, false, err
 	}
 	return Diagnostic{Kind: "broken_anchor", Entry: e.Ref, Ref: raw,
-		Fix: "trellis knowledge show " + target.ref + "   # check its headings"}, true, nil
+		Fix: "trellis vault show " + target.ref + "   # check its headings"}, true, nil
 }
 
 // linkTarget is what an anchor check needs from the entry a link resolved to.
@@ -327,7 +327,7 @@ func anchorSet(body string) map[string]bool {
 // entry: a malformed address, or one in another collection.
 func addressDiagnostic(e Entry, raw, target string) Diagnostic {
 	f := Diagnostic{Kind: "wrong_collection", Entry: e.Ref, Ref: raw,
-		Fix: "trellis knowledge edit " + e.Ref + " --body @file   # a wikilink names /KEY/vault/<slug>"}
+		Fix: "trellis vault edit " + e.Ref + " --body @file   # a wikilink names /KEY/vault/<slug>"}
 	if _, err := address.Parse(target); err != nil {
 		f.Kind = "bad_path"
 	}
@@ -338,9 +338,9 @@ func addressDiagnostic(e Entry, raw, target string) Diagnostic {
 func stubFix(ref Reference) string {
 	switch ref.ProjectKey {
 	case "":
-		return `trellis knowledge new --title "` + ref.Raw + `"`
+		return `trellis vault new --title "` + ref.Raw + `"`
 	case address.GlobalKey:
-		return `trellis knowledge new --title "` + ref.Slug + `"   # then a human promotes it`
+		return `trellis vault new --title "` + ref.Slug + `"   # then a human promotes it`
 	}
-	return "trellis --project " + ref.ProjectKey + ` knowledge new --title "` + ref.Slug + `"`
+	return "trellis --project " + ref.ProjectKey + ` vault new --title "` + ref.Slug + `"`
 }

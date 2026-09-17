@@ -321,7 +321,7 @@ func (c *Core) DiffEntry(ctx context.Context, projectID, slug string, from, to i
 	if err != nil {
 		return RevisionDiff{}, err
 	}
-	from, to, err = resolveDiffRange(versions, from, to, "trellis knowledge history "+entry.Slug)
+	from, to, err = resolveDiffRange(versions, from, to, "trellis vault history "+entry.Slug)
 	if err != nil {
 		return RevisionDiff{}, err
 	}

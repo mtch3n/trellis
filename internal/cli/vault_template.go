@@ -10,10 +10,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newKnowledgeTemplateCmd() *cobra.Command {
+func newVaultTemplateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "template",
-		Short: "List, show and edit the shared knowledge templates",
+		Short: "List, show and edit the shared templates",
 		Long: "Templates live in one place, shared by every project: there is no\n" +
 			"per-project template.",
 	}
@@ -30,7 +30,7 @@ func parseSetFlags(flags []string) (map[string]string, error) {
 		name, value, ok := strings.Cut(f, "=")
 		if !ok {
 			return nil, core.ErrUsage("bad_set", `--set wants name=value, not "`+f+`"`,
-				`trellis knowledge new --set owner=alice`)
+				`trellis vault new --set owner=alice`)
 		}
 		out[name] = value
 	}
@@ -144,7 +144,7 @@ func newTemplateEditCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !body.Changed() {
 				return core.ErrUsage("missing_body", "--body replaces the whole template file",
-					"trellis knowledge template edit "+args[0]+" --body -   # then paste and Ctrl-D")
+					"trellis vault template edit "+args[0]+" --body -   # then paste and Ctrl-D")
 			}
 			return withGlobalCore(func(c *core.Core) error {
 				t, err := c.EditTemplate(cmd.Context(), args[0], body.String())
@@ -195,8 +195,8 @@ func newTemplateReinstallCmd() *cobra.Command {
 
 func newTemplateCheckCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "check <name> <slug>",
-		Short: "Report a document's violations of a template, without blocking",
+		Use:   "check <name> <entry>",
+		Short: "Report an entry's diagnostics against a template, without blocking",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withBoard(func(app *appCtx) error {

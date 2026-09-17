@@ -7,19 +7,19 @@ import (
 	"github.com/mtch3n/trellis/internal/core"
 )
 
-func TestKnowledgeNewInFlagNestsTheSlug(t *testing.T) {
+func TestVaultNewInFlagNestsTheSlug(t *testing.T) {
 	projectEnv(t)
-	out := runCmd(t, "knowledge", "new", "--title", "Rollback runbook", "--in", "deployment", "--json")
+	out := runCmd(t, "vault", "new", "--title", "Rollback runbook", "--in", "deployment", "--json")
 	if !strings.Contains(out, `"slug":"deployment/rollback-runbook"`) {
 		t.Errorf("output does not carry the nested slug:\n%s", out)
 	}
 }
 
-func TestKnowledgeNewInFlagRefusesAResemblingDirectory(t *testing.T) {
+func TestVaultNewInFlagRefusesAResemblingDirectory(t *testing.T) {
 	projectEnv(t)
-	runCmd(t, "knowledge", "new", "--title", "First", "--in", "deployment")
+	runCmd(t, "vault", "new", "--title", "First", "--in", "deployment")
 
-	_, err := runCmdErr(t, "knowledge", "new", "--title", "Second", "--in", "deploymnet")
+	_, err := runCmdErr(t, "vault", "new", "--title", "Second", "--in", "deploymnet")
 	if err == nil {
 		t.Fatal("a directory one typo away from an existing one must be refused")
 	}
@@ -28,26 +28,26 @@ func TestKnowledgeNewInFlagRefusesAResemblingDirectory(t *testing.T) {
 	}
 
 	// --new-dir is how the caller says they meant it.
-	out := runCmd(t, "knowledge", "new", "--title", "Third", "--in", "deploymnet", "--new-dir", "--json")
+	out := runCmd(t, "vault", "new", "--title", "Third", "--in", "deploymnet", "--new-dir", "--json")
 	if !strings.Contains(out, `"slug":"deploymnet/third"`) {
 		t.Errorf("--new-dir did not create the directory:\n%s", out)
 	}
 }
 
-func TestKnowledgeMvCommand(t *testing.T) {
+func TestVaultMvCommand(t *testing.T) {
 	projectEnv(t)
-	runCmd(t, "knowledge", "new", "--title", "Rollback")
-	out := runCmd(t, "knowledge", "mv", "rollback", "deployment/rollback-runbook", "--json")
+	runCmd(t, "vault", "new", "--title", "Rollback")
+	out := runCmd(t, "vault", "mv", "rollback", "deployment/rollback-runbook", "--json")
 	if !strings.Contains(out, `"slug":"deployment/rollback-runbook"`) {
 		t.Errorf("output does not carry the new slug:\n%s", out)
 	}
-	show := runCmd(t, "knowledge", "show", "deployment/rollback-runbook")
+	show := runCmd(t, "vault", "show", "deployment/rollback-runbook")
 	if !strings.Contains(show, "deployment/rollback-runbook") {
 		t.Errorf("show does not find the moved entry:\n%s", show)
 	}
 }
 
-func TestKnowledgeLsRendersATreeGroupedByDirectory(t *testing.T) {
+func TestVaultLsRendersATreeGroupedByDirectory(t *testing.T) {
 	entries := []core.Entry{
 		{Slug: "recall-ranking", Template: "decision", Title: "Recall ranking"},
 		{Slug: "deployment/rollback", Template: "runbook", Title: "Rollback"},
@@ -62,21 +62,21 @@ func TestKnowledgeLsRendersATreeGroupedByDirectory(t *testing.T) {
 	}
 }
 
-func TestKnowledgeLsDirArgumentScopesToASubtree(t *testing.T) {
+func TestVaultLsDirArgumentScopesToASubtree(t *testing.T) {
 	projectEnv(t)
-	runCmd(t, "knowledge", "new", "--title", "Rollback", "--in", "deployment")
-	runCmd(t, "knowledge", "new", "--title", "Elsewhere", "--in", "docs")
-	out := runCmd(t, "knowledge", "ls", "deployment", "--json")
+	runCmd(t, "vault", "new", "--title", "Rollback", "--in", "deployment")
+	runCmd(t, "vault", "new", "--title", "Elsewhere", "--in", "docs")
+	out := runCmd(t, "vault", "ls", "deployment", "--json")
 	if !strings.Contains(out, "deployment/rollback") || strings.Contains(out, "docs/elsewhere") {
 		t.Errorf("ls deployment did not scope correctly:\n%s", out)
 	}
 }
 
-func TestKnowledgeLsTagFlagRequiresAllTags(t *testing.T) {
+func TestVaultLsTagFlagRequiresAllTags(t *testing.T) {
 	projectEnv(t)
-	runCmd(t, "knowledge", "new", "--title", "Both", "--tag", "a", "--tag", "b")
-	runCmd(t, "knowledge", "new", "--title", "OnlyA", "--tag", "a")
-	out := runCmd(t, "knowledge", "ls", "--tag", "a", "--tag", "b", "--json")
+	runCmd(t, "vault", "new", "--title", "Both", "--tag", "a", "--tag", "b")
+	runCmd(t, "vault", "new", "--title", "OnlyA", "--tag", "a")
+	out := runCmd(t, "vault", "ls", "--tag", "a", "--tag", "b", "--json")
 	if !strings.Contains(out, "\"slug\":\"both\"") || strings.Contains(out, "\"slug\":\"onlya\"") {
 		t.Errorf("--tag a --tag b did not narrow to the entry with both:\n%s", out)
 	}

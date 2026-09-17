@@ -91,7 +91,7 @@ func (c *Core) syncEntryRelations(tx *sqlx.Tx, entry *Entry, fm Frontmatter, bod
 }
 
 // resolveEntryRef turns a reference into an entry id, or NULL for a stub. An
-// unresolved link is listed by `knowledge lint`, never an error: writing a link
+// unresolved link is listed by `vault lint`, never an error: writing a link
 // to something not yet written is how a vault gets built.
 //
 // A relative reference resolves in the source's project first and in the
@@ -203,7 +203,7 @@ func (c *Core) LinkCardToEntry(ctx context.Context, projectID string, cardRef Ca
 		}
 		if toID == nil {
 			return ErrNotFound("knowledge_not_found", "no entry "+ref.Raw,
-				`trellis knowledge new --title "..."`)
+				`trellis vault new --title "..."`)
 		}
 		if _, err := tx.Exec(
 			`INSERT OR IGNORE INTO link (from_type, from_id, to_type, to_id, to_raw, anchor, rel)

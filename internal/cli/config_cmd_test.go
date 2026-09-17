@@ -49,8 +49,8 @@ func TestGlobalConfigHistoryKeepZeroDisablesCapture(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte("history:\n  keep: 0\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	runCmd(t, "knowledge", "new", "--title", "Off")
-	out := runCmd(t, "knowledge", "show", "off", "--json")
+	runCmd(t, "vault", "new", "--title", "Off")
+	out := runCmd(t, "vault", "show", "off", "--json")
 	if !strings.Contains(out, `"slug":"off"`) {
 		t.Fatalf("entry was not created:\n%s", out)
 	}

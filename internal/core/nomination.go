@@ -27,7 +27,7 @@ type Nomination struct {
 func (c *Core) NominateEntry(ctx context.Context, projectID, slug, reason string) error {
 	if strings.TrimSpace(reason) == "" {
 		return ErrUsage("missing_reason", "a nomination carries evidence, not just an opinion",
-			`trellis knowledge nominate `+slug+` --reason "every repo re-derives this"`)
+			`trellis vault nominate `+slug+` --reason "every repo re-derives this"`)
 	}
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var entry Entry
@@ -35,7 +35,7 @@ func (c *Core) NominateEntry(ctx context.Context, projectID, slug, reason string
 			return err
 		}
 		if entry.Global {
-			return ErrUsage("already_global", entry.Slug+" is already global", "trellis knowledge show "+entry.Slug)
+			return ErrUsage("already_global", entry.Slug+" is already global", "trellis vault show "+entry.Slug)
 		}
 		if _, err := tx.Exec(
 			`INSERT INTO nomination (id, entry_id, actor, reason, created_at) VALUES (?, ?, ?, ?, ?)

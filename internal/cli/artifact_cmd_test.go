@@ -41,11 +41,11 @@ func writeFile(t *testing.T, name, content string) string {
 
 func TestArtifactAddAttachesToAnEntry(t *testing.T) {
 	projectEnv(t)
-	runCmd(t, "knowledge", "new", "--title", "Standup")
+	runCmd(t, "vault", "new", "--title", "Standup")
 
-	runCmd(t, "artifact", "add", writeFile(t, "standup.mp3", "ID3 audio"), "--doc", "standup")
+	runCmd(t, "artifact", "add", writeFile(t, "standup.mp3", "ID3 audio"), "--entry", "standup")
 
-	out := runCmd(t, "knowledge", "show", "standup", "--json")
+	out := runCmd(t, "vault", "show", "standup", "--json")
 	if !strings.Contains(out, `"standup.mp3"`) {
 		t.Errorf("entry does not list the artifact:\n%s", out)
 	}
@@ -53,17 +53,17 @@ func TestArtifactAddAttachesToAnEntry(t *testing.T) {
 
 func TestArtifactLinkAndUnlinkByName(t *testing.T) {
 	projectEnv(t)
-	runCmd(t, "knowledge", "new", "--title", "Research")
+	runCmd(t, "vault", "new", "--title", "Research")
 	runCmd(t, "artifact", "add", writeFile(t, "paper.pdf", "%PDF-1.7\n"))
 
-	runCmd(t, "artifact", "link", "paper.pdf", "--doc", "research")
-	listed := runCmd(t, "artifact", "ls", "--doc", "research", "--json")
+	runCmd(t, "artifact", "link", "paper.pdf", "--entry", "research")
+	listed := runCmd(t, "artifact", "ls", "--entry", "research", "--json")
 	if !strings.Contains(listed, "paper.pdf") {
-		t.Fatalf("ls --doc does not list the linked artifact:\n%s", listed)
+		t.Fatalf("ls --entry does not list the linked artifact:\n%s", listed)
 	}
 
-	runCmd(t, "artifact", "unlink", "paper.pdf", "--doc", "research")
-	after := runCmd(t, "artifact", "ls", "--doc", "research", "--json")
+	runCmd(t, "artifact", "unlink", "paper.pdf", "--entry", "research")
+	after := runCmd(t, "artifact", "ls", "--entry", "research", "--json")
 	if strings.Contains(after, "paper.pdf") {
 		t.Errorf("artifact still listed after unlink:\n%s", after)
 	}
@@ -76,7 +76,7 @@ func TestArtifactLinkNeedsExactlyOneTarget(t *testing.T) {
 	if _, err := runCmdErr(t, "artifact", "link", "x.png"); cliErrCode(err) != "missing_target" {
 		t.Errorf("no target: err = %v, want missing_target", err)
 	}
-	if _, err := runCmdErr(t, "artifact", "link", "x.png", "--card", "TEST-1", "--doc", "x"); cliErrCode(err) != "target_conflict" {
+	if _, err := runCmdErr(t, "artifact", "link", "x.png", "--card", "TEST-1", "--entry", "x"); cliErrCode(err) != "target_conflict" {
 		t.Errorf("both targets: err = %v, want target_conflict", err)
 	}
 	if _, err := runCmdErr(t, "artifact", "unlink", "x.png"); cliErrCode(err) != "missing_target" {
@@ -99,7 +99,7 @@ func TestArtifactAddCleansUpOnBadEntryLink(t *testing.T) {
 	projectEnv(t)
 
 	// Try to add artifact with bad entry reference
-	_, err := runCmdErr(t, "artifact", "add", writeFile(t, "test.txt", "content"), "--doc", "no-such-entry")
+	_, err := runCmdErr(t, "artifact", "add", writeFile(t, "test.txt", "content"), "--entry", "no-such-entry")
 	if err == nil {
 		t.Fatal("expected error when linking to non-existent entry")
 	}

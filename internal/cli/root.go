@@ -156,7 +156,7 @@ func applyRepoConfig(c *core.Core, r resolvedProject) (config.Config, error) {
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "trellis",
-		Short:         "Local kanban and knowledge base for AI agents",
+		Short:         "Local kanban boards and vaults for AI agents",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -171,7 +171,7 @@ func newRootCmd() *cobra.Command {
 	// All commands registered here once; each lives in its own file so later
 	// parallel tasks never edit root.go.
 	root.AddCommand(newInitCmd(), newProjectCmd(), newCardCmd(), newBoardCmd(), newColumnCmd(), newLabelCmd(), newUICmd(), newSearchCmd(), newRecallCmd(), newConfigCmd(), newAgentCmd(), newBackupCmd(), newVersionCmd(), newUpdateCmd(),
-		newKnowledgeCmd(), newArtifactCmd(), newLinkCmd(), newGraphCmd(), newVectorCmd(), newDaemonCmd(), newDoctorCmd(), newMaintenanceCmd(), newTUICmd(), newEventsCmd(), newExtensionCmd())
+		newVaultCmd(), newArtifactCmd(), newLinkCmd(), newGraphCmd(), newVectorCmd(), newDaemonCmd(), newDoctorCmd(), newMaintenanceCmd(), newTUICmd(), newEventsCmd(), newExtensionCmd())
 	return root
 }
 
@@ -278,7 +278,7 @@ func projectNamed() bool {
 }
 
 // addActorFlag registers --as on a command whose effect depends on who is
-// acting: claiming, releasing, noting and editing all record or check a claimant.
+// acting: claiming, releasing, commenting and editing all record or check a claimant.
 func addActorFlag(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&actorSuffix, "as", "",
 		"act as this subagent, distinct from others in the same session")

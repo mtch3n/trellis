@@ -8,17 +8,17 @@ import (
 	"github.com/mtch3n/trellis/internal/core"
 )
 
-func TestKnowledgeHistoryAndDiff(t *testing.T) {
+func TestVaultHistoryAndDiff(t *testing.T) {
 	projectEnv(t)
-	runCmd(t, "knowledge", "new", "--title", "Notes", "--body", "line one")
-	runCmd(t, "knowledge", "edit", "notes", "--body", "line one\nline two", "--if-version", "1")
+	runCmd(t, "vault", "new", "--title", "Notes", "--body", "line one")
+	runCmd(t, "vault", "edit", "notes", "--body", "line one\nline two", "--if-version", "1")
 
-	history := runCmd(t, "knowledge", "history", "notes", "--json")
+	history := runCmd(t, "vault", "history", "notes", "--json")
 	if !strings.Contains(history, `"version":2`) || !strings.Contains(history, `"version":1`) {
 		t.Fatalf("history = %s, want both versions", history)
 	}
 
-	diff := runCmd(t, "knowledge", "diff", "notes", "--json")
+	diff := runCmd(t, "vault", "diff", "notes", "--json")
 	if !strings.Contains(diff, `"from":1`) || !strings.Contains(diff, `"to":2`) {
 		t.Fatalf("diff = %s, want from 1 to 2", diff)
 	}
@@ -27,11 +27,11 @@ func TestKnowledgeHistoryAndDiff(t *testing.T) {
 	}
 }
 
-func TestKnowledgeDiffRejectsAnUnretainedVersion(t *testing.T) {
+func TestVaultDiffRejectsAnUnretainedVersion(t *testing.T) {
 	projectEnv(t)
-	runCmd(t, "knowledge", "new", "--title", "Solo")
+	runCmd(t, "vault", "new", "--title", "Solo")
 
-	if _, err := runCmdErr(t, "knowledge", "diff", "solo", "--from", "9", "--to", "9"); cliErrCode(err) != "revision_not_retained" {
+	if _, err := runCmdErr(t, "vault", "diff", "solo", "--from", "9", "--to", "9"); cliErrCode(err) != "revision_not_retained" {
 		t.Errorf("err = %v, want revision_not_retained", err)
 	}
 }
@@ -56,7 +56,7 @@ func TestCardHistoryAndDiff(t *testing.T) {
 	}
 }
 
-// review-cli #9: card history/diff, knowledge history/diff and knowledge mv
+// review-cli #9: card history/diff, vault history/diff and vault mv
 // never adopted withTarget, so a reference that names its own project failed
 // with unresolved outside any marker, unlike every other reference-taking
 // command.
@@ -81,32 +81,32 @@ func TestHistoryDiffAndMvNeedNoMarker(t *testing.T) {
 		}
 	}
 
-	refOf(t, "knowledge", "new", "--title", "Notes", "--project", "BETA")
-	runCmd(t, "knowledge", "edit", "notes", "--body", "changed", "--if-version", "1", "--project", "BETA")
+	refOf(t, "vault", "new", "--title", "Notes", "--project", "BETA")
+	runCmd(t, "vault", "edit", "notes", "--body", "changed", "--if-version", "1", "--project", "BETA")
 	for _, args := range [][]string{
-		{"knowledge", "history", "/BETA/vault/notes"},
-		{"knowledge", "diff", "/BETA/vault/notes"},
+		{"vault", "history", "/BETA/vault/notes"},
+		{"vault", "diff", "/BETA/vault/notes"},
 	} {
 		if _, err := runCmdErr(t, args...); err != nil {
 			t.Errorf("%v: %v", args, err)
 		}
 	}
 
-	if got := refOf(t, "knowledge", "mv", "/BETA/vault/notes", "notes-2"); got != "/BETA/vault/notes-2" {
-		t.Errorf("knowledge mv with no marker = %s", got)
+	if got := refOf(t, "vault", "mv", "/BETA/vault/notes", "notes-2"); got != "/BETA/vault/notes-2" {
+		t.Errorf("vault mv with no marker = %s", got)
 	}
 }
 
-// knowledge history on a /GLOBAL address needs no project at all, exactly as
-// knowledge show already does.
-func TestKnowledgeHistoryOnAVaultEntryNeedsNoMarker(t *testing.T) {
+// vault history on a /GLOBAL address needs no project at all, exactly as
+// vault show already does.
+func TestVaultHistoryOnAGlobalEntryNeedsNoMarker(t *testing.T) {
 	markerEnv(t, "loose")
 	seedProject(t, "ALPHA")
-	refOf(t, "knowledge", "new", "--title", "Conventions", "--project", "ALPHA")
+	refOf(t, "vault", "new", "--title", "Conventions", "--project", "ALPHA")
 	promoteByHand(t, "ALPHA", "conventions")
 
-	if _, err := runCmdErr(t, "knowledge", "history", "/GLOBAL/vault/conventions"); err != nil {
-		t.Errorf("knowledge history on a vault entry with no marker: %v", err)
+	if _, err := runCmdErr(t, "vault", "history", "/GLOBAL/vault/conventions"); err != nil {
+		t.Errorf("vault history on a vault entry with no marker: %v", err)
 	}
 }
 

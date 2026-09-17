@@ -11,7 +11,7 @@ import (
 //
 // It exists because the private column is a mirror and is one read stale after
 // a file changes. Recall and the pin list put text in front of a model without
-// being asked, and the cold listing feeds `knowledge ls --cold`, whose JSON an
+// being asked, and the cold listing feeds `vault ls --cold`, whose JSON an
 // agent reads. Deciding from the mirror on any of them means an entry can be
 // disclosed after its author marked it private and before anything happened to
 // refresh the row.
@@ -19,7 +19,7 @@ import (
 // Recall and the pin list pass a bounded set: the hits recall actually
 // returns, o.Limit of them (five by default), not the larger candidate pool it
 // ranks over; pins are curated by hand. The cold listing passes every entry it
-// lists, which is one file read each, the same as plain `knowledge ls`.
+// lists, which is one file read each, the same as plain `vault ls`.
 //
 // A file that is gone cannot have its disclosure status confirmed, so it is
 // treated as private rather than disclosed or failed: the id comes back marked
