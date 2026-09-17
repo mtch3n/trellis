@@ -205,7 +205,7 @@ extensions:
 
   | Allowed | Refused |
   |---|---|
-  | `card.*`, `lease.ttl`, `board.default_columns`, `labels.*`, `tags.*`, `search.limit`, `search.method` | `ui.*` (the daemon and web UI), `db.*`, `git.*`, `search.vector.*` (it includes `embed_command`, which runs a program), and every key added later until it is marked repository-safe |
+  | `card.*`, `lease.ttl`, `board.default_columns`, `labels.*`, `tags.*`, `search.method` | `ui.*` (the daemon and web UI), `search.vector.*` (it includes `embed_command`, which runs a program), and every key added later until it is marked repository-safe |
 
   The allowed set is declared next to each key in `internal/config`, so a new
   key is refused until someone decides it is safe.
@@ -277,7 +277,7 @@ session's query, so that session's commit lands first.
 - `--follow` prints an event written after it started.
 - `NotActor` skips a consumer's own writes.
 - `.trellis.yaml` and `.trellis.yml` are both read; both present is an error.
-- Allowed keys apply; refused keys (`ui.port`, `db.busy_timeout_ms`,
+- Allowed keys apply; refused keys (`ui.port`, `search.vector.provider`,
   `search.vector.embed_command`) and unknown keys fail with the file path; and
   `extensions` round-trips through `trellis extension config`.
 - Precedence: each layer overrides the one below it, and `config get` names the

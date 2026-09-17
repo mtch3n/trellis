@@ -230,8 +230,9 @@ func newConfigSetCmd() *cobra.Command {
 			}
 
 			// config set (without --repo) only ever writes a project
-			// override: the global file is hand-edited YAML (§5.4), so there
-			// is no scope to choose.
+			// override: the global file is edited by hand or through the web
+			// settings page (config.SetGlobalValues), never by this command,
+			// so there is no scope to choose.
 			globalCfg, err := config.Load()
 			if err != nil {
 				globalCfg = config.Defaults()

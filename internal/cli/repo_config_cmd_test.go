@@ -117,7 +117,7 @@ func TestConfigSetRepoRejectsABadValue(t *testing.T) {
 
 func TestConfigSetRepoRefusesAMachineLevelKey(t *testing.T) {
 	repoEnv(t, "")
-	for _, key := range []string{"ui.port", "db.busy_timeout_ms", "search.vector.embed_command"} {
+	for _, key := range []string{"ui.port", "search.vector.provider", "search.vector.embed_command"} {
 		_, err := runCmdErr(t, "config", "set", "--repo", key, "1")
 		if err == nil {
 			t.Errorf("config set --repo %s was accepted", key)
