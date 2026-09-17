@@ -44,8 +44,8 @@ type Knowledge struct {
 	ContentHash string `db:"content_hash" json:"-"`
 	MTime       int64  `db:"mtime" json:"-"`
 	Size        int64  `db:"size" json:"-"`
-	Global      bool   `db:"global" json:"global,omitempty"`
-	Private     bool   `db:"private" json:"private,omitempty"`
+	Global      bool   `db:"global" json:"global,omitzero"`
+	Private     bool   `db:"private" json:"private,omitzero"`
 	ReviewBy    *int64 `db:"review_by" json:"review_by,omitempty"`
 	ReviewedAt  *int64 `db:"reviewed_at" json:"reviewed_at,omitempty"`
 	Version     int64  `db:"version" json:"version"`

@@ -71,7 +71,7 @@ func readDaemonPID(root string) (int, bool) {
 type daemonStatus struct {
 	Running   bool          `json:"running"`
 	URL       string        `json:"url,omitempty"`
-	PID       int           `json:"pid,omitempty"`
+	PID       int           `json:"pid,omitzero"`
 	ManagedBy string        `json:"managed_by"`
 	Service   service.State `json:"service"`
 	Root      string        `json:"-"`
