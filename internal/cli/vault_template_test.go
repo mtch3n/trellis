@@ -9,7 +9,7 @@ import (
 
 func TestTemplateLsListsTheBuiltins(t *testing.T) {
 	projectEnv(t)
-	out := runCmd(t, "vault", "template", "ls", "--json")
+	out := runCmd(t, "template", "ls", "--json")
 	for _, name := range []string{"decision", "finding", "glossary", "reference", "research", "runbook"} {
 		if !strings.Contains(out, `"`+name+`"`) {
 			t.Errorf("ls does not list %s:\n%s", name, out)
@@ -22,7 +22,7 @@ func TestTemplateLsListsTheBuiltins(t *testing.T) {
 
 func TestTemplateShowReturnsRulesAndSkeleton(t *testing.T) {
 	projectEnv(t)
-	out := runCmd(t, "vault", "template", "show", "runbook")
+	out := runCmd(t, "template", "show", "runbook")
 	if !strings.Contains(out, "## Preconditions") {
 		t.Errorf("show did not print the skeleton:\n%s", out)
 	}
@@ -30,8 +30,8 @@ func TestTemplateShowReturnsRulesAndSkeleton(t *testing.T) {
 
 func TestTemplateNewRefusesAnExistingName(t *testing.T) {
 	projectEnv(t)
-	runCmd(t, "vault", "template", "new", "custom")
-	if _, err := runCmdErr(t, "vault", "template", "new", "custom"); cliErrCode(err) != "template_exists" {
+	runCmd(t, "template", "new", "custom")
+	if _, err := runCmdErr(t, "template", "new", "custom"); cliErrCode(err) != "template_exists" {
 		t.Errorf("second new: err = %v, want template_exists", err)
 	}
 }
@@ -45,7 +45,7 @@ func TestTemplateNewEditRmRefusePathTraversalNames(t *testing.T) {
 	entryPath := newEntry(t, "--title", "Runbook")
 	traversal := "../projects/TEST/vault/runbook"
 
-	if _, err := runCmdErr(t, "vault", "template", "new", "../evil"); cliErrCode(err) != "bad_template_name" {
+	if _, err := runCmdErr(t, "template", "new", "../evil"); cliErrCode(err) != "bad_template_name" {
 		t.Errorf("template new ../evil: err = %v, want bad_template_name", err)
 	}
 	home := os.Getenv("TRELLIS_HOME")
@@ -53,11 +53,11 @@ func TestTemplateNewEditRmRefusePathTraversalNames(t *testing.T) {
 		t.Errorf("template new must not have written outside <root>/templates: %v", err)
 	}
 
-	if _, err := runCmdErr(t, "vault", "template", "edit", traversal, "--body",
+	if _, err := runCmdErr(t, "template", "edit", traversal, "--body",
 		"---\nenforce: warn\n---\npwned\n"); cliErrCode(err) != "bad_template_name" {
 		t.Errorf("template edit %s: err = %v, want bad_template_name", traversal, err)
 	}
-	if _, err := runCmdErr(t, "vault", "template", "rm", traversal); cliErrCode(err) != "bad_template_name" {
+	if _, err := runCmdErr(t, "template", "rm", traversal); cliErrCode(err) != "bad_template_name" {
 		t.Errorf("template rm %s: err = %v, want bad_template_name", traversal, err)
 	}
 
@@ -72,8 +72,8 @@ func TestTemplateNewEditRmRefusePathTraversalNames(t *testing.T) {
 
 func TestTemplateEditThenNewEntryUsesIt(t *testing.T) {
 	projectEnv(t)
-	runCmd(t, "vault", "template", "new", "checklist")
-	runCmd(t, "vault", "template", "edit", "checklist", "--body",
+	runCmd(t, "template", "new", "checklist")
+	runCmd(t, "template", "edit", "checklist", "--body",
 		"---\nenforce: warn\n---\n# {{title}}\n\n## Done\n")
 
 	out := runCmd(t, "vault", "new", "--title", "Ship it", "--template", "checklist", "--json")
@@ -84,30 +84,30 @@ func TestTemplateEditThenNewEntryUsesIt(t *testing.T) {
 
 func TestTemplateRmThenReinstallRestoresABuiltin(t *testing.T) {
 	projectEnv(t)
-	runCmd(t, "vault", "template", "rm", "decision")
-	if _, err := runCmdErr(t, "vault", "template", "show", "decision"); cliErrCode(err) != "unknown_template" {
+	runCmd(t, "template", "rm", "decision")
+	if _, err := runCmdErr(t, "template", "show", "decision"); cliErrCode(err) != "unknown_template" {
 		t.Fatalf("after rm: err = %v, want unknown_template", err)
 	}
-	runCmd(t, "vault", "template", "reinstall", "decision")
-	runCmd(t, "vault", "template", "show", "decision")
+	runCmd(t, "template", "reinstall", "decision")
+	runCmd(t, "template", "show", "decision")
 }
 
 func TestTemplateReinstallRefusesANonBuiltin(t *testing.T) {
 	projectEnv(t)
-	runCmd(t, "vault", "template", "new", "custom")
-	if _, err := runCmdErr(t, "vault", "template", "reinstall", "custom"); cliErrCode(err) != "not_builtin" {
+	runCmd(t, "template", "new", "custom")
+	if _, err := runCmdErr(t, "template", "reinstall", "custom"); cliErrCode(err) != "not_builtin" {
 		t.Errorf("err = %v, want not_builtin", err)
 	}
 }
 
 func TestTemplateCheckReportsWithoutBlocking(t *testing.T) {
 	projectEnv(t)
-	runCmd(t, "vault", "template", "new", "strict")
-	runCmd(t, "vault", "template", "edit", "strict", "--body",
+	runCmd(t, "template", "new", "strict")
+	runCmd(t, "template", "edit", "strict", "--body",
 		"---\nenforce: reject\nrequired: [owner]\n---\n# {{title}}\n")
 	runCmd(t, "vault", "new", "--title", "Loose")
 
-	out := runCmd(t, "vault", "template", "check", "strict", "loose", "--json")
+	out := runCmd(t, "template", "check", "strict", "loose", "--json")
 	if !strings.Contains(out, "owner") || !strings.Contains(out, `"diagnostics":`) {
 		t.Errorf("check did not report the missing field as a diagnostic:\n%s", out)
 	}

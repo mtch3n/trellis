@@ -139,7 +139,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]Diagnostic, error)
 			for _, k := range extraKeys {
 				if !knownFields[k] {
 					out = append(out, Diagnostic{Kind: "unknown_field", Entry: e.Ref, Ref: k,
-						Fix: "trellis vault template ls   # " + k + " is not in any template's required or choices"})
+						Fix: "trellis template ls   # " + k + " is not in any template's required or choices"})
 				}
 			}
 

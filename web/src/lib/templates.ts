@@ -1,6 +1,6 @@
 import { sentence, wordList } from '@/lib/format'
 
-/** A vault template and its rules, as `GET /api/templates` lists them. */
+/** One entry template and its rules, as `GET /api/templates` lists them. */
 export interface TemplateInfo {
   name: string
   /** `reject` refuses an entry that breaks a rule; `warn` saves it and says so. */

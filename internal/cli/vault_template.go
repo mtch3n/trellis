@@ -10,12 +10,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newVaultTemplateCmd() *cobra.Command {
+// newTemplateCmd is a root command, not a child of `vault`: templates live in
+// the Trellis home and every project and the global vault share them, so
+// naming one under a project's vault would say they were that vault's.
+func newTemplateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "template",
-		Short: "List, show and edit the shared templates",
-		Long: "Templates live in one place, shared by every project: there is no\n" +
-			"per-project template.",
+		Short: "List, show and edit the templates every project shares",
+		Long: "Templates live in one place, <trellis home>/templates, shared by every\n" +
+			"project and the global vault: there is no per-project template.",
 	}
 	cmd.AddCommand(newTemplateLsCmd(), newTemplateShowCmd(), newTemplateNewCmd(),
 		newTemplateEditCmd(), newTemplateRmCmd(), newTemplateReinstallCmd(), newTemplateCheckCmd())
@@ -144,7 +147,7 @@ func newTemplateEditCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !body.Changed() {
 				return core.ErrUsage("missing_body", "--body replaces the whole template file",
-					"trellis vault template edit "+args[0]+" --body -   # then paste and Ctrl-D")
+					"trellis template edit "+args[0]+" --body -   # then paste and Ctrl-D")
 			}
 			return withGlobalCore(func(c *core.Core) error {
 				t, err := c.EditTemplate(cmd.Context(), args[0], body.String())

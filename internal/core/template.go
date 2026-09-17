@@ -172,7 +172,7 @@ func checkTemplateName(name string) error {
 	if !address.ValidSlug(name) {
 		return ErrUsage("bad_template_name",
 			`"`+name+`" is not a valid template name: use lower-case letters and digits joined by single hyphens`,
-			"trellis vault template ls")
+			"trellis template ls")
 	}
 	return nil
 }
@@ -190,7 +190,7 @@ func loadTemplate(dir, name string) (Template, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return Template{}, ErrUsage("unknown_template", "no template "+name, "trellis vault template ls")
+			return Template{}, ErrUsage("unknown_template", "no template "+name, "trellis template ls")
 		}
 		return Template{}, err
 	}
@@ -200,11 +200,11 @@ func loadTemplate(dir, name string) (Template, error) {
 		if err := yaml.Unmarshal([]byte(header), &rules); err != nil {
 			return Template{}, ErrUsage("bad_template",
 				path+": the template's frontmatter does not parse: "+err.Error(),
-				"trellis vault template edit "+name)
+				"trellis template edit "+name)
 		}
 	}
 	if err := validateTemplateRules(rules); err != nil {
-		return Template{}, ErrUsage("bad_template", path+": "+err.Error(), "trellis vault template edit "+name)
+		return Template{}, ErrUsage("bad_template", path+": "+err.Error(), "trellis template edit "+name)
 	}
 	enforce := rules.Enforce
 	if enforce == "" {
@@ -432,7 +432,7 @@ func (c *Core) NewTemplate(ctx context.Context, name string) (Template, error) {
 	if err := atomicfile.Write(path, []byte(raw), false); err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return Template{}, ErrConflict("template_exists", "a template named "+name+" already exists",
-				"trellis vault template edit "+name)
+				"trellis template edit "+name)
 		}
 		return Template{}, err
 	}
@@ -452,7 +452,7 @@ func (c *Core) EditTemplate(ctx context.Context, name, raw string) (Template, er
 	path := filepath.Join(dir, name+".md")
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
-			return Template{}, ErrUsage("unknown_template", "no template "+name, "trellis vault template ls")
+			return Template{}, ErrUsage("unknown_template", "no template "+name, "trellis template ls")
 		}
 		return Template{}, err
 	}
@@ -486,7 +486,7 @@ func (c *Core) DeleteTemplate(ctx context.Context, name string) error {
 	path := filepath.Join(dir, name+".md")
 	if err := os.Remove(path); err != nil {
 		if os.IsNotExist(err) {
-			return ErrUsage("unknown_template", "no template "+name, "trellis vault template ls")
+			return ErrUsage("unknown_template", "no template "+name, "trellis template ls")
 		}
 		return err
 	}
@@ -499,7 +499,7 @@ func (c *Core) DeleteTemplate(ctx context.Context, name string) error {
 func (c *Core) ReinstallTemplate(ctx context.Context, name string) (Template, error) {
 	if !slices.Contains(Templates(), name) {
 		return Template{}, ErrUsage("not_builtin", name+" is not a built-in template",
-			"trellis vault template ls   # built-ins: "+strings.Join(Templates(), ", "))
+			"trellis template ls   # built-ins: "+strings.Join(Templates(), ", "))
 	}
 	dir, err := c.templatesDir()
 	if err != nil {
@@ -560,8 +560,8 @@ func templateViolationFix(tmplName string, violations []string) string {
 		if strings.Contains(v, "sources") {
 			return `trellis vault new --template ` + tmplName +
 				` --title "<title>" --source </KEY/cards/KEY-12|[[slug]]|url>` +
-				"\n  trellis vault template show " + tmplName
+				"\n  trellis template show " + tmplName
 		}
 	}
-	return "trellis vault template show " + tmplName
+	return "trellis template show " + tmplName
 }

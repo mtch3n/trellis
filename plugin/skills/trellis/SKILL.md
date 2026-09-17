@@ -121,11 +121,11 @@ trellis vault nominate <entry> --reason "..."    # you nominate; a human promote
 ```
 
 Templates: `decision`, `finding`, `glossary`, `reference`, `research`, `runbook`
-— `trellis vault template ls` prints the current list. An entry created without
+— `trellis template ls` prints the current list. An entry created without
 `--template` has no template. Every Trellis write is checked against the entry's
 template: `decision` and `finding` refuse an entry that cites no `--source`, and
 `vault lint` reports `template_violation` for a hand edit that breaks a template
-and `unknown_template` for one that is not on disk. `trellis vault template show
+and `unknown_template` for one that is not on disk. `trellis template show
 <name>` says what a template requires.
 
 A source is free text — a URL, `path:lines`, a command — except that an internal

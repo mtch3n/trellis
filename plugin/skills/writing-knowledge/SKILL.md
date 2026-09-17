@@ -35,7 +35,7 @@ to it when the finding belongs there.
 
 ## What each template asks for
 
-`trellis vault template ls` is the live list; `vault template show <name>` gives
+`trellis template ls` is the live list; `template show <name>` gives
 one template's rules and skeleton. What ships:
 
 | Template | Must include |

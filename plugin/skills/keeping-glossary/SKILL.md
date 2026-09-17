@@ -13,7 +13,7 @@ concept under `## Terms` — **Term**, **Means**, **Not**.
 
 1. Run `trellis vault ls --template glossary`. A project keeps one, so if it
    exists, change it instead. If `glossary` is not a known template, run
-   `trellis vault template reinstall glossary`.
+   `trellis template reinstall glossary`.
 2. Take rows only from words the user or the project already defines. Invent no
    meanings.
 3. **If any row needed a choice** — which of two words is the Term, or what a

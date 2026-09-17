@@ -24,7 +24,9 @@ import { readRefusal, type Refusal } from '@/lib/api'
 import type { TemplateInfo } from '@/lib/templates'
 
 /**
- * The vault templates on this machine, the shipped ones and the user's.
+ * The entry templates on this machine, the shipped ones and the user's. They
+ * are shared by every project and the global vault, which is why they sit in
+ * Settings rather than in the Vault.
  * A row opens the template's file for editing; a new template starts from a
  * name and is written as a file the editor then opens.
  */

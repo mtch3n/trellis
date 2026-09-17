@@ -40,7 +40,7 @@ func TestJSONOutputUsesTheGlossary(t *testing.T) {
 		{[]string{"agent", "remind"}, []string{`"claimed_without_comment":`}, nil},
 		{[]string{"vault", "lint"}, []string{`"diagnostics":`, `"entry":"/TEST/vault/wire-entry"`}, nil},
 		{[]string{"vault", "health", "--duplicates"}, []string{`"duplicate_clusters":`}, []string{`"clusters"`}},
-		{[]string{"vault", "template", "check", "decision", "wire-entry"}, []string{`"diagnostics":`}, []string{`"violations"`}},
+		{[]string{"template", "check", "decision", "wire-entry"}, []string{`"diagnostics":`}, []string{`"violations"`}},
 		{[]string{"vault", "nominations"}, []string{`"nominations":1`}, nil},
 		{[]string{"vault", "show", "/GLOBAL/vault/stale-wire-entry"}, []string{`"unverified":true`}, nil},
 		{[]string{"vector", "status"}, []string{`"configured_entries":0`, `"indexed_entries":0`, `"unindexed_entries":0`}, nil},

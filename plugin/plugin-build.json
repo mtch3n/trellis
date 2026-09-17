@@ -2,7 +2,7 @@
   "_comment": "Single source for every manifest. Edit this, then run scripts/gen_manifests.py. The generated files are checked in so installs need no build step, and scripts/tests/test_manifests.py fails if they drift from this file.",
   "shared": {
     "name": "trellis",
-    "version": "0.0.3",
+    "version": "0.0.4",
     "description": "Local kanban boards and vaults for AI agents: board state at session start, cards with expiring claims, and a linked markdown vault.",
     "author": {
       "name": "mtchen"

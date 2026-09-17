@@ -171,7 +171,7 @@ func newRootCmd() *cobra.Command {
 	// All commands registered here once; each lives in its own file so later
 	// parallel tasks never edit root.go.
 	root.AddCommand(newInitCmd(), newProjectCmd(), newCardCmd(), newBoardCmd(), newColumnCmd(), newLabelCmd(), newUICmd(), newSearchCmd(), newRecallCmd(), newConfigCmd(), newAgentCmd(), newBackupCmd(), newVersionCmd(), newUpdateCmd(),
-		newVaultCmd(), newArtifactCmd(), newLinkCmd(), newGraphCmd(), newVectorCmd(), newDaemonCmd(), newDoctorCmd(), newMaintenanceCmd(), newTUICmd(), newEventsCmd(), newExtensionCmd())
+		newVaultCmd(), newTemplateCmd(), newArtifactCmd(), newLinkCmd(), newGraphCmd(), newVectorCmd(), newDaemonCmd(), newDoctorCmd(), newMaintenanceCmd(), newTUICmd(), newEventsCmd(), newExtensionCmd())
 	return root
 }
 
