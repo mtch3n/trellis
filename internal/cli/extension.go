@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/json/v2"
-	"os"
 
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/core"
@@ -25,7 +24,7 @@ func newExtensionConfigCmd() *cobra.Command {
 			// project named by --project or TRELLIS_PROJECT has no pin and so
 			// no repository file: the subtree is null.
 			var repoDir string
-			if projectFlagKey == "" && os.Getenv("TRELLIS_PROJECT") == "" {
+			if !projectNamed() {
 				dir, err := repoConfigDir()
 				if err != nil {
 					return err

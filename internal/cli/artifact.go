@@ -48,7 +48,10 @@ func newArtifactAddCmd() *cobra.Command {
 			if err := oneTarget(card, doc, false, "trellis artifact add <file> [--card <ref> | --doc <slug>]"); err != nil {
 				return err
 			}
-			return withTargets([]refArg{{Collection: vpath.CollectionCards, Value: card}}, func(app *appCtx, refs []string) error {
+			return withTargets([]refArg{
+				{Collection: vpath.CollectionCards, Value: card},
+				{Collection: vpath.CollectionKnowledge, Value: doc},
+			}, func(app *appCtx, refs []string) error {
 				artifact, err := app.Core.CreateArtifact(cmd.Context(), app.Project.ID, args[0])
 				if err != nil {
 					return err
@@ -61,8 +64,8 @@ func newArtifactAddCmd() *cobra.Command {
 					if err := app.Core.LinkArtifactToCard(cmd.Context(), app.Project.ID, id, artifact.ID); err != nil {
 						return err
 					}
-				} else if doc != "" {
-					if _, err := app.Core.LinkArtifactToDoc(cmd.Context(), app.Project.ID, doc, artifact.ID); err != nil {
+				} else if refs[1] != "" {
+					if _, err := app.Core.LinkArtifactToDoc(cmd.Context(), app.Project.ID, refs[1], artifact.ID); err != nil {
 						return err
 					}
 				}
@@ -135,9 +138,12 @@ func newArtifactUnlinkCmd() *cobra.Command {
 			if err := oneTarget(card, doc, true, usage); err != nil {
 				return err
 			}
-			return withBoard(func(app *appCtx) error {
-				if doc != "" {
-					entry, err := app.Core.UnlinkArtifactFromDoc(cmd.Context(), app.Project.ID, doc, args[0])
+			return withTargets([]refArg{
+				{Collection: vpath.CollectionCards, Value: card},
+				{Collection: vpath.CollectionKnowledge, Value: doc},
+			}, func(app *appCtx, refs []string) error {
+				if refs[1] != "" {
+					entry, err := app.Core.UnlinkArtifactFromDoc(cmd.Context(), app.Project.ID, refs[1], args[0])
 					if err != nil {
 						return err
 					}
@@ -148,7 +154,7 @@ func newArtifactUnlinkCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				id, err := cardID(cmd, app, card)
+				id, err := cardID(cmd, app, refs[0])
 				if err != nil {
 					return err
 				}
@@ -174,22 +180,25 @@ func newArtifactLsCmd() *cobra.Command {
 			if err := oneTarget(card, doc, false, "trellis artifact ls [--card <ref> | --doc <slug>]"); err != nil {
 				return err
 			}
-			return withTargets([]refArg{{Collection: vpath.CollectionCards, Value: card}}, func(app *appCtx, refs []string) error {
-				cardIDValue := ""
+			return withTargets([]refArg{
+				{Collection: vpath.CollectionCards, Value: card},
+				{Collection: vpath.CollectionKnowledge, Value: doc},
+			}, func(app *appCtx, refs []string) error {
+				var cardIDValue, docIDValue string
 				if refs[0] != "" {
 					var err error
 					if cardIDValue, err = cardID(cmd, app, refs[0]); err != nil {
 						return err
 					}
-				} else if doc != "" {
-					entry, err := app.Core.LoadKnowledge(cmd.Context(), app.Project.ID, doc)
+				}
+				if refs[1] != "" {
+					entry, err := app.Core.LoadKnowledge(cmd.Context(), app.Project.ID, refs[1])
 					if err != nil {
 						return err
 					}
-					cardIDValue = ""
-					_ = entry
+					docIDValue = entry.ID
 				}
-				items, err := app.Core.ListArtifacts(cmd.Context(), app.Project.ID, cardIDValue, "")
+				items, err := app.Core.ListArtifacts(cmd.Context(), app.Project.ID, cardIDValue, docIDValue)
 				if err != nil {
 					return err
 				}

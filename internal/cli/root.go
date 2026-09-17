@@ -246,8 +246,12 @@ func configInt(ctx context.Context, app *appCtx, key string, def int) int {
 	return n
 }
 
-// projectKey is the project named by --project or $TRELLIS_PROJECT; empty means
-// "resolve from the working directory". A bare --project names no project.
+// projectNamed reports whether --project or $TRELLIS_PROJECT names the
+// project, rather than a pin in the working directory.
+func projectNamed() bool {
+	return projectFlagKey != "" || os.Getenv("TRELLIS_PROJECT") != ""
+}
+
 // addActorFlag registers --as on a command whose effect depends on who is
 // acting: claiming, releasing, noting and editing all record or check an owner.
 func addActorFlag(cmd *cobra.Command) {

@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/mtch3n/trellis/internal/core"
@@ -116,7 +117,14 @@ func TestAVaultAddressIgnoresAmbientState(t *testing.T) {
 		if got := refOf(t, "knowledge", "show", want); got != want {
 			t.Errorf("%s: knowledge show = %s", name, got)
 		}
-		if got := refOf(t, "knowledge", "edit", want, "--body", "Edited under "+name+".\n"); got != want {
+		var shown struct {
+			Version int64 `json:"version"`
+		}
+		if err := json.Unmarshal([]byte(runCmd(t, "knowledge", "show", want, "--json")), &shown); err != nil {
+			t.Fatalf("%s: knowledge show: %v", name, err)
+		}
+		if got := refOf(t, "knowledge", "edit", want, "--body", "Edited under "+name+".\n",
+			"--if-version", strconv.FormatInt(shown.Version, 10)); got != want {
 			t.Errorf("%s: knowledge edit = %s", name, got)
 		}
 		if nodes := refsIn(t, runCmd(t, "graph", want, "--json"), "nodes"); len(nodes) == 0 || nodes[0] != want {
@@ -260,10 +268,10 @@ func TestArtifactsTakeNamesAndAddresses(t *testing.T) {
 func TestTheWorkspaceStaysInItsProject(t *testing.T) {
 	app := &appCtx{Project: core.Project{Key: "ALPHA"}}
 	for arg, want := range map[string]core.CardRef{
-		"4":                   {Seq: 4},
-		"ALPHA-3":             {Seq: 3, ProjectKey: "ALPHA"},
-		"API-1":               {Seq: 1, ProjectKey: "API"},
-		"/ALPHA/cards/API-1":  {Seq: 1, ProjectKey: "API", Project: "ALPHA"},
+		"4":                  {Seq: 4},
+		"ALPHA-3":            {Seq: 3, ProjectKey: "ALPHA"},
+		"API-1":              {Seq: 1, ProjectKey: "API"},
+		"/ALPHA/cards/API-1": {Seq: 1, ProjectKey: "API", Project: "ALPHA"},
 	} {
 		got, err := tuiCardRef(app, arg)
 		if err != nil || got != want {
