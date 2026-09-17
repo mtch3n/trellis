@@ -3,6 +3,8 @@
 // CLI never shells out to a service manager directly.
 package service
 
+//lint:file-ignore U1000 Selected by manager_{linux,darwin,other}.go; a single-GOOS check cannot see the other platforms use it.
+
 import "errors"
 
 // ErrUnsupported is returned by every method on platforms with no per-user

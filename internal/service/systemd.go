@@ -1,3 +1,5 @@
+//lint:file-ignore U1000 Selected by manager_{linux,darwin,other}.go; a single-GOOS check cannot see the other platforms use it.
+
 package service
 
 import (
