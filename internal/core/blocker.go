@@ -22,7 +22,7 @@ func (c *Core) BlockCard(ctx context.Context, projectID string, ref, blockerRef 
 		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
 			return err
 		}
-		if err := c.checkCardOwner(card); err != nil {
+		if err := c.checkCardClaim(card); err != nil {
 			return err
 		}
 		if err := c.loadCard(tx, projectID, blockerRef, &blocker); err != nil {
@@ -59,7 +59,7 @@ func (c *Core) UnblockCard(ctx context.Context, projectID string, ref, blockerRe
 		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
 			return err
 		}
-		if err := c.checkCardOwner(card); err != nil {
+		if err := c.checkCardClaim(card); err != nil {
 			return err
 		}
 		if err := c.loadCard(tx, projectID, blockerRef, &blocker); err != nil {

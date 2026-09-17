@@ -59,15 +59,15 @@ func TestGetSettingsListsEveryKeyWithDefaultsAndSource(t *testing.T) {
 	for _, setting := range out.Settings {
 		byKey[setting.Key] = setting
 	}
-	leaseTTL, ok := byKey["claim.ttl"]
+	claimTTL, ok := byKey["claim.ttl"]
 	if !ok {
 		t.Fatal("claim.ttl missing from settings")
 	}
-	if leaseTTL.Source != "default" || leaseTTL.Value != "30m" || leaseTTL.Default != "30m" {
-		t.Errorf("claim.ttl = %+v, want value/default 30m, source default", leaseTTL)
+	if claimTTL.Source != "default" || claimTTL.Value != "30m" || claimTTL.Default != "30m" {
+		t.Errorf("claim.ttl = %+v, want value/default 30m, source default", claimTTL)
 	}
-	if !leaseTTL.Editable || leaseTTL.Restart {
-		t.Errorf("claim.ttl editable=%v restart=%v, want true/false", leaseTTL.Editable, leaseTTL.Restart)
+	if !claimTTL.Editable || claimTTL.Restart {
+		t.Errorf("claim.ttl editable=%v restart=%v, want true/false", claimTTL.Editable, claimTTL.Restart)
 	}
 	uiPort, ok := byKey["ui.port"]
 	if !ok {
@@ -107,8 +107,8 @@ func TestPatchSettingsWritesAndReportsSource(t *testing.T) {
 	for _, setting := range out.Settings {
 		byKey[setting.Key] = setting
 	}
-	if leaseTTL := byKey["claim.ttl"]; leaseTTL.Value != "45m" || leaseTTL.Source != "config" {
-		t.Errorf("claim.ttl = %+v, want value 45m, source config", leaseTTL)
+	if claimTTL := byKey["claim.ttl"]; claimTTL.Value != "45m" || claimTTL.Source != "config" {
+		t.Errorf("claim.ttl = %+v, want value 45m, source config", claimTTL)
 	}
 	if keep := byKey["history.keep"]; keep.Value != float64(50) && keep.Value != 50 {
 		t.Errorf("history.keep = %+v, want 50", keep)
@@ -213,12 +213,12 @@ func TestPatchSettingsCallsTheLiveHook(t *testing.T) {
 	if err := json.Unmarshal(claimRec.Body.Bytes(), &claimed); err != nil {
 		t.Fatal(err)
 	}
-	if claimed.LeaseUntil == nil {
+	if claimed.ClaimUntil == nil {
 		t.Fatal("claimed card has no claim_until")
 	}
 	want := int64(1_000_000) + int64(2*60*60*1000)
-	if *claimed.LeaseUntil != want {
-		t.Errorf("claim_until = %d, want %d (2h lease TTL applied live)", *claimed.LeaseUntil, want)
+	if *claimed.ClaimUntil != want {
+		t.Errorf("claim_until = %d, want %d (2h claim TTL applied live)", *claimed.ClaimUntil, want)
 	}
 }
 

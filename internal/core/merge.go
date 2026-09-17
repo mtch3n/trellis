@@ -375,7 +375,7 @@ func (m *merger) load(srcKey, dstKey string) (refused bool, err error) {
 	}
 	m.plan.dstID = m.dst.ID
 
-	held, err := m.count(`SELECT COUNT(*) FROM card WHERE project_id = ? AND claimed_by IS NOT NULL AND claim_until > ?`,
+	claimed, err := m.count(`SELECT COUNT(*) FROM card WHERE project_id = ? AND claimed_by IS NOT NULL AND claim_until > ?`,
 		m.src.ID, m.c.clock.NowMS())
 	if err != nil {
 		return false, err
@@ -383,8 +383,8 @@ func (m *merger) load(srcKey, dstKey string) (refused bool, err error) {
 	switch {
 	case !address.ValidKey(m.dst.Key):
 		m.plan.Refused = fmt.Sprintf("%s cannot be named by a pin; merge into a project whose key can", m.dst.Key)
-	case held > 0:
-		m.plan.Refused = fmt.Sprintf("%s has %d %s held by an agent right now", m.src.Key, held, plural(held, "card", "cards"))
+	case claimed > 0:
+		m.plan.Refused = fmt.Sprintf("%s has %d %s claimed by an agent right now", m.src.Key, claimed, plural(claimed, "card", "cards"))
 	}
 	return m.plan.Refused != "", nil
 }

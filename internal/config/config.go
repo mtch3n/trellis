@@ -22,7 +22,7 @@ import (
 // zero-value defaults since YAML parsing leaves unset fields as zero values.
 type Config struct {
 	UI      UIConfig      `yaml:"ui"`
-	Lease   LeaseConfig   `yaml:"claim"`
+	Claim   ClaimConfig   `yaml:"claim"`
 	Board   BoardConfig   `yaml:"board"`
 	Labels  LabelsConfig  `yaml:"labels"`
 	Tags    TagsConfig    `yaml:"tags"`
@@ -45,7 +45,7 @@ type UIConfig struct {
 // means yes.
 func (u UIConfig) UIEnabled() bool { return u.Enabled == nil || *u.Enabled }
 
-type LeaseConfig struct {
+type ClaimConfig struct {
 	TTL string `yaml:"ttl"` // e.g., "30m"
 }
 
@@ -111,7 +111,7 @@ func Defaults() Config {
 			Bind:    "127.0.0.1",
 			Enabled: ptr(true),
 		},
-		Lease: LeaseConfig{
+		Claim: ClaimConfig{
 			TTL: "30m",
 		},
 		Board: BoardConfig{
@@ -203,8 +203,8 @@ func applyDefaults(cfg *Config) {
 	if cfg.UI.Enabled == nil {
 		cfg.UI.Enabled = defaults.UI.Enabled
 	}
-	if cfg.Lease.TTL == "" {
-		cfg.Lease.TTL = defaults.Lease.TTL
+	if cfg.Claim.TTL == "" {
+		cfg.Claim.TTL = defaults.Claim.TTL
 	}
 	if len(cfg.Board.DefaultColumns) == 0 {
 		cfg.Board.DefaultColumns = defaults.Board.DefaultColumns
@@ -241,7 +241,7 @@ func GetValue(cfg Config, key string) (string, bool) {
 	case "ui.enabled":
 		return fmt.Sprintf("%v", cfg.UI.UIEnabled()), true
 	case "claim.ttl":
-		return cfg.Lease.TTL, true
+		return cfg.Claim.TTL, true
 	case "board.default_columns":
 		// For arrays, return comma-separated values.
 		return fmt.Sprintf("[%s]", fmt.Sprint(cfg.Board.DefaultColumns)), true
@@ -560,7 +560,7 @@ func setConfigField(cfg *Config, key string, node *yaml.Node) error {
 		if _, err := time.ParseDuration(raw); err != nil {
 			return fmt.Errorf("not a duration: %w", err)
 		}
-		cfg.Lease.TTL = raw
+		cfg.Claim.TTL = raw
 		return nil
 	case "board.default_columns":
 		return node.Decode(&cfg.Board.DefaultColumns)
@@ -717,7 +717,7 @@ func TypedValue(cfg Config, key string) (value any, ok bool) {
 	case "ui.enabled":
 		return cfg.UI.UIEnabled(), true
 	case "claim.ttl":
-		return cfg.Lease.TTL, true
+		return cfg.Claim.TTL, true
 	case "board.default_columns":
 		return slices.Clone(cfg.Board.DefaultColumns), true
 	case "labels.require_on_card":
@@ -1109,7 +1109,7 @@ func presentKeys(raw Config) map[string]bool {
 // ApplyRepoOverrides returns cfg with every repository-safe key repo.Present
 // sets copied on top, field by field. EffectiveValue answers one key at a
 // time against a database; this is for a caller — currentBoard, priming the
-// Core's lease TTL, default columns and label/tag requirements — that needs
+// Core's claim TTL, default columns and label/tag requirements — that needs
 // a whole Config to seed something with, before any per-key project override
 // is even in the picture.
 func ApplyRepoOverrides(cfg Config, repo RepoDoc) Config {
@@ -1118,7 +1118,7 @@ func ApplyRepoOverrides(cfg Config, repo RepoDoc) Config {
 		case "card.ls_limit":
 			cfg.Card.LsLimit = repo.Config.Card.LsLimit
 		case "claim.ttl":
-			cfg.Lease.TTL = repo.Config.Lease.TTL
+			cfg.Claim.TTL = repo.Config.Claim.TTL
 		case "board.default_columns":
 			cfg.Board.DefaultColumns = repo.Config.Board.DefaultColumns
 		case "labels.require_on_card":

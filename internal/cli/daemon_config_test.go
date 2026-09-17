@@ -17,14 +17,14 @@ import (
 	"github.com/mtch3n/trellis/internal/store"
 )
 
-// review-http-events #9: the daemon's Core never received SetLeaseTTL,
+// review-http-events #9: the daemon's Core never received SetClaimTTL,
 // SetDefaultColumns or SetCardRequirements from the global config, so a web
-// claim always got the built-in 30-minute lease and web card creation
+// claim always got the built-in 30-minute claim TTL and web card creation
 // ignored tags.require_on_card / labels.require_on_card, no matter what the
 // config file said. This drives a real daemon in-process, the way
 // TestDaemonLifecycle drives one out-of-process, and checks both settings
 // over the actual HTTP API.
-func TestDaemonAppliesGlobalLeaseTTLAndCardRequirements(t *testing.T) {
+func TestDaemonAppliesGlobalClaimTTLAndCardRequirements(t *testing.T) {
 	if testing.Short() {
 		t.Skip("spins up a real HTTP server")
 	}
@@ -32,7 +32,7 @@ func TestDaemonAppliesGlobalLeaseTTLAndCardRequirements(t *testing.T) {
 	t.Setenv("TRELLIS_HOME", root)
 	t.Setenv("TRELLIS_PROJECT", "")
 
-	write(t, filepath.Join(root, "config.yaml"), "lease:\n  ttl: 5h\ntags:\n  require_on_card: true\n")
+	write(t, filepath.Join(root, "config.yaml"), "claim:\n  ttl: 5h\ntags:\n  require_on_card: true\n")
 
 	// createProject also seeds its own default board (named after the key,
 	// lower-cased), alongside the "main" board seedProject asks for here, so
@@ -108,21 +108,21 @@ func TestDaemonAppliesGlobalLeaseTTLAndCardRequirements(t *testing.T) {
 		return resp.StatusCode, out
 	}
 
-	// The claim must use the configured 5h lease, not the built-in 30m.
+	// The claim must use the configured 5h claim TTL, not the built-in 30m.
 	before := time.Now().UnixMilli()
 	status, body := call("POST", "/api/p/TEST/b/main/cards/TEST-1/claim", []byte("{}"))
 	if status != http.StatusOK {
 		t.Fatalf("claim: status %d, body %s", status, body)
 	}
 	var claimed struct {
-		LeaseUntil *int64 `json:"claim_until"`
+		ClaimUntil *int64 `json:"claim_until"`
 	}
-	if err := json.Unmarshal(body, &claimed); err != nil || claimed.LeaseUntil == nil {
+	if err := json.Unmarshal(body, &claimed); err != nil || claimed.ClaimUntil == nil {
 		t.Fatalf("claim body = %s: %v", body, err)
 	}
-	got := time.Duration(*claimed.LeaseUntil-before) * time.Millisecond
+	got := time.Duration(*claimed.ClaimUntil-before) * time.Millisecond
 	if got < 4*time.Hour || got > 6*time.Hour {
-		t.Errorf("claim lease = %v, want ~5h from the daemon's config", got)
+		t.Errorf("claim TTL = %v, want ~5h from the daemon's config", got)
 	}
 
 	// Card creation must honor tags.require_on_card.

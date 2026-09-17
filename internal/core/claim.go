@@ -18,9 +18,9 @@ func (c *Core) ClaimNextCard(ctx context.Context, boardID string, ttl int64) (*C
 	var card Card
 	now := c.clock.NowMS()
 	if ttl <= 0 {
-		ttl = c.leaseTTL
+		ttl = c.claimTTL
 	}
-	leaseUntil := now + ttl
+	claimUntil := now + ttl
 
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		// Fetch the board and project to validate and extract the project ID.
@@ -43,7 +43,7 @@ func (c *Core) ClaimNextCard(ctx context.Context, boardID string, ttl int64) (*C
 		// The WHERE clause skips:
 		// - Done columns (col.is_done = 0)
 		// - Archived cards (c.archived_at IS NULL)
-		// - Owned and unexpired cards ((c.claimed_by IS NULL OR c.claim_until < now))
+		// - Claimed and unexpired cards ((c.claimed_by IS NULL OR c.claim_until < now))
 		// - Cards blocked by unfinished cards (NOT EXISTS blocked_by subquery)
 		err := tx.Get(&card,
 			`UPDATE card
@@ -67,7 +67,7 @@ func (c *Core) ClaimNextCard(ctx context.Context, boardID string, ttl int64) (*C
 			 )
 			 RETURNING id, project_id, board_id, seq, column_id, rank, title, body_md,
 			           priority, claimed_by, claim_until, version, created_at, updated_at, archived_at`,
-			c.actor, leaseUntil, now,
+			c.actor, claimUntil, now,
 			projectID,
 			now)
 
@@ -92,7 +92,7 @@ func (c *Core) ClaimNextCard(ctx context.Context, boardID string, ttl int64) (*C
 
 // GetNextCard returns the next available card without changing any state.
 // Its selection rules intentionally match ClaimNextCard: done and archived
-// cards, cards with an active lease, and cards with unfinished blockers are
+// cards, cards with an active claim, and cards with unfinished blockers are
 // skipped. The caller can use this to preview work without claiming it.
 func (c *Core) GetNextCard(ctx context.Context, boardID string) (*Card, error) {
 	var card Card
@@ -142,14 +142,14 @@ func (c *Core) GetNextCard(ctx context.Context, boardID string) (*Card, error) {
 }
 
 // ClaimCard attempts to claim a specific card. Returns a contention error if
-// someone else holds it and it has not expired.
+// someone else claims it and it has not expired.
 func (c *Core) ClaimCard(ctx context.Context, cardID string, ttl int64, steal bool, reason string) (*Card, error) {
 	var card Card
 	now := c.clock.NowMS()
 	if ttl <= 0 {
-		ttl = c.leaseTTL
+		ttl = c.claimTTL
 	}
-	leaseUntil := now + ttl
+	claimUntil := now + ttl
 
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		// Fetch the current card state.
@@ -162,31 +162,31 @@ func (c *Core) ClaimCard(ctx context.Context, cardID string, ttl int64, steal bo
 		}
 
 		// Check if someone else holds it and it has not expired.
-		if card.Owner != nil && *card.Owner != c.actor && (card.LeaseUntil == nil || *card.LeaseUntil > now) {
+		if card.ClaimedBy != nil && *card.ClaimedBy != c.actor && (card.ClaimUntil == nil || *card.ClaimUntil > now) {
 			if !steal {
-				// The holder is looked up on this transaction's connection:
+				// The claimant is looked up on this transaction's connection:
 				// store.Open caps the pool at one, so calling the ctx-level
 				// GetAgent here would wait for a connection it is itself
 				// holding, and hang rather than fail.
 				//
-				// An unregistered holder is still a holder: the lease is what
-				// grants ownership, not the agent row. Refusing with no handle
+				// An unregistered claimant is still a claimant: the claim is what
+				// grants the hold, not the agent row. Refusing with no handle
 				// to name is §8.5's "active agent, no handle" case, and letting
 				// the claim through instead would hand two agents the same card.
-				holder := Agent{ID: *card.Owner, Handle: *card.Owner, LastSeen: now}
-				_ = tx.Get(&holder, `SELECT * FROM agent WHERE id = ?`, *card.Owner)
-				return c.contentionError(holder)
+				claimant := Agent{ID: *card.ClaimedBy, Handle: *card.ClaimedBy, LastSeen: now}
+				_ = tx.Get(&claimant, `SELECT * FROM agent WHERE id = ?`, *card.ClaimedBy)
+				return c.contentionError(claimant)
 			} else {
 				// Stealing is recorded on the card itself, not only in the
 				// event log: the displaced agent finds out by reading the card
-				// it thought it held.
+				// it thought it claimed.
 				if _, err := tx.Exec(
 					`INSERT INTO comment (id, card_id, actor, body_md, created_at) VALUES (?, ?, ?, ?, ?)`,
 					NewCardID(), cardID, c.actor,
-					"claimed from "+*card.Owner+": "+reason, now); err != nil {
+					"claimed from "+*card.ClaimedBy+": "+reason, now); err != nil {
 					return err
 				}
-				if err := c.recordEvent(tx, "card", cardID, "stolen", "claimed_by", *card.Owner, c.actor); err != nil {
+				if err := c.recordEvent(tx, "card", cardID, "stolen", "claimed_by", *card.ClaimedBy, c.actor); err != nil {
 					return err
 				}
 			}
@@ -196,7 +196,7 @@ func (c *Core) ClaimCard(ctx context.Context, cardID string, ttl int64, steal bo
 		if _, err := tx.Exec(
 			`UPDATE card SET claimed_by = ?, claim_until = ?, version = version + 1, updated_at = ?
 			 WHERE id = ?`,
-			c.actor, leaseUntil, now, cardID); err != nil {
+			c.actor, claimUntil, now, cardID); err != nil {
 			return err
 		}
 
@@ -217,21 +217,21 @@ func (c *Core) ClaimCard(ctx context.Context, cardID string, ttl int64, steal bo
 	return &card, err
 }
 
-// ReleaseCard releases ownership of a card.
+// ReleaseCard releases a card's claim.
 func (c *Core) ReleaseCard(ctx context.Context, cardID string) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
 		// Verify we own it.
-		var owner *string
-		if err := tx.Get(&owner, `SELECT claimed_by FROM card WHERE id = ?`, cardID); err != nil {
+		var claimant *string
+		if err := tx.Get(&claimant, `SELECT claimed_by FROM card WHERE id = ?`, cardID); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrNotFound("card_not_found", "card not found", "")
 			}
 			return err
 		}
 
-		if owner == nil || *owner != c.actor {
+		if claimant == nil || *claimant != c.actor {
 			return ErrConflict("not_owned",
-				fmt.Sprintf("you do not own this card (owned by %v)", owner),
+				fmt.Sprintf("you do not claim this card (claimed by %v)", claimant),
 				fmt.Sprintf("trellis card show %s", cardID))
 		}
 
@@ -251,33 +251,33 @@ func (c *Core) ReleaseCard(ctx context.Context, cardID string) error {
 	})
 }
 
-// RenewLease extends the lease on a card held by the current actor.
-func (c *Core) RenewLease(ctx context.Context, cardID string, ttl int64) error {
+// RenewClaim extends the claim on a card the current actor already claims.
+func (c *Core) RenewClaim(ctx context.Context, cardID string, ttl int64) error {
 	now := c.clock.NowMS()
 	if ttl <= 0 {
-		ttl = c.leaseTTL
+		ttl = c.claimTTL
 	}
-	leaseUntil := now + ttl
+	claimUntil := now + ttl
 
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
 		// Verify we own it.
-		var owner *string
-		if err := tx.Get(&owner, `SELECT claimed_by FROM card WHERE id = ?`, cardID); err != nil {
+		var claimant *string
+		if err := tx.Get(&claimant, `SELECT claimed_by FROM card WHERE id = ?`, cardID); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrNotFound("card_not_found", "card not found", "")
 			}
 			return err
 		}
 
-		if owner == nil || *owner != c.actor {
+		if claimant == nil || *claimant != c.actor {
 			return ErrConflict("not_owned",
-				fmt.Sprintf("you do not own this card (owned by %v)", owner),
+				fmt.Sprintf("you do not claim this card (claimed by %v)", claimant),
 				fmt.Sprintf("trellis card show %s", cardID))
 		}
 
 		if _, err := tx.Exec(
 			`UPDATE card SET claim_until = ? WHERE id = ?`,
-			leaseUntil, cardID); err != nil {
+			claimUntil, cardID); err != nil {
 			return err
 		}
 
@@ -291,11 +291,11 @@ func (c *Core) RenewLease(ctx context.Context, cardID string, ttl int64) error {
 
 // ContentionInfo describes why a card cannot be claimed.
 type ContentionInfo struct {
-	Holder            *Agent `json:"holder"`
+	ClaimedBy         *Agent `json:"holder"`
 	RecommendedAction string `json:"recommended_action"`
 }
 
-// contentionError builds a conflict response when a card is held by another actor.
+// contentionError builds a conflict response when a card is claimed by another actor.
 // humanMS renders an age an agent can act on. "last seen 240000ms ago" needs
 // arithmetic before it means anything.
 func humanMS(ms int64) string {
@@ -310,24 +310,24 @@ func humanMS(ms int64) string {
 	}
 }
 
-func (c *Core) contentionError(holder Agent) error {
+func (c *Core) contentionError(claimant Agent) error {
 	now := c.clock.NowMS()
-	ageMS := now - holder.LastSeen
+	ageMS := now - claimant.LastSeen
 
-	// Decide on action based on holder state.
+	// Decide on action based on claimant state.
 	action := "take_another_card"
 	if ageMS > 5*60*1000 { // 5 minutes of inactivity
 		action = "steal_with_reason"
 	}
 
 	contentionInfo := ContentionInfo{
-		Holder:            &holder,
+		ClaimedBy:         &claimant,
 		RecommendedAction: action,
 	}
 
 	return &Error{
 		Code:   "contention",
-		Msg:    fmt.Sprintf("card held by %s (last seen %s ago)", holder.Handle, humanMS(ageMS)),
+		Msg:    fmt.Sprintf("card claimed by %s (last seen %s ago)", claimant.Handle, humanMS(ageMS)),
 		Fix:    "trellis agent ls   # see who holds what",
 		Exit:   4,
 		Detail: contentionInfo,

@@ -7,14 +7,14 @@ import (
 )
 
 // ArchiveCard hides a card from the default listing without deleting it.
-// Archiving releases any lease: an archived card is not work in flight.
+// Archiving releases any claim: an archived card is not work in flight.
 func (c *Core) ArchiveCard(ctx context.Context, projectID string, ref CardRef) (Card, error) {
 	var card Card
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
 			return err
 		}
-		if err := c.checkCardOwner(card); err != nil {
+		if err := c.checkCardClaim(card); err != nil {
 			return err
 		}
 		if card.ArchivedAt != nil {
@@ -42,7 +42,7 @@ func (c *Core) UnarchiveCard(ctx context.Context, projectID string, ref CardRef)
 		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
 			return err
 		}
-		if err := c.checkCardOwner(card); err != nil {
+		if err := c.checkCardClaim(card); err != nil {
 			return err
 		}
 		if card.ArchivedAt == nil {

@@ -145,7 +145,7 @@ func (c *Core) relationCards(tx *sqlx.Tx, projectID string, ref, other CardRef) 
 	if err = c.loadCard(tx, projectID, ref, &card); err != nil {
 		return
 	}
-	if err = c.checkCardOwner(card); err != nil {
+	if err = c.checkCardClaim(card); err != nil {
 		return
 	}
 	err = c.loadCard(tx, projectID, other, &target)

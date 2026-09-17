@@ -27,8 +27,8 @@ func TestDefaultsLoadWithNoFile(t *testing.T) {
 	if cfg.UI.Bind != "127.0.0.1" {
 		t.Errorf("UI.Bind = %q, want 127.0.0.1", cfg.UI.Bind)
 	}
-	if cfg.Lease.TTL != "30m" {
-		t.Errorf("Lease.TTL = %q, want 30m", cfg.Lease.TTL)
+	if cfg.Claim.TTL != "30m" {
+		t.Errorf("Claim.TTL = %q, want 30m", cfg.Claim.TTL)
 	}
 	if len(cfg.Board.DefaultColumns) != 4 {
 		t.Errorf("Board.DefaultColumns len = %d, want 4", len(cfg.Board.DefaultColumns))
@@ -73,8 +73,8 @@ labels:
 	}
 
 	// Verify defaults for unset fields.
-	if cfg.Lease.TTL != "30m" {
-		t.Errorf("Lease.TTL = %q, want 30m (default)", cfg.Lease.TTL)
+	if cfg.Claim.TTL != "30m" {
+		t.Errorf("Claim.TTL = %q, want 30m (default)", cfg.Claim.TTL)
 	}
 }
 
@@ -358,7 +358,7 @@ func TestValidateValueRejectsNegativeHistoryKeep(t *testing.T) {
 	}
 }
 
-func TestValidateValueRejectsBadLeaseTTLAndSearchMethod(t *testing.T) {
+func TestValidateValueRejectsBadClaimTTLAndSearchMethod(t *testing.T) {
 	if err := ValidateValue("claim.ttl", "banana"); err == nil {
 		t.Error("ValidateValue(claim.ttl, banana), want an error")
 	}
@@ -492,8 +492,8 @@ func TestSetGlobalValuesThenLoadReadsTypedValuesBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetGlobalValues: %v", err)
 	}
-	if cfg.Lease.TTL != "45m" {
-		t.Errorf("Lease.TTL = %q, want 45m", cfg.Lease.TTL)
+	if cfg.Claim.TTL != "45m" {
+		t.Errorf("Claim.TTL = %q, want 45m", cfg.Claim.TTL)
 	}
 	if cfg.History.EffectiveKeep() != 50 {
 		t.Errorf("History.EffectiveKeep() = %d, want 50", cfg.History.EffectiveKeep())
@@ -506,7 +506,7 @@ func TestSetGlobalValuesThenLoadReadsTypedValuesBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if reloaded.Lease.TTL != "45m" || reloaded.History.EffectiveKeep() != 50 {
+	if reloaded.Claim.TTL != "45m" || reloaded.History.EffectiveKeep() != 50 {
 		t.Errorf("reloaded = %+v", reloaded)
 	}
 }
@@ -669,8 +669,8 @@ func TestLoadRepoAppliesAllowedKeys(t *testing.T) {
 	if doc.Config.Card.LsLimit != 25 {
 		t.Errorf("Card.LsLimit = %d, want 25", doc.Config.Card.LsLimit)
 	}
-	if doc.Config.Lease.TTL != "45m" {
-		t.Errorf("Lease.TTL = %q, want 45m", doc.Config.Lease.TTL)
+	if doc.Config.Claim.TTL != "45m" {
+		t.Errorf("Claim.TTL = %q, want 45m", doc.Config.Claim.TTL)
 	}
 	if !doc.Config.Labels.RequireOnCard {
 		t.Error("Labels.RequireOnCard = false, want true")
@@ -721,7 +721,7 @@ func TestLoadRepoRejectsABadValue(t *testing.T) {
 
 // review-cli #7: claim.ttl and search.method are plain strings, so a YAML
 // type check alone never catches a value that does not parse for its key.
-func TestLoadRepoRejectsAnUnparseableLeaseTTL(t *testing.T) {
+func TestLoadRepoRejectsAnUnparseableClaimTTL(t *testing.T) {
 	dir := t.TempDir()
 	writeRepoFile(t, dir, ".trellis.yaml", "config:\n  claim.ttl: banana\n")
 	_, _, _, err := LoadRepo(dir)
@@ -822,8 +822,8 @@ func TestLoadWithPresenceDistinguishesFileFromDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadWithPresence: %v", err)
 	}
-	if cfg.Lease.TTL != "10m" {
-		t.Fatalf("Lease.TTL = %q, want 10m", cfg.Lease.TTL)
+	if cfg.Claim.TTL != "10m" {
+		t.Fatalf("Claim.TTL = %q, want 10m", cfg.Claim.TTL)
 	}
 	if !present["claim.ttl"] {
 		t.Error(`present["claim.ttl"] = false, want true: the file set it`)
@@ -862,7 +862,7 @@ func TestEffectiveValueReportsDefaultThenConfigThenRepoThenProject(t *testing.T)
 
 	// 2. The global file set it: config.
 	globalCfg := Defaults()
-	globalCfg.Lease.TTL = "20m"
+	globalCfg.Claim.TTL = "20m"
 	value, source, err = EffectiveValue(ctx, globalCfg, map[string]bool{"claim.ttl": true}, RepoDoc{}, db, "p1", "claim.ttl")
 	if err != nil {
 		t.Fatalf("EffectiveValue: %v", err)
@@ -872,7 +872,7 @@ func TestEffectiveValueReportsDefaultThenConfigThenRepoThenProject(t *testing.T)
 	}
 
 	// 3. The repository file also set it: repo wins over the global file.
-	repo := RepoDoc{Config: Config{Lease: LeaseConfig{TTL: "45m"}}, Present: map[string]bool{"claim.ttl": true}}
+	repo := RepoDoc{Config: Config{Claim: ClaimConfig{TTL: "45m"}}, Present: map[string]bool{"claim.ttl": true}}
 	value, source, err = EffectiveValue(ctx, globalCfg, map[string]bool{"claim.ttl": true}, repo, db, "p1", "claim.ttl")
 	if err != nil {
 		t.Fatalf("EffectiveValue: %v", err)
@@ -907,7 +907,7 @@ func TestApplyRepoOverridesCopiesEveryPresentKey(t *testing.T) {
 	repo := RepoDoc{
 		Config: Config{
 			Card:   CardConfig{LsLimit: 5},
-			Lease:  LeaseConfig{TTL: "5m"},
+			Claim:  ClaimConfig{TTL: "5m"},
 			Search: SearchConfig{Method: "vector"},
 			Tags:   TagsConfig{RequireOnCard: true},
 		},
@@ -917,8 +917,8 @@ func TestApplyRepoOverridesCopiesEveryPresentKey(t *testing.T) {
 	if merged.Card.LsLimit != 5 {
 		t.Errorf("Card.LsLimit = %d, want 5", merged.Card.LsLimit)
 	}
-	if merged.Lease.TTL != "5m" {
-		t.Errorf("Lease.TTL = %q, want 5m", merged.Lease.TTL)
+	if merged.Claim.TTL != "5m" {
+		t.Errorf("Claim.TTL = %q, want 5m", merged.Claim.TTL)
 	}
 	if merged.Search.Method != "vector" {
 		t.Errorf("Search.Method = %q, want vector", merged.Search.Method)

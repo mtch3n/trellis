@@ -190,21 +190,21 @@ func TestProjectAndBoardSelectorsTakeAddresses(t *testing.T) {
 // review-cli #3: a qualified card ref names the pinned project exactly as a
 // bare reference would, so it must read the repository file beside the pin
 // too -- claim.ttl included -- instead of only the global default.
-func TestQualifiedCardRefReadsRepositoryLeaseTTL(t *testing.T) {
+func TestQualifiedCardRefReadsRepositoryClaimTTL(t *testing.T) {
 	repoEnv(t, "config:\n  claim.ttl: 5h\n")
 	ref := refOf(t, "card", "new", "--title", "x") // REPO-1
 
 	before := time.Now().UnixMilli()
 	out := runCmd(t, "card", "claim", ref, "--json")
 	var v struct {
-		LeaseUntil int64 `json:"claim_until"`
+		ClaimUntil int64 `json:"claim_until"`
 	}
 	if err := json.Unmarshal([]byte(out), &v); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	got := time.Duration(v.LeaseUntil-before) * time.Millisecond
+	got := time.Duration(v.ClaimUntil-before) * time.Millisecond
 	if got < 4*time.Hour || got > 6*time.Hour {
-		t.Errorf("claim %s: lease in %v, want ~5h from the repository claim.ttl", ref, got)
+		t.Errorf("claim %s: claim TTL %v, want ~5h from the repository claim.ttl", ref, got)
 	}
 }
 

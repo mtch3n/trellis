@@ -16,7 +16,7 @@ type Core struct {
 	db             *sqlx.DB
 	clock          Clock
 	actor          string
-	leaseTTL       int64
+	claimTTL       int64
 	defaultColumns []string
 	requireLabels  bool
 	requireTags    bool
@@ -60,13 +60,13 @@ func New(db *sqlx.DB, clock Clock, actor, root string) *Core {
 	if root == "" {
 		panic("core.New: root must not be empty")
 	}
-	return &Core{db: db, clock: clock, actor: actor, root: root, leaseTTL: 30 * 60 * 1000, historyKeep: 100}
+	return &Core{db: db, clock: clock, actor: actor, root: root, claimTTL: 30 * 60 * 1000, historyKeep: 100}
 }
 
-// SetLeaseTTL configures the default lease duration in milliseconds.
-func (c *Core) SetLeaseTTL(ttl int64) {
+// SetClaimTTL configures the default claim duration in milliseconds.
+func (c *Core) SetClaimTTL(ttl int64) {
 	if ttl > 0 {
-		c.leaseTTL = ttl
+		c.claimTTL = ttl
 	}
 }
 
@@ -85,7 +85,7 @@ func (c *Core) SetHistoryKeep(n int) {
 	}
 }
 
-// ApplyConfig applies the settings the running daemon keeps live -- lease
+// ApplyConfig applies the settings the running daemon keeps live -- claim
 // TTL, default columns, label/tag requirements, and history retention -- to
 // c. It takes whatever Config the caller resolved, global or
 // repository-effective: internal/cli's openCore and the daemon's own startup
@@ -98,8 +98,8 @@ func (c *Core) SetHistoryKeep(n int) {
 // second source of truth. config.Describe marks exactly the five keys this
 // method touches restart: false because it exists.
 func (c *Core) ApplyConfig(cfg config.Config) {
-	if ttl, err := time.ParseDuration(cfg.Lease.TTL); err == nil {
-		c.SetLeaseTTL(ttl.Milliseconds())
+	if ttl, err := time.ParseDuration(cfg.Claim.TTL); err == nil {
+		c.SetClaimTTL(ttl.Milliseconds())
 	}
 	c.SetDefaultColumns(cfg.Board.DefaultColumns)
 	c.SetCardRequirements(cfg.Labels.RequireOnCard, cfg.Tags.RequireOnCard)

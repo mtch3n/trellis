@@ -35,7 +35,7 @@ var boardFlag string
 
 // actorSuffix holds --as, distinguishing parallel subagents that share a
 // session id. It is not a persistent flag: it is registered on the commands
-// where ownership is at stake, so it does not crowd every unrelated command's
+// where a claim is at stake, so it does not crowd every unrelated command's
 // help with a flag that has no effect there.
 var actorSuffix string
 
@@ -124,7 +124,7 @@ func boardForCore(ctx context.Context, c *core.Core, db *sqlx.DB) (*appCtx, erro
 // over the global config, applies the effective settings to c, and returns
 // the effective config for app.cfg.
 //
-// openCore already applied the Core's lease TTL, default columns, label/tag
+// openCore already applied the Core's claim TTL, default columns, label/tag
 // requirements and history retention from the global file alone. Once the
 // pin that chose the project (if any) is known, this re-derives the same
 // settings with the repository file beside it layered in, and re-applies
@@ -278,7 +278,7 @@ func projectNamed() bool {
 }
 
 // addActorFlag registers --as on a command whose effect depends on who is
-// acting: claiming, releasing, noting and editing all record or check an owner.
+// acting: claiming, releasing, noting and editing all record or check a claimant.
 func addActorFlag(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&actorSuffix, "as", "",
 		"act as this subagent, distinct from others in the same session")

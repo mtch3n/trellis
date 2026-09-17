@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestArchiveHidesCardAndReleasesLease(t *testing.T) {
+func TestArchiveHidesCardAndReleasesClaim(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
 	b := seededBoard(t, c, p)
@@ -23,8 +23,8 @@ func TestArchiveHidesCardAndReleasesLease(t *testing.T) {
 	if got.ArchivedAt == nil {
 		t.Error("ArchivedAt = nil, want a timestamp")
 	}
-	if got.Owner != nil {
-		t.Errorf("Owner = %v, want nil: archiving releases the lease", *got.Owner)
+	if got.ClaimedBy != nil {
+		t.Errorf("ClaimedBy = %v, want nil: archiving releases the claim", *got.ClaimedBy)
 	}
 
 	cards, err := c.ListCards(t.Context(), b.ID, CardFilter{})

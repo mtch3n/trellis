@@ -22,10 +22,10 @@ type boardBrief struct {
 }
 
 type cardInfo struct {
-	Ref     string
-	Title   string
-	Owner   string
-	Comment string
+	Ref       string
+	Title     string
+	ClaimedBy string
+	Comment   string
 }
 
 // newBoardShowCmd creates the board show subcommand.
@@ -124,11 +124,11 @@ func formatBoardView(view boardView) string {
 			continue
 		}
 		for _, card := range column.Cards {
-			owner := ""
-			if card.Owner != nil {
-				owner = " · " + *card.Owner
+			claimant := ""
+			if card.ClaimedBy != nil {
+				claimant = " · " + *card.ClaimedBy
 			}
-			fmt.Fprintf(&b, "  %-14s %-8s %s%s\n", card.Ref, card.PriorityName, card.Title, owner)
+			fmt.Fprintf(&b, "  %-14s %-8s %s%s\n", card.Ref, card.PriorityName, card.Title, claimant)
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
@@ -174,8 +174,8 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 		}
 	}
 
-	// OTHERS: unowned cards left by earlier sessions, most recently updated first.
-	// These are cards where no one is currently working on them (no lease).
+	// OTHERS: unclaimed cards left by earlier sessions, most recently updated first.
+	// These are cards where no one is currently working on them (no claim).
 	var otherCards []struct {
 		Ref     string `db:"ref"`
 		Title   string `db:"title"`
@@ -252,7 +252,7 @@ func formatBrief(brief *boardBrief) string {
 		result.WriteString("\n")
 	}
 
-	// OTHERS section: unowned cards left by earlier sessions
+	// OTHERS section: unclaimed cards left by earlier sessions
 	if len(brief.others) > 0 {
 		result.WriteString("### others\n")
 		for i, card := range brief.others {
@@ -314,7 +314,7 @@ func formatBrief(brief *boardBrief) string {
 		result.WriteString("### do this\n")
 		result.WriteString("  `card new --title \"...\"`      create work\n")
 		result.WriteString("  `card next --claim`           claim next unblocked card\n")
-		result.WriteString("  `card comment <id> --body \"...\"`  log progress (renews lease)\n")
+		result.WriteString("  `card comment <id> --body \"...\"`  log progress (renews claim)\n")
 		result.WriteString("  `card move <id> <column>`     move to column\n")
 		result.WriteString("  `knowledge new --title ...`   write down what you learned\n")
 	} else {

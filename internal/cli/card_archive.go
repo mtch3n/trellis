@@ -12,7 +12,7 @@ func newCardArchiveCmd() *cobra.Command {
 	// reads as one idea.
 	cmd := &cobra.Command{
 		Use:   "archive <card> [--restore]",
-		Short: "Archive a card, releasing any lease",
+		Short: "Archive a card, releasing any claim",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {

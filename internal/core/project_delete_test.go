@@ -89,18 +89,18 @@ func TestDeleteProjectWithNoDirectory(t *testing.T) {
 	}
 }
 
-func TestDeleteProjectRefusesWhileAnAgentHoldsACard(t *testing.T) {
+func TestDeleteProjectRefusesWhileAnAgentClaimsACard(t *testing.T) {
 	c, p, b := vaultCore(t)
 	ctx := t.Context()
 	card, err := c.CreateCard(ctx, p.ID, b.ID, NewCard{Title: "in flight"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	holder := New(c.db, c.clock, "sess:holder", c.root)
-	if _, err := holder.RegisterAgent(ctx, "worker-1", "agent", "/tmp", "host", 1); err != nil {
+	claimant := New(c.db, c.clock, "sess:claimant", c.root)
+	if _, err := claimant.RegisterAgent(ctx, "worker-1", "agent", "/tmp", "host", 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := holder.ClaimCard(ctx, card.ID, 60_000, false, ""); err != nil {
+	if _, err := claimant.ClaimCard(ctx, card.ID, 60_000, false, ""); err != nil {
 		t.Fatal(err)
 	}
 

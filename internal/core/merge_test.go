@@ -218,19 +218,19 @@ func TestMergeRefusals(t *testing.T) {
 		t.Errorf("missing DST: %s", got)
 	}
 
-	held := f.card(f.api, f.apiBoard, "held", nil, nil)
-	f.exec(`UPDATE card SET claimed_by = 'agent:x', claim_until = ? WHERE id = ?`, f.c.clock.NowMS()+60_000, held.ID)
-	if plan := f.merge(MergeOptions{}); plan.Ready || !strings.Contains(plan.Refused, "held") {
-		t.Errorf("held lease: %+v", plan)
+	claimed := f.card(f.api, f.apiBoard, "claimed", nil, nil)
+	f.exec(`UPDATE card SET claimed_by = 'agent:x', claim_until = ? WHERE id = ?`, f.c.clock.NowMS()+60_000, claimed.ID)
+	if plan := f.merge(MergeOptions{}); plan.Ready || !strings.Contains(plan.Refused, "claimed") {
+		t.Errorf("active claim: %+v", plan)
 	}
 	_, err = f.c.MergeProjects(ctx, "API", "MONO", MergeOptions{Apply: true})
 	if got := errCode(t, err); got != "merge_refused" {
-		t.Errorf("held lease, apply: %s", got)
+		t.Errorf("active claim, apply: %s", got)
 	}
 	if f.count(`SELECT count(*) FROM project WHERE key = 'API'`) != 1 {
 		t.Error("a refused merge removed API")
 	}
-	f.exec(`UPDATE card SET claimed_by = NULL, claim_until = NULL WHERE id = ?`, held.ID)
+	f.exec(`UPDATE card SET claimed_by = NULL, claim_until = NULL WHERE id = ?`, claimed.ID)
 
 	// A key from before the key grammar, with a card whose ref carries it.
 	f.exec(`INSERT INTO project (id, key, name, created_at) VALUES ('odd', 'MY_APP', 'MY_APP', 1)`)

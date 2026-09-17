@@ -15,7 +15,7 @@ import (
 	"github.com/mtch3n/trellis/internal/store"
 )
 
-func TestClaimContentionNamesTheHolderAndStealRecordsWhy(t *testing.T) {
+func TestClaimContentionNamesTheClaimantAndStealRecordsWhy(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
 	b := seededBoard(t, c, p)
@@ -24,15 +24,15 @@ func TestClaimContentionNamesTheHolderAndStealRecordsWhy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	holder := New(c.db, c.clock, "sess:holder", c.root)
-	if _, err := holder.RegisterAgent(t.Context(), "worker-1", "agent", "/tmp", "host", 1); err != nil {
+	claimant := New(c.db, c.clock, "sess:claimant", c.root)
+	if _, err := claimant.RegisterAgent(t.Context(), "worker-1", "agent", "/tmp", "host", 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := holder.ClaimCard(t.Context(), card.ID, 60_000, false, ""); err != nil {
+	if _, err := claimant.ClaimCard(t.Context(), card.ID, 60_000, false, ""); err != nil {
 		t.Fatal(err)
 	}
 
-	// A second agent must be told who holds it, not left waiting on a
+	// A second agent must be told who claims it, not left waiting on a
 	// connection the transaction is already holding.
 	other := New(c.db, c.clock, "sess:other", c.root)
 	done := make(chan error, 1)
@@ -44,41 +44,41 @@ func TestClaimContentionNamesTheHolderAndStealRecordsWhy(t *testing.T) {
 	case err := <-done:
 		var te *Error
 		if !errors.As(err, &te) || te.Exit != 4 {
-			t.Fatalf("contended claim = %v, want a conflict naming the holder", err)
+			t.Fatalf("contended claim = %v, want a conflict naming the claimant", err)
 		}
 		if !strings.Contains(te.Msg, "worker-1") {
-			t.Errorf("message %q does not name the holder's handle", te.Msg)
+			t.Errorf("message %q does not name the claimant's handle", te.Msg)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("contended claim hung: a nested transaction is waiting for the only connection")
 	}
 
-	stolen, err := other.ClaimCard(t.Context(), card.ID, 60_000, true, "held 4h with no notes")
+	stolen, err := other.ClaimCard(t.Context(), card.ID, 60_000, true, "claimed 4h with no notes")
 	if err != nil {
 		t.Fatalf("steal: %v", err)
 	}
-	if stolen.Owner == nil || *stolen.Owner != "sess:other" {
-		t.Fatalf("owner = %v, want the stealer", stolen.Owner)
+	if stolen.ClaimedBy == nil || *stolen.ClaimedBy != "sess:other" {
+		t.Fatalf("ClaimedBy = %v, want the stealer", stolen.ClaimedBy)
 	}
 	notes, err := c.GetCommentsByCard(t.Context(), card.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(notes) != 1 || !strings.Contains(notes[0].BodyMD, "held 4h with no notes") {
+	if len(notes) != 1 || !strings.Contains(notes[0].BodyMD, "claimed 4h with no notes") {
 		t.Errorf("notes = %+v, want the reason recorded where the displaced agent will see it", notes)
 	}
 }
-func TestUnregisteredHolderStillHoldsTheCard(t *testing.T) {
+func TestUnregisteredClaimantStillHoldsTheCard(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
 	b := seededBoard(t, c, p)
-	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "held by a stranger"})
+	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "claimed by a stranger"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// No RegisterAgent call: a hook may not have run, but the lease is real.
-	holder := New(c.db, c.clock, "sess:unregistered", c.root)
-	if _, err := holder.ClaimCard(t.Context(), card.ID, 60_000, false, ""); err != nil {
+	// No RegisterAgent call: a hook may not have run, but the claim is real.
+	claimant := New(c.db, c.clock, "sess:unregistered", c.root)
+	if _, err := claimant.ClaimCard(t.Context(), card.ID, 60_000, false, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -86,7 +86,7 @@ func TestUnregisteredHolderStillHoldsTheCard(t *testing.T) {
 	_, err = other.ClaimCard(t.Context(), card.ID, 60_000, false, "")
 	var te *Error
 	if !errors.As(err, &te) || te.Exit != 4 {
-		t.Fatalf("claim = %v, want a conflict: the lease grants ownership, not the agent row", err)
+		t.Fatalf("claim = %v, want a conflict: the claim grants the hold, not the agent row", err)
 	}
 }
 
@@ -171,36 +171,36 @@ func TestConcurrentClaimNoLostCards(t *testing.T) {
 	}
 	defer db.Close()
 
-	var owned, unowned int
-	if err := db.Get(&owned, `SELECT count(*) FROM card WHERE claimed_by IS NOT NULL`); err != nil {
-		t.Fatalf("count owned: %v", err)
+	var claimed, unclaimed int
+	if err := db.Get(&claimed, `SELECT count(*) FROM card WHERE claimed_by IS NOT NULL`); err != nil {
+		t.Fatalf("count claimed: %v", err)
 	}
-	if err := db.Get(&unowned, `SELECT count(*) FROM card WHERE claimed_by IS NULL`); err != nil {
-		t.Fatalf("count unowned: %v", err)
-	}
-
-	if owned != 50 {
-		t.Errorf("owned = %d, want 50", owned)
-	}
-	if unowned != 0 {
-		t.Errorf("unowned = %d, want 0", unowned)
+	if err := db.Get(&unclaimed, `SELECT count(*) FROM card WHERE claimed_by IS NULL`); err != nil {
+		t.Fatalf("count unclaimed: %v", err)
 	}
 
-	// Verify no duplicates: each card's owner should appear exactly once.
-	var ownerCounts map[string]int
+	if claimed != 50 {
+		t.Errorf("claimed = %d, want 50", claimed)
+	}
+	if unclaimed != 0 {
+		t.Errorf("unclaimed = %d, want 0", unclaimed)
+	}
+
+	// Verify no duplicates: each card's claimant should appear exactly once.
+	var claimantCounts map[string]int
 	rows, err := db.Query(`SELECT claimed_by, count(*) FROM card WHERE claimed_by IS NOT NULL GROUP BY claimed_by`)
 	if err != nil {
-		t.Fatalf("query owner counts: %v", err)
+		t.Fatalf("query claimant counts: %v", err)
 	}
 	defer rows.Close()
-	ownerCounts = make(map[string]int)
+	claimantCounts = make(map[string]int)
 	for rows.Next() {
-		var owner string
+		var claimant string
 		var count int
-		if err := rows.Scan(&owner, &count); err != nil {
+		if err := rows.Scan(&claimant, &count); err != nil {
 			t.Fatalf("scan: %v", err)
 		}
-		ownerCounts[owner] = count
+		claimantCounts[claimant] = count
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatalf("rows: %v", err)
@@ -208,9 +208,9 @@ func TestConcurrentClaimNoLostCards(t *testing.T) {
 
 	// Each process should have claimed some cards; verify no card is claimed twice.
 	totalClaimed := 0
-	for owner, count := range ownerCounts {
+	for claimant, count := range claimantCounts {
 		if count > 50 { // Sanity check: no process should claim more than all cards
-			t.Errorf("owner %s claimed %d cards (impossible)", owner, count)
+			t.Errorf("claimant %s claimed %d cards (impossible)", claimant, count)
 		}
 		totalClaimed += count
 	}
@@ -254,11 +254,11 @@ func TestClaimSpecificCard(t *testing.T) {
 		t.Fatalf("ClaimCard: %v", err)
 	}
 
-	if claimed.Owner == nil || *claimed.Owner != "test-actor" {
-		t.Errorf("Owner = %v, want test-actor", claimed.Owner)
+	if claimed.ClaimedBy == nil || *claimed.ClaimedBy != "test-actor" {
+		t.Errorf("ClaimedBy = %v, want test-actor", claimed.ClaimedBy)
 	}
-	if claimed.LeaseUntil == nil {
-		t.Errorf("LeaseUntil is nil, want a timestamp")
+	if claimed.ClaimUntil == nil {
+		t.Errorf("ClaimUntil is nil, want a timestamp")
 	}
 }
 func TestGetNextCardDoesNotClaimOrRecordEvent(t *testing.T) {
@@ -281,9 +281,9 @@ func TestGetNextCardDoesNotClaimOrRecordEvent(t *testing.T) {
 	if got == nil || got.ID != card.ID {
 		t.Fatalf("GetNextCard = %v, want %s", got, card.ID)
 	}
-	if got.Owner != nil || got.LeaseUntil != nil || got.Version != card.Version {
-		t.Fatalf("preview changed card: owner=%v lease=%v version=%d, want nil nil %d",
-			got.Owner, got.LeaseUntil, got.Version, card.Version)
+	if got.ClaimedBy != nil || got.ClaimUntil != nil || got.Version != card.Version {
+		t.Fatalf("preview changed card: claimant=%v claim=%v version=%d, want nil nil %d",
+			got.ClaimedBy, got.ClaimUntil, got.Version, card.Version)
 	}
 
 	var eventsAfter int
@@ -341,16 +341,16 @@ func TestReleaseCard(t *testing.T) {
 		t.Fatalf("GetCard: %v", err)
 	}
 
-	if releasedCard.Owner != nil {
-		t.Errorf("Owner = %v, want nil", releasedCard.Owner)
+	if releasedCard.ClaimedBy != nil {
+		t.Errorf("ClaimedBy = %v, want nil", releasedCard.ClaimedBy)
 	}
-	if releasedCard.LeaseUntil != nil {
-		t.Errorf("LeaseUntil = %v, want nil", releasedCard.LeaseUntil)
+	if releasedCard.ClaimUntil != nil {
+		t.Errorf("ClaimUntil = %v, want nil", releasedCard.ClaimUntil)
 	}
 }
 
-// TestMoveToDonereleases Lease tests that moving a card to a done column releases the lease.
-func TestMoveToDonereleaseLease(t *testing.T) {
+// TestMoveToDonereleaseClaim tests that moving a card to a done column releases the claim.
+func TestMoveToDonereleaseClaim(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	db, err := store.Open(path)
 	if err != nil {
@@ -383,8 +383,8 @@ func TestMoveToDonereleaseLease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ClaimCard: %v", err)
 	}
-	if claimed.Owner == nil {
-		t.Fatalf("Owner is nil after claim")
+	if claimed.ClaimedBy == nil {
+		t.Fatalf("ClaimedBy is nil after claim")
 	}
 
 	// Move to done column.
@@ -393,12 +393,12 @@ func TestMoveToDonereleaseLease(t *testing.T) {
 		t.Fatalf("MoveCard: %v", err)
 	}
 
-	// Verify the lease is released.
-	if moved.Owner != nil {
-		t.Errorf("Owner = %v, want nil after move to done", moved.Owner)
+	// Verify the claim is released.
+	if moved.ClaimedBy != nil {
+		t.Errorf("ClaimedBy = %v, want nil after move to done", moved.ClaimedBy)
 	}
-	if moved.LeaseUntil != nil {
-		t.Errorf("LeaseUntil = %v, want nil after move to done", moved.LeaseUntil)
+	if moved.ClaimUntil != nil {
+		t.Errorf("ClaimUntil = %v, want nil after move to done", moved.ClaimUntil)
 	}
 }
 
@@ -442,22 +442,22 @@ func runClaimChild(dbPath string) {
 	}
 }
 
-func TestLeasedCardRejectsOtherWritesButAllowsNotes(t *testing.T) {
+func TestClaimedCardRejectsOtherWritesButAllowsNotes(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
 	b := seededBoard(t, c, p)
-	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "leased"})
+	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "claimed"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := New(c.db, FixedClock{MS: 1000}, "owner", c.root)
-	if _, err := owner.ClaimCard(t.Context(), card.ID, 60_000, false, ""); err != nil {
+	claimant := New(c.db, FixedClock{MS: 1000}, "claimant", c.root)
+	if _, err := claimant.ClaimCard(t.Context(), card.ID, 60_000, false, ""); err != nil {
 		t.Fatal(err)
 	}
 	other := New(c.db, FixedClock{MS: 1001}, "other", c.root)
 	priority := PriorityUrgent
 	if _, err := other.EditCard(t.Context(), p.ID, CardRef{Seq: card.Seq}, CardEdit{Priority: &priority}); err == nil {
-		t.Fatal("other actor edited an actively leased card")
+		t.Fatal("other actor edited an actively claimed card")
 	} else if e, ok := errors.AsType[*Error](err); !ok || e.Exit != 4 {
 		t.Fatalf("edit error = %v, want conflict", err)
 	}

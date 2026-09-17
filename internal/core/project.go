@@ -95,16 +95,16 @@ func (c *Core) DeleteProject(ctx context.Context, key string) error {
 			return err
 		}
 
-		var held int
-		if err := tx.Get(&held,
+		var claimed int
+		if err := tx.Get(&claimed,
 			`SELECT COUNT(*) FROM card WHERE project_id = ? AND claimed_by IS NOT NULL AND claim_until > ?`,
 			p.ID, c.clock.NowMS()); err != nil {
 			return err
 		}
-		if held > 0 {
+		if claimed > 0 {
 			return ErrConflict("project_leased",
-				fmt.Sprintf("%s has %d %s held by an agent right now", p.Key, held, plural(held, "card", "cards")),
-				"wait for the leases to expire, or take them first")
+				fmt.Sprintf("%s has %d %s claimed by an agent right now", p.Key, claimed, plural(claimed, "card", "cards")),
+				"wait for the claims to expire, or take them first")
 		}
 
 		var vault int

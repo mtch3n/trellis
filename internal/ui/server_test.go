@@ -184,14 +184,14 @@ func TestServerVaultGraphLabelsAndStealRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	card, err := c.CreateCard(context.Background(), p.ID, board.ID, core.NewCard{Title: "Held"})
+	card, err := c.CreateCard(context.Background(), p.ID, board.ID, core.NewCard{Title: "Claimed"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.ClaimCard(context.Background(), card.ID, 30*60*1000, false, ""); err != nil {
 		t.Fatal(err)
 	}
-	stolen := request(http.MethodPost, "/api/p/P5TEST/b/default/cards/"+card.Ref+"/steal", `{"reason":"owner is inactive"}`)
+	stolen := request(http.MethodPost, "/api/p/P5TEST/b/default/cards/"+card.Ref+"/steal", `{"reason":"claimant is inactive"}`)
 	if stolen.Code != http.StatusOK {
 		t.Fatalf("steal status = %d, body = %s", stolen.Code, stolen.Body)
 	}
@@ -561,8 +561,8 @@ func TestServerClaimCardValidatesJSON(t *testing.T) {
 	if err := json.Unmarshal(detail.Body.Bytes(), &cardDetail); err != nil {
 		t.Fatal(err)
 	}
-	if cardDetail.LeaseUntil != nil {
-		t.Fatalf("card claimed after malformed JSON request; LeaseUntil = %v", cardDetail.LeaseUntil)
+	if cardDetail.ClaimUntil != nil {
+		t.Fatalf("card claimed after malformed JSON request; ClaimUntil = %v", cardDetail.ClaimUntil)
 	}
 
 	// Test empty body succeeds and claims the card
@@ -574,7 +574,7 @@ func TestServerClaimCardValidatesJSON(t *testing.T) {
 	if err := json.Unmarshal(empty.Body.Bytes(), &claimedCard); err != nil {
 		t.Fatal(err)
 	}
-	if claimedCard.LeaseUntil == nil {
+	if claimedCard.ClaimUntil == nil {
 		t.Fatalf("card not claimed after successful request")
 	}
 }

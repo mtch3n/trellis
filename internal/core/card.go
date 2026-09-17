@@ -21,8 +21,8 @@ type Card struct {
 	Title      string   `db:"title" json:"title"`
 	BodyMD     string   `db:"body_md" json:"body"`
 	Priority   Priority `db:"priority" json:"-"`
-	Owner      *string  `db:"claimed_by" json:"owner,omitempty"`
-	LeaseUntil *int64   `db:"claim_until" json:"claim_until,omitempty"`
+	ClaimedBy  *string  `db:"claimed_by" json:"owner,omitempty"`
+	ClaimUntil *int64   `db:"claim_until" json:"claim_until,omitempty"`
 	Version    int64    `db:"version" json:"version"`
 	CreatedAt  int64    `db:"created_at" json:"created_at"`
 	UpdatedAt  int64    `db:"updated_at" json:"updated_at"`
@@ -64,11 +64,11 @@ type CardEdit struct {
 	RemoveTags   []string
 }
 
-func (c *Core) checkCardOwner(card Card) error {
-	if card.Owner == nil || *card.Owner == c.actor || card.LeaseUntil == nil || *card.LeaseUntil < c.clock.NowMS() {
+func (c *Core) checkCardClaim(card Card) error {
+	if card.ClaimedBy == nil || *card.ClaimedBy == c.actor || card.ClaimUntil == nil || *card.ClaimUntil < c.clock.NowMS() {
 		return nil
 	}
-	return ErrConflict("not_owned", fmt.Sprintf("card %s is held by %s", card.Ref, *card.Owner),
+	return ErrConflict("not_owned", fmt.Sprintf("card %s is claimed by %s", card.Ref, *card.ClaimedBy),
 		"trellis card show "+card.Ref)
 }
 
@@ -404,14 +404,14 @@ func (c *Core) ListCardsPage(ctx context.Context, scope CardScope, f CardFilter)
 
 // MoveCard changes a card's column. It is a delta rather than a wholesale
 // replacement, so it does not require --if-version. Moving into a done column
-// releases the lease automatically.
+// releases the claim automatically.
 func (c *Core) MoveCard(ctx context.Context, projectID, boardID string, ref CardRef, column string) (Card, error) {
 	var card Card
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
 			return err
 		}
-		if err := c.checkCardOwner(card); err != nil {
+		if err := c.checkCardClaim(card); err != nil {
 			return err
 		}
 		var targetProject string
@@ -434,20 +434,20 @@ func (c *Core) MoveCard(ctx context.Context, projectID, boardID string, ref Card
 		}
 
 		now := c.clock.NowMS()
-		// If moving to a done column, release the lease automatically.
-		var leaseUpdate string
+		// If moving to a done column, release the claim automatically.
+		var claimUpdate string
 		if to.IsDone {
-			leaseUpdate = ", claimed_by = NULL, claim_until = NULL"
+			claimUpdate = ", claimed_by = NULL, claim_until = NULL"
 		}
 		if _, err := tx.Exec(
-			`UPDATE card SET board_id = ?, column_id = ?, version = version + 1, updated_at = ?`+leaseUpdate+` WHERE id = ?`,
+			`UPDATE card SET board_id = ?, column_id = ?, version = version + 1, updated_at = ?`+claimUpdate+` WHERE id = ?`,
 			boardID, to.ID, now, card.ID); err != nil {
 			return err
 		}
 		card.BoardID, card.ColumnID, card.Version, card.UpdatedAt = boardID, to.ID, card.Version+1, now
 		if to.IsDone {
-			card.Owner = nil
-			card.LeaseUntil = nil
+			card.ClaimedBy = nil
+			card.ClaimUntil = nil
 		}
 
 		if err := c.recordEvent(tx, "card", card.ID, "moved", "column", from, to.Name); err != nil {
@@ -461,14 +461,14 @@ func (c *Core) MoveCard(ctx context.Context, projectID, boardID string, ref Card
 // EditCard applies a partial update. Wholesale replacements (title, body)
 // require the version the caller read; deltas do not. Only the fields supplied
 // are written, so a title edit cannot erase a body changed moments earlier.
-// If the caller owns the card, every write extends the lease (working on a card is the heartbeat).
+// If the caller claims the card, every write extends the claim (working on a card is the heartbeat).
 func (c *Core) EditCard(ctx context.Context, projectID string, ref CardRef, e CardEdit) (Card, error) {
 	var card Card
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
 			return err
 		}
-		if err := c.checkCardOwner(card); err != nil {
+		if err := c.checkCardClaim(card); err != nil {
 			return err
 		}
 
@@ -488,7 +488,7 @@ func (c *Core) EditCard(ctx context.Context, projectID string, ref CardRef, e Ca
 			}
 		}
 		if replaces {
-			// Only when the card has no revision at all yet: a move or lease
+			// Only when the card has no revision at all yet: a move or claim
 			// change between two edits bumps card.Version without touching
 			// title or body, and capturing that in-between version here would
 			// invent a revision nothing actually wrote -- the design captures
@@ -521,9 +521,9 @@ func (c *Core) EditCard(ctx context.Context, projectID string, ref CardRef, e Ca
 		sets := []string{"version = version + 1", "updated_at = ?"}
 		args := []any{c.clock.NowMS()}
 
-		// If we own this card, extend the lease (working on it is the heartbeat).
-		if card.Owner != nil && *card.Owner == c.actor {
-			ttl := c.leaseTTL
+		// If we claim this card, extend the claim (working on it is the heartbeat).
+		if card.ClaimedBy != nil && *card.ClaimedBy == c.actor {
+			ttl := c.claimTTL
 			sets = append(sets, "claim_until = ?")
 			args = append(args, c.clock.NowMS()+ttl)
 		}
@@ -633,7 +633,7 @@ func (c *Core) DeleteCard(ctx context.Context, projectID string, ref CardRef) er
 		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
 			return err
 		}
-		if err := c.checkCardOwner(card); err != nil {
+		if err := c.checkCardClaim(card); err != nil {
 			return err
 		}
 		if err := c.recordEvent(tx, "card", card.ID, "deleted", "", card.Title, ""); err != nil {

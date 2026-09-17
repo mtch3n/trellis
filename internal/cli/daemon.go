@@ -107,7 +107,7 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	// openCore (internal/cli/root.go) primes every CLI invocation's Core with
 	// these same settings from the global config; the daemon's Core must get
 	// them too, before the server is built, or a web claim always gets the
-	// built-in 30-minute lease and web card creation skips
+	// built-in 30-minute claim TTL and web card creation skips
 	// labels.require_on_card / tags.require_on_card, whatever the config
 	// file or a project override says.
 	c.ApplyConfig(cfg)
@@ -116,7 +116,7 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	c.SetDropDerived(search.DropProject)
 	address := net.JoinHostPort(bind, fmt.Sprint(port))
 	// ui.enabled off means the daemon is IPC-only: agents keep the shared
-	// database, search index and lease clock, and nothing binds a TCP port.
+	// database, search index and claim clock, and nothing binds a TCP port.
 	var listener net.Listener
 	if cfg.UI.UIEnabled() {
 		if listener, err = net.Listen("tcp", address); err != nil {

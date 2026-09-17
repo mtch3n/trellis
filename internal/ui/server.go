@@ -52,8 +52,8 @@ type Server struct {
 }
 
 // webActor names whoever is at the browser. The daemon writes as
-// daemon:<pid>, which changes at every restart: a lease taken in the UI could
-// then never be released, because releasing one requires being its owner. A
+// daemon:<pid>, which changes at every restart: a claim taken in the UI could
+// then never be released, because releasing one requires being its claimant. A
 // person at this machine is the same principal across restarts. TRELLIS_AGENT
 // still wins where it is set, so a scripted UI keeps the identity it was
 // given.
@@ -164,7 +164,7 @@ func (s *Server) registerRoutes() {
 }
 
 // handleMe says which principal this server writes as, so the browser can
-// tell a lease it holds from one an agent holds.
+// tell a claim it holds from one an agent holds.
 func (s *Server) handleMe(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, struct {
 		Actor string `json:"actor"`
@@ -177,7 +177,7 @@ type projectInfo struct {
 	Name          string       `json:"name"`
 	BoardCount    int          `json:"board_count"`
 	InProgress    int          `json:"in_progress"`
-	StaleLeases   int          `json:"stale_leases"`
+	ExpiredClaims int          `json:"stale_leases"`
 	RecentChanges int          `json:"recent_changes"`
 	Boards        []boardInfo  `json:"boards"`
 	Columns       []columnInfo `json:"columns"`
@@ -241,14 +241,14 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 				IsDone:    columnDone[name],
 			})
 		}
-		var inProgress, staleLeases, recentChanges int
+		var inProgress, expiredClaims, recentChanges int
 		if err := s.db.GetContext(ctx, &inProgress, `
 			SELECT COUNT(*) FROM card c JOIN column_ col ON col.id = c.column_id
 			WHERE c.project_id = ? AND c.archived_at IS NULL AND col.is_done = 0`, p.ID); err != nil {
 			s.error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if err := s.db.GetContext(ctx, &staleLeases, `
+		if err := s.db.GetContext(ctx, &expiredClaims, `
 			SELECT COUNT(*) FROM card
 			WHERE project_id = ? AND claimed_by IS NOT NULL AND (claim_until IS NULL OR claim_until < ?)`, p.ID, time.Now().UnixMilli()); err != nil {
 			s.error(w, http.StatusInternalServerError, err.Error())
@@ -273,7 +273,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 			Name:          p.Name,
 			BoardCount:    len(boards),
 			InProgress:    inProgress,
-			StaleLeases:   staleLeases,
+			ExpiredClaims: expiredClaims,
 			RecentChanges: recentChanges,
 			Boards:        boardInfos,
 			Columns:       cols,
@@ -524,13 +524,13 @@ func (s *Server) handleCreateBoard(w http.ResponseWriter, r *http.Request) {
 
 // cardInfo contains card info for board view.
 type cardInfo struct {
-	ID       string  `json:"id"`
-	Ref      string  `json:"ref"`
-	Title    string  `json:"title"`
-	Body     string  `json:"body"`
-	Priority string  `json:"priority"`
-	Version  int64   `json:"version"`
-	Owner    *string `json:"owner,omitempty"`
+	ID        string  `json:"id"`
+	Ref       string  `json:"ref"`
+	Title     string  `json:"title"`
+	Body      string  `json:"body"`
+	Priority  string  `json:"priority"`
+	Version   int64   `json:"version"`
+	ClaimedBy *string `json:"owner,omitempty"`
 	// Unix milliseconds, as the single-card endpoint reports them. The
 	// overview's timeline places each card on the day it was created.
 	CreatedAt int64    `json:"created_at"`
@@ -574,7 +574,7 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 		Title     string        `db:"title"`
 		Body      string        `db:"body_md"`
 		Priority  core.Priority `db:"priority"`
-		Owner     *string       `db:"claimed_by"`
+		ClaimedBy *string       `db:"claimed_by"`
 		Version   int64         `db:"version"`
 		CreatedAt int64         `db:"created_at"`
 		UpdatedAt int64         `db:"updated_at"`
@@ -680,7 +680,7 @@ func (s *Server) handleBoardCards(w http.ResponseWriter, r *http.Request) {
 				Title:     c.Title,
 				Body:      c.Body,
 				Priority:  c.Priority.String(),
-				Owner:     c.Owner,
+				ClaimedBy: c.ClaimedBy,
 				Version:   c.Version,
 				CreatedAt: c.CreatedAt,
 				UpdatedAt: c.UpdatedAt,
@@ -922,7 +922,7 @@ func (s *Server) handleClaimCard(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "invalid JSON; nothing changed")
 		return
 	}
-	// TTL is optional; defaults to configured lease TTL
+	// TTL is optional; defaults to configured claim TTL
 	var ttlMS int64 = 0
 	if in.TTLMinutes != nil && *in.TTLMinutes > 0 {
 		ttlMS = *in.TTLMinutes * 60 * 1000
