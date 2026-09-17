@@ -14,11 +14,11 @@ import (
 // RecallHit is one recall result: an identifier plus the single line that
 // decides whether opening it is worth a turn. The body stays on disk.
 type RecallHit struct {
-	Kind    string `db:"kind" json:"kind"` // card or knowledge
+	Kind    string `db:"kind" json:"kind"` // card or entry
 	Ref     string `db:"ref" json:"ref"`
 	Title   string `db:"title" json:"title"`
 	Project string `db:"project" json:"project"`
-	Detail  string `db:"detail" json:"detail,omitempty"` // column for cards, type for entries
+	Detail  string `db:"detail" json:"detail,omitempty"` // column for cards, template for entries
 	Recap   string `db:"recap" json:"recap,omitempty"`
 
 	// ID joins against the link graph. Callers get refs, not internal ids.
@@ -161,7 +161,7 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 
 		var entries []RecallHit
 		if err := tx.Select(&entries, `
-			SELECT 'knowledge' AS kind, k.id,
+			SELECT 'entry' AS kind, k.id,
 			       `+entryAddressSQL+` AS ref,
 			       k.title,
 			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
@@ -220,7 +220,7 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 		// privateAfterRefresh re-reads a file from disk per id.
 		ids := make([]string, 0, len(hits))
 		for _, h := range hits {
-			if h.Kind == "knowledge" {
+			if h.Kind == "entry" {
 				ids = append(ids, h.ID)
 			}
 		}
@@ -242,13 +242,8 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 
 		if o.Record {
 			for _, h := range hits {
-				// A hit's kind still prints "knowledge"; the event log
-				// names that entity "entry".
-				entity := h.Kind
-				if entity == "knowledge" {
-					entity = "entry"
-				}
-				if err := c.recordEvent(tx, entity, h.ID, "injected", "", "", ""); err != nil {
+				// A hit's kind is the event log's entity: card or entry.
+				if err := c.recordEvent(tx, h.Kind, h.ID, "injected", "", "", ""); err != nil {
 					return err
 				}
 			}

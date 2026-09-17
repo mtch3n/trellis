@@ -9,7 +9,7 @@ import (
 
 // GraphNode is one entity in a neighbourhood.
 type GraphNode struct {
-	Type  string `db:"type" json:"type"` // card, doc, or artifact
+	Type  string `db:"type" json:"type"` // card, entry, or artifact
 	ID    string `db:"id" json:"id"`
 	Ref   string `db:"ref" json:"ref"`
 	Title string `db:"title" json:"title"`
@@ -94,7 +94,7 @@ func (c *Core) Traverse(ctx context.Context, startID string, depth int, rels []s
 							return err
 						}
 					}
-					node.Type, node.Ref, node.Title = "doc", EntryAddress(key, entry.Global, entry.Slug), entry.Title
+					node.Type, node.Ref, node.Title = "entry", EntryAddress(key, entry.Global, entry.Slug), entry.Title
 				} else {
 					var artifact Artifact
 					if err := tx.Get(&artifact, `SELECT * FROM artifact WHERE id = ?`, r.ID); err != nil {

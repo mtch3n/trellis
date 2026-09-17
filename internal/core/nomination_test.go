@@ -15,11 +15,11 @@ func TestNominateEntryCountsCitations(t *testing.T) {
 	if err := c.NominateEntry(t.Context(), p.ID, target.Slug, "every repo re-derives this"); err != nil {
 		t.Fatal(err)
 	}
-	noms, err := c.Nominations(t.Context(), p.ID)
+	nominees, err := c.Nominations(t.Context(), p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(noms) != 1 || noms[0].Cited != 1 || noms[0].Nominations != 1 {
-		t.Fatalf("Nominations = %+v, want one with the citation counted", noms)
+	if len(nominees) != 1 || nominees[0].Cited != 1 || nominees[0].Nominations != 1 {
+		t.Fatalf("Nominations = %+v, want one with the citation counted", nominees)
 	}
 }

@@ -32,6 +32,14 @@ func TestGraphStillRoutesAQualifiedCardRef(t *testing.T) {
 	}
 }
 
+func TestGraphRefusesAMalformedAddress(t *testing.T) {
+	targetEnv(t)
+	_, err := execCmd("graph", "/BETA/cards/12")
+	if ce := coreErr(t, err); ce.Code != "bad_address" {
+		t.Errorf("graph /BETA/cards/12: error = %+v, want bad_address", ce)
+	}
+}
+
 // review-cli #10: a relative entry argument must mean the current
 // project, not wherever the card happens to live, and must say so loudly
 // rather than silently reading the wrong one.

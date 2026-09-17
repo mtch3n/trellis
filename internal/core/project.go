@@ -102,9 +102,9 @@ func (c *Core) DeleteProject(ctx context.Context, key string) error {
 			return err
 		}
 		if claimed > 0 {
-			return ErrConflict("project_leased",
+			return ErrConflict("project_has_claims",
 				fmt.Sprintf("%s has %d %s claimed by an agent right now", p.Key, claimed, plural(claimed, "card", "cards")),
-				"wait for the claims to expire, or take them first")
+				"wait for the claims to expire, or steal them first")
 		}
 
 		var vault int
@@ -112,7 +112,7 @@ func (c *Core) DeleteProject(ctx context.Context, key string) error {
 			return err
 		}
 		if vault > 0 {
-			return ErrConflict("project_has_vault_entries",
+			return ErrConflict("project_has_global_entries",
 				fmt.Sprintf("%d global vault %s came from %s and would be deleted with it",
 					vault, plural(vault, "entry", "entries"), p.Key),
 				"trellis vault demote <entry>   # to delete them too; otherwise keep the project")
@@ -357,7 +357,7 @@ func (c *Core) InitProject(ctx context.Context, req InitRequest) (InitResult, er
 		if res.Created {
 			msg += fmt.Sprintf("; project %s was created and no marker names it", res.Project.Key)
 		}
-		return InitResult{}, ErrConflict("pin_exists", msg, "trellis project ls")
+		return InitResult{}, ErrConflict("marker_exists", msg, "trellis project ls")
 	default:
 		return InitResult{}, fmt.Errorf("writing %s: %w; project %s is ready, rerun trellis init --key %s",
 			res.MarkerPath, err, res.Project.Key, res.Project.Key)
@@ -365,7 +365,7 @@ func (c *Core) InitProject(ctx context.Context, req InitRequest) (InitResult, er
 }
 
 func markerExists(path string, target address.Address, flag string) error {
-	return ErrConflict("pin_exists",
+	return ErrConflict("marker_exists",
 		fmt.Sprintf("%s already names %s, which %s contradicts", path, target, flag),
 		"edit or delete "+path+", then rerun trellis init")
 }

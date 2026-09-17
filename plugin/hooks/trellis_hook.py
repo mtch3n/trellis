@@ -101,7 +101,7 @@ def handle(event, mode):
     payload = json.loads(reminder.stdout)
     if not isinstance(payload, dict):
         raise ValueError("invalid reminder response")
-    cards = payload.get("held_without_note") or []
+    cards = payload.get("claimed_without_comment") or []
     if not isinstance(cards, list):
         raise ValueError("invalid reminder cards")
     if not cards:

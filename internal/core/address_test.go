@@ -67,12 +67,12 @@ func TestSearchRecallAndVectorHitsCarryAddresses(t *testing.T) {
 	}
 	var refs []string
 	for _, h := range hits {
-		if h.Kind == "knowledge" {
+		if h.Kind == "entry" {
 			refs = append(refs, h.Ref)
 		}
 	}
 	for _, h := range recalled {
-		if h.Kind == "knowledge" {
+		if h.Kind == "entry" {
 			refs = append(refs, h.Ref)
 		}
 	}
@@ -80,7 +80,9 @@ func TestSearchRecallAndVectorHitsCarryAddresses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	refs = append(refs, hit.Ref)
+	if hit.Kind == "entry" {
+		refs = append(refs, hit.Ref)
+	}
 	if len(refs) != 3 {
 		t.Fatalf("refs = %v, want one from search, recall and the vector lookup", refs)
 	}
@@ -133,6 +135,9 @@ func TestGraphNamesEntriesByAddress(t *testing.T) {
 	seen := map[string]bool{}
 	for _, n := range g.Nodes {
 		seen[n.Ref] = true
+		if n.Type != "entry" {
+			t.Errorf("node %s has type %q, want entry", n.Ref, n.Type)
+		}
 	}
 	if !seen["/XPSCTL/vault/source"] || !seen["/XPSCTL/vault/target"] {
 		t.Errorf("nodes = %+v", g.Nodes)

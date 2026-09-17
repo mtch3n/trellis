@@ -16,8 +16,8 @@ import (
 // Diagnostic is one thing lint reports about the vault. Lint reports; it never
 // repairs.
 type Diagnostic struct {
-	Kind  string `json:"kind"` // template_violation, unknown_template, stub, ambiguous_link, broken_anchor, orphan, wrong_collection, bad_path, missing_artifact, unknown_field, deep_directory, long_directory_name, similar_directory
-	Entry string `json:"doc"`  // the address of the entry it is about
+	Kind  string `json:"kind"`  // template_violation, unknown_template, stub, ambiguous_link, broken_anchor, orphan, wrong_collection, bad_address, missing_artifact, unknown_field, deep_directory, long_directory_name, similar_directory
+	Entry string `json:"entry"` // the address of the entry it is about
 	Ref   string `json:"ref,omitempty"`
 	Fix   string `json:"fix"`
 }
@@ -329,7 +329,7 @@ func addressDiagnostic(e Entry, raw, target string) Diagnostic {
 	f := Diagnostic{Kind: "wrong_collection", Entry: e.Ref, Ref: raw,
 		Fix: "trellis vault edit " + e.Ref + " --body @file   # a wikilink names /KEY/vault/<slug>"}
 	if _, err := address.Parse(target); err != nil {
-		f.Kind = "bad_path"
+		f.Kind = "bad_address"
 	}
 	return f
 }

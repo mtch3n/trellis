@@ -136,8 +136,8 @@ func TestConfigSetRepoNeedsAMarker(t *testing.T) {
 	if err == nil {
 		t.Fatal("--repo with TRELLIS_PROJECT has no marker to write beside")
 	}
-	if ce := coreErr(t, err); ce.Code != "no_pin" {
-		t.Fatalf("code = %s, want no_pin", ce.Code)
+	if ce := coreErr(t, err); ce.Code != "no_marker" {
+		t.Fatalf("code = %s, want no_marker", ce.Code)
 	}
 }
 

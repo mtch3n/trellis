@@ -202,7 +202,7 @@ func (c *Core) LinkCardToEntry(ctx context.Context, projectID string, cardRef Ca
 			return err
 		}
 		if toID == nil {
-			return ErrNotFound("knowledge_not_found", "no entry "+ref.Raw,
+			return ErrNotFound("entry_not_found", "no entry "+ref.Raw,
 				`trellis vault new --title "..."`)
 		}
 		if _, err := tx.Exec(

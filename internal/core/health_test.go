@@ -39,12 +39,12 @@ func TestReadsCountOnlyDeliberateReads(t *testing.T) {
 	if err := c.NominateEntry(t.Context(), p.ID, entry.Slug, "needed everywhere"); err != nil {
 		t.Fatal(err)
 	}
-	noms, err := c.Nominations(t.Context(), p.ID)
+	nominees, err := c.Nominations(t.Context(), p.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(noms) != 1 || noms[0].Reads != 1 || noms[0].Actors != 1 {
-		t.Errorf("nomination = %+v, want reads=1 actors=1", noms)
+	if len(nominees) != 1 || nominees[0].Reads != 1 || nominees[0].Actors != 1 {
+		t.Errorf("nomination = %+v, want reads=1 actors=1", nominees)
 	}
 
 	lines, err := c.Health(t.Context(), p.ID)

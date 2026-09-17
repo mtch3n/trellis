@@ -17,7 +17,7 @@ type Nomination struct {
 	Pinned      int    `db:"pinned" json:"pinned"`
 	Reads       int    `db:"reads" json:"reads_30d"`
 	Actors      int    `db:"actors" json:"actors"`
-	Nominations int    `db:"noms" json:"noms"`
+	Nominations int    `db:"nominations" json:"nominations"`
 	CreatedAt   int64  `db:"created_at" json:"created_at"`
 }
 
@@ -61,10 +61,10 @@ func (c *Core) Nominations(ctx context.Context, projectID string) ([]Nomination,
 			           AND e.entity_id = k.id AND e.action = 'read' AND e.ts > ?) AS reads,
 			        (SELECT COUNT(DISTINCT e.actor) FROM event e WHERE e.entity_type = 'entry'
 			           AND e.entity_id = k.id AND e.action = 'read' AND e.ts > ?) AS actors,
-			        (SELECT COUNT(*) FROM nomination n2 WHERE n2.entry_id = k.id) AS noms
+			        (SELECT COUNT(*) FROM nomination n2 WHERE n2.entry_id = k.id) AS nominations
 			 FROM nomination n JOIN entry k ON k.id = n.entry_id
 			 WHERE k.project_id = ? AND k.global = 0
-			 ORDER BY noms DESC, reads DESC, cited DESC, n.created_at`,
+			 ORDER BY nominations DESC, reads DESC, cited DESC, n.created_at`,
 			since, since, projectID)
 	})
 	return out, err

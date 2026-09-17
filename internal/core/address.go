@@ -27,7 +27,7 @@ const entryAddressSQL = `'/' || CASE WHEN k.global = 1 THEN '` + address.GlobalK
 func ParseAddress(arg, collection string) (address.Address, error) {
 	p, err := address.Parse(arg)
 	if err != nil {
-		return address.Address{}, ErrUsage("bad_path", err.Error(), "trellis search <words>")
+		return address.Address{}, ErrUsage("bad_address", err.Error(), "trellis search <words>")
 	}
 	if p.Collection != collection {
 		return address.Address{}, ErrUsage("wrong_collection", fmt.Sprintf("%s names %s, not %s", arg, p.Collection, collection), commandFor(p, arg))

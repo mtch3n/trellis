@@ -242,7 +242,7 @@ func (c *Core) CreateEntry(ctx context.Context, projectID string, in NewEntry) (
 		}
 	}
 	if err := c.checkWrite(ctx, ProposedWrite{
-		Op: "entry.write", EntityType: "entry", ProjectID: projectID,
+		Op: "entry.write", Entity: "entry", ProjectID: projectID,
 		Fields: map[string]string{"title": in.Title, "body": body},
 	}); err != nil {
 		return Entry{}, err
@@ -859,7 +859,7 @@ func (c *Core) EditEntryFields(ctx context.Context, projectID, slug string, in E
 			fields["sources"] = strings.Join(*in.Sources, "\n")
 		}
 		if err := c.checkWrite(ctx, ProposedWrite{
-			Op: "entry.write", EntityType: "entry", EntityID: entry.ID, ProjectID: projectID,
+			Op: "entry.write", Entity: "entry", EntityID: entry.ID, ProjectID: projectID,
 			Fields: fields,
 		}); err != nil {
 			return err
@@ -1104,7 +1104,7 @@ func (c *Core) DeleteEntry(ctx context.Context, projectID, slug string) error {
 		}
 		if err := tx.Get(&entry, q, projectID, exactSlug); err != nil {
 			if err.Error() == "sql: no rows in result set" {
-				return ErrNotFound("knowledge_not_found", "no entry "+slug+" owned by this project", "trellis vault ls")
+				return ErrNotFound("entry_not_found", "no entry "+slug+" owned by this project", "trellis vault ls")
 			}
 			return err
 		}

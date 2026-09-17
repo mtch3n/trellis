@@ -21,7 +21,7 @@ type Card struct {
 	Title      string   `db:"title" json:"title"`
 	BodyMD     string   `db:"body_md" json:"body"`
 	Priority   Priority `db:"priority" json:"-"`
-	ClaimedBy  *string  `db:"claimed_by" json:"owner,omitempty"`
+	ClaimedBy  *string  `db:"claimed_by" json:"claimed_by,omitempty"`
 	ClaimUntil *int64   `db:"claim_until" json:"claim_until,omitempty"`
 	Version    int64    `db:"version" json:"version"`
 	CreatedAt  int64    `db:"created_at" json:"created_at"`
@@ -68,7 +68,7 @@ func (c *Core) checkCardClaim(card Card) error {
 	if card.ClaimedBy == nil || *card.ClaimedBy == c.actor || card.ClaimUntil == nil || *card.ClaimUntil < c.clock.NowMS() {
 		return nil
 	}
-	return ErrConflict("not_owned", fmt.Sprintf("card %s is claimed by %s", card.Ref, *card.ClaimedBy),
+	return ErrConflict("contention", fmt.Sprintf("card %s is claimed by %s", card.Ref, *card.ClaimedBy),
 		"trellis card show "+card.Ref)
 }
 
@@ -243,7 +243,7 @@ func (c *Core) createCard(ctx context.Context, tx *sqlx.Tx, projectID, boardID s
 		}
 
 		if err := c.checkWrite(ctx, ProposedWrite{
-			Op: "card.create", EntityType: "card", ProjectID: projectID, BoardID: boardID,
+			Op: "card.create", Entity: "card", ProjectID: projectID, BoardID: boardID,
 			Fields: map[string]string{"title": in.Title, "body": in.Body},
 		}); err != nil {
 			return err
@@ -505,7 +505,7 @@ func (c *Core) EditCard(ctx context.Context, projectID string, ref CardRef, e Ca
 		}
 
 		w := ProposedWrite{
-			Op: "card.edit", EntityType: "card", EntityID: card.ID,
+			Op: "card.edit", Entity: "card", EntityID: card.ID,
 			ProjectID: projectID, BoardID: card.BoardID, Fields: map[string]string{},
 		}
 		if e.Title != nil {

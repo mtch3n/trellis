@@ -106,8 +106,8 @@ func TestDeleteProjectRefusesWhileAnAgentClaimsACard(t *testing.T) {
 
 	err = c.DeleteProject(ctx, p.Key)
 	var te *Error
-	if !errors.As(err, &te) || te.Code != "project_leased" {
-		t.Fatalf("DeleteProject = %v, want project_leased", err)
+	if !errors.As(err, &te) || te.Code != "project_has_claims" {
+		t.Fatalf("DeleteProject = %v, want project_has_claims", err)
 	}
 	if n := count(t, c, `SELECT COUNT(*) FROM card WHERE id = ?`, card.ID); n != 1 {
 		t.Error("a refused delete must change nothing")
@@ -128,8 +128,8 @@ func TestDeleteProjectRefusesWhileItOwnsVaultEntries(t *testing.T) {
 
 	err = c.DeleteProject(ctx, p.Key)
 	var te *Error
-	if !errors.As(err, &te) || te.Code != "project_has_vault_entries" {
-		t.Fatalf("DeleteProject = %v, want project_has_vault_entries", err)
+	if !errors.As(err, &te) || te.Code != "project_has_global_entries" {
+		t.Fatalf("DeleteProject = %v, want project_has_global_entries", err)
 	}
 	if _, err := os.Stat(promoted.Path); err != nil {
 		t.Errorf("the vault entry's file must be untouched: %v", err)

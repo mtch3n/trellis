@@ -311,5 +311,5 @@ func (c *Core) resolveSlug(tx *sqlx.Tx, projectID, input string, includeGlobal b
 }
 
 func notFoundSlug(input string) error {
-	return ErrNotFound("knowledge_not_found", "no entry "+input, "trellis vault ls")
+	return ErrNotFound("entry_not_found", "no entry "+input, "trellis vault ls")
 }

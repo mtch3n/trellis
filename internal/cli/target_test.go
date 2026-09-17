@@ -87,7 +87,7 @@ func TestAMisdirectedOrMalformedAddress(t *testing.T) {
 		t.Errorf("error = %+v", ce)
 	}
 	_, err = execCmd("card", "show", "/BETA/cards/12")
-	if ce := coreErr(t, err); ce.Code != "bad_path" {
+	if ce := coreErr(t, err); ce.Code != "bad_address" {
 		t.Errorf("error = %+v", ce)
 	}
 }

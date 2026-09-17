@@ -61,7 +61,7 @@ func TestEventsListsCreatedCards(t *testing.T) {
 	runCmd(t, "card", "new", "--title", "First")
 
 	out := runCmd(t, "events")
-	if !strings.Contains(out, `"action":"created"`) || !strings.Contains(out, `"kind":"card"`) {
+	if !strings.Contains(out, `"action":"created"`) || !strings.Contains(out, `"entity":"card"`) {
 		t.Fatalf("events output missing the card creation:\n%s", out)
 	}
 }
@@ -98,10 +98,10 @@ func TestEventsEntityFilter(t *testing.T) {
 	runCmd(t, "label", "new", "urgent", "--description", "needs attention")
 
 	out := runCmd(t, "events", "--entity", "label")
-	if strings.Contains(out, `"kind":"card"`) {
+	if strings.Contains(out, `"entity":"card"`) {
 		t.Errorf("--entity label still printed a card event:\n%s", out)
 	}
-	if !strings.Contains(out, `"kind":"label"`) {
+	if !strings.Contains(out, `"entity":"label"`) {
 		t.Errorf("--entity label printed no label event:\n%s", out)
 	}
 }
@@ -116,8 +116,8 @@ func TestEventsRejectsAStaleEntityName(t *testing.T) {
 	if err == nil {
 		t.Fatal("events --entity note was accepted")
 	}
-	if ce := coreErr(t, err); ce.Code != "unknown_event_kind" {
-		t.Errorf("code = %s, want unknown_event_kind", ce.Code)
+	if ce := coreErr(t, err); ce.Code != "unknown_entity" {
+		t.Errorf("code = %s, want unknown_entity", ce.Code)
 	}
 }
 

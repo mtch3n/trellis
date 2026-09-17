@@ -85,7 +85,7 @@ func (c *Core) ColumnByName(tx *sqlx.Tx, boardID, name string) (Column, error) {
 		`SELECT name FROM column_ WHERE board_id = ? ORDER BY position`, boardID); err != nil {
 		return Column{}, err
 	}
-	return Column{}, ErrNotFound("unknown_column",
+	return Column{}, ErrNotFound("column_not_found",
 		fmt.Sprintf("no column %q (have: %s)", name, strings.Join(names, ", ")),
 		"trellis column ls")
 }

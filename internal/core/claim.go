@@ -230,7 +230,7 @@ func (c *Core) ReleaseCard(ctx context.Context, cardID string) error {
 		}
 
 		if claimant == nil || *claimant != c.actor {
-			return ErrConflict("not_owned",
+			return ErrConflict("not_yours",
 				fmt.Sprintf("you do not claim this card (claimed by %v)", claimant),
 				fmt.Sprintf("trellis card show %s", cardID))
 		}
@@ -270,7 +270,7 @@ func (c *Core) RenewClaim(ctx context.Context, cardID string, ttl int64) error {
 		}
 
 		if claimant == nil || *claimant != c.actor {
-			return ErrConflict("not_owned",
+			return ErrConflict("not_yours",
 				fmt.Sprintf("you do not claim this card (claimed by %v)", claimant),
 				fmt.Sprintf("trellis card show %s", cardID))
 		}
@@ -291,7 +291,7 @@ func (c *Core) RenewClaim(ctx context.Context, cardID string, ttl int64) error {
 
 // ContentionInfo describes why a card cannot be claimed.
 type ContentionInfo struct {
-	ClaimedBy         *Agent `json:"holder"`
+	ClaimedBy         *Agent `json:"claimed_by"`
 	RecommendedAction string `json:"recommended_action"`
 }
 

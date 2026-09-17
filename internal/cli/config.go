@@ -362,7 +362,7 @@ func formatConfigTable(rows []configRow) string {
 // beside.
 func repoConfigDir() (string, error) {
 	if projectNamed() {
-		return "", core.ErrUsage("no_pin",
+		return "", core.ErrUsage("no_marker",
 			"--repo writes beside a .trellis marker, and --project or TRELLIS_PROJECT names a project without one",
 			"run the command inside the marked directory, without --project")
 	}

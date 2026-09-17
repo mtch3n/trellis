@@ -35,7 +35,7 @@ type LogEvent struct {
 	Seq      int64  `json:"seq"`
 	TS       int64  `json:"ts"`
 	Actor    string `json:"actor"`
-	Entity   string `json:"kind"`
+	Entity   string `json:"entity"`
 	Ref      string `json:"ref"`
 	Title    string `json:"title"`
 	Template string `json:"template,omitempty"`
@@ -124,7 +124,7 @@ func (r logRow) toLogEvent() LogEvent {
 func (c *Core) EventLog(ctx context.Context, q EventQuery) ([]LogEvent, *int64, error) {
 	for _, k := range q.Entities {
 		if !slices.Contains(eventEntities, k) {
-			return nil, nil, ErrUsage("unknown_event_kind",
+			return nil, nil, ErrUsage("unknown_entity",
 				fmt.Sprintf("%q is not an event entity: %s", k, strings.Join(eventEntities, ", ")),
 				"trellis events --entity "+strings.Join(eventEntities, "|"))
 		}

@@ -91,7 +91,7 @@ func newVectorStatusCmd() *cobra.Command {
 			return err
 		}
 		if !cfg.Enabled {
-			return Emit(cmd, map[string]any{"enabled": false, "configured_documents": 0, "indexed_documents": 0, "stale_documents": 0}, func() string { return "vector disabled (FTS search remains active)" })
+			return Emit(cmd, map[string]any{"enabled": false, "configured_entries": 0, "indexed_entries": 0, "unindexed_entries": 0}, func() string { return "vector disabled (FTS search remains active)" })
 		}
 		idx, err := currentVectorFrom(pctx, cfg)
 		if err != nil {
@@ -106,11 +106,8 @@ func newVectorStatusCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		staleCount := len(entries) - count
-		if staleCount < 0 {
-			staleCount = 0
-		}
-		return Emit(cmd, map[string]any{"enabled": true, "configured_documents": len(entries), "indexed_documents": count, "stale_documents": staleCount}, func() string { return fmt.Sprintf("vector enabled; %d/%d entries indexed", count, len(entries)) })
+		unindexed := max(len(entries)-count, 0)
+		return Emit(cmd, map[string]any{"enabled": true, "configured_entries": len(entries), "indexed_entries": count, "unindexed_entries": unindexed}, func() string { return fmt.Sprintf("vector enabled; %d/%d entries indexed", count, len(entries)) })
 	}}
 }
 

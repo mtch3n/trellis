@@ -187,7 +187,7 @@ func newAgentRemindCmd() *cobra.Command {
 			if len(cards) == 0 && !forceJSON {
 				return nil
 			}
-			return Emit(cmd, map[string]any{"held_without_comment": cards}, func() string {
+			return Emit(cmd, map[string]any{"claimed_without_comment": cards}, func() string {
 				var b strings.Builder
 				b.WriteString("You still claim work with nothing written down:\n")
 				for _, c := range cards {

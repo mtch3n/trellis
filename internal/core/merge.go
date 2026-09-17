@@ -38,13 +38,13 @@ type MergePlan struct {
 	Refused          string         `json:"refused"`
 	Boards           []BoardMove    `json:"boards"`
 	Cards            CardMoves      `json:"cards"`
-	Entries          ItemMoves      `json:"knowledge"`
+	Entries          ItemMoves      `json:"entries"`
 	Artifacts        ItemMoves      `json:"artifacts"`
 	Labels           NameMoves      `json:"labels"`
 	Tags             NameMoves      `json:"tags"`
 	ConfigDropped    []ConfigDrop   `json:"config_dropped"`
-	EntriesRewritten []string       `json:"documents_rewritten"`
-	Markers          MarkerRewrites `json:"pins"`
+	EntriesRewritten []string       `json:"entries_rewritten"`
+	Markers          MarkerRewrites `json:"markers"`
 	Backup           string         `json:"backup,omitempty"`
 	Warnings         []string       `json:"warnings,omitempty"`
 

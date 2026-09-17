@@ -216,8 +216,8 @@ func TestFullPathStillResolvesExactlyEvenWhenALeafIsAmbiguous(t *testing.T) {
 func TestBareLeafNotFoundIsTheOrdinaryNotFoundError(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	_, err := c.LoadEntry(t.Context(), p.ID, "nope")
-	if pathErrCode(err) != "knowledge_not_found" {
-		t.Fatalf("err = %v, want knowledge_not_found", err)
+	if pathErrCode(err) != "entry_not_found" {
+		t.Fatalf("err = %v, want entry_not_found", err)
 	}
 }
 
@@ -252,8 +252,8 @@ func TestDeleteEntryDoesNotBareLeafIntoTheGlobalVault(t *testing.T) {
 		t.Fatalf("LoadEntry should find the global entry: %v", err)
 	}
 	// ...but DeleteEntry from that same unrelated project must not.
-	if err := c.DeleteEntry(t.Context(), p.ID, "shared"); pathErrCode(err) != "knowledge_not_found" {
-		t.Fatalf("err = %v, want knowledge_not_found: rm must not reach into another project's promoted entry", err)
+	if err := c.DeleteEntry(t.Context(), p.ID, "shared"); pathErrCode(err) != "entry_not_found" {
+		t.Fatalf("err = %v, want entry_not_found: rm must not reach into another project's promoted entry", err)
 	}
 }
 
@@ -338,7 +338,7 @@ func TestMoveEntryRefusesAGlobalEntry(t *testing.T) {
 // review-knowledge #8: MoveEntry gave ref to resolveSlug directly instead
 // of parsing it through readEntryArg first, so the canonical address show,
 // search and recall all print (/KEY/vault/x) was rejected as
-// knowledge_not_found.
+// entry_not_found.
 func TestMoveEntryAcceptsTheCanonicalAddress(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Rollback"})

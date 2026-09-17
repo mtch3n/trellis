@@ -122,8 +122,8 @@ func TestEventLogRejectsAnUnknownEntity(t *testing.T) {
 
 	_, _, err := c.EventLog(t.Context(), EventQuery{ProjectID: p.ID, Entities: []string{"note"}})
 	ce, ok := errors.AsType[*Error](err)
-	if !ok || ce.Code != "unknown_event_kind" {
-		t.Fatalf("err = %v, want an unknown_event_kind usage error", err)
+	if !ok || ce.Code != "unknown_entity" {
+		t.Fatalf("err = %v, want an unknown_entity usage error", err)
 	}
 }
 

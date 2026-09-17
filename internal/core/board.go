@@ -147,7 +147,7 @@ func (c *Core) SelectBoard(ctx context.Context, projectID, requested string) (Bo
 				return b, nil
 			}
 		}
-		return Board{}, ErrNotFound("unknown_board",
+		return Board{}, ErrNotFound("board_not_found",
 			fmt.Sprintf("no board %q (have: %s)", requested, strings.Join(boardNames(boards), ", ")),
 			"trellis board ls")
 	}
@@ -211,7 +211,7 @@ func (c *Core) SetDefaultBoard(ctx context.Context, projectID, name string) (Boa
 			}
 		}
 		if !found {
-			return ErrNotFound("unknown_board",
+			return ErrNotFound("board_not_found",
 				fmt.Sprintf("no board %q (have: %s)", name, strings.Join(boardNames(boards), ", ")),
 				"trellis board ls")
 		}
@@ -347,7 +347,7 @@ func boardBySlug(ctx context.Context, q sqlx.QueryerContext, projectID, slug str
 		`SELECT slug FROM board WHERE project_id = ? ORDER BY created_at`, projectID); err != nil {
 		return b, err
 	}
-	return b, ErrNotFound("unknown_board",
+	return b, ErrNotFound("board_not_found",
 		fmt.Sprintf("no board with slug %q (have: %s)", slug, strings.Join(slugs, ", ")),
 		"trellis board new --name <name>")
 }

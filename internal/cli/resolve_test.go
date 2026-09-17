@@ -55,7 +55,7 @@ func TestMalformedMarkerIsAUsageError(t *testing.T) {
 	writeMarker(t, dir, "TRELLIS\n")
 	_, err := execCmd("card", "ls")
 	ce := coreErr(t, err)
-	if ce.Code != "bad_pin" || !strings.Contains(ce.Msg, "old bare-key format") {
+	if ce.Code != "bad_marker" || !strings.Contains(ce.Msg, "old bare-key format") {
 		t.Errorf("error = %+v", ce)
 	}
 }
@@ -106,7 +106,7 @@ func TestMissingMarkerBoardNamesTheMarker(t *testing.T) {
 	writeMarker(t, dir, "/MONO/boards/api\n")
 	_, err := execCmd("card", "ls")
 	ce := coreErr(t, err)
-	if ce.Code != "unknown_board" || !strings.Contains(ce.Msg, ".trellis") {
+	if ce.Code != "board_not_found" || !strings.Contains(ce.Msg, ".trellis") {
 		t.Errorf("error = %+v", ce)
 	}
 }

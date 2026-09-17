@@ -87,7 +87,7 @@ func TestProjectMergeEndToEnd(t *testing.T) {
 				Path string `json:"path"`
 				To   string `json:"to"`
 			} `json:"rewrite"`
-		} `json:"pins"`
+		} `json:"markers"`
 	}
 	out := runCmd(t, "project", "merge", "api", "--into", "/mono", "--json")
 	if err := json.Unmarshal([]byte(out), &plan); err != nil {

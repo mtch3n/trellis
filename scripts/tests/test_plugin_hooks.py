@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -32,7 +33,7 @@ class HookTests(unittest.TestCase):
             self.calls.append((args, cwd, env))
             if args[0] == "board":
                 return subprocess.CompletedProcess(args, self.code, self.brief, "")
-            output = json.dumps({"held_without_note": self.cards})
+            output = json.dumps({"claimed_without_comment": self.cards})
             return subprocess.CompletedProcess(args, 0, output, "")
 
         self.cli = patch.object(HOOK, "run_cli", side_effect=cli)
@@ -127,6 +128,15 @@ class HookTests(unittest.TestCase):
 
     def test_stop_without_cards_is_silent(self):
         self.assertIsNone(self.invoke("stop"))
+
+    def test_stop_reads_the_key_agent_remind_emits(self):
+        # The fake above answers with whatever key it is given, so a rename on
+        # one side alone would pass every other test here.
+        source = (ROOT / "internal/cli/agent.go").read_text(encoding="utf-8")
+        emitted = re.findall(r'Emit\(cmd, map\[string\]any\{"(\w+)": cards\}', source)
+        self.assertEqual(len(emitted), 1, "agent remind's Emit call not found in agent.go")
+        hook = (ROOT / "plugin/hooks/trellis_hook.py").read_text(encoding="utf-8")
+        self.assertEqual(re.findall(r'payload\.get\("(\w+)"\)', hook), emitted)
 
     def test_already_continued_stop_does_not_run_cli(self):
         self.assertIsNone(self.invoke("stop", stop_hook_active=True))

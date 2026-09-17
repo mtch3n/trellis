@@ -157,7 +157,7 @@ func TestLintNamesAddressesThatNameNoEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	kinds, diagnostics := lintKinds(t, c, p.ID)
-	if kinds["wrong_collection"] != 1 || kinds["bad_path"] != 1 || kinds["stub"] != 0 {
+	if kinds["wrong_collection"] != 1 || kinds["bad_address"] != 1 || kinds["stub"] != 0 {
 		t.Errorf("diagnostics = %+v", diagnostics)
 	}
 }
@@ -250,7 +250,7 @@ func TestLinkCardToEntryAcrossProjects(t *testing.T) {
 		t.Errorf("card address: code = %s", got)
 	}
 	err = c.LinkCardToEntry(ctx, p.ID, ref, "/OTHERPROJ/vault/missing")
-	if got := errCode(t, err); got != "knowledge_not_found" {
+	if got := errCode(t, err); got != "entry_not_found" {
 		t.Errorf("missing entry: code = %s", got)
 	}
 }

@@ -82,7 +82,7 @@ func TestAnEntryAddressNamesItsProject(t *testing.T) {
 		t.Errorf("vault show = %s", got)
 	}
 	_, err := execCmd("vault", "show", "runbook")
-	if ce := coreErr(t, err); ce.Code != "knowledge_not_found" {
+	if ce := coreErr(t, err); ce.Code != "entry_not_found" {
 		t.Errorf("a relative slug stays in ALPHA: %+v", ce)
 	}
 }
@@ -283,7 +283,7 @@ func TestTheWorkspaceStaysInItsProject(t *testing.T) {
 		t.Errorf("another project's address: %+v", ce)
 	}
 	_, err = tuiCardRef(app, "/ALPHA/cards/12")
-	if ce := coreErr(t, err); ce.Code != "bad_path" {
+	if ce := coreErr(t, err); ce.Code != "bad_address" {
 		t.Errorf("a malformed address: %+v", ce)
 	}
 }

@@ -15,9 +15,9 @@ type initOutput struct {
 	Board *struct {
 		Slug string `json:"slug"`
 	} `json:"board"`
-	MarkerPath    string   `json:"pin_path"`
+	MarkerPath    string   `json:"marker_path"`
 	Created       bool     `json:"created"`
-	MarkerWritten bool     `json:"pin_written"`
+	MarkerWritten bool     `json:"marker_written"`
 	Notes         []string `json:"notes"`
 }
 
@@ -98,7 +98,7 @@ func TestInitRefusesAKeyThatContradictsTheMarker(t *testing.T) {
 	dir := markerEnv(t, "app")
 	writeMarker(t, dir, "/BETA\n")
 	_, err := execCmd("init", "--key", "GAMMA")
-	if ce := coreErr(t, err); ce.Code != "pin_exists" {
+	if ce := coreErr(t, err); ce.Code != "marker_exists" {
 		t.Errorf("error = %+v", ce)
 	}
 }
@@ -139,7 +139,7 @@ func TestInitRefusesATrellisDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := execCmd("init", "--key", "APP")
-	if ce := coreErr(t, err); ce.Code != "bad_pin" {
+	if ce := coreErr(t, err); ce.Code != "bad_marker" {
 		t.Errorf("error = %+v", ce)
 	}
 }

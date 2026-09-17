@@ -16,7 +16,7 @@ func TestErrorsAreAtMostThreeLines(t *testing.T) {
 		core.ErrNotFound("card_not_found", "no card XPSCTL-99 in this project", "trellis card ls"),
 		core.ErrConflict("conflict", "XPSCTL-12 changed since you read it (you: v9, now: v11)",
 			"trellis card show XPSCTL-12 --json"),
-		core.ErrNotFound("unknown_column",
+		core.ErrNotFound("column_not_found",
 			"no column \"shipped\" (have: backlog, in-progress, review, done)", "trellis column ls"),
 	}
 	for _, err := range cases {

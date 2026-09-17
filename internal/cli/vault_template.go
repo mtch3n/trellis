@@ -200,15 +200,15 @@ func newTemplateCheckCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withBoard(func(app *appCtx) error {
-				violations, err := app.Core.CheckTemplate(cmd.Context(), app.Project.ID, args[0], args[1])
+				diagnostics, err := app.Core.CheckTemplate(cmd.Context(), app.Project.ID, args[0], args[1])
 				if err != nil {
 					return err
 				}
-				return Emit(cmd, map[string]any{"violations": violations}, func() string {
-					if len(violations) == 0 {
+				return Emit(cmd, map[string]any{"diagnostics": diagnostics}, func() string {
+					if len(diagnostics) == 0 {
 						return "no diagnostics"
 					}
-					return strings.Join(violations, "\n")
+					return strings.Join(diagnostics, "\n")
 				})
 			})
 		},

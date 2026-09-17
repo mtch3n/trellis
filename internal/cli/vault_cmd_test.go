@@ -209,7 +209,7 @@ func TestVaultLsDisclosesNoContent(t *testing.T) {
 			}
 
 			var listing struct {
-				Entries []map[string]any `json:"knowledge"`
+				Entries []map[string]any `json:"entries"`
 			}
 			if err := json.Unmarshal([]byte(out), &listing); err != nil {
 				t.Fatalf("decode %q: %v", out, err)
@@ -303,9 +303,9 @@ func TestVaultFieldsPrivateListJSON(t *testing.T) {
 		t.Fatalf("json.Unmarshal: %v\n%s", err, out)
 	}
 
-	entries, ok := result["knowledge"]
+	entries, ok := result["entries"]
 	if !ok {
-		t.Fatalf("response missing 'knowledge' key: %s", out)
+		t.Fatalf("response missing 'entries' key: %s", out)
 	}
 
 	var secret core.Entry

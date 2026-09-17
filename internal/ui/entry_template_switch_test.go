@@ -40,7 +40,7 @@ func TestEntryTemplateSwitchFromTheWeb(t *testing.T) {
 		return rec
 	}
 
-	rec := send(http.MethodPost, "", `{"title":"Rollback","dir":"ops","body":"plain\n"}`)
+	rec := send(http.MethodPost, "", `{"title":"Rollback","directory":"ops","body":"plain\n"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create in ops: %d %s", rec.Code, rec.Body)
 	}

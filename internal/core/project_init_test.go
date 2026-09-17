@@ -116,8 +116,8 @@ func TestBoardBySlug(t *testing.T) {
 		t.Fatalf("BoardBySlug = %+v, %v", b, err)
 	}
 	_, err = c.BoardBySlug(t.Context(), p.ID, "web")
-	if got := errCode(t, err); got != "unknown_board" {
-		t.Errorf("code = %s, want unknown_board", got)
+	if got := errCode(t, err); got != "board_not_found" {
+		t.Errorf("code = %s, want board_not_found", got)
 	}
 	if !strings.Contains(err.Error(), "alpha, api-work") {
 		t.Errorf("error %q should list the slugs that exist", err)
@@ -265,8 +265,8 @@ func TestInitProjectDoesNotCreateTheMarkersBoard(t *testing.T) {
 	c := testCore(t)
 	dir := t.TempDir()
 	_, err := c.InitProject(t.Context(), InitRequest{Dir: dir, Existing: existingMarker(t, dir, "/BETA/boards/api\n")})
-	if got := errCode(t, err); got != "unknown_board" {
-		t.Fatalf("code = %s, want unknown_board", got)
+	if got := errCode(t, err); got != "board_not_found" {
+		t.Fatalf("code = %s, want board_not_found", got)
 	}
 	if !strings.Contains(err.Error(), "trellis board new") {
 		t.Errorf("error %q should point at board new", err)
@@ -282,16 +282,16 @@ func TestInitProjectRefusesFlagsThatContradictTheMarker(t *testing.T) {
 	marker := existingMarker(t, dir, "/BETA\n")
 
 	_, err := c.InitProject(t.Context(), InitRequest{Dir: dir, Key: "GAMMA", Join: true, Existing: marker})
-	if got := errCode(t, err); got != "pin_exists" {
-		t.Errorf("--key GAMMA: code = %s, want pin_exists", got)
+	if got := errCode(t, err); got != "marker_exists" {
+		t.Errorf("--key GAMMA: code = %s, want marker_exists", got)
 	}
 
 	if _, err := c.InitProject(t.Context(), InitRequest{Dir: dir, Existing: marker}); err != nil {
 		t.Fatal(err)
 	}
 	_, err = c.InitProject(t.Context(), InitRequest{Dir: dir, BoardName: "beta", Existing: marker})
-	if got := errCode(t, err); got != "pin_exists" {
-		t.Errorf("--board beta against /BETA: code = %s, want pin_exists", got)
+	if got := errCode(t, err); got != "marker_exists" {
+		t.Errorf("--board beta against /BETA: code = %s, want marker_exists", got)
 	}
 	if got := readMarkerFile(t, dir); got != "/BETA\n" {
 		t.Errorf("marker changed: %q", got)
@@ -316,8 +316,8 @@ func TestInitProjectNeverOverwritesAMarkerWrittenMeanwhile(t *testing.T) {
 	other := t.TempDir()
 	existingMarker(t, other, "/OTHER\n")
 	_, err = c.InitProject(t.Context(), InitRequest{Dir: other, Key: "FRESH", Join: true})
-	if got := errCode(t, err); got != "pin_exists" {
-		t.Fatalf("code = %s, want pin_exists", got)
+	if got := errCode(t, err); got != "marker_exists" {
+		t.Fatalf("code = %s, want marker_exists", got)
 	}
 	if !strings.Contains(err.Error(), "FRESH was created") {
 		t.Errorf("error %q should say the project it created remains", err)

@@ -206,7 +206,7 @@ func TestSearchSpansCardsAndEntries(t *testing.T) {
 	for _, h := range hits {
 		kinds[h.Kind] = true
 	}
-	if !kinds["card"] || !kinds["knowledge"] {
+	if !kinds["card"] || !kinds["entry"] {
 		t.Errorf("hits = %+v, want one of each kind", hits)
 	}
 }

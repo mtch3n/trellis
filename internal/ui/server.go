@@ -177,7 +177,7 @@ type projectInfo struct {
 	Name          string       `json:"name"`
 	BoardCount    int          `json:"board_count"`
 	InProgress    int          `json:"in_progress"`
-	ExpiredClaims int          `json:"stale_leases"`
+	ExpiredClaims int          `json:"expired_claims"`
 	RecentChanges int          `json:"recent_changes"`
 	Boards        []boardInfo  `json:"boards"`
 	Columns       []columnInfo `json:"columns"`
@@ -297,7 +297,7 @@ type activityInfo struct {
 	Seq        int64  `db:"seq" json:"seq"`
 	Timestamp  int64  `db:"ts" json:"timestamp"`
 	Actor      string `db:"actor" json:"actor"`
-	EntityType string `db:"entity_type" json:"entity_type"`
+	Entity     string `db:"entity_type" json:"entity"`
 	Action     string `db:"action" json:"action"`
 	Field      string `db:"field" json:"field,omitempty"`
 	Title      string `db:"title" json:"title"`
@@ -530,7 +530,7 @@ type cardInfo struct {
 	Body      string  `json:"body"`
 	Priority  string  `json:"priority"`
 	Version   int64   `json:"version"`
-	ClaimedBy *string `json:"owner,omitempty"`
+	ClaimedBy *string `json:"claimed_by,omitempty"`
 	// Unix milliseconds, as the single-card endpoint reports them. The
 	// overview's timeline places each card on the day it was created.
 	CreatedAt int64    `json:"created_at"`
@@ -770,7 +770,7 @@ type cardEvent struct {
 type cardDetail struct {
 	Card      core.Card           `json:"card"`
 	Comments  []core.Comment      `json:"comments"`
-	Activity  []cardEvent         `json:"activity"`
+	Events    []cardEvent         `json:"events"`
 	Relations []core.CardRelation `json:"relations"`
 }
 
@@ -810,15 +810,15 @@ func (s *Server) handleCardDetail(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
-	activity := []cardEvent{}
-	if err := s.db.SelectContext(ctx, &activity, `
+	events := []cardEvent{}
+	if err := s.db.SelectContext(ctx, &events, `
 		SELECT seq, ts, actor, action, COALESCE(field, '') AS field,
 		       COALESCE(old_value, '') AS old_value, COALESCE(new_value, '') AS new_value
 		FROM event WHERE entity_type = 'card' AND entity_id = ? ORDER BY seq DESC LIMIT 100`, card.ID); err != nil {
 		s.error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, cardDetail{Card: card, Comments: comments, Activity: activity, Relations: relations})
+	writeJSON(w, http.StatusOK, cardDetail{Card: card, Comments: comments, Events: events, Relations: relations})
 }
 
 type cardPatch struct {
@@ -861,8 +861,8 @@ type entryRequest struct {
 	// the only way to create from such a template would be the CLI.
 	Sources []string          `json:"sources"`
 	Set     map[string]string `json:"set"`
-	// Dir places the entry in a vault directory; empty is the root.
-	Dir string `json:"dir"`
+	// Directory places the entry in a vault directory; empty is the root.
+	Directory string `json:"directory"`
 }
 type labelMergeRequest struct {
 	From string `json:"from"`
@@ -1298,7 +1298,7 @@ func (s *Server) handleEntryCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	entry, err := s.write.CreateEntry(ctx, p.ID, core.NewEntry{
 		Title: in.Title, Body: in.Body, Summary: in.Summary, Template: in.Template,
-		Private: in.Private, Board: b.Name, Sources: in.Sources, Set: in.Set, Dir: in.Dir,
+		Private: in.Private, Board: b.Name, Sources: in.Sources, Set: in.Set, Dir: in.Directory,
 	})
 	if err != nil {
 		s.coreError(w, err)

@@ -108,8 +108,8 @@ func TestTemplateCheckReportsWithoutBlocking(t *testing.T) {
 	runCmd(t, "vault", "new", "--title", "Loose")
 
 	out := runCmd(t, "vault", "template", "check", "strict", "loose", "--json")
-	if !strings.Contains(out, "owner") {
-		t.Errorf("check did not report the missing field:\n%s", out)
+	if !strings.Contains(out, "owner") || !strings.Contains(out, `"diagnostics":`) {
+		t.Errorf("check did not report the missing field as a diagnostic:\n%s", out)
 	}
 	// check never blocks: the entry it inspected is untouched.
 	runCmd(t, "vault", "show", "loose")

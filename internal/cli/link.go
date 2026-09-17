@@ -118,7 +118,7 @@ func newGraphCmd() *cobra.Command {
 				target, _ := address.SplitAnchor(arg)
 				p, err := address.Parse(strings.TrimSpace(target))
 				if err != nil {
-					return core.ErrUsage("bad_path", err.Error(), "trellis search <words>   # results carry valid addresses")
+					return core.ErrUsage("bad_address", err.Error(), "trellis search <words>   # results carry valid addresses")
 				}
 				switch p.Collection {
 				case address.CollectionCards, address.CollectionVault, address.CollectionArtifacts:

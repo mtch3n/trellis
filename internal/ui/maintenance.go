@@ -17,7 +17,7 @@ import (
 type maintenanceStats struct {
 	DatabaseBytes     int64 `json:"database_bytes"`
 	WALBytes          int64 `json:"wal_bytes"`
-	LeftoverRevisions int   `json:"orphan_history"`
+	LeftoverRevisions int   `json:"leftover_revisions"`
 	HistoryKeep       int   `json:"history_keep"`
 }
 
@@ -57,7 +57,7 @@ type pruneRequest struct {
 	Invocations       bool   `json:"invocations"`
 	Before            string `json:"before"`
 	Revisions         bool   `json:"revisions"`
-	LeftoverRevisions bool   `json:"orphan_history"`
+	LeftoverRevisions bool   `json:"leftover_revisions"`
 }
 
 // handleMaintenancePrune mirrors `trellis maintenance prune`: at least one
@@ -72,7 +72,7 @@ func (s *Server) handleMaintenancePrune(w http.ResponseWriter, r *http.Request) 
 	}
 	if !in.Events && !in.Invocations && !in.Revisions && !in.LeftoverRevisions {
 		s.coreError(w, core.ErrUsage("nothing_to_prune",
-			"select events, invocations, revisions and/or orphan_history", ""))
+			"select events, invocations, revisions and/or leftover_revisions", ""))
 		return
 	}
 

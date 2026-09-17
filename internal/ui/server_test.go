@@ -53,7 +53,7 @@ func TestServerCardLifecycleAndEmbeddedSPA(t *testing.T) {
 		t.Fatalf("created ref = %q, want UITEST-1", card.Ref)
 	}
 	detail := request(http.MethodGet, "/api/p/UITEST/b/default/cards/UITEST-1", "")
-	if detail.Code != http.StatusOK || !bytes.Contains(detail.Body.Bytes(), []byte(`"activity"`)) {
+	if detail.Code != http.StatusOK || !bytes.Contains(detail.Body.Bytes(), []byte(`"events"`)) {
 		t.Fatalf("detail status = %d, body = %s", detail.Code, detail.Body)
 	}
 	projectDetail := request(http.MethodGet, "/api/p/UITEST/cards/UITEST-1", "")
@@ -160,11 +160,11 @@ func TestServerVaultGraphLabelsAndStealRoutes(t *testing.T) {
 		t.Fatalf("graph status = %d, body = %s", graph.Code, graph.Body)
 	}
 	search := request(http.MethodGet, "/api/search?q=Concurrency", "")
-	if search.Code != http.StatusOK || !bytes.Contains(search.Body.Bytes(), []byte(`"kind":"knowledge"`)) {
+	if search.Code != http.StatusOK || !bytes.Contains(search.Body.Bytes(), []byte(`"kind":"entry"`)) {
 		t.Fatalf("search status = %d, body = %s", search.Code, search.Body)
 	}
 	activity := request(http.MethodGet, "/api/activity?limit=10", "")
-	if activity.Code != http.StatusOK || !bytes.Contains(activity.Body.Bytes(), []byte(`"entity_type":"entry"`)) {
+	if activity.Code != http.StatusOK || !bytes.Contains(activity.Body.Bytes(), []byte(`"entity":"entry"`)) {
 		t.Fatalf("activity status = %d, body = %s", activity.Code, activity.Body)
 	}
 
@@ -334,10 +334,10 @@ func TestActivityScopedToProjectIncludesDeletedLabelAndCommentEvents(t *testing.
 	if !bytes.Contains(body, []byte(`"action":"deleted"`)) {
 		t.Errorf("scoped activity is missing the deleted card event: %s", body)
 	}
-	if !bytes.Contains(body, []byte(`"entity_type":"label"`)) {
+	if !bytes.Contains(body, []byte(`"entity":"label"`)) {
 		t.Errorf("scoped activity is missing the label merge event: %s", body)
 	}
-	if !bytes.Contains(body, []byte(`"entity_type":"comment"`)) {
+	if !bytes.Contains(body, []byte(`"entity":"comment"`)) {
 		t.Errorf("scoped activity is missing the comment event: %s", body)
 	}
 }

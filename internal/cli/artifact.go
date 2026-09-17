@@ -108,7 +108,7 @@ func newArtifactLinkCmd() *cobra.Command {
 					if err != nil {
 						return err
 					}
-					return Emit(cmd, map[string]any{"artifact": a.Ref, "doc": linked.Slug},
+					return Emit(cmd, map[string]any{"artifact": a.Ref, "entry": linked.Slug},
 						func() string { return linked.Slug + " -> " + a.Ref })
 				})
 			}
@@ -157,7 +157,7 @@ func newArtifactUnlinkCmd() *cobra.Command {
 					if err != nil {
 						return err
 					}
-					return Emit(cmd, map[string]any{"artifact": args[0], "doc": unlinked.Slug},
+					return Emit(cmd, map[string]any{"artifact": args[0], "entry": unlinked.Slug},
 						func() string { return unlinked.Slug + " -x- " + args[0] })
 				}
 				a, err := app.Core.ResolveArtifact(cmd.Context(), app.Project.ID, args[0])

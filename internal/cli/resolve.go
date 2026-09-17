@@ -61,7 +61,7 @@ func resolveProject(ctx context.Context, c *core.Core) (resolvedProject, error) 
 // an I/O failure and passes through unchanged.
 func markerFailure(err error) error {
 	if me, ok := errors.AsType[*resolve.MarkerError](err); ok {
-		return core.ErrUsage("bad_pin", me.Error(),
+		return core.ErrUsage("bad_marker", me.Error(),
 			"trellis init --key <KEY>   # after removing "+me.Path)
 	}
 	return err

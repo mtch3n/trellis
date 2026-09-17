@@ -52,9 +52,9 @@ func (c *Core) SearchCards(ctx context.Context, projectID string, query string, 
 // projectID or the vault. A non-empty label must be on the entry. A miss is
 // sql.ErrNoRows.
 func (c *Core) EntryHit(ctx context.Context, entryID, projectID string, allProjects bool, label string) (SearchHit, error) {
-	q := `SELECT 'knowledge' AS kind, ` + entryAddressSQL + ` AS ref, k.title,
+	q := `SELECT 'entry' AS kind, ` + entryAddressSQL + ` AS ref, k.title,
              CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
-             k.template AS detail, 0 AS unreviewed
+             k.template AS detail, 0 AS unverified
       FROM entry k JOIN project p ON p.id = k.project_id WHERE k.id = ?`
 	args := []any{entryID}
 	if !allProjects {
@@ -116,12 +116,12 @@ func (c *Core) FindSimilarOpenCards(ctx context.Context, projectID string, title
 // searching across projects is discovery, and reading the entry still requires
 // being in that project or for it to have been promoted (§10.6.1).
 type SearchHit struct {
-	Kind       string `db:"kind" json:"kind"` // card or knowledge
+	Kind       string `db:"kind" json:"kind"` // card or entry
 	Ref        string `db:"ref" json:"ref"`
 	Title      string `db:"title" json:"title"`
 	Project    string `db:"project" json:"project"`
-	Detail     string `db:"detail" json:"detail,omitempty"` // column for cards, type for entries
-	Unverified bool   `db:"unreviewed" json:"unreviewed,omitzero"`
+	Detail     string `db:"detail" json:"detail,omitempty"` // column for cards, template for entries
+	Unverified bool   `db:"unverified" json:"unverified,omitzero"`
 }
 
 // SearchOpts narrows or widens a search.
@@ -174,7 +174,7 @@ func (c *Core) Search(ctx context.Context, projectID, query string, o SearchOpts
 		cardArgs = append(cardArgs, match, o.Limit)
 		if err := tx.Select(&hits, `
 			SELECT 'card' AS kind, c.ref, c.title, p.key AS project,
-			       col.name AS detail, 0 AS unreviewed
+			       col.name AS detail, 0 AS unverified
 			FROM card c
 			JOIN card_fts ON card_fts.rowid = c.rowid
 			JOIN project p ON p.id = c.project_id
@@ -184,7 +184,7 @@ func (c *Core) Search(ctx context.Context, projectID, query string, o SearchOpts
 			return err
 		}
 
-		entryQueryArgs := []any{now} // the unreviewed test in the SELECT clause
+		entryQueryArgs := []any{now} // the unverified test in the SELECT clause
 		if o.Label != "" {
 			entryQueryArgs = append(entryQueryArgs, o.Label)
 		}
@@ -192,12 +192,12 @@ func (c *Core) Search(ctx context.Context, projectID, query string, o SearchOpts
 		entryQueryArgs = append(entryQueryArgs, match, o.Limit)
 		var entries []SearchHit
 		if err := tx.Select(&entries, `
-			SELECT 'knowledge' AS kind,
+			SELECT 'entry' AS kind,
 			       `+entryAddressSQL+` AS ref,
 			       k.title,
 			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
 			       k.template AS detail,
-			       (k.global = 1 AND k.verify_by IS NOT NULL AND k.verify_by < ?) AS unreviewed
+			       (k.global = 1 AND k.verify_by IS NOT NULL AND k.verify_by < ?) AS unverified
 			FROM entry k
 			JOIN entry_fts ON entry_fts.rowid = k.rowid
 			JOIN project p ON p.id = k.project_id`+entryLabelJoin+`
@@ -234,12 +234,12 @@ func (c *Core) matchEntries(ctx context.Context, projectID, match string, limit 
 	hits := []SearchHit{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		return tx.Select(&hits, `
-			SELECT 'knowledge' AS kind,
+			SELECT 'entry' AS kind,
 			       `+entryAddressSQL+` AS ref,
 			       k.title,
 			       CASE WHEN k.global = 1 THEN 'GLOBAL' ELSE p.key END AS project,
 			       k.template AS detail,
-			       (k.global = 1 AND k.verify_by IS NOT NULL AND k.verify_by < ?) AS unreviewed
+			       (k.global = 1 AND k.verify_by IS NOT NULL AND k.verify_by < ?) AS unverified
 			FROM entry k
 			JOIN entry_fts ON entry_fts.rowid = k.rowid
 			JOIN project p ON p.id = k.project_id

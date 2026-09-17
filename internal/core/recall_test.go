@@ -123,8 +123,8 @@ func TestRecallPutsEntriesBeforeCards(t *testing.T) {
 	if len(hits) != 2 {
 		t.Fatalf("Recall returned %d hits, want 2", len(hits))
 	}
-	if hits[0].Kind != "knowledge" || hits[1].Kind != "card" {
-		t.Errorf("order = %s then %s, want knowledge then card", hits[0].Kind, hits[1].Kind)
+	if hits[0].Kind != "entry" || hits[1].Kind != "card" {
+		t.Errorf("order = %s then %s, want entry then card", hits[0].Kind, hits[1].Kind)
 	}
 }
 
@@ -316,7 +316,7 @@ func TestRecallNarrowedToAnEntryDimensionDropsCards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Recall: %v", err)
 	}
-	if len(narrow) != 1 || narrow[0].Kind != "knowledge" {
+	if len(narrow) != 1 || narrow[0].Kind != "entry" {
 		t.Errorf("narrowed recall = %+v, want the entry alone", narrow)
 	}
 }

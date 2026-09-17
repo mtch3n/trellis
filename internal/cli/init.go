@@ -89,7 +89,7 @@ func newInitCmd() *cobra.Command {
 
 			return Emit(cmd, map[string]any{
 				"project": res.Project, "board": board, "columns": cols,
-				"pin_path": res.MarkerPath, "created": res.Created, "pin_written": res.Wrote,
+				"marker_path": res.MarkerPath, "created": res.Created, "marker_written": res.Wrote,
 				"notes": notes,
 			}, func() string { return initTable(res, board, cols, notes) })
 		},

@@ -90,6 +90,56 @@ func TestUnregisteredClaimantStillHoldsTheCard(t *testing.T) {
 	}
 }
 
+// A refused claim operation says whose claim is in the way: contention when
+// another actor holds the card, not_yours when the caller holds nothing to
+// release or renew.
+func TestClaimRefusalsNameWhoseClaimItIs(t *testing.T) {
+	c := testCore(t)
+	p := seededProject(t, c)
+	b := seededBoard(t, c, p)
+	ctx := t.Context()
+	card, err := c.CreateCard(ctx, p.ID, b.ID, NewCard{Title: "claimed elsewhere"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := func(err error) string {
+		if e, ok := errors.AsType[*Error](err); ok {
+			return e.Code
+		}
+		return fmt.Sprint(err)
+	}
+
+	if got := code(c.ReleaseCard(ctx, card.ID)); got != "not_yours" {
+		t.Errorf("release of an unclaimed card = %s, want not_yours", got)
+	}
+	if got := code(c.RenewClaim(ctx, card.ID, 0)); got != "not_yours" {
+		t.Errorf("renew of an unclaimed card = %s, want not_yours", got)
+	}
+
+	claimant := New(c.db, c.clock, "sess:claimant", c.root)
+	if _, err := claimant.ClaimCard(ctx, card.ID, 60_000, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := code(c.ReleaseCard(ctx, card.ID)); got != "not_yours" {
+		t.Errorf("release of another actor's claim = %s, want not_yours", got)
+	}
+	if got := code(c.RenewClaim(ctx, card.ID, 0)); got != "not_yours" {
+		t.Errorf("renew of another actor's claim = %s, want not_yours", got)
+	}
+	_, err = c.ClaimCard(ctx, card.ID, 60_000, false, "")
+	if got := code(err); got != "contention" {
+		t.Errorf("claim of another actor's card = %s, want contention", got)
+	}
+	_, err = c.EditCard(ctx, p.ID, CardRef{UUID: card.ID}, CardEdit{Title: new("edited")})
+	if got := code(err); got != "contention" {
+		t.Errorf("edit of another actor's card = %s, want contention", got)
+	}
+	_, err = c.ArchiveCard(ctx, p.ID, CardRef{UUID: card.ID})
+	if got := code(err); got != "contention" {
+		t.Errorf("archive of another actor's card = %s, want contention", got)
+	}
+}
+
 // TestConcurrentClaimNoLostCards runs 8 OS processes racing to claim 50 cards,
 // asserting every card is claimed exactly once and none is lost.
 // This test re-invokes the test binary as separate processes, not goroutines,

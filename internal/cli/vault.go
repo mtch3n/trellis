@@ -110,7 +110,7 @@ func newVaultShowCmd() *cobra.Command {
 				view := struct {
 					core.Entry
 					Backlinks  []core.Backlink `json:"backlinks,omitempty"`
-					Unverified bool            `json:"unreviewed,omitzero"`
+					Unverified bool            `json:"unverified,omitzero"`
 				}{Entry: entry, Backlinks: back, Unverified: entry.Unverified(time.Now().UnixMilli())}
 				return Emit(cmd, view, func() string {
 					var b strings.Builder
@@ -269,7 +269,7 @@ func newVaultLsCmd() *cobra.Command {
 					return err
 				}
 				withholdContent(entries)
-				return Emit(cmd, map[string]any{"knowledge": entries}, func() string {
+				return Emit(cmd, map[string]any{"entries": entries}, func() string {
 					return renderEntryList(entries)
 				})
 			})
@@ -298,7 +298,7 @@ func newVaultHealthCmd() *cobra.Command {
 					if err != nil {
 						return err
 					}
-					return Emit(cmd, map[string]any{"clusters": clusters}, func() string {
+					return Emit(cmd, map[string]any{"duplicate_clusters": clusters}, func() string {
 						if len(clusters) == 0 {
 							return "no duplicate clusters"
 						}
@@ -573,7 +573,7 @@ never changes anything.
 
 Kinds:
   ambiguous_link       a wikilink whose bare leaf names more than one entry
-  bad_path             a malformed address
+  bad_address          a malformed address
   broken_anchor        a wikilink to a heading its target entry does not have
   deep_directory       an entry three or more directories deep
   long_directory_name  a directory name longer than 30 characters
@@ -593,7 +593,7 @@ Kinds:
 				}
 				// The documented exception to the three-line error rule: a
 				// validation report is a list of diagnostics (§12).
-				return Emit(cmd, map[string]any{"findings": diagnostics}, func() string {
+				return Emit(cmd, map[string]any{"diagnostics": diagnostics}, func() string {
 					if len(diagnostics) == 0 {
 						return "no diagnostics"
 					}
