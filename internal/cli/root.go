@@ -91,7 +91,16 @@ func currentBoard() (*appCtx, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
+	return boardForCore(context.Background(), c, db)
+}
+
+// boardForCore resolves the project and board for an already-open Core, and
+// layers the repository config over the global one. It is shared by
+// currentBoard and, for the branch of targetContext that resolves the pinned
+// project, targetContext itself: a qualified card ref or address naming the
+// same project a pin would have chosen must not skip the repository file
+// that a bare reference reads. It closes db on any error.
+func boardForCore(ctx context.Context, c *core.Core, db *sqlx.DB) (*appCtx, error) {
 	r, err := resolveProject(ctx, c)
 	if err != nil {
 		db.Close()
@@ -102,13 +111,25 @@ func currentBoard() (*appCtx, error) {
 		db.Close()
 		return nil, err
 	}
+	effective, err := applyRepoConfig(c, r)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	return &appCtx{Core: c, Project: r.Project, Board: b, db: db, cfg: effective}, nil
+}
 
-	// openCore already primed the Core's lease TTL, default columns and
-	// label/tag requirements from the global file alone. Now that the pin
-	// that chose the project (if any) is known, re-derive those settings with
-	// the repository file beside it layered in, and re-apply them: a
-	// repo-safe key wins over the global file. A project named by --project
-	// or TRELLIS_PROJECT has no pin and reads no repository file.
+// applyRepoConfig loads the repository file beside r's pin, if any, layers it
+// over the global config, applies the effective lease TTL, default columns
+// and card requirements to c, and returns the effective config for app.cfg.
+//
+// openCore already primed the Core's lease TTL, default columns and
+// label/tag requirements from the global file alone. Once the pin that chose
+// the project (if any) is known, this re-derives those settings with the
+// repository file beside it layered in, and re-applies them: a repo-safe key
+// wins over the global file. A project named by --project or TRELLIS_PROJECT
+// has no pin and reads no repository file.
+func applyRepoConfig(c *core.Core, r resolvedProject) (config.Config, error) {
 	var repoDir string
 	if r.Pin != nil {
 		repoDir = filepath.Dir(r.Pin.Path)
@@ -119,8 +140,7 @@ func currentBoard() (*appCtx, error) {
 	}
 	repo, _, _, repoErr := config.LoadRepo(repoDir)
 	if repoErr != nil {
-		db.Close()
-		return nil, core.ErrUsage("bad_repo_config", repoErr.Error(), "fix the file .trellis.yaml/.trellis.yml names")
+		return config.Config{}, core.ErrUsage("bad_repo_config", repoErr.Error(), "fix the file .trellis.yaml/.trellis.yml names")
 	}
 	effective := config.ApplyRepoOverrides(cfg, repo)
 	if ttl, err := time.ParseDuration(effective.Lease.TTL); err == nil {
@@ -128,7 +148,7 @@ func currentBoard() (*appCtx, error) {
 	}
 	c.SetDefaultColumns(effective.Board.DefaultColumns)
 	c.SetCardRequirements(effective.Labels.RequireOnCard, effective.Tags.RequireOnCard)
-	return &appCtx{Core: c, Project: r.Project, Board: b, db: db, cfg: effective}, nil
+	return effective, nil
 }
 
 func newRootCmd() *cobra.Command {
