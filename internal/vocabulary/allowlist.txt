@@ -122,10 +122,7 @@ plugin/.codex-plugin/plugin.json	finding-umbrella	1
 plugin/.codex-plugin/plugin.json	knowledge-base	3
 plugin/.codex-plugin/plugin.json	knowledge-ident	1
 plugin/.codex-plugin/plugin.json	lease	1
-plugin/hooks/hooks.json	owner	1
-plugin/hooks/trellis_hook.py	owner	2
 plugin/integrations/README.md	knowledge-ident	1
-plugin/integrations/claude_code/recall.py	knowledge-cli	2
 plugin/plugin-build.json	finding-umbrella	1
 plugin/plugin-build.json	knowledge-base	4
 plugin/plugin-build.json	knowledge-ident	1
@@ -150,8 +147,6 @@ plugin/skills/writing-knowledge/SKILL.md	old-address	2
 scripts/gen_manifests.py	owner	2
 scripts/rewrite_type_to_template.py	card-note	1
 scripts/rewrite_type_to_template.py	knowledge-ident	4
-scripts/tests/test_integrations.py	lease	11
-scripts/tests/test_plugin_hooks.py	owner	1
 scripts/tests/test_rewrite_type_to_template.py	card-note	3
 scripts/tests/test_rewrite_type_to_template.py	knowledge-ident	10
 scripts/ui-browser-smoke.sh	document	2

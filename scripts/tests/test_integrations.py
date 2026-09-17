@@ -23,8 +23,8 @@ class ClaudeRecallTests(unittest.TestCase):
         self.which.start()
         self.calls = []
         self.results = [{
-            "kind": "entry", "ref": "/TRELLIS/vault/lease-renewal",
-            "title": "Lease renewal on claim", "recap": "A claim starts the lease.",
+            "kind": "entry", "ref": "/TRELLIS/vault/claim-renewal",
+            "title": "Claim renewal", "recap": "A comment renews the claim.",
         }]
         self.code = 0
 
@@ -41,7 +41,7 @@ class ClaudeRecallTests(unittest.TestCase):
         self.addCleanup(self.scratch.cleanup)
         self.addCleanup(patch.stopall)
 
-    def invoke(self, prompt="why did the lease expire", **fields):
+    def invoke(self, prompt="why did the claim expire", **fields):
         event = dict(prompt=prompt, cwd="/project with spaces",
                      scratchpad_dir=self.scratch.name, **fields)
         return RECALL.handle(event)
@@ -49,19 +49,19 @@ class ClaudeRecallTests(unittest.TestCase):
     def context(self, result):
         return result["hookSpecificOutput"]["additionalContext"]
 
-    def test_injects_identifiers_and_recaps_never_bodies(self):
+    def test_injects_refs_and_recaps_never_bodies(self):
         result = self.invoke()
         self.assertEqual(result["hookSpecificOutput"]["hookEventName"], "UserPromptSubmit")
         body = self.context(result)
-        self.assertIn("/TRELLIS/vault/lease-renewal", body)
-        self.assertIn("A claim starts the lease.", body)
-        self.assertIn("knowledge show <ref>", body)
+        self.assertIn("/TRELLIS/vault/claim-renewal", body)
+        self.assertIn("A comment renews the claim.", body)
+        self.assertIn("vault show <ref>", body)
 
     def test_the_cli_decides_what_to_search_for(self):
-        self.invoke(prompt="why did the lease expire")
+        self.invoke(prompt="why did the claim expire")
         # The prompt is handed over whole: term lifting belongs to the CLI, so
         # two harnesses cannot drift into recalling different things.
-        self.assertEqual(self.calls[0][:2], ["recall", "why did the lease expire"])
+        self.assertEqual(self.calls[0][:2], ["recall", "why did the claim expire"])
         self.assertIn("--json", self.calls[0])
         # Only this caller knows an injection actually reached a model, so only
         # it may enter the measurement.
@@ -69,13 +69,13 @@ class ClaudeRecallTests(unittest.TestCase):
 
     def test_a_session_is_not_shown_the_same_ref_twice(self):
         self.assertIsNotNone(self.invoke())
-        self.invoke(prompt="and the lease again")
+        self.invoke(prompt="and the claim again")
         self.assertIn("--exclude", self.calls[1])
         self.assertEqual(self.calls[1][self.calls[1].index("--exclude") + 1],
-                         "/TRELLIS/vault/lease-renewal")
+                         "/TRELLIS/vault/claim-renewal")
 
     def test_without_a_scratchpad_it_still_answers(self):
-        event = {"prompt": "lease", "cwd": "/tmp"}
+        event = {"prompt": "claim", "cwd": "/tmp"}
         self.assertIsNotNone(RECALL.handle(event))
         self.assertNotIn("--exclude", self.calls[0])
 
