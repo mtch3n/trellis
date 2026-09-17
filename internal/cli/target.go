@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/mtch3n/trellis/internal/core"
 	"github.com/mtch3n/trellis/internal/vpath"
 )
@@ -28,11 +29,22 @@ type refArg struct {
 // in the form core takes: a board address becomes its slug. Everything else
 // passes through whole, because core reads card, knowledge and artifact
 // addresses itself, and a card address must reach core with its project.
-func argProject(a refArg) (key, ref string, err error) {
+//
+// A qualified card ref names the project that actually holds the card, via
+// core.CardHolder: after a merge, API-12 lives on in MONO, and MONO is what
+// must be compared against every other reference in the command, not API,
+// which is retired. When no card has that ref yet, the prefix itself is the
+// best guess, and core reports project_not_found or project_merged on it.
+func argProject(ctx context.Context, c *core.Core, a refArg) (key, ref string, err error) {
 	v := strings.TrimSpace(a.Value)
 	if !strings.HasPrefix(v, "/") {
 		if a.Collection == vpath.CollectionCards {
 			if r := core.ParseCardRef(v); r.ProjectKey != "" {
+				if holder, found, err := c.CardHolder(ctx, v); err != nil {
+					return "", "", err
+				} else if found {
+					return holder.Key, v, nil
+				}
 				return r.ProjectKey, v, nil
 			}
 		}
@@ -77,6 +89,11 @@ func withTarget(a refArg, fn func(app *appCtx, ref string) error) error {
 // candidate, and the relative reference is read there. With no reference
 // naming a project, the command runs where withBoard would.
 func withTargets(args []refArg, fn func(app *appCtx, refs []string) error) error {
+	c, db, err := openCore()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
 	refs := make([]string, len(args))
 	keys := make([]string, len(args))
 	named, primary, relative := "", 0, false
@@ -84,8 +101,9 @@ func withTargets(args []refArg, fn func(app *appCtx, refs []string) error) error
 		if strings.TrimSpace(a.Value) == "" {
 			continue
 		}
-		key, ref, err := argProject(a)
+		key, ref, err := argProject(ctx, c, a)
 		if err != nil {
+			db.Close()
 			return err
 		}
 		refs[i], keys[i] = ref, key
@@ -96,10 +114,11 @@ func withTargets(args []refArg, fn func(app *appCtx, refs []string) error) error
 		case named == "":
 			named, primary = key, i
 		case key != named:
+			db.Close()
 			return projectConflict(named, a.Value, key)
 		}
 	}
-	app, err := targetContext(args[primary], named, refs[primary], relative)
+	app, err := targetContext(ctx, c, db, args[primary], named, refs[primary], relative)
 	if err != nil {
 		return err
 	}
@@ -109,7 +128,7 @@ func withTargets(args []refArg, fn func(app *appCtx, refs []string) error) error
 			continue
 		}
 		// A board address works on that board; core takes board names.
-		b, err := app.Core.BoardBySlug(context.Background(), app.Project.ID, refs[i])
+		b, err := app.Core.BoardBySlug(ctx, app.Project.ID, refs[i])
 		if err != nil {
 			return err
 		}
@@ -121,45 +140,47 @@ func withTargets(args []refArg, fn func(app *appCtx, refs []string) error) error
 	return fn(app, refs)
 }
 
-// targetContext opens the context a command runs in. key is the project its
-// references name, "" when none does. a is the reference that named it, or
-// the positional one when none did. relative says whether some other
-// reference relies on the current project.
-func targetContext(a refArg, key, ref string, relative bool) (*appCtx, error) {
+// targetContext opens the context a command runs in, on the Core and db
+// withTargets already opened. key is the project its references name, "" when
+// none does. a is the reference that named it, or the positional one when
+// none did. relative says whether some other reference relies on the current
+// project. It closes db on every error path, and hands db to the returned
+// appCtx on success.
+func targetContext(ctx context.Context, c *core.Core, db *sqlx.DB, a refArg, key, ref string, relative bool) (*appCtx, error) {
 	if key == "" && a.NoProject && isVaultAddress(a.Value) {
 		// A vault entry belongs to no project, so nothing ambient is
 		// consulted: a malformed or stale pin, or a TRELLIS_PROJECT naming
 		// nothing, must not stand between a reader and the vault.
-		c, db, err := openCore()
-		if err != nil {
-			return nil, err
-		}
 		return &appCtx{Core: c, db: db}, nil
 	}
 	if key == "" {
-		return currentBoard()
+		return boardForCore(ctx, c, db)
 	}
 
 	if flag := normalizeProjectArg(projectFlagKey); flag != "" && flag != key {
+		db.Close()
 		return nil, projectConflict(flag, a.Value, key)
-	}
-	c, db, err := openCore()
-	if err != nil {
-		return nil, err
 	}
 	fail := func(err error) (*appCtx, error) {
 		db.Close()
 		return nil, err
 	}
-	ctx := context.Background()
 	r, rerr := resolveProject(ctx, c)
 	switch {
 	case rerr == nil && r.Project.Key == key:
+		// The pin would have chosen this same project, so the repository
+		// file beside it applies exactly as it would to a bare reference:
+		// KEY-N must not skip lease.ttl and the label/tag requirements that
+		// a bare N reads.
 		b, err := selectBoard(ctx, c, r)
 		if err != nil {
 			return fail(err)
 		}
-		return &appCtx{Core: c, Project: r.Project, Board: b, db: db}, nil
+		effective, err := applyRepoConfig(c, r)
+		if err != nil {
+			return fail(err)
+		}
+		return &appCtx{Core: c, Project: r.Project, Board: b, db: db, cfg: effective}, nil
 	case relative && rerr == nil:
 		// The relative reference means this project, not the named one.
 		return fail(projectConflict(r.Project.Key, a.Value, key))
@@ -168,16 +189,11 @@ func targetContext(a refArg, key, ref string, relative bool) (*appCtx, error) {
 		// is not the same as no pin.
 		return fail(rerr)
 	}
+	// key already names the project that holds the card, per CardHolder in
+	// argProject, so a merged prefix reaches here only via an address that
+	// names the retired key itself -- which must fail with project_merged,
+	// per the project-merge design's "the merged key is reserved".
 	p, err := c.ProjectByKey(ctx, key)
-	// A card ref names a card, and a merged project's cards live on in the
-	// project it was merged into; an address names the project itself, which
-	// is gone (project-merge design, "The merged key is reserved").
-	if ce, ok := errors.AsType[*core.Error](err); ok && ce.Code == "project_merged" &&
-		a.Collection == vpath.CollectionCards && !strings.HasPrefix(strings.TrimSpace(a.Value), "/") {
-		if detail, ok := ce.Detail.(map[string]string); ok && detail["into"] != "" {
-			p, err = c.ProjectByKey(ctx, detail["into"])
-		}
-	}
 	if err != nil {
 		return fail(err)
 	}

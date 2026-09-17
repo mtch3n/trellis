@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Network, PanelRightClose, PanelRightOpen, Pencil } from 'lucide-react'
+import { FilePlus, Network, PanelRightClose, PanelRightOpen, Pencil } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -18,15 +18,23 @@ import { ArtifactList, type Artifact } from '@/components/wrappers/ArtifactList'
 import { ActionRow } from '@/components/wrappers/ActionRow'
 import { EditActions } from '@/components/wrappers/EditInPlace'
 import { EntryView, type EntryDraft } from '@/components/wrappers/EntryView'
+import { FieldsEditor } from '@/components/wrappers/FieldsEditor'
 import { GraphDock } from '@/components/wrappers/GraphDock'
 import { GraphExplorer } from '@/components/wrappers/GraphExplorer'
 import { IconButton } from '@/components/wrappers/IconButton'
 import { KnowledgeNav } from '@/components/wrappers/KnowledgeNav'
 import { MetaFacts, MetaGroup, MetaPanel } from '@/components/wrappers/MetaPanel'
+import { NewEntryDialog, type CreatedEntry } from '@/components/wrappers/NewEntryDialog'
+import { SourcesEditor } from '@/components/wrappers/SourcesEditor'
+import { TemplateSelect } from '@/components/wrappers/TemplateSelect'
+import { TemplateSwitchDialog, type TemplateSwitch } from '@/components/wrappers/TemplateSwitchDialog'
 import { VaultLayout } from '@/components/wrappers/VaultLayout'
-import { sentence } from '@/lib/format'
-import { buildGraph, entryNodeId, type GraphNode } from '@/lib/knowledge-graph'
+import { sentence, templateLabel } from '@/lib/format'
+import { buildGraph, entryNodeId, type GraphNode, type KnowledgeLink } from '@/lib/knowledge-graph'
+import { fieldRows, switchNeedsDialog, type FieldValues, type TemplateInfo } from '@/lib/templates'
 import { cn } from '@/lib/utils'
+import { projectFolders } from '@/lib/vault-tree'
+import { readError, readRefusal, refusalText, type Refusal } from '@/lib/api'
 
 export interface KnowledgeEntry {
   id: string
@@ -37,7 +45,8 @@ export interface KnowledgeEntry {
   /** Set when the entry is pinned: the line a session reads before the body. */
   recap?: string
   body?: string
-  type?: string
+  /** The template the entry follows, or "" when it follows none. */
+  template?: string
   path?: string
   global?: boolean
   private?: boolean
@@ -46,6 +55,15 @@ export interface KnowledgeEntry {
   version: number
   /** Files attached to the entry. Absent when there are none, and never on vault entries. */
   artifacts?: Artifact[]
+  /** What the entry's claims rest on. Only the full entry carries them. */
+  sources?: string[]
+  /** Frontmatter beyond what Trellis names: what templates and `set` write. Empty on private entries in lists. */
+  fields?: FieldValues
+}
+
+/** A template's warnings as a toast's words, one sentence each. */
+function warningText(warnings: string[]) {
+  return warnings.map((warning) => `${sentence(warning.trim()).replace(/\.$/, '')}.`).join(' ')
 }
 
 function when(timestamp?: number) {
@@ -64,8 +82,10 @@ function when(timestamp?: number) {
  * makes moving between entries one click; with it always present, a separate
  * index page has nothing left to do.
  *
- * The graph is built here, once, from the bodies the list already carries, and
- * handed to both the dock and the explorer so they can never disagree. The
+ * Lists carry no bodies, so the open entry is fetched on its own, when it is
+ * chosen and again after every save. The graph is built here, once, from the
+ * links the server resolved, and handed to both the dock and the explorer so
+ * they can never disagree. The
  * explorer's open state is the `view=graph` query, so it survives a reload and
  * following any link out of it closes it.
  */
@@ -77,11 +97,21 @@ export function KnowledgePage() {
   const [vault, setVault] = useState<KnowledgeEntry[] | null>(null)
   const [project, setProject] = useState<KnowledgeEntry[] | null>(null)
   const [board, setBoard] = useState<string | null>(null)
+  const [links, setLinks] = useState<KnowledgeLink[]>([])
   // Tagged with the entry it belongs to, so moving to another entry needs no reset.
   const [editingSlug, setEditingSlug] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [source, setSource] = useState(false)
+  // The open entry in full: its body and attachments. Tagged with the slug it
+  // belongs to, so a stale answer for the previous entry is never shown.
+  const [detail, setDetail] = useState<KnowledgeEntry | null>(null)
+  const [templates, setTemplates] = useState<TemplateInfo[]>([])
+  // The folder a new entry is being started in, while the dialog is open.
+  const [creatingIn, setCreatingIn] = useState<string | null>(null)
+  // A just-created entry opens with the cursor in its body.
+  const [fresh, setFresh] = useState<string | null>(null)
+  const [switching, setSwitching] = useState<TemplateInfo | null>(null)
 
   const exploring = params.get('view') === 'graph'
   // The facts column can be put away for reading, and stays put away.
@@ -98,17 +128,21 @@ export function KnowledgePage() {
     if (!projectKey) return
     const read = async (url: string) => {
       const response = await fetch(url, { signal })
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) throw new Error(await readError(response))
       return response.json()
     }
     try {
-      const [globalEntries, projectEntries, boards] = await Promise.all([
+      const [globalEntries, projectEntries, boards, resolved, known] = await Promise.all([
         read('/api/global/knowledge') as Promise<KnowledgeEntry[]>,
         read(`/api/p/${projectKey}/knowledge`) as Promise<KnowledgeEntry[]>,
         read(`/api/p/${projectKey}/boards`) as Promise<{ slug: string }[]>,
+        read(`/api/p/${projectKey}/links/knowledge`) as Promise<KnowledgeLink[]>,
+        read('/api/templates') as Promise<TemplateInfo[]>,
       ])
       setVault(globalEntries ?? [])
       setProject(projectEntries ?? [])
+      setLinks(resolved ?? [])
+      setTemplates(known ?? [])
       setBoard(boards?.[0]?.slug ?? null)
       setError(null)
     } catch (err) {
@@ -124,9 +158,45 @@ export function KnowledgePage() {
     return () => controller.abort()
   }, [load])
 
+  const readEntry = useCallback(async (target: string, signal?: AbortSignal) => {
+    const response = await fetch(`/api/p/${projectKey}/knowledge/${encodeURIComponent(target)}`, { signal })
+    if (!response.ok) throw new Error(await readError(response))
+    return (await response.json()) as KnowledgeEntry
+  }, [projectKey])
+
+  useEffect(() => {
+    if (!slug) return
+    const controller = new AbortController()
+    readEntry(slug, controller.signal)
+      .then(setDetail)
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return
+        toast.add({ title: `Could not open ${slug}`, description: err instanceof Error ? err.message : undefined, type: 'error' })
+      })
+    return () => controller.abort()
+  }, [slug, readEntry])
+
+  /** The list and the open entry, together, after anything changes them. */
+  const reload = async () => {
+    await load()
+    if (slug) setDetail(await readEntry(slug))
+  }
+
   const entries = useMemo(() => [...(vault ?? []), ...(project ?? [])], [vault, project])
   const entry = useMemo(() => entries.find((item) => item.slug === slug), [entries, slug])
-  const graph = useMemo(() => buildGraph(entries, projectKey), [entries, projectKey])
+  // The list's facts with the detail's body and attachments, once they are in.
+  const shown = useMemo(
+    () => (entry && detail?.slug === entry.slug ? { ...entry, ...detail } : undefined),
+    [entry, detail],
+  )
+  // The entry's fields come from the full entry only: lists empty them on
+  // private entries.
+  const rows = useMemo(
+    () => (shown ? fieldRows(templates.find((template) => template.name === shown.template), shown.fields) : []),
+    [shown, templates],
+  )
+  const graph = useMemo(() => buildGraph(entries, links), [entries, links])
+  const folders = useMemo(() => projectFolders(project ?? []), [project])
   const activeNode = entry ? entryNodeId(entry) : undefined
   const editing = Boolean(slug) && editingSlug === slug
   const setEditing = (on: boolean) => { setEditingSlug(on ? (slug ?? null) : null); setSource(false) }
@@ -177,7 +247,7 @@ export function KnowledgePage() {
       // open. The page takes the new version and the edit stays open, so the
       // writer can look before deciding to save over it.
       if (response.status === 409) {
-        await load()
+        await reload()
         toast.add({
           title: 'Changed elsewhere',
           description: `${entry.slug} changed while you were editing and has been reloaded. Save again to replace that change, or cancel.`,
@@ -185,10 +255,16 @@ export function KnowledgePage() {
         })
         return
       }
-      if (!response.ok) throw new Error(await response.text())
-      await load()
+      if (!response.ok) throw new Error(await readError(response))
+      // A template that only warns lets the save through and says why.
+      const saved = (await response.json()) as { warnings?: string[] }
+      await reload()
       setEditing(false)
-      toast.add({ title: `Saved ${entry.slug}`, type: 'success' })
+      if (saved.warnings?.length) {
+        toast.add({ title: `Saved ${entry.slug}, with warnings`, description: warningText(saved.warnings), type: 'warning' })
+      } else {
+        toast.add({ title: `Saved ${entry.slug}`, type: 'success' })
+      }
     } catch (err) {
       toast.add({
         title: 'Could not save the entry',
@@ -196,6 +272,94 @@ export function KnowledgePage() {
         type: 'error',
       })
     } finally { setSaving(false) }
+  }
+
+  /**
+   * A change to the entry's facts, applied at once. It carries the version on
+   * screen, which the reload after it advances, so an open edit carries on
+   * and saves over the new version. Resolves null once saved, or with the
+   * server's refusal.
+   */
+  const patchEntry = async (
+    change: TemplateSwitch | { sources: string[] } | { set: Record<string, string> },
+    done: string,
+  ): Promise<Refusal | null> => {
+    if (!projectKey || !board || !entry) return { message: 'The entry is not loaded yet.', problems: [] }
+    try {
+      const response = await fetch(
+        `/api/p/${projectKey}/b/${board}/knowledge/${encodeURIComponent(entry.slug)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...change, version: entry.version }),
+        },
+      )
+      if (!response.ok) return await readRefusal(response)
+      const saved = (await response.json()) as { warnings?: string[] }
+      await reload()
+      if (saved.warnings?.length) {
+        toast.add({ title: `${done}, with warnings`, description: warningText(saved.warnings), type: 'warning' })
+      } else {
+        toast.add({ title: done, type: 'success' })
+      }
+      return null
+    } catch (err) {
+      return { message: err instanceof Error ? err.message : 'Could not reach the daemon.', problems: [] }
+    }
+  }
+
+  const refused = (title: string, refusal: Refusal) => {
+    toast.add({ title, description: refusalText(refusal), type: 'error' })
+  }
+
+  // A strict template the entry does not meet yet asks first; anything else
+  // switches at once.
+  const changeTemplate = async (name: string) => {
+    if (!shown) return
+    const target = templates.find((template) => template.name === name)
+    if (target && switchNeedsDialog(target, shown)) {
+      setSwitching(target)
+      return
+    }
+    const refusal = await patchEntry({ template: name }, `${shown.slug} now follows ${templateLabel(name).toLowerCase()}`)
+    if (refusal) refused(`Could not switch to ${templateLabel(name).toLowerCase()}`, refusal)
+  }
+
+  const switchTemplate = async (change: TemplateSwitch) => {
+    const refusal = await patchEntry(change, `${entry?.slug} now follows ${templateLabel(change.template).toLowerCase()}`)
+    if (!refusal) setSwitching(null)
+    return refusal
+  }
+
+  const changeSources = async (sources: string[]) => {
+    const refusal = await patchEntry({ sources }, 'Sources saved')
+    if (refusal) refused('Could not change the sources', refusal)
+    return refusal === null
+  }
+
+  // An empty value removes the field.
+  const setField = async (name: string, value: string) => {
+    const label = sentence(name)
+    const refusal = await patchEntry({ set: { [name]: value } }, value ? `${label} saved` : `${label} removed`)
+    if (refusal) refused(`Could not change ${label.toLowerCase()}`, refusal)
+    return refusal === null
+  }
+
+  // A new entry opens for writing, cursor in the body, where the template's
+  // sections already wait.
+  const created = async (made: CreatedEntry) => {
+    setCreatingIn(null)
+    await load()
+    setDetail(made)
+    setFresh(made.slug)
+    setEditingSlug(made.slug)
+    setSource(false)
+    navigate(`/p/${projectKey}/knowledge/${encodeURIComponent(made.slug)}`)
+    if (made.warnings?.length) {
+      toast.add({ title: `Created ${made.slug}, with warnings`, description: warningText(made.warnings), type: 'warning' })
+    } else {
+      toast.add({ title: `Created ${made.slug}`, type: 'success' })
+    }
   }
 
   if (vault === null || project === null) {
@@ -237,6 +401,7 @@ export function KnowledgePage() {
             activeId={entry?.id}
             dock={dock}
             onOpenGraph={() => setExploring(true)}
+            onCreate={setCreatingIn}
           />
         }
       >
@@ -262,14 +427,18 @@ export function KnowledgePage() {
                       : `${entries.length} ${entries.length === 1 ? 'entry' : 'entries'} in this project and the vault.`}
                 </EmptyDescription>
               </EmptyHeader>
-              {graph.nodes.length > 0 && (
-                <EmptyContent>
+              <EmptyContent className="flex-row justify-center">
+                <Button variant="outline" onClick={() => setCreatingIn('')}>
+                  <FilePlus data-icon="inline-start" />
+                  New entry
+                </Button>
+                {graph.nodes.length > 0 && (
                   <Button variant="outline" onClick={() => setExploring(true)}>
                     <Network data-icon="inline-start" />
                     Open the graph
                   </Button>
-                </EmptyContent>
-              )}
+                )}
+              </EmptyContent>
             </Empty>
           )}
 
@@ -313,21 +482,61 @@ export function KnowledgePage() {
                   facts && 'xl:grid-cols-entry',
                 )}
               >
-                <EntryView
-                  entry={entry}
-                  editing={editing}
-                  source={source}
-                  onEditingChange={setEditing}
-                  onSave={save}
-                />
+                {shown ? (
+                  <EntryView
+                    entry={shown}
+                    editing={editing}
+                    initialFocus={shown.slug === fresh ? 'body' : 'title'}
+                    source={source}
+                    onEditingChange={setEditing}
+                    onSave={save}
+                  />
+                ) : (
+                  // The title is already known; the body is on its way.
+                  <div className="flex min-w-0 flex-col gap-3">
+                    <h1 className="text-title text-balance">{entry.title}</h1>
+                    <Skeleton className="mt-9 h-4 w-full" />
+                    <Skeleton className="h-4 w-11/12" />
+                    <Skeleton className="h-4 w-4/5" />
+                  </div>
+                )}
 
                 {facts && (
                   <MetaPanel className="gap-6 xl:sticky xl:top-16 xl:self-start">
+                    {/* The template and the sources apply the moment they change,
+                        editing or not, like a card's status. */}
+                    <MetaGroup label="Template">
+                      <TemplateSelect
+                        templates={templates}
+                        value={shown?.template ?? entry.template ?? ''}
+                        disabled={!shown}
+                        onChange={(name) => void changeTemplate(name)}
+                      />
+                    </MetaGroup>
+
+                    <MetaGroup label="Sources" count={shown?.sources?.length || undefined} collapsible>
+                      {shown ? (
+                        <SourcesEditor
+                          key={shown.slug}
+                          sources={shown.sources ?? []}
+                          projectKey={projectKey ?? ''}
+                          onChange={changeSources}
+                        />
+                      ) : (
+                        <Skeleton className="h-4 w-2/3" />
+                      )}
+                    </MetaGroup>
+
+                    {rows.length > 0 && (
+                      <MetaGroup label="Fields" collapsible>
+                        <FieldsEditor key={shown?.slug} rows={rows} onSet={setField} />
+                      </MetaGroup>
+                    )}
+
                     <MetaGroup label="Details" collapsible>
                       <MetaFacts
                         facts={[
                           { label: 'Slug', value: entry.slug, mono: true, stacked: true },
-                          { label: 'Kind', value: sentence(entry.type ?? 'note') },
                           { label: 'Scope', value: entry.global ? 'Global vault' : (projectKey ?? 'Project') },
                           ...(entry.private ? [{ label: 'Visibility', value: 'Private' }] : []),
                           { label: 'Version', value: `v${entry.version}` },
@@ -337,9 +546,9 @@ export function KnowledgePage() {
                       />
                     </MetaGroup>
 
-                    {entry.artifacts && entry.artifacts.length > 0 && (
-                      <MetaGroup label="Attachments" count={entry.artifacts.length} collapsible>
-                        <ArtifactList artifacts={entry.artifacts} />
+                    {shown?.artifacts && shown.artifacts.length > 0 && (
+                      <MetaGroup label="Attachments" count={shown.artifacts.length} collapsible>
+                        <ArtifactList artifacts={shown.artifacts} />
                       </MetaGroup>
                     )}
 
@@ -383,6 +592,30 @@ export function KnowledgePage() {
           )}
         </main>
       </VaultLayout>
+
+      {projectKey && (
+        <NewEntryDialog
+          open={creatingIn !== null}
+          projectKey={projectKey}
+          board={board}
+          templates={templates}
+          folders={folders}
+          dir={creatingIn ?? ''}
+          onOpenChange={(open) => { if (!open) setCreatingIn(null) }}
+          onCreated={(made) => void created(made)}
+        />
+      )}
+
+      {projectKey && (
+        <TemplateSwitchDialog
+          template={switching}
+          entry={shown ?? {}}
+          projectKey={projectKey}
+          editing={editing}
+          onOpenChange={(open) => { if (!open) setSwitching(null) }}
+          onSwitch={switchTemplate}
+        />
+      )}
 
       <GraphExplorer
         open={exploring}

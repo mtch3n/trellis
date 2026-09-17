@@ -29,7 +29,7 @@ func newEventsCmd() *cobra.Command {
 	}
 	cmd.Flags().Int64Var(&after, "after", 0, "only events after this seq")
 	cmd.Flags().IntVar(&limit, "limit", 0, "row cap (default 1000, max 5000)")
-	cmd.Flags().StringSliceVar(&kinds, "kind", nil, "card|knowledge|board|label|note (repeatable)")
+	cmd.Flags().StringSliceVar(&kinds, "kind", nil, "card|knowledge|board|label|comment (repeatable)")
 	cmd.Flags().StringSliceVar(&actions, "action", nil, "created, edited, moved, ... (repeatable; default: everything but read)")
 	cmd.Flags().StringSliceVar(&templates, "template", nil, "knowledge templates (repeatable)")
 	cmd.Flags().StringVar(&notActor, "not-actor", "", "skip events written by this actor")

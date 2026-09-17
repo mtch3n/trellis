@@ -13,6 +13,7 @@ import {
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
+import { readError } from '@/lib/api'
 
 /**
  * Deleting a project, with the key retyped. The server asks for the same
@@ -73,7 +74,7 @@ export function DeleteProjectDialog({
         body: JSON.stringify({ confirm: typed.trim() }),
       })
       if (!response.ok) {
-        setRefusal((await response.text()).trim() || `The server refused (${response.status}).`)
+        setRefusal(await readError(response))
         return
       }
       onDeleted(projectKey)
@@ -96,7 +97,7 @@ export function DeleteProjectDialog({
           <DialogHeader>
             <DialogTitle>Delete {projectKey}?</DialogTitle>
             <DialogDescription className="text-pretty">
-              This removes its boards, {what}, and their files from this machine. The activity log keeps a
+              This removes its boards, {what}, and their files from this machine. The event log keeps a
               record. Running trellis in the repository again starts a new, empty project.
             </DialogDescription>
           </DialogHeader>

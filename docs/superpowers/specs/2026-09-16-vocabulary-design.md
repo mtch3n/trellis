@@ -28,8 +28,8 @@ tree will move before the rename starts.
 | The global review clock | **verify / unverified** | author |
 | What lint reports | **diagnostic** | author |
 | How deep the rename goes | every layer: CLI, JSON, URLs, disk, Go, SQL | author |
-| `type` versus `template` | **template** is the only classification; no template means no shape. **Delivered by `wip/template`** (migration 0020), not by this rename | author |
-| Card notes | **comment**: `card comment`, table `comment`, many per card. **Delivered by `wip/comments`** (migration 0021), not by this rename | author |
+| `type` versus `template` | **template** is the only classification; no template means no shape. **Delivered by `wip/template`** (now inside migration 0014), not by this rename | author |
+| Card notes | **comment**: `card comment`, table `comment`, many per card. **Delivered by `wip/comments`** (now inside migration 0014), not by this rename | author |
 | The `.trellis` file versus a pinned entry | entries keep **pin**; the file is the **marker** | author |
 | The glossary skills | separate skills that teach an agent to keep a glossary in Trellis and to use it; they carry no term list | author |
 | When the rename happens | **last**, after everything else merges | author |
@@ -197,17 +197,19 @@ the verb agents already type becomes the whole family.
 Two parts of this vocabulary are being built ahead of the rename, and the rename
 must neither redo nor contradict them.
 
-- **`wip/template`, migration 0020:**
+- **`wip/template`:**
   - `template` is the only classification, and the frontmatter key is `template:`.
   - The column is `knowledge.template`; the rename later changes only the table's name.
   - `--template` replaces every `--type`, and the JSON key is `template`.
   - The `note` template is gone.
   - Templates are enforced on every Trellis write, and lint reports `template_violation` and `unknown_template`.
-- **`wip/comments`, migration 0021:**
+- **`wip/comments`:**
   - Card notes become comments: `trellis card comment`, table `comment`, API `/comments`, JSON `comments`, event entity `comment`.
   - The UI shows a card's comments and events together as its **timeline**.
 
-The rename's migration is therefore numbered after 0021, and it treats
+Since 3564b86, this release's migrations are collapsed into one Go migration,
+`0014_memory_groundwork.go`, which includes both of these. The rename's
+migration is 0015, and it treats
 `template` and `comment` as already correct.
 
 ## 5. The rename map

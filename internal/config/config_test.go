@@ -14,8 +14,9 @@ import (
 )
 
 func TestDefaultsLoadWithNoFile(t *testing.T) {
-	// Temporarily override the config path to a non-existent file.
-	// Since Load() checks os.ErrNotExist, this should return defaults.
+	// An empty home has no config file, so Load returns the defaults. The
+	// user's own ~/.trellis/config.yaml must not decide this test.
+	t.Setenv("TRELLIS_HOME", t.TempDir())
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() with missing file: %v", err)
@@ -499,6 +500,53 @@ func TestLoadRepoRejectsABadValue(t *testing.T) {
 	_, _, _, err := LoadRepo(dir)
 	if err == nil || !strings.Contains(err.Error(), "card.ls_limit") {
 		t.Fatalf("err = %v, want an error naming card.ls_limit", err)
+	}
+}
+
+// review-cli #7: lease.ttl and search.method are plain strings, so a YAML
+// type check alone never catches a value that does not parse for its key.
+func TestLoadRepoRejectsAnUnparseableLeaseTTL(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", "config:\n  lease.ttl: banana\n")
+	_, _, _, err := LoadRepo(dir)
+	if err == nil || !strings.Contains(err.Error(), "lease.ttl") {
+		t.Fatalf("err = %v, want an error naming lease.ttl", err)
+	}
+}
+
+func TestLoadRepoRejectsAnUnknownSearchMethod(t *testing.T) {
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", "config:\n  search.method: bogus\n")
+	_, _, _, err := LoadRepo(dir)
+	if err == nil || !strings.Contains(err.Error(), "search.method") {
+		t.Fatalf("err = %v, want an error naming search.method", err)
+	}
+}
+
+func TestLoadRepoRejectsANonPositiveLimit(t *testing.T) {
+	for _, tc := range []struct{ key, yaml string }{
+		{"card.ls_limit", "config:\n  card.ls_limit: 0\n"},
+		{"search.limit", "config:\n  search.limit: -5\n"},
+	} {
+		dir := t.TempDir()
+		writeRepoFile(t, dir, ".trellis.yaml", tc.yaml)
+		_, _, _, err := LoadRepo(dir)
+		if err == nil || !strings.Contains(err.Error(), tc.key) {
+			t.Errorf("%s: err = %v, want an error naming %s", tc.key, err, tc.key)
+		}
+	}
+}
+
+// review-cli #6: SetRepoValue must refuse a value its own loader would
+// reject, instead of writing it and breaking every command in that
+// repository the next time it reads the file.
+func TestSetRepoValueRejectsABadValue(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := SetRepoValue(dir, "card.ls_limit", "abc"); err == nil {
+		t.Fatal("SetRepoValue accepted a non-numeric card.ls_limit")
+	}
+	if _, _, ok, _ := LoadRepo(dir); ok {
+		t.Fatal("SetRepoValue wrote a file despite rejecting the value")
 	}
 }
 

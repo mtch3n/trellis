@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **Starts last.** Do not begin until every other branch has merged into `feat/memory-groundwork`, including `wip/template` (migration 0020) and `wip/comments` (migration 0021); the integrating session (trellis-2f) confirms this.
+- **Starts last.** Do not begin until every other branch has merged into `feat/memory-groundwork`, including `wip/template` and `wip/comments`; the integrating session (trellis-2f) confirms this. Since 3564b86, this release's schema changes live in one Go migration, `internal/store/migrate_0014.go`.
 - **Template and comment are already done.** `wip/template` made `template` the only classification (frontmatter `template:`, column `template`, `--template`, JSON `template`, no `note` template). `wip/comments` turned card notes into comments. This plan treats both as correct and touches neither.
 - **The glossary skills plan has merged** (`2026-09-16-glossary-skills.md`). Task 2 needs its `glossary` template, and the vocabulary test will flag the old command names in its skills, which Task 13 fixes.
 - **Trellis's glossary is a vault entry**, not a file in the repository. Task 2 writes it into the live TRELLIS vault with the installed `trellis`, under your own `TRELLIS_AGENT` identity.
@@ -87,7 +87,7 @@ Read `/tmp/vocab-cli-now.txt`. For every command or flag string that is not in s
 ls /home/mtchen/Personal/trellis-worktrees/vocabulary/internal/store/migrations /home/mtchen/Personal/trellis-worktrees/vocabulary/internal/store/
 ```
 
-`vocabularyVersion` in Task 5 is the next number after the highest migration listed. It is at least 22: `wip/template` adds 0020 and `wip/comments` adds 0021. Nothing else carries the number: the files are named `migrate_vocabulary*.go`, and the test starts at `vocabularyVersion-1`.
+`vocabularyVersion` in Task 5 is the next number after the highest migration listed. It was 15 when this plan was written: 0001–0013 are SQL files, and 0014 is `migrate_0014.go`. Nothing else carries the number: the files are named `migrate_vocabulary*.go`, and the test starts at `vocabularyVersion-1`.
 
 - [ ] **Step 5: Commit any spec change**
 
@@ -707,6 +707,8 @@ Everything the migration rewrites and everything code writes into those same pla
 **Files:**
 - Create: `internal/store/migrate_vocabulary.go`
 - Create: `internal/store/migrate_vocabulary_test.go`
+- Modify: `internal/store/migrate_0014.go` (`foreignKeyCheck` takes the migration's name)
+- Modify: `internal/store/migrate_0014_test.go` (`migrateUp` stops at 14)
 - Modify: SQL strings and `db:` tags across `internal/core`, `internal/ui`, `internal/retrieval`, `internal/cli`
 - Modify: `internal/core/knowledge.go` (the vault directory name)
 - Modify: `internal/vpath/vpath.go` (the `CollectionKnowledge` value)
@@ -764,8 +766,8 @@ func readFile(t *testing.T, path string) string {
 
 // rootBefore is a storage root holding trellis.db just before this migration:
 // one project TR with one entry, one card and comment, one global entry, one
-// template and one revision. The template and comment tables are as
-// wip/template (0020) and wip/comments (0021) left them.
+// template and one revision. The schema is as migration 0014 left it:
+// knowledge.template, a comment table, project(id, key, name, created_at).
 func rootBefore(t *testing.T) (string, *sqlx.DB) {
 	t.Helper()
 	root := t.TempDir()
@@ -941,7 +943,7 @@ go test ./internal/store -run TestVocabularyMigration
 
 Expected: FAIL. Files are still under `knowledge/`, and `no such table: entry`.
 
-If 0021 gave `comment` different columns from `(id, card_id, actor, body_md, created_at)`, change the seed's comment insert and the `rewriteColumn` call in Step 3 to match. Read them with `sqlite3`-free Go: `SELECT name FROM pragma_table_info('comment')`.
+`mustExec` comes from `migrate_0014_test.go`. `openAtVersion` there is not used, because this test needs the database inside a storage root.
 
 - [ ] **Step 3: Write the migration**
 
@@ -969,7 +971,7 @@ import (
 
 // vocabularyVersion is this migration's goose version: the next free number
 // when the work starts (Task 1 Step 4). It is the only place the number lives.
-const vocabularyVersion = 22
+const vocabularyVersion = 15
 
 func init() {
 	goose.AddNamedMigrationNoTxContext(fmt.Sprintf("%04d_vocabulary.go", vocabularyVersion),
@@ -1276,7 +1278,7 @@ func renameSchema(ctx context.Context, db *sql.DB, rewritten []fileChange) error
 		`UPDATE project_config SET key = 'claim.ttl' WHERE key = 'lease.ttl'`,
 	} {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
-			return fmt.Errorf("%s: %w", strings.SplitN(q, "\n", 2)[0], err)
+			return fmt.Errorf("%s: %w", firstLine(q), err)
 		}
 	}
 
@@ -1289,12 +1291,8 @@ func renameSchema(ctx context.Context, db *sql.DB, rewritten []fileChange) error
 		}
 	}
 
-	var broken int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_check`).Scan(&broken); err != nil {
+	if err := foreignKeyCheck(ctx, tx, fmt.Sprintf("%04d", vocabularyVersion)); err != nil {
 		return err
-	}
-	if broken > 0 {
-		return fmt.Errorf("%d rows fail the foreign key check after the rename; rolled back", broken)
 	}
 	return tx.Commit()
 }
@@ -1394,7 +1392,11 @@ func rewriteColumn(ctx context.Context, tx *sql.Tx, table, col string, change fu
 Notes for the implementer:
 
 - **Row matching.** The hash carry-over matches on the resolved path and the old hash, never on the hash alone. A row that does not match is simply re-read by core on first use, as any external edit is.
-- **Missing tables.** If `pragma_foreign_key_check` is not available as a table-valued function in the bundled SQLite, use the `rows.Next()` loop from `migrate_0013.go`'s `foreignKeyCheck`, with this migration's own error message.
+- **Shared helpers.** `foreignKeyCheck` and `firstLine` already live in `migrate_0014.go`. `foreignKeyCheck` names migration 0014 in its error, so give it a `migration string` parameter. Its message then reads `"foreign key check failed during migration "+migration+", rolled back: …"`, and 0014's own call passes `"0014"`:
+
+  ```go
+  func foreignKeyCheck(ctx context.Context, tx *sql.Tx, migration string) error {
+  ```
 - **Leftover schema objects.** `TestVocabularyMigration` scans `sqlite_master` after migrating and names any table, index or trigger still using a retired word. A migration merged after this plan was written may add one; add its rename to the statement list.
 
 - [ ] **Step 4: Run the migration test**
@@ -1439,7 +1441,7 @@ Then fix, by hand, each of the following. They are too context-dependent for `se
 - **Shipped templates:** any `verify:` line in `internal/core/templates/*.md` → `resolve:`.
 - **The config key:** its YAML struct tag and default table in `internal/config`, `lease:` → `claim:`.
 - **Test fixtures:** tests that write old addresses (`/KEY/knowledge/`), or assert any of the above, change to the new words.
-- **Earlier migrations' tests:** tests for earlier migrations must stop at their own version, because after this migration the names they query no longer exist. In `internal/store/migrate_0013_test.go`, replace every `goose.Up(db.DB, "migrations")` with `goose.UpTo(db.DB, "migrations", 13)`; in `internal/store/migrate_event_project_test.go`, with `goose.UpTo(db.DB, "migrations", 16)`. Do the same for any other migration test that reads a renamed name, such as the tests for 0020 and 0021 (`UpTo` 20 and 21). Verified: with these two changes, `go test ./internal/store` passes.
+- **Migration 0014's tests:** they must stop at version 14, because after this migration the names they query (`knowledge`, `note`) no longer exist. In `internal/store/migrate_0014_test.go`, `migrateUp` calls `goose.Up(db.DB, "migrations")`; make it `goose.UpTo(db.DB, "migrations", 14)`. `TestMigration0014RollsBackWhole` may keep its own `goose.Up`, because 0014 fails before 0015 runs. Verified: with this change, `go test ./internal/store` passes.
 
 A `json:` tag spelled like a renamed column (for example `json:"review_by"`) is changed by the `sed` above along with its `db:` tag. That is the one place JSON moves early; Task 11 handles every other key.
 

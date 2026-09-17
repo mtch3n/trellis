@@ -713,3 +713,80 @@ func TestRemovingTemplateByHandClearsTheRow(t *testing.T) {
 		t.Errorf("Template = %q after removing the key by hand, want empty", got.Template)
 	}
 }
+
+func TestKnowledgeFieldsFromSet(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Test entry",
+		Set:   map[string]string{"owner": "alice", "severity": "high"},
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if doc.Fields == nil {
+		t.Error("Fields should be non-nil")
+	}
+	if doc.Fields["owner"] != "alice" {
+		t.Errorf("Fields[owner] = %v, want alice", doc.Fields["owner"])
+	}
+	if doc.Fields["severity"] != "high" {
+		t.Errorf("Fields[severity] = %v, want high", doc.Fields["severity"])
+	}
+}
+
+func TestKnowledgeFieldsEmpty(t *testing.T) {
+	c, p, _ := kbCore(t)
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Plain entry",
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if doc.Fields == nil {
+		t.Error("Fields should be non-nil even when empty")
+	}
+	if len(doc.Fields) != 0 {
+		t.Errorf("Fields = %v, want empty map", doc.Fields)
+	}
+}
+
+func TestKnowledgeFieldsFromYAMLList(t *testing.T) {
+	c, p, _ := kbCore(t)
+	// Create a knowledge entry, then modify the file to add a YAML list field
+	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Team members",
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+
+	// Modify the file to add a YAML list field
+	fm := Frontmatter{
+		Title: "Team members",
+		Extra: map[string]any{
+			"members": []any{"alice", "bob", "charlie"},
+		},
+	}
+	body := "# Team members\n\nThis is our team.\n"
+	raw := RenderDoc(fm, body)
+	if err := os.WriteFile(doc.Path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Make the change visible to a stat-based check
+	past := time.Unix(0, 0)
+	_ = os.Chtimes(doc.Path, past, past)
+
+	// Load it and check Fields
+	loaded, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
+	if err != nil {
+		t.Fatalf("LoadKnowledge: %v", err)
+	}
+
+	members, ok := loaded.Fields["members"].([]string)
+	if !ok {
+		t.Fatalf("Fields[members] = %v, want []string", loaded.Fields["members"])
+	}
+	if len(members) != 3 || members[0] != "alice" || members[1] != "bob" || members[2] != "charlie" {
+		t.Errorf("members = %v, want [alice bob charlie]", members)
+	}
+}

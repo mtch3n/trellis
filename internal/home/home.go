@@ -2,9 +2,12 @@
 package home
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"testing"
 )
 
 // Root returns the storage root, creating it if it does not exist.
@@ -16,11 +19,22 @@ func Root() (string, error) {
 		if dir, err = defaultRoot(); err != nil {
 			return "", err
 		}
+		// A test that forgot to isolate itself would write into the user's
+		// real storage root and leave its files there. Refuse, so the test
+		// fails where it runs instead.
+		if testing.Testing() && !underTempDir(dir) {
+			return "", fmt.Errorf("a test would use the real Trellis home %s; set TRELLIS_HOME to a temporary directory", dir)
+		}
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
 	return dir, nil
+}
+
+func underTempDir(path string) bool {
+	tmp := filepath.Clean(os.TempDir()) + string(filepath.Separator)
+	return strings.HasPrefix(filepath.Clean(path)+string(filepath.Separator), tmp)
 }
 
 func defaultRoot() (string, error) {

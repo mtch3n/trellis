@@ -97,6 +97,24 @@ func TestConfigSetRepoWritesBesideThePin(t *testing.T) {
 	}
 }
 
+// review-cli #6: config set --repo must refuse a value its own loader would
+// reject, before writing it -- otherwise it breaks every command in the
+// repository, including this one, the next time it reads the file.
+func TestConfigSetRepoRejectsABadValue(t *testing.T) {
+	repoEnv(t, "")
+
+	_, err := runCmdErr(t, "config", "set", "--repo", "card.ls_limit", "abc")
+	if err == nil {
+		t.Fatal("config set --repo card.ls_limit abc was accepted")
+	}
+	if ce := coreErr(t, err); ce.Code != "invalid_value" {
+		t.Fatalf("code = %s, want invalid_value", ce.Code)
+	}
+
+	// The command that follows must still work: nothing was written.
+	runCmd(t, "card", "ls")
+}
+
 func TestConfigSetRepoRefusesAMachineLevelKey(t *testing.T) {
 	repoEnv(t, "")
 	for _, key := range []string{"ui.port", "db.busy_timeout_ms", "search.vector.embed_command"} {

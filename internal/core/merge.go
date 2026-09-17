@@ -154,6 +154,7 @@ func (c *Core) runMerge(ctx context.Context, srcKey, dstKey string, opts MergeOp
 			c: c, tx: tx, plan: &plan, opts: opts, apply: apply, stage: stage, backedUp: backedUp,
 			docPath: map[string]string{}, fromSrc: map[string]bool{}, addr: map[string]string{},
 			renamed: map[string]string{}, boardSlug: map[string]string{}, origPath: map[string]string{},
+			artRenamed: map[string]string{},
 		}
 		if err := m.run(srcKey, dstKey); err != nil {
 			return err
@@ -165,6 +166,11 @@ func (c *Core) runMerge(ctx context.Context, srcKey, dstKey string, opts MergeOp
 	})
 	switch {
 	case err == nil:
+		if apply {
+			if ferr := stage.finalize(); ferr != nil {
+				return plan, fmt.Errorf("removing the files a moved entry left behind: %w", ferr)
+			}
+		}
 		return plan, nil
 	case errors.Is(err, errPlanOnly):
 		return plan, nil // plan mode stages no file operations
@@ -325,6 +331,7 @@ type merger struct {
 	addr           map[string]string // SRC document address -> its address now
 	renamed        map[string]string // SRC slug -> its slug in DST, for renamed entries
 	origPath       map[string]string // SRC document id -> its file path before the merge
+	artRenamed     map[string]string // SRC artifact name -> its name in DST, for renamed artifacts
 	docMoves       []docMove
 	artMoves       []artifactMove
 }

@@ -1,5 +1,5 @@
 /**
- * A project's history as marks on a few fixed lanes: when each card was
+ * What happened in a project, as marks on a few fixed lanes: when each card was
  * created, when work on it started, when it was finished, and when knowledge
  * was written. The lanes never grow with the project; only the marks do.
  */

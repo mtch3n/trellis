@@ -53,13 +53,14 @@ type Knowledge struct {
 	UpdatedAt   int64  `db:"updated_at" json:"updated_at"`
 
 	// Computed for display.
-	Ref       string        `db:"-" json:"ref"`             // /KEY/knowledge/<slug> or /GLOBAL/knowledge/<slug>
-	BoardName string        `db:"-" json:"board,omitempty"` // association only
-	Tags      []string      `db:"-" json:"tags,omitempty"`
-	Labels    []string      `db:"-" json:"labels,omitempty"`
-	Artifacts []ArtifactRef `db:"-" json:"artifacts,omitempty"`
-	Sources   []string      `db:"-" json:"sources,omitempty"`
-	Missing   bool          `db:"-" json:"missing,omitzero"` // file is missing; content withheld
+	Ref       string         `db:"-" json:"ref"`             // /KEY/knowledge/<slug> or /GLOBAL/knowledge/<slug>
+	BoardName string         `db:"-" json:"board,omitempty"` // association only
+	Tags      []string       `db:"-" json:"tags,omitempty"`
+	Labels    []string       `db:"-" json:"labels,omitempty"`
+	Artifacts []ArtifactRef  `db:"-" json:"artifacts,omitempty"`
+	Sources   []string       `db:"-" json:"sources,omitempty"`
+	Fields    map[string]any `db:"-" json:"fields"`
+	Missing   bool           `db:"-" json:"missing,omitzero"` // file is missing; content withheld
 	// Warnings is set only by CreateKnowledge, when creating from a
 	// template under enforce: warn found a problem: a missing required
 	// field, a value outside its choices, or a missing section. It is
@@ -339,6 +340,7 @@ func (c *Core) CreateKnowledge(ctx context.Context, projectID string, in NewKnow
 			BodyMD:     body, ContentHash: ContentHash(raw), MTime: st.ModTime().UnixMilli(),
 			Size: st.Size(), Version: 1, CreatedAt: now, UpdatedAt: now,
 		}
+		doc.Fields = extraToFields(fm.Extra)
 		if err := insertKnowledge(tx, doc); err != nil {
 			return err
 		}
@@ -486,6 +488,34 @@ func (c *Core) loadDoc(tx *sqlx.Tx, projectID, slug string, out *Knowledge) erro
 	return c.docView(tx, out)
 }
 
+// extraToFields converts Frontmatter.Extra to Knowledge.Fields.
+// Each Extra value becomes a string or []string (for slices).
+// Nil values are dropped. An empty Extra becomes an empty but non-nil map.
+func extraToFields(extra map[string]any) map[string]any {
+	fields := make(map[string]any)
+	for k, v := range extra {
+		if v == nil {
+			continue
+		}
+		// Handle slices by converting each item with fmt.Sprint
+		switch val := v.(type) {
+		case []any:
+			items := make([]string, 0, len(val))
+			for _, item := range val {
+				if item != nil {
+					items = append(items, fmt.Sprint(item))
+				}
+			}
+			if len(items) > 0 {
+				fields[k] = items
+			}
+		default:
+			fields[k] = fmt.Sprint(v)
+		}
+	}
+	return fields
+}
+
 // refreshFromFile re-reads the file when mtime or size moved. This is the whole
 // of the "stat sweep": a stat is microseconds, so it runs on every read rather
 // than on a schedule, and an edit in Obsidian is visible to the next command.
@@ -529,6 +559,7 @@ func (c *Core) refreshFromFile(tx *sqlx.Tx, doc *Knowledge) (err error) {
 	doc.Summary = fm.Summary
 	doc.Provenance = fm.Provenance
 	doc.Sources = fm.Sources
+	doc.Fields = extraToFields(fm.Extra)
 	// The flag is compared separately because the content hash cannot see it:
 	// a database restored from an older backup, or a file that already carried
 	// the key when the column was added, has an unchanged file and a wrong row.
@@ -937,6 +968,7 @@ func (c *Core) EditKnowledgeFields(ctx context.Context, projectID, slug string, 
 		doc.BodyMD = body
 		doc.ContentHash = written
 		doc.Sources = fm.Sources
+		doc.Fields = extraToFields(fm.Extra)
 		doc.Template = fm.Template
 		// Handle private false→true transition: purge disclosed copies in the same transaction
 		oldPrivate := doc.Private

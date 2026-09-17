@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -259,6 +260,16 @@ func TestPrivateKnowledgeListExcludesSummaryRecap(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// PinKnowledge never stores a recap for a private entry (core's
+	// TestPinOnPrivateStoresNoRecap covers that invariant directly), so
+	// nothing in the normal lifecycle ever puts one on this row: asserting
+	// Recap == nil below would hold no matter what the list handler does.
+	// Seed one directly so the assertion actually depends on the handler's
+	// own redaction (withoutContent), not on a recap never existing.
+	if _, err := db.Exec(`UPDATE knowledge SET recap = ? WHERE id = ?`, "leaked recap text", privateDoc.ID); err != nil {
+		t.Fatalf("seed recap: %v", err)
+	}
+
 	// Create a public knowledge entry with summary
 	publicDoc, err := c.CreateKnowledge(ctx, p.ID, core.NewKnowledge{
 		Title:   "Public Doc",
@@ -391,5 +402,190 @@ func TestGlobalKnowledgeListExcludesBody(t *testing.T) {
 	docs = list()
 	if docs[0].BodyMD != "" || docs[0].Summary != "" || docs[0].Recap != nil || !docs[0].Private {
 		t.Fatalf("hand-privatized global entry = %+v, want private with no body, summary or recap", docs[0])
+	}
+}
+
+// TestGlobalKnowledgeListNeverCarriesArtifacts guards the artifacts spec: an
+// artifact belongs to a project, so the global list, which spans every
+// project (and the vault, which has none), must never carry one, even for an
+// entry that had an artifact linked before it was escalated.
+func TestGlobalKnowledgeListNeverCarriesArtifacts(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test").WithKBRoot(t.TempDir())
+	ctx := context.Background()
+	p, err := c.CreateProject(ctx, "GLOBART", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateBoard(ctx, p.ID, "board1", true); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(c, db, "127.0.0.1:0")
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	src := filepath.Join(t.TempDir(), "clip.mp3")
+	if err := os.WriteFile(src, []byte("ID3 audio"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	art, err := c.CreateArtifact(ctx, p.ID, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	doc, err := c.CreateKnowledge(ctx, p.ID, core.NewKnowledge{Title: "Shared runbook"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.LinkArtifactToDoc(ctx, p.ID, doc.Slug, art.Name); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.EscalateKnowledge(ctx, p.ID, doc.Slug, "used everywhere"); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := request(http.MethodGet, "/api/global/knowledge", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("global list status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte(`"artifacts"`)) {
+		t.Fatalf("global list must never carry artifacts: %s", rec.Body)
+	}
+}
+
+// TestGetKnowledgeFields tests that Fields are included in responses
+func TestGetKnowledgeFields(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test")
+	projKey := fmt.Sprintf("FIELDS%d", rand.Intn(100000))
+	p, err := c.CreateProject(ctx, projKey, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.CreateBoard(ctx, p.ID, "board1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(c, db, "127.0.0.1:0")
+	request := func(method, path string, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Create a knowledge entry with Set fields
+	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/knowledge",
+		`{"title":"Test Doc","body":"Content","set":{"owner":"alice","severity":"high"}}`)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", createResp.Code, createResp.Body)
+	}
+
+	var doc core.Knowledge
+	if err := json.NewDecoder(createResp.Body).Decode(&doc); err != nil {
+		t.Fatalf("decode create response: %v\n%s", err, createResp.Body)
+	}
+
+	// GET the detail endpoint
+	detailResp := request(http.MethodGet, "/api/p/"+projKey+"/knowledge/"+doc.Slug, "")
+	if detailResp.Code != http.StatusOK {
+		t.Fatalf("detail status = %d, body = %s", detailResp.Code, detailResp.Body)
+	}
+
+	var detailDoc core.Knowledge
+	if err := json.NewDecoder(detailResp.Body).Decode(&detailDoc); err != nil {
+		t.Fatalf("decode detail response: %v\n%s", err, detailResp.Body)
+	}
+
+	if detailDoc.Fields == nil {
+		t.Error("Fields should be non-nil in detail endpoint")
+	}
+	if detailDoc.Fields["owner"] != "alice" {
+		t.Errorf("Fields[owner] = %v, want alice", detailDoc.Fields["owner"])
+	}
+	if detailDoc.Fields["severity"] != "high" {
+		t.Errorf("Fields[severity] = %v, want high", detailDoc.Fields["severity"])
+	}
+}
+
+// TestGetKnowledgeFieldsPrivateList tests that Fields are empty for private entries in lists
+func TestGetKnowledgeFieldsPrivateList(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test")
+	projKey := fmt.Sprintf("PRIVLIST%d", rand.Intn(100000))
+	p, err := c.CreateProject(ctx, projKey, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.CreateBoard(ctx, p.ID, "board1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewServer(c, db, "127.0.0.1:0")
+	request := func(method, path string, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		s.mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Create a private knowledge entry with Set fields
+	createResp := request(http.MethodPost, "/api/p/"+projKey+"/b/board1/knowledge",
+		`{"title":"Private Doc","body":"Content","private":true,"set":{"owner":"alice"}}`)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", createResp.Code, createResp.Body)
+	}
+
+	// List endpoints should have empty Fields for private entries
+	listResp := request(http.MethodGet, "/api/p/"+projKey+"/knowledge", "")
+	if listResp.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listResp.Code, listResp.Body)
+	}
+
+	var docs []core.Knowledge
+	if err := json.NewDecoder(listResp.Body).Decode(&docs); err != nil {
+		t.Fatalf("decode list response: %v\n%s", err, listResp.Body)
+	}
+
+	var privDoc core.Knowledge
+	for _, doc := range docs {
+		if doc.Title == "Private Doc" {
+			privDoc = doc
+			break
+		}
+	}
+
+	if privDoc.Fields == nil {
+		t.Error("Fields should be non-nil even for private entries in list")
+	}
+	if len(privDoc.Fields) != 0 {
+		t.Errorf("private entry Fields in list = %v, want empty map", privDoc.Fields)
 	}
 }

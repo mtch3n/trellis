@@ -138,32 +138,68 @@ func TestEventGapAfterPartialPruning(t *testing.T) {
 
 // If pruning removes every event, MIN(seq) has nothing to report at all --
 // COALESCE would otherwise default it to 0 and the ordinary oldest > after+1
-// comparison would wrongly say there is no gap, when in fact everything,
-// including whatever the consumer had not yet reached, is gone.
+// comparison would wrongly say there is no gap. Whether that is actually a
+// gap depends on whether the consumer had already caught up: acking the
+// newest event that will ever exist before the prune means nothing was
+// missed, while acking an older event while newer ones existed, then losing
+// all of them to the prune, means the consumer never saw those newer ones.
 func TestEventGapWhenEveryEventIsPruned(t *testing.T) {
-	c, p, b := kbCore(t)
-	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
-		t.Fatalf("CreateCard: %v", err)
-	}
-	events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
-	if err != nil {
-		t.Fatalf("EventFeed: %v", err)
-	}
-	if _, err := c.AckEventConsumer(t.Context(), "worker", events[0].Seq); err != nil {
-		t.Fatalf("AckEventConsumer: %v", err)
-	}
+	t.Run("caught up", func(t *testing.T) {
+		c, p, b := kbCore(t)
+		if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
+			t.Fatalf("CreateCard: %v", err)
+		}
+		events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+		if err != nil {
+			t.Fatalf("EventFeed: %v", err)
+		}
+		newest := events[len(events)-1].Seq
+		if _, err := c.AckEventConsumer(t.Context(), "worker", newest); err != nil {
+			t.Fatalf("AckEventConsumer: %v", err)
+		}
 
-	if _, err := c.PruneHistory(t.Context(), c.clock.NowMS()+1, true, false); err != nil {
-		t.Fatalf("PruneHistory: %v", err)
-	}
+		if _, err := c.PruneHistory(t.Context(), c.clock.NowMS()+1, true, false); err != nil {
+			t.Fatalf("PruneHistory: %v", err)
+		}
 
-	gap, _, err := c.EventGapAfter(t.Context(), events[0].Seq)
-	if err != nil {
-		t.Fatalf("EventGapAfter: %v", err)
-	}
-	if !gap {
-		t.Error("want a gap: every event, including ones past the cursor, is gone")
-	}
+		gap, _, err := c.EventGapAfter(t.Context(), newest)
+		if err != nil {
+			t.Fatalf("EventGapAfter: %v", err)
+		}
+		if gap {
+			t.Error("no gap: the consumer had already acked the newest event that ever existed")
+		}
+	})
+
+	t.Run("behind", func(t *testing.T) {
+		c, p, b := kbCore(t)
+		if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "a"}); err != nil {
+			t.Fatalf("CreateCard: %v", err)
+		}
+		events, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID})
+		if err != nil {
+			t.Fatalf("EventFeed: %v", err)
+		}
+		acked := events[0].Seq
+		if _, err := c.AckEventConsumer(t.Context(), "worker", acked); err != nil {
+			t.Fatalf("AckEventConsumer: %v", err)
+		}
+		if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "b"}); err != nil {
+			t.Fatalf("CreateCard: %v", err)
+		}
+
+		if _, err := c.PruneHistory(t.Context(), c.clock.NowMS()+1, true, false); err != nil {
+			t.Fatalf("PruneHistory: %v", err)
+		}
+
+		gap, _, err := c.EventGapAfter(t.Context(), acked)
+		if err != nil {
+			t.Fatalf("EventGapAfter: %v", err)
+		}
+		if !gap {
+			t.Error("want a gap: an event allocated after the cursor was pruned before the consumer saw it")
+		}
+	})
 }
 
 func TestEventGapIsFalseForABrandNewConsumer(t *testing.T) {

@@ -234,13 +234,15 @@ func (s *stagedRemoval) finalize() error {
 // that a failed transaction can undo them, newest first. Every path is under
 // the storage root, so a move never crosses filesystems.
 type fileStage struct {
-	undo []func() error
+	undo   []func() error
+	finish []func() error
 }
 
 // move publishes from at to with a hard link, which fails if anything is at
-// to -- even a file that appears after any check -- and then removes from.
-// writeAtomic publishes the same way. The undo is registered as soon as the
-// link exists, because every later step can fail.
+// to -- even a file that appears after any check. from is left in place: a
+// process that dies between this commit and finalize must still find from
+// where its row says it is. The undo is registered as soon as the link
+// exists, because every later step can fail.
 func (s *fileStage) move(from, to string) error {
 	if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
 		return err
@@ -248,21 +250,17 @@ func (s *fileStage) move(from, to string) error {
 	if err := os.Link(from, to); err != nil {
 		return fmt.Errorf("cannot move %s to %s: %w", from, to, err)
 	}
-	s.undo = append(s.undo, func() error {
-		if _, err := os.Lstat(from); errors.Is(err, os.ErrNotExist) {
-			if err := os.Link(to, from); err != nil {
-				return err
-			}
-		}
-		return os.Remove(to)
-	})
-	if err := os.Remove(from); err != nil {
-		return err
-	}
+	s.undo = append(s.undo, func() error { return os.Remove(to) })
 	if err := syncDirectory(filepath.Dir(to)); err != nil {
 		return err
 	}
-	return syncDirectory(filepath.Dir(from))
+	s.finish = append(s.finish, func() error {
+		if err := os.Remove(from); err != nil {
+			return err
+		}
+		return syncDirectory(filepath.Dir(from))
+	})
+	return nil
 }
 
 // create publishes a new file, never replacing one, and removes it on undo.
@@ -299,13 +297,29 @@ func (s *fileStage) rewrite(path string, data []byte) error {
 }
 
 // rollback undoes every recorded operation, newest first, and reports every
-// failure rather than stopping at the first.
+// failure rather than stopping at the first. finish is dropped along with it:
+// a rolled-back move's source was never orphaned, so there is nothing left to
+// finalize.
 func (s *fileStage) rollback() error {
 	var errs []error
 	for i := len(s.undo) - 1; i >= 0; i-- {
 		errs = append(errs, s.undo[i]())
 	}
-	s.undo = nil
+	s.undo, s.finish = nil, nil
+	return errors.Join(errs...)
+}
+
+// finalize completes every move recorded since the stage began, now that the
+// transaction that depended on them has committed. Only after commit is it
+// safe to remove a move's source: if the process dies before this runs, the
+// row and the file agree (both still say "moved to to"), and the only cost is
+// a source file that outlives its row -- an extra link, not a dangling one.
+func (s *fileStage) finalize() error {
+	var errs []error
+	for _, f := range s.finish {
+		errs = append(errs, f())
+	}
+	s.finish = nil
 	return errors.Join(errs...)
 }
 

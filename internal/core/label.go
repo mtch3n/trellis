@@ -160,11 +160,15 @@ func (c *Core) MergeLabel(ctx context.Context, projectID, from, into string) err
 			}
 		}
 
-		// Delete the 'from' label
-		if _, err := tx.Exec(`DELETE FROM label WHERE id = ?`, fromLabel.ID); err != nil {
+		// recordEvent looks up its project_id from the label's own row, so it
+		// must run before that row is gone -- otherwise the event lands with a
+		// NULL project_id and never reaches a project-scoped feed.
+		if err := c.recordEvent(tx, "label", fromLabel.ID, "merged", "target", fromLabel.Name, toLabel.Name); err != nil {
 			return err
 		}
-		return c.recordEvent(tx, "label", fromLabel.ID, "merged", "target", fromLabel.Name, toLabel.Name)
+		// Delete the 'from' label
+		_, err = tx.Exec(`DELETE FROM label WHERE id = ?`, fromLabel.ID)
+		return err
 	})
 }
 
