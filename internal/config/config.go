@@ -295,10 +295,10 @@ func ValidateValue(key, value string) error {
 	case "history.keep":
 		n, err := strconv.Atoi(value)
 		if err != nil {
-			return fmt.Errorf("history.keep must be a whole number, got %q", value)
+			return fmt.Errorf("history.keep: must be a whole number, got %q", value)
 		}
 		if n < 0 {
-			return fmt.Errorf("history.keep must not be negative, got %d", n)
+			return fmt.Errorf("history.keep: must not be negative, got %d", n)
 		}
 		return nil
 	case "lease.ttl":
@@ -315,10 +315,10 @@ func ValidateValue(key, value string) error {
 func validatePositiveDuration(key, raw string) error {
 	d, err := time.ParseDuration(raw)
 	if err != nil {
-		return fmt.Errorf("%s must be a duration, got %q", key, raw)
+		return fmt.Errorf("%s: must be a duration, got %q", key, raw)
 	}
 	if d <= 0 {
-		return fmt.Errorf("%s must be a positive duration, got %q", key, raw)
+		return fmt.Errorf("%s: must be a positive duration, got %q", key, raw)
 	}
 	return nil
 }
@@ -326,7 +326,7 @@ func validatePositiveDuration(key, raw string) error {
 // validateChoice rejects a value for key that is not one of choices.
 func validateChoice(key, raw string, choices []string) error {
 	if !slices.Contains(choices, raw) {
-		return fmt.Errorf("%s must be one of %s, got %q", key, strings.Join(choices, ", "), raw)
+		return fmt.Errorf("%s: must be one of %s, got %q", key, strings.Join(choices, ", "), raw)
 	}
 	return nil
 }

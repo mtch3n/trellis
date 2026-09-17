@@ -945,3 +945,30 @@ func TestApplyRepoOverridesCopiesEveryPresentKey(t *testing.T) {
 		t.Errorf("Board.DefaultColumns = %v, want the untouched default", merged.Board.DefaultColumns)
 	}
 }
+
+// The settings page matches each problem to its field by the "key: " prefix.
+func TestSetGlobalValuesProblemsStartWithTheirKey(t *testing.T) {
+	t.Setenv("TRELLIS_HOME", t.TempDir())
+	set := map[string]any{
+		"lease.ttl":     "soon",
+		"search.method": "grep",
+		"history.keep":  -1,
+		"card.ls_limit": "many",
+		"no.such.key":   1,
+		"ui.port":       9999,
+	}
+	_, err := SetGlobalValues(set, nil)
+	ise, ok := err.(*InvalidSettingsError)
+	if !ok {
+		t.Fatalf("err = %v, want *InvalidSettingsError", err)
+	}
+	if len(ise.Problems) != len(set) {
+		t.Errorf("Problems = %v, want one per key", ise.Problems)
+	}
+	for _, p := range ise.Problems {
+		key, _, found := strings.Cut(p, ": ")
+		if _, known := set[key]; !found || !known {
+			t.Errorf("problem %q does not start with a key and \": \"", p)
+		}
+	}
+}
