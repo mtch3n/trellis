@@ -14,7 +14,8 @@
 
 - **Starts last.** Do not begin until every other branch has merged into `feat/memory-groundwork`, including `wip/template` (migration 0020) and `wip/comments` (migration 0021); the integrating session (trellis-2f) confirms this.
 - **Template and comment are already done.** `wip/template` made `template` the only classification (frontmatter `template:`, column `template`, `--template`, JSON `template`, no `note` template). `wip/comments` turned card notes into comments. This plan treats both as correct and touches neither.
-- **The glossary skills are a separate plan** (`2026-09-16-glossary-skills.md`) and may land before this one. If they have, the vocabulary test will flag their old command names, and Task 13 fixes them.
+- **The glossary skills plan has merged** (`2026-09-16-glossary-skills.md`). Task 2 needs its `glossary` template, and the vocabulary test will flag the old command names in its skills, which Task 13 fixes.
+- **Trellis's glossary is a vault entry**, not a file in the repository. Task 2 writes it into the live TRELLIS vault with the installed `trellis`, under your own `TRELLIS_AGENT` identity.
 - **Web work belongs to the UI session.** Task 12's web half is handed to trellis-8d through the integrator; this plan's executor does the TUI half only.
 - **One concept, one word, at every layer** (spec §1). No abbreviations of a glossary word.
 - **No backward compatibility.** No aliases for old commands, flags, JSON keys, routes or config keys. Old spellings fail with the ordinary unknown-command or unknown-flag error.
@@ -29,7 +30,6 @@
 
 | Path | Responsibility |
 |---|---|
-| `docs/glossary.md` | Canonical glossary: spec §2, as the living copy |
 | `internal/vocabulary/rules.go` | The retired words, as regexes, with what to write instead |
 | `internal/vocabulary/rules_test.go` | Each rule matches what it should and nothing it should not |
 | `internal/vocabulary/vocabulary_test.go` | Scans the tree; fails on any use not in the allowlist |
@@ -57,7 +57,7 @@
 
 - [ ] **Step 1: Confirm the preconditions**
 
-Ask the integrating session (trellis-2f) to confirm that every other branch has merged. Ask the author to confirm every decision still marked "assumed — confirm" in the spec's Decisions table. If one changes, edit spec §2 and §5 before going further.
+Ask the integrating session (trellis-2f) to confirm that every other branch has merged. Ask the integrator whether any decision in the spec's Decisions table has changed since the plan was written. If one has, edit spec §2 and §5 before going further.
 
 - [ ] **Step 2: Create the worktree**
 
@@ -98,52 +98,75 @@ git commit -m "docs: bring the vocabulary audit up to the merged tree"
 
 ---
 
-### Task 2: The glossary
+### Task 2: Trellis's glossary entry
+
+The rename needs one place to look words up while it runs. That place is a `glossary` entry in the TRELLIS vault, written from spec §2 before any code changes.
 
 **Files:**
-- Create: `docs/glossary.md`
 - Modify: `CLAUDE.md`
+- Live data: the TRELLIS vault gains an entry `glossary`. It is not in the repository.
 
 **Interfaces:**
-- Produces: `docs/glossary.md`, which Task 3 excludes from the scan and Task 14's pinned entry points at.
+- Produces: the entry `glossary` in project TRELLIS (`trellis knowledge show glossary`, `trellis vault show glossary` after Task 10), which Task 14 brings up to date.
 
-- [ ] **Step 1: Write `docs/glossary.md`**
+- [ ] **Step 1: Check the template is installed**
 
-Copy the six tables and the prose under them from spec §2 — Vault, Promotion, Claims, Diagnostics, Board, Addressing — verbatim, under this header:
+```bash
+cd /home/mtchen/Personal/trellis
+trellis knowledge template ls
+```
+
+Expected: `glossary` is listed. If it is not, run `trellis knowledge template reinstall glossary`. If that fails, the glossary skills plan has not landed; stop and tell the integrator.
+
+- [ ] **Step 2: Write the body**
+
+Write `/tmp/trellis-glossary.md` with this shape:
 
 ```markdown
 # Glossary
 
-One concept, one word, at every layer. A word that reaches the CLI, a flag,
-help text, JSON, a URL, a filename, the database or the UI is the same word in
-all of them.
+## Terms
 
-Before naming anything — a command, flag, field, table, UI label, help string —
-look it up here. A new concept gets a row in the same change that introduces
-the word. A renamed one moves its old word to "Not".
+### Vault
 
-`internal/vocabulary` fails the build on a retired word. Its rules are the
-"Not" columns below.
+| Term | Means | Not |
+|---|---|---|
 ```
 
-- [ ] **Step 2: Add the rule to CLAUDE.md**
+Fill it from the six tables in spec §2 — Vault, Promotion, Claims, Diagnostics, Board, Addressing — one `###` area each, rows copied verbatim. The Promotion and Addressing tables in the spec have no Not column. Give their rows a third cell holding the retired word the prose under the table names, or leave it empty — for example `| **promote** | A human moves an entry into the global vault. Moves, never copies. | escalate |`. Keep the prose paragraphs that follow the tables (template rules, diagnostic kinds, conflict, placeholders) under their area, below the table.
+
+- [ ] **Step 3: Create the entry, unpinned**
+
+```bash
+cd /home/mtchen/Personal/trellis
+trellis knowledge ls --template glossary
+trellis knowledge new --template glossary --title "Glossary" \
+  --summary "One word per concept for Trellis; look a word up here before naming anything" \
+  --body @/tmp/trellis-glossary.md
+trellis knowledge show glossary | head -20
+```
+
+Expected: the first command prints nothing (there is no glossary yet; if there is one, edit it instead with `knowledge edit glossary --body @/tmp/trellis-glossary.md --if-version <version>`). The last shows the table. Do not pin it: the author decides that in Task 14.
+
+- [ ] **Step 4: Add the rule to CLAUDE.md**
 
 Insert after the `## Invariants` list, before `## Cross-platform`:
 
 ```markdown
 ## Vocabulary
 
-- **One concept, one word.** `docs/glossary.md` names every concept. Look a word
-  up before introducing it, and add a row when a concept is new.
+- **One concept, one word.** The TRELLIS vault's glossary entry names every
+  concept: `trellis knowledge show glossary`. Look a word up before introducing
+  it, and add a row when a concept is new.
 - `go test ./internal/vocabulary` fails on a retired word. Fix the word, or, when
   the hit is a genuinely different meaning, add an allowlist line that says why.
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add docs/glossary.md CLAUDE.md
-git commit -m "docs: the glossary, and the rule that uses it"
+git add CLAUDE.md
+git commit -m "docs: look words up in the glossary entry"
 ```
 
 ---
@@ -184,7 +207,7 @@ func TestRules(t *testing.T) {
 		{"knowledge-ident", []string{"ListKnowledge", "knowledge_fts", `"knowledge"`, "/p/:key/knowledge", "KnowledgePage"},
 			[]string{"writing-knowledge", "what knowledge to keep"}},
 		{"doc", []string{"loadDoc(", "docView", "docsByID", "DocType", "doc_id", "'doc'", "a doc.", "the docs are"},
-			[]string{"docs/glossary.md", "godoc", "Docker"}},
+			[]string{"docs/superpowers/x.md", "godoc", "Docker"}},
 		{"document", []string{"a document", "Documents"}, []string{"documentation"}},
 		{"type-field", []string{"doc types", "doc_type", `yaml:"type,omitempty"`}, []string{`yaml:"template"`}},
 		{"escalate", []string{"escalate", "EscalateKnowledge", "escalation queue"}, []string{"promote"}},
@@ -241,8 +264,8 @@ Expected: FAIL, `undefined: Find`.
 
 ```go
 // Package vocabulary holds the words Trellis has retired and the test that
-// keeps them retired. docs/glossary.md says what each concept is called; this
-// package says what it must no longer be called.
+// keeps them retired. The project's glossary entry says what each concept is
+// called; this package says what it must no longer be called.
 package vocabulary
 
 import "regexp"
@@ -254,7 +277,7 @@ type Rule struct {
 	Use     string // what to write instead
 }
 
-// Retired is every rule, in the order docs/glossary.md introduces them.
+// Retired is every rule, in the order the glossary introduces them.
 var Retired = []Rule{
 	{"kb", regexp.MustCompile(`(?i)\bkb\b|kb(dir|root|core|doctype)|withkbroot`), "vault"},
 	{"knowledge-base", regexp.MustCompile(`(?i)knowledge[ -]?base`), "vault"},
@@ -351,7 +374,7 @@ var scanned = map[string]bool{
 // must keep the old words: history, and the files that define the rules.
 var skipped = []string{
 	".git/", ".superpowers/", "bin/", "node_modules/", "web/node_modules/", "web/dist/",
-	"docs/superpowers/", "docs/glossary.md", "internal/vocabulary/",
+	"docs/superpowers/", "internal/vocabulary/",
 	"internal/store/migrations/", "internal/store/migrate_",
 	"go.sum", "web/pnpm-lock.yaml",
 }
@@ -953,7 +976,7 @@ func init() {
 		renameVocabulary, refuseVocabularyDown)
 }
 
-// renameVocabulary moves Trellis onto the words in docs/glossary.md: the
+// renameVocabulary moves Trellis onto the glossary's words: the
 // vault directories, what the files say, and the schema.
 //
 // Files go first and the schema last, in one transaction. A schema failure
@@ -1795,7 +1818,7 @@ Add to `internal/cli/help_test.go`:
 
 ```go
 // Help text is how an agent learns the vocabulary, so it must use the
-// glossary's words: docs/glossary.md.
+// glossary's words.
 func TestHelpUsesTheGlossary(t *testing.T) {
 	var walk func(*cobra.Command)
 	walk = func(cmd *cobra.Command) {
@@ -1995,7 +2018,7 @@ Send the integrator this checklist for trellis-8d:
 - Labels, from spec §5 "Web and TUI":
   - "Status" → "Column", "Kind" → "Template", "Visibility" → "Private"
   - "Attachments" → "Artifacts", "Take the lease"/"Take it" → "Steal the claim"/"Steal it", "Held by" → "Claimed by"
-  - "Stale leases" → "Expired claims", "Unlinked" → "Orphans", "Activity" → "Events" (the card timeline belongs to `wip/comments`)
+  - "Stale leases" → "Expired claims", "Unlinked" → "Orphans", "Activity" → "Events" (the card's timeline belongs to `wip/comments`, labelled "Timeline")
   - "Could not take the lease" → "Could not steal the claim"
 - Every raw `event.action` goes through a label map instead of `sentence(event.action)`: created, edited, moved, deleted, claimed, stolen, released, renewed, archived, restored, blocked, unblocked, linked, labeled, unlabeled, tagged, untagged, pinned, unpinned, nominated, promoted, demoted, verified, privatized, injected, read, reloaded, renamed, set_default, merged, rebound.
 - Components and files named `Knowledge*`, `Vault*` for one vault only, or `*Doc*` follow the glossary.
@@ -2097,18 +2120,25 @@ Upgrade notes:
 - Rebuild each project's vector index: `trellis vector rebuild` in each project. The vector database is derived and still says `doc_type`.
 - A repository `.trellis.yaml` that sets `lease.ttl` must now say `claim.ttl`.
 
-- [ ] **Step 3: After the merge, pin Trellis's own glossary**
+- [ ] **Step 3: After the merge, bring Trellis's glossary up to date**
 
-After the integrator has merged and the new binary is installed. This needs the `glossary` template from `2026-09-16-glossary-skills.md`; if that plan has not landed, wait for it. Its `required: [summary]` rule is met by `--summary`, and the body keeps the template's `## Terms` heading:
+After the integrator has merged and the new binary is installed:
 
 ```bash
 cd /home/mtchen/Personal/trellis
-TRELLIS_AGENT=agent:77eed64102eb1d7cf4d6599af43ae27e trellis vault new --template glossary \
-  --title "Glossary" \
-  --summary "One word per concept; docs/glossary.md is canonical; go test ./internal/vocabulary enforces it" \
-  --body $'## Terms\n\nThe table lives in docs/glossary.md in the repository and is reviewed with the code that uses it. Read it before naming anything.\n'
-TRELLIS_AGENT=agent:77eed64102eb1d7cf4d6599af43ae27e trellis vault pin glossary \
-  --recap "One word per concept: check docs/glossary.md before naming anything; the vocabulary test fails on retired words"
+trellis vault show glossary --json
 ```
 
-Expected: `trellis vault pins` lists `glossary` and `trellis board show --brief` includes its recap.
+Compare the entry with spec §2 as it stands now. For every row the rename changed, edit that row, and only that row, following the `keeping-glossary` skill:
+
+```bash
+trellis vault edit glossary --body @/tmp/trellis-glossary.md --if-version <version>
+```
+
+Then ask the author whether to pin it. Pin only on a yes, with a one-line recap:
+
+```bash
+trellis vault pin glossary --recap "One word per concept: look words up in the glossary entry before naming anything"
+```
+
+Expected on a yes: `trellis vault pins` lists `glossary`, and `trellis board show --brief` includes its recap.

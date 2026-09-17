@@ -29,15 +29,16 @@ tree will move before the rename starts.
 | What lint reports | **diagnostic** | author |
 | How deep the rename goes | every layer: CLI, JSON, URLs, disk, Go, SQL | author |
 | `type` versus `template` | **template** is the only classification; no template means no shape. **Delivered by `wip/template`** (migration 0020), not by this rename | author |
-| Card notes | **comment**: `card comment`, table `comment`, many per card, one timeline with history. **Delivered by `wip/comments`** (migration 0021), not by this rename | author |
+| Card notes | **comment**: `card comment`, table `comment`, many per card. **Delivered by `wip/comments`** (migration 0021), not by this rename | author |
 | The `.trellis` file versus a pinned entry | entries keep **pin**; the file is the **marker** | author |
 | The glossary skills | separate skills that teach an agent to keep a glossary in Trellis and to use it; they carry no term list | author |
 | When the rename happens | **last**, after everything else merges | author |
-| claim / lease / owner / holder | **claim** as the one root | **assumed — confirm** |
-| The event stream | **event log**; "feed" and "Activity" retired; "history" means revisions | **assumed — confirm** |
-| The template rule `verify:` | renamed **`resolve:`**, freeing verify for the global vault | **assumed — confirm** |
-| How a glossary is stored | a shipped `glossary` template; the entry is pinned; its recap is the hot tier | **assumed — confirm** |
-| Trellis's own glossary | `docs/glossary.md` canonical; a pinned TRELLIS entry points at it; lands with the rename, when the words match the code | **assumed — confirm** |
+| claim / lease / owner / holder | **claim** as the one root | author |
+| The event stream | **event log**; "feed" and "Activity" retired | author |
+| A card's comments and events shown together | **timeline**, replacing the name "history" for that view; **history** means revisions only | author |
+| The template rule `verify:` | renamed **`resolve:`**, freeing verify for the global vault. `required:` was considered and rejected: it already names the mandatory-fields rule | author |
+| How a glossary is stored | an entry built from a shipped `glossary` template. **Not pinned by default**: the skill asks the user. Kept simple | author |
+| Trellis's own glossary | an entry in the TRELLIS vault, like any other glossary. No `docs/glossary.md` | author |
 
 ## 1. The rule
 
@@ -83,12 +84,12 @@ surveying are listed in §10 and stay out of this work.
 | **tree** | A vault listed by directory. | |
 | **leaf** | The last segment of an entry's slug. A bare leaf names an entry when it is unique. | |
 | **revision** | A retained earlier copy of an entry or card. | |
-| **history** | An entry's or card's retained revisions, oldest first. | activity, event log |
+| **history** | An entry's or card's retained revisions, oldest first. | timeline, activity, event log |
 | **diff** | The change between two revisions. | |
 | **version** | The counter an edit must name with `--if-version`. Revisions are identified by it. | |
 | **duplicate cluster** | Entries `vault health --duplicates` groups as likely the same. | dupe, near-duplicate |
 | **look-alike directory** | A new directory name close to an existing one. | duplicate |
-| **glossary** | An entry built from the `glossary` template: one table of Term, Means, Not. | dictionary, vocabulary list |
+| **glossary** | An entry built from the `glossary` template: one table of Term, Means, Not. A project keeps one. | dictionary, vocabulary list |
 
 A template's frontmatter carries its **rules**: **enforce** (`reject` or
 `warn`), **required** (fields that must be supplied), **choices** (allowed
@@ -154,7 +155,7 @@ holding different content under one name during a merge.
 | **board** | A workstream inside a project. | lane |
 | **project** | What a directory resolves to. | workspace |
 | **comment** | A line appended to a card. A card has many. | note |
-| **timeline** | A card's comments and history, shown together in the UI. | activity |
+| **timeline** | A card's comments and events, shown together in the UI. | history, activity |
 | **archive** / **restore** | Take a card off the board; put it back. | unarchive |
 | **event** | An immutable record of one change. | |
 | **event log** | Every event, in order. `trellis events` reads it; the UI page is "Events". | feed, activity, history |
@@ -204,7 +205,7 @@ must neither redo nor contradict them.
   - Templates are enforced on every Trellis write, and lint reports `template_violation` and `unknown_template`.
 - **`wip/comments`, migration 0021:**
   - Card notes become comments: `trellis card comment`, table `comment`, API `/comments`, JSON `comments`, event entity `comment`.
-  - The UI shows comments and history in one timeline.
+  - The UI shows a card's comments and events together as its **timeline**.
 
 The rename's migration is therefore numbered after 0021, and it treats
 `template` and `comment` as already correct.
@@ -337,7 +338,7 @@ The UI adopts the code's words, and the event log gets its own name:
 - **Raw event actions** stop reaching the screen; each gets a label.
 - **localStorage keys** already say `vault`.
 
-The card timeline belongs to `wip/comments`.
+The card's timeline belongs to `wip/comments`; its label is "Timeline", not "History".
 
 ### Docs, skills and the hook
 
@@ -437,8 +438,9 @@ The rename starts only after every other branch has merged, including
 `wip/template` and `wip/comments`. Each layer builds, tests and is committed
 before the next; no layer leaves the product unusable.
 
-1. **Glossary and gate.** `docs/glossary.md` from §2, the rule in CLAUDE.md,
-   and the vocabulary test from §9 with every current hit allowlisted. The
+1. **Glossary and gate.** Trellis's glossary entry from §2, the rule in
+   CLAUDE.md, and the vocabulary test from §9 with every current hit
+   allowlisted. The
    allowlist is the work queue: each later layer deletes lines from it.
 2. **Storage, schema and core.** The Go migration, then the Go renames in §5.
    Command names, flags and JSON keys are left alone. Stored values the
@@ -450,110 +452,52 @@ before the next; no layer leaves the product unusable.
 4. **Web and TUI.**
 5. **Hook, skills, README, PRODUCT, CLAUDE.md, scripts**, and any unexecuted
    spec or plan.
-6. **Trellis's own glossary entry**, pinned. The allowlist holds only the lines
-   §9 says it may keep.
+6. **Trellis's glossary entry** brought up to date, and pinned only if the
+   author says so. The allowlist holds only the lines §9 says it may keep.
 
 ## 8. Glossaries in Trellis
 
-A glossary is knowledge like any other, so Trellis gets a way to keep one in any
-project, not only its own. The design follows Anthropic's `productivity` plugin
-(`memory-management` skill, `/start` and `/update`), mapped onto what Trellis
-already has.
+A glossary is an ordinary entry, so any project can keep one. The design
+borrows from Anthropic's `productivity` plugin — its `memory-management`
+skill's glossary, and `/update`'s habit of proposing additions rather than
+making them — and keeps only what Trellis needs.
 
-### Two tiers
+**The `glossary` template** ships beside the others. Its skeleton is a
+`## Terms` section holding one table: Term, Means, Not. Its one rule is that
+section, so a Trellis write cannot drop it. `vault ls --template glossary`
+finds a project's glossary, and a project keeps one.
 
-| Tier | In Trellis | Loaded | Holds |
-|---|---|---|---|
-| **Hot** | the glossary entry's pinned **recap**, in the brief | every session, by the hook | the rule, where the table lives, and the few words agents most often get wrong |
-| **Full** | the glossary entry's **body**, or the committed file it points to | on demand, with `vault show` | every term |
+**Pinning is the user's choice.** A pinned glossary's recap reaches every
+session through the brief. That costs tokens on every read, so the entry is not
+pinned unless the user says so. If it is pinned, the recap stays one line.
 
-The hot tier is the glossary's memory. It is kept to one line. The TRELLIS vault
-records that context-file structure buys no measurable adherence, and every
-injected token is paid on every read. A table in the brief would cost every
-session and change nothing.
+**Two skills**, neither carrying terms. The core `trellis` skill stays CLI
+mechanics, and the hook's judgment-skill list names both new skills.
 
-### The `glossary` template
+- **`using-glossary`** — before naming anything others will see (a command,
+  flag, field, table, UI label, help string, title), or when a user's word is
+  unclear:
+  - Check the brief's recap if the glossary is pinned, then the entry itself.
+    Ask the user only if neither answers.
+  - Use the **Term**. A word in a **Not** column is an existing concept under
+    that Term.
+  - Never coin a synonym. If the word is missing, hand over to
+    `keeping-glossary`.
+- **`keeping-glossary`** — when the user says what a word means, something new
+  needs a name, a term is renamed or retired, or the user asks for a glossary:
+  - **Start:** propose rows from the user's own words, ask, create the entry
+    from the template, then ask whether to pin it.
+  - **Change:** read the entry, change one row, and write it back with
+    `--if-version`. Never retype the table from memory.
+  - **What to record:** record what the user states; propose what you infer.
+    A rename moves the old word into **Not**, and a retired concept's row is
+    deleted.
+  - **Keep it in one place:** if pinned, the recap stays one line. The glossary
+    is never copied into CLAUDE.md or harness memory.
 
-Ships beside decision, finding and the rest.
-
-- **Rules:** `enforce: reject` and `required: [summary]`. The summary becomes
-  the recap.
-- **Skeleton:** a `## Terms` section holding one table with the columns Term,
-  Means and Not. Areas are `###` headings under it.
-- **Finding it:** `vault ls --template glossary` finds a project's glossary. A
-  project keeps one.
-
-### Two skills
-
-They follow the plugin's layering: the core `trellis` skill stays CLI mechanics,
-and each concern is its own skill. Neither carries a term list, so neither can
-drift.
-
-**`using-glossary`** is the read side. It triggers:
-
-- when the user says a word the agent does not recognise, or one that could mean
-  two things;
-- before the agent names anything a user or another agent will see: a command,
-  flag, field, table, UI label, help string, card or entry title.
-
-It tells the agent to:
-
-1. Look the word up in order: the brief's pinned recap; the glossary entry
-   (`vault ls --template glossary`, then `vault show`); the committed file the
-   entry points to. Ask the user only when none of these answers.
-2. Decode without a round trip when the glossary answers.
-3. Use the **Term**. A word found in a **Not** column is an existing concept
-   under another name, never a new one.
-4. Never coin a synonym. When the glossary lacks the word, hand over to
-   `keeping-glossary` instead of guessing.
-
-**`keeping-glossary`** is the write side: how to put a glossary into Trellis,
-memorise it, and manage its markdown.
-
-- **Starting one**, the equivalent of `/start`:
-  - Check `vault ls --template glossary` first.
-  - If there is none, create the entry from the template.
-  - Seed it from the user's own words and the project's visible surface — help
-    text, schema, UI labels. Propose the seed rows; do not invent meanings.
-  - Pin it.
-- **Memorising, the hot tier:**
-  - The recap is one line: the rule, where the table lives, and at most a
-    handful of "say X, not Y" pairs.
-  - A term moves into the recap when it has been gotten wrong more than once,
-    and leaves when it stops coming up.
-  - After editing, re-pin, so `vault pins --stale` stays empty.
-  - The glossary is not copied into CLAUDE.md or harness memory; the pin is the
-    one injection channel.
-- **Managing the markdown, the full tier:**
-  - One row per concept, with **Means** saying what the thing is in one
-    sentence, not how it is implemented.
-  - **Not** lists the words someone would reach for.
-  - Read the entry before editing, change the row, and write it back with
-    `--if-version`. Never rewrite the table from memory.
-- **Adding:**
-  - When the user says "X means Y", record it at once.
-  - When the agent infers a term, propose it first: "add *nominee* — an entry
-    with at least one nomination?".
-- **Renaming:** change the Term and move the old word into **Not**. If the
-  project has a vocabulary test, add the old word to it.
-- **Pruning, the equivalent of `/update`:**
-  - When asked, or when the entry turns up in `vault health` as cold, remove
-    rows whose concept left the product.
-  - Look for Not words still in use and report them.
-- **A committed file:** when a repository keeps its glossary in a file, that
-  file is the full tier. The entry's body only points to it, because two copies
-  drift. Edit the file in the same change as the code that introduces the word.
-- **What stays out:** people, preferences, decisions and procedures, which have
-  their own templates.
-
-### Trellis's own glossary
-
-`docs/glossary.md` is canonical, because code review happens in git and the
-vocabulary test reads beside it. The TRELLIS vault holds a pinned `glossary`
-entry whose body points at that file and whose recap states the rule.
-
-Both land with the rename. Before then, the glossary's words would contradict
-the commands agents actually type.
+**Trellis's own glossary** is an entry in the TRELLIS vault, like any other. It
+is written from §2 when the rename starts, so the rename has one place to look
+words up, and it is pinned only if the author says so.
 
 ## 9. Testing
 
@@ -565,8 +509,7 @@ the commands agents actually type.
     `noms`, `card note`, the file sense of `pin`, and the `/knowledge/` address
     segment.
   - Fails on any hit not in its allowlist.
-  - Migrations and `docs/glossary.md` are excluded by path, because they must
-    name the old words.
+  - Migrations are excluded by path, because they must name the old words.
   - When the work ends, the allowlist holds only hits where a rule cannot tell a
     second, legitimate meaning apart, such as `owner` as an example template
     field. Each such line carries a comment saying why.
