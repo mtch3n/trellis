@@ -109,14 +109,21 @@ func (c *Core) resolvesInternalReference(tx *sqlx.Tx, projectID, s string) (ok, 
 		if ref.Seq <= 0 {
 			return false, true, nil
 		}
+		// ref alone (seq) ignores the ref's own prefix: /KEY/cards/OTHER-5
+		// and /KEY/cards/KEY-5 would otherwise "resolve" to the same row.
+		// card.ref is the qualified PREFIX-N form and is unique; match on
+		// it the way loadCard does for a qualified reference.
 		var n int
-		if err := tx.Get(&n, `SELECT COUNT(*) FROM card WHERE seq = ? AND project_id = ?`, ref.Seq, destProjectID); err != nil {
+		if err := tx.Get(&n, `SELECT COUNT(*) FROM card WHERE ref = ? AND project_id = ?`, ref.qualified(), destProjectID); err != nil {
 			return false, true, err
 		}
 		return n > 0, true, nil
 	case vpath.CollectionKnowledge:
+		// An entry that escalated out of this project keeps its project_id;
+		// resolveDocRef's own address branch excludes it (k.global = 0) so
+		// the old project address becomes a stub, not a hit. Match that here.
 		var n int
-		if err := tx.Get(&n, `SELECT COUNT(*) FROM knowledge WHERE slug = ? AND project_id = ?`, p.Name, destProjectID); err != nil {
+		if err := tx.Get(&n, `SELECT COUNT(*) FROM knowledge WHERE slug = ? AND project_id = ? AND global = 0`, p.Name, destProjectID); err != nil {
 			return false, true, err
 		}
 		return n > 0, true, nil

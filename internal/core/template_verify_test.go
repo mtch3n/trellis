@@ -154,6 +154,59 @@ func TestVerifyRejectsAnAddressShapedButMalformedSource(t *testing.T) {
 	}
 }
 
+// review-knowledge #17: verify matched a card address on seq alone,
+// ignoring the ref's own prefix, so an address naming a different project's
+// (or a nonexistent) ref "resolved" whenever this project happened to have
+// a card at the same seq. card.ref is unique; match on it the way loadCard
+// already does for a qualified reference.
+func TestVerifyRejectsACardAddressWhoseRefPrefixDoesNotMatch(t *testing.T) {
+	c, p, b := kbCore(t)
+	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
+	var fifth Card
+	for i := 1; i <= 5; i++ {
+		card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "filler"})
+		if err != nil {
+			t.Fatalf("CreateCard: %v", err)
+		}
+		fifth = card
+	}
+	if fifth.Ref != p.Key+"-5" {
+		t.Fatalf("ref = %q, want %s-5", fifth.Ref, p.Key)
+	}
+
+	_, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Claim", Template: "cited", Sources: []string{"/" + p.Key + "/cards/OTHER-5"},
+	})
+	e, ok := errors.AsType[*Error](err)
+	if !ok || e.Code != "template_violation" {
+		t.Fatalf("err = %v, want template_violation: OTHER-5 must not resolve via %s-5's seq alone", err, p.Key)
+	}
+}
+
+// A knowledge address counted an escalated row because it had no
+// "global = 0" filter, while resolveDocRef's own address branch excludes
+// exactly that row -- an entry's old project address becomes a stub, not a
+// hit, once it lives in the global vault instead.
+func TestVerifyRejectsAnEscalatedEntrysOldProjectAddress(t *testing.T) {
+	c, p, _ := kbCore(t)
+	writeCustomTemplate(t, c, "cited", "---\nenforce: reject\nverify: [sources]\n---\n# {{title}}\n")
+	target, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Shared"})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	if _, err := c.EscalateKnowledge(t.Context(), p.ID, target.Slug, "reason"); err != nil {
+		t.Fatalf("EscalateKnowledge: %v", err)
+	}
+
+	_, err = c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{
+		Title: "Claim", Template: "cited", Sources: []string{"/" + p.Key + "/knowledge/" + target.Slug},
+	})
+	e, ok := errors.AsType[*Error](err)
+	if !ok || e.Code != "template_violation" {
+		t.Fatalf("err = %v, want template_violation: the old project address is a stub once the entry is global", err)
+	}
+}
+
 // Ruling: in a body, an absolute address counts only at the start of the
 // text, or after whitespace or "(". A URL's path segment and a source file's
 // relative path must never be mistaken for one, since in both cases the

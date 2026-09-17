@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/mtch3n/trellis/internal/vpath"
 	"gopkg.in/yaml.v3"
 )
 
@@ -161,12 +162,29 @@ func validateTemplateRules(rules TemplateRules) error {
 	return errors.New(strings.Join(problems, "; "))
 }
 
+// checkTemplateName is the one place every template lookup and write
+// validates name before joining it into a filesystem path. A template name
+// is a slug: no "/", "\", ".." or "." component can survive it, so neither
+// `template rm ../../x` nor a --template naming another entry's address can
+// ever resolve outside <root>/templates.
+func checkTemplateName(name string) error {
+	if !vpath.ValidSlug(name) {
+		return ErrUsage("bad_template_name",
+			`"`+name+`" is not a valid template name: use lower-case letters and digits joined by single hyphens`,
+			"trellis knowledge template ls")
+	}
+	return nil
+}
+
 // loadTemplate reads and validates the template named name inside dir. A
 // missing file is unknown_template; a file that exists but fails to parse
 // or validate is bad_template, and its message always leads with the
 // file's path — a broken template must never be silently treated as having
 // no rules.
 func loadTemplate(dir, name string) (Template, error) {
+	if err := checkTemplateName(name); err != nil {
+		return Template{}, err
+	}
 	path := filepath.Join(dir, name+".md")
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -405,6 +423,9 @@ func (c *Core) ShowTemplate(ctx context.Context, name string) (Template, error) 
 // NewTemplate writes a minimal template — enforce: warn, no rules, a
 // "# {{title}}" heading — and refuses a name that already exists.
 func (c *Core) NewTemplate(ctx context.Context, name string) (Template, error) {
+	if err := checkTemplateName(name); err != nil {
+		return Template{}, err
+	}
 	dir, err := c.templatesDir()
 	if err != nil {
 		return Template{}, err
@@ -424,6 +445,9 @@ func (c *Core) NewTemplate(ctx context.Context, name string) (Template, error) {
 // EditTemplate replaces name's whole file — frontmatter and body — after
 // checking it: a template that fails to parse or validate is not written.
 func (c *Core) EditTemplate(ctx context.Context, name, raw string) (Template, error) {
+	if err := checkTemplateName(name); err != nil {
+		return Template{}, err
+	}
 	dir, err := c.templatesDir()
 	if err != nil {
 		return Template{}, err
@@ -455,6 +479,9 @@ func (c *Core) EditTemplate(ctx context.Context, name, raw string) (Template, er
 // DeleteTemplate removes a template file. Templates have no database row —
 // nothing else can point at one — so a plain remove is the whole operation.
 func (c *Core) DeleteTemplate(ctx context.Context, name string) error {
+	if err := checkTemplateName(name); err != nil {
+		return err
+	}
 	dir, err := c.templatesDir()
 	if err != nil {
 		return err
@@ -494,8 +521,9 @@ func (c *Core) ReinstallTemplate(ctx context.Context, name string) (Template, er
 }
 
 // CheckTemplate reports name's violations against slug's current fields and
-// sections. It never blocks and never errors because of a violation — the
-// document already exists.
+// sections, plus its verify rule — the same three lint and edit check. It
+// never blocks and never errors because of a violation — the document
+// already exists.
 func (c *Core) CheckTemplate(ctx context.Context, projectID, name, slug string) ([]string, error) {
 	dir, err := c.templatesDir()
 	if err != nil {
@@ -517,11 +545,13 @@ func (c *Core) CheckTemplate(ctx context.Context, projectID, name, slug string) 
 	if err != nil {
 		return nil, err
 	}
-	fields := map[string][]string{}
-	for k, v := range fm.Extra {
-		fields[k] = []string{fmt.Sprint(v)}
-	}
-	return templateViolations(tmpl, fields, body, true), nil
+	var problems []string
+	err = c.Tx(ctx, func(tx *sqlx.Tx) error {
+		var terr error
+		problems, terr = c.templateProblems(tx, projectID, tmpl, frontmatterFields(fm), body, true)
+		return terr
+	})
+	return problems, err
 }
 
 // templateViolationFix picks the fix line an agent most needs. When the

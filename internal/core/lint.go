@@ -121,7 +121,12 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 			if fm.Template != "" {
 				t, err := templateOf(fm.Template)
 				switch {
-				case isCode(err, "unknown_template"):
+				case isCode(err, "unknown_template"), isCode(err, "bad_template_name"):
+					// A hand-edited value that is not a real template name --
+					// whether none exists by that name or the name itself is
+					// not a legal one (say, one a path-traversal attempt left
+					// behind) -- is reported the same way: neither aborts the
+					// rest of the vault's lint.
 					out = append(out, LintFinding{Kind: "unknown_template", Doc: d.Ref, Ref: fm.Template,
 						Fix: "trellis knowledge edit " + d.Ref + " --template <name>   # or --template \"\" for none"})
 				case err != nil:
