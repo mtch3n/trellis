@@ -201,17 +201,18 @@ func FirstParagraph(body string) string {
 // Reference. It is the inverse of Raw, so a link recovered from the database
 // resolves exactly as it did when the body was parsed.
 //
-// A relative target is slugified whole: [[a/b]] is the slug a-b until
-// knowledge paths give it a directory. An absolute target that names no
-// knowledge entry -- a card address, or a malformed one -- keeps its text as
-// the slug. No row can match that, so the link stays a stub and lint says why.
+// A relative target is path-shaped (normalizeSlugPath) instead of flattened
+// by a single Slugify call, per the knowledge-paths layer. An absolute target
+// that names no knowledge entry -- a card address, or a malformed one -- keeps
+// its text as the slug. No row can match that, so the link stays a stub and
+// lint says why.
 func ParseReference(raw string) Reference {
 	raw = strings.TrimSpace(raw)
 	target, anchor := vpath.SplitAnchor(raw)
 	target = strings.TrimSpace(target)
 	ref := Reference{Raw: raw, Anchor: Slugify(anchor)}
 	if !strings.HasPrefix(target, "/") {
-		ref.Slug = Slugify(target)
+		ref.Slug = normalizeSlugPath(target)
 		return ref
 	}
 	p, err := vpath.Parse(target)

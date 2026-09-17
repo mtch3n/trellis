@@ -16,7 +16,7 @@ import (
 
 // LintFinding is one problem with the vault. Lint reports; it never repairs.
 type LintFinding struct {
-	Kind string `json:"kind"` // stub, broken_anchor, orphan, wrong_collection, bad_path, missing_artifact, unknown_field, deep_directory, long_directory_name, similar_directory
+	Kind string `json:"kind"` // stub, ambiguous_link, broken_anchor, orphan, wrong_collection, bad_path, missing_artifact, unknown_field, deep_directory, long_directory_name, similar_directory
 	Doc  string `json:"doc"`  // the address of the entry that holds the problem
 	Ref  string `json:"ref,omitempty"`
 	Fix  string `json:"fix"`
@@ -211,7 +211,18 @@ func linkFinding(tx *sqlx.Tx, targets linkTargets, d Knowledge, raw string,
 		if strings.HasPrefix(target, "/") && ref.ProjectKey == "" {
 			return addressFinding(d, raw, target), true, nil
 		}
-		return LintFinding{Kind: "stub", Doc: d.Ref, Ref: raw, Fix: stubFix(ref)}, true, nil
+		kind, fix := "stub", stubFix(ref)
+		leaf, _, _ := strings.Cut(ref.Raw, "#")
+		if leaf = normalizeSlugPath(leaf); !strings.Contains(leaf, "/") {
+			matches, err := entriesWithLeaf(tx, d.ProjectID, leaf)
+			if err != nil {
+				return LintFinding{}, false, err
+			}
+			if len(matches) > 1 {
+				kind, fix = "ambiguous_link", "trellis knowledge show <full path>   # "+ref.Raw+" matches more than one entry"
+			}
+		}
+		return LintFinding{Kind: kind, Doc: d.Ref, Ref: raw, Fix: fix}, true, nil
 	}
 	if !anchor.Valid || anchor.String == "" {
 		return LintFinding{}, false, nil

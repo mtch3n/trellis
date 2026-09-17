@@ -117,13 +117,38 @@ func (c *Core) resolveDocRef(tx *sqlx.Tx, projectID string, ref Reference) (any,
 	}
 	var id string
 	err := tx.Get(&id, q, args...)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
+	if err == nil {
+		return id, nil
 	}
-	if err != nil {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	return id, nil
+	// Bare-leaf fallback: only for an unqualified reference that does not
+	// already name a directory. A unique match resolves; more than one stays
+	// a stub, which Lint reports as ambiguous_link rather than stub. If
+	// virtual paths removed Reference.ProjectKey entirely for a relative
+	// target (rather than leaving it always ""), drop that half of the
+	// condition — every non-absolute reference reaching this point is
+	// unqualified by construction.
+	if ref.ProjectKey == "" && !strings.Contains(ref.Slug, "/") {
+		matches, err := entriesWithLeaf(tx, projectID, ref.Slug)
+		if err != nil {
+			return nil, err
+		}
+		if len(matches) == 1 {
+			return matches[0], nil
+		}
+	}
+	return nil, nil
+}
+
+// entriesWithLeaf lists the project's entries inside a directory whose last
+// path segment is leaf.
+func entriesWithLeaf(tx *sqlx.Tx, projectID, leaf string) ([]string, error) {
+	ids := []string{}
+	err := tx.Select(&ids, `SELECT id FROM knowledge
+		WHERE project_id = ? AND substr(slug, -(length(?) + 1)) = '/' || ?`, projectID, leaf, leaf)
+	return ids, err
 }
 
 // Backlink is one inbound reference to a doc.

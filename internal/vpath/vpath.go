@@ -162,7 +162,8 @@ const (
 
 var (
 	cardRefRE = regexp.MustCompile(`^[^/#\s-][^/#\s]*-[0-9]+$`)
-	docSlugRE = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+	// A knowledge slug is a path: one or more segments, each a plain slug.
+	docSlugRE = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*(/[a-z0-9]+(-[a-z0-9]+)*)*$`)
 )
 
 func KnowledgePath(key, slug string) Path {
@@ -205,10 +206,11 @@ func Parse(s string) (Path, error) {
 		}
 		return ProjectPath(key), nil
 	}
-	if len(segs) != 3 {
+	// Only a knowledge name has more than one segment: its directories.
+	if len(segs) < 3 || (len(segs) > 3 && segs[1] != CollectionKnowledge) {
 		return Path{}, fmt.Errorf("%q is not an address; expected /KEY/<collection>/<name>", s)
 	}
-	collection, name := segs[1], segs[2]
+	collection, name := segs[1], strings.Join(segs[2:], "/")
 	if key == GlobalKey && collection != CollectionKnowledge {
 		return Path{}, errors.New("GLOBAL holds only knowledge")
 	}
