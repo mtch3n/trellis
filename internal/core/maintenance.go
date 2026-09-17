@@ -138,18 +138,15 @@ func (c *Core) PruneOrphanHistory(ctx context.Context) (int64, error) {
 // orphanRevisionDirs lists every ".<name>/" directory in the vaults that no
 // knowledge row accounts for, sorted. An empty projectID covers every project
 // and the global vault; otherwise it covers that project's vault and the
-// directories its own entries live in.
+// directories its own entries live in. Liveness is always checked against
+// every project's rows, never just the ones a project filter selects: the
+// global vault is walked unconditionally, and another project's entry
+// escalated into it must not be reported as this project's orphan.
 func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]string, error) {
-	var docs []Knowledge
+	var allDocs []Knowledge
 	var keys []string
 	if err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		q := `SELECT * FROM knowledge`
-		args := []any{}
-		if projectID != "" {
-			q += ` WHERE project_id = ?`
-			args = append(args, projectID)
-		}
-		if err := tx.Select(&docs, q, args...); err != nil {
+		if err := tx.Select(&allDocs, `SELECT * FROM knowledge`); err != nil {
 			return err
 		}
 		kq := `SELECT key FROM project`
@@ -173,11 +170,17 @@ func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]stri
 	for _, key := range keys {
 		vaults[filepath.Join(root, "projects", key, "knowledge")] = true
 	}
-	live := make(map[string]bool, len(docs))
-	for _, d := range docs {
+	live := make(map[string]bool, len(allDocs))
+	for _, d := range allDocs {
 		live[d.Path] = true
-		vaults[filepath.Dir(d.Path)] = true
+		if projectID == "" || d.ProjectID == projectID {
+			vaults[filepath.Dir(d.Path)] = true
+		}
 	}
+	// A vault nested under another one being walked is walked twice, once by
+	// the ancestor's recursion and once on its own: drop it here so an orphan
+	// inside it is not reported (and removed) twice.
+	vaults = topLevelDirs(vaults)
 
 	var orphans []string
 	for vault := range vaults {
@@ -195,9 +198,13 @@ func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]stri
 				return nil
 			}
 			// A revision directory is ".<entry file name>" beside its entry.
-			if !live[filepath.Join(filepath.Dir(path), strings.TrimPrefix(e.Name(), "."))] {
-				orphans = append(orphans, path)
+			if looksLikeRevisionDir(path, e.Name()) {
+				if !live[filepath.Join(filepath.Dir(path), strings.TrimPrefix(e.Name(), "."))] {
+					orphans = append(orphans, path)
+				}
 			}
+			// Revision directories never nest, and neither does anything else
+			// worth walking into here (.git, .obsidian, ...): stop either way.
 			return fs.SkipDir
 		})
 		if err != nil {
@@ -206,4 +213,57 @@ func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]stri
 	}
 	slices.Sort(orphans)
 	return orphans, nil
+}
+
+// looksLikeRevisionDir reports whether the directory at path, whose name is
+// name, could be a knowledge entry's revision directory: its name must be a
+// dot followed by something ending in ".md" (the only extension a knowledge
+// entry file has), and every entry inside it must be a regular file whose
+// name parseRevisionVersion accepts. Anything else — ".git", ".obsidian", a
+// user's own dot-directory — is left alone, never walked into and never
+// treated as an orphan.
+func looksLikeRevisionDir(path, name string) bool {
+	if !strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".md") {
+		return false
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			return false
+		}
+		if _, ok := parseRevisionVersion(e.Name()); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// topLevelDirs returns the entries of dirs that are not nested under another
+// entry of dirs, so a caller that recurses into each one never visits the
+// same subtree twice.
+func topLevelDirs(dirs map[string]bool) map[string]bool {
+	list := make([]string, 0, len(dirs))
+	for d := range dirs {
+		list = append(list, d)
+	}
+	slices.Sort(list)
+	top := make(map[string]bool, len(list))
+	var kept []string
+	for _, d := range list {
+		nested := false
+		for _, p := range kept {
+			if d == p || strings.HasPrefix(d, p+string(filepath.Separator)) {
+				nested = true
+				break
+			}
+		}
+		if !nested {
+			kept = append(kept, d)
+			top[d] = true
+		}
+	}
+	return top
 }
