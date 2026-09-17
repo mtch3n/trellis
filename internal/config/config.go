@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -546,33 +547,77 @@ func LoadRepo(dir string) (doc RepoDoc, path string, ok bool, err error) {
 	return doc, path, true, nil
 }
 
+// searchMethods lists every value search.method accepts: internal/retrieval's
+// Service.vectorConfig and the CLI's own --method flag recognize exactly
+// these three.
+var searchMethods = []string{"fts", "vector", "hybrid"}
+
 // setConfigField decodes one repository-safe dotted key's YAML value into the
-// matching field of cfg. Every key RepoSafe allows is handled here.
+// matching field of cfg, and rejects a value that would not parse for its
+// key -- not merely one of the wrong YAML type. A repository file is
+// committed and arrives with every clone, so a value only type-checked here
+// (lease.ttl and search.method are both plain strings, so any string passes
+// a type check) can silently disable the setting for everyone who clones it.
+// Every key RepoSafe allows is handled here.
 func setConfigField(cfg *Config, key string, node *yaml.Node) error {
 	switch key {
 	case "card.ls_limit":
-		return node.Decode(&cfg.Card.LsLimit)
+		if err := node.Decode(&cfg.Card.LsLimit); err != nil {
+			return err
+		}
+		return positiveNumber(cfg.Card.LsLimit)
 	case "card.duplicate_check":
 		return node.Decode(&cfg.Card.DuplicateCheck)
 	case "card.duplicate_threshold":
 		return node.Decode(&cfg.Card.DuplicateThreshold)
 	case "lease.ttl":
-		return node.Decode(&cfg.Lease.TTL)
+		var raw string
+		if err := node.Decode(&raw); err != nil {
+			return err
+		}
+		if _, err := time.ParseDuration(raw); err != nil {
+			return fmt.Errorf("not a duration: %w", err)
+		}
+		cfg.Lease.TTL = raw
+		return nil
 	case "board.default_columns":
 		return node.Decode(&cfg.Board.DefaultColumns)
 	case "labels.preset":
+		// No consumer reads this key yet, so there is no enum to validate
+		// against -- only a YAML type check, as before.
 		return node.Decode(&cfg.Labels.Preset)
 	case "labels.require_on_card":
 		return node.Decode(&cfg.Labels.RequireOnCard)
 	case "tags.require_on_card":
 		return node.Decode(&cfg.Tags.RequireOnCard)
 	case "search.limit":
-		return node.Decode(&cfg.Search.Limit)
+		if err := node.Decode(&cfg.Search.Limit); err != nil {
+			return err
+		}
+		return positiveNumber(cfg.Search.Limit)
 	case "search.method":
-		return node.Decode(&cfg.Search.Method)
+		var raw string
+		if err := node.Decode(&raw); err != nil {
+			return err
+		}
+		if !slices.Contains(searchMethods, raw) {
+			return fmt.Errorf("must be one of %s, got %q", strings.Join(searchMethods, ", "), raw)
+		}
+		cfg.Search.Method = raw
+		return nil
 	default:
 		return fmt.Errorf("not a repository-safe key")
 	}
+}
+
+// positiveNumber rejects zero and negative values for a key named
+// "*_limit": it means "how many", and a repository file should not be able
+// to turn that into "unlimited" or "none" by accident.
+func positiveNumber(n int) error {
+	if n <= 0 {
+		return fmt.Errorf("must be a positive number, got %d", n)
+	}
+	return nil
 }
 
 // AllKeys lists every dotted config key GetValue understands, in the order
@@ -677,13 +722,46 @@ func ApplyRepoOverrides(cfg Config, repo RepoDoc) Config {
 	return cfg
 }
 
+// repoValueNode builds the YAML node SetRepoValue would write for key/value:
+// a sequence for board.default_columns, a scalar for everything else. It is
+// shared with ValidateRepoValue, so both check the exact node that would be
+// written.
+func repoValueNode(key, value string) *yaml.Node {
+	if key == "board.default_columns" {
+		seq := &yaml.Node{Kind: yaml.SequenceNode}
+		for _, item := range strings.Split(value, ",") {
+			seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: strings.TrimSpace(item)})
+		}
+		return seq
+	}
+	return &yaml.Node{Kind: yaml.ScalarNode, Value: value}
+}
+
+// ValidateRepoValue reports whether value would decode for key the way
+// LoadRepo's setConfigField does, without writing anything: a caller such as
+// `config set --repo` can refuse a bad value up front, before touching the
+// file, with the same complaint the file's own loader would give on its next
+// read.
+func ValidateRepoValue(key, value string) error {
+	if !RepoSafe(key) {
+		return fmt.Errorf("%q may not be set by a repository", key)
+	}
+	var scratch Config
+	return setConfigField(&scratch, key, repoValueNode(key, value))
+}
+
 // SetRepoValue writes key = value into dir's repository config file under
 // "config:", creating .trellis.yaml if neither file exists yet, and
 // preserving every other key and the "extensions" section untouched. key
-// must be RepoSafe.
+// must be RepoSafe, and value must be one setConfigField accepts: a
+// repository file is committed and arrives with every clone, so a value this
+// loader would itself reject must never be written -- it would break every
+// command that resolves a repository-scoped setting, in every clone, until
+// someone notices and edits the file by hand.
 func SetRepoValue(dir, key, value string) (string, error) {
-	if !RepoSafe(key) {
-		return "", fmt.Errorf("%q may not be set by a repository", key)
+	valueNode := repoValueNode(key, value)
+	if err := ValidateRepoValue(key, value); err != nil {
+		return "", err
 	}
 	path, err := RepoConfigPath(dir)
 	if err != nil {
@@ -702,17 +780,6 @@ func SetRepoValue(dir, key, value string) (string, error) {
 	if configNode == nil {
 		configNode = &yaml.Node{Kind: yaml.MappingNode}
 		body.Content = append(body.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: "config"}, configNode)
-	}
-
-	var valueNode *yaml.Node
-	if key == "board.default_columns" {
-		seq := &yaml.Node{Kind: yaml.SequenceNode}
-		for _, item := range strings.Split(value, ",") {
-			seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: strings.TrimSpace(item)})
-		}
-		valueNode = seq
-	} else {
-		valueNode = &yaml.Node{Kind: yaml.ScalarNode, Value: value}
 	}
 	setMapValueNode(configNode, key, valueNode)
 
