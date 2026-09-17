@@ -275,21 +275,6 @@ type activityInfo struct {
 	ProjectKey string `db:"project_key" json:"project"`
 }
 
-// projectEvent is one entry of a project's history, as the timeline reads
-// it. Old and new values are kept only for column moves: those carry column
-// names, while a body or title edit would carry the text itself.
-type projectEvent struct {
-	Seq    int64  `json:"seq"`
-	TS     int64  `json:"ts"`
-	Actor  string `json:"actor"`
-	Kind   string `json:"kind"`
-	Ref    string `json:"ref"`
-	Action string `json:"action"`
-	Field  string `json:"field,omitempty"`
-	Old    string `json:"old,omitempty"`
-	New    string `json:"new,omitempty"`
-}
-
 const (
 	projectEventsPage    = 1000
 	projectEventsPageMax = 5000

@@ -432,8 +432,8 @@ func TestServerProjectEventsPageThroughCardAndKnowledgeHistory(t *testing.T) {
 
 	s := NewServer(c, db, "127.0.0.1:0")
 	type page struct {
-		Events []projectEvent `json:"events"`
-		Next   *int64         `json:"next"`
+		Events []core.FeedEvent `json:"events"`
+		Next   *int64           `json:"next"`
 	}
 	get := func(path string) (page, []byte) {
 		t.Helper()
