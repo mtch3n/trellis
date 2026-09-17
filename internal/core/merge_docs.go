@@ -204,26 +204,25 @@ func (m *merger) collapseDoc(d docRow, into string) error {
 // any project, and every relative link from a SRC document to one that was
 // renamed. Then it resolves the stubs the merge satisfied.
 func (m *merger) references() error {
-	if len(m.addr) > 0 {
-		prefix := "/" + m.src.Key + "/"
-		ids, err := m.docsCiting(m.src.Key)
-		if err != nil {
+	// A SRC with no entries still has artifacts and cards that sources:
+	// items cite, so the scan runs whatever SRC holds.
+	ids, err := m.docsCiting(m.src.Key)
+	if err != nil {
+		return err
+	}
+	if len(m.renamed) > 0 || len(m.artRenamed) > 0 {
+		for id := range m.fromSrc {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	for _, id := range slices.Compact(ids) {
+		if err := m.rewriteDoc(id); err != nil {
 			return err
 		}
-		if len(m.renamed) > 0 || len(m.artRenamed) > 0 {
-			for id := range m.fromSrc {
-				ids = append(ids, id)
-			}
-		}
-		slices.Sort(ids)
-		for _, id := range slices.Compact(ids) {
-			if err := m.rewriteDoc(id); err != nil {
-				return err
-			}
-		}
-		if err := m.rewriteCardTargets(prefix); err != nil {
-			return err
-		}
+	}
+	if err := m.rewriteCardTargets("/" + m.src.Key + "/"); err != nil {
+		return err
 	}
 	return m.resolveStubs()
 }

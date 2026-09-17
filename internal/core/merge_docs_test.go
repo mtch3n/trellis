@@ -498,3 +498,31 @@ func TestMergeRewritesSourcesAddresses(t *testing.T) {
 		}
 	}
 }
+
+// A project with no entries still has addresses others cite: its artifacts
+// and cards. Their sources: items follow the merge all the same.
+func TestMergeRewritesSourcesWhenSRCHasNoEntries(t *testing.T) {
+	f := newMergeFixture(t)
+	ctx := t.Context()
+	core, _ := f.project("CORE")
+	f.artifact(f.api, "shot.png", "api pixels")
+	card := f.card(f.api, f.apiBoard, "task", nil, nil)
+	decision, err := f.c.CreateKnowledge(ctx, core.ID, NewKnowledge{
+		Title: "Adopt Y", Template: "decision",
+		Sources: []string{"/API/artifacts/shot.png", "/API/cards/" + card.Ref},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f.merge(MergeOptions{Apply: true})
+
+	got, err := f.c.ReadKnowledge(ctx, core.ID, decision.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/MONO/artifacts/shot.png", "/MONO/cards/" + card.Ref}
+	if !slices.Equal(got.Sources, want) {
+		t.Errorf("sources = %v, want %v", got.Sources, want)
+	}
+}
