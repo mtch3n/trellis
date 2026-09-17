@@ -2,9 +2,12 @@ package cli
 
 import (
 	"encoding/json/v2"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // refOf runs a command with --json and returns the "ref" it prints.
@@ -181,5 +184,87 @@ func TestProjectAndBoardSelectorsTakeAddresses(t *testing.T) {
 	t.Setenv("TRELLIS_PROJECT", "/BETA")
 	if got := showBoard(t).Project; got != "BETA" {
 		t.Errorf("TRELLIS_PROJECT=/BETA = %s", got)
+	}
+}
+
+// review-cli #3: a qualified card ref names the pinned project exactly as a
+// bare reference would, so it must read the repository file beside the pin
+// too -- lease.ttl included -- instead of only the global default.
+func TestQualifiedCardRefReadsRepositoryLeaseTTL(t *testing.T) {
+	repoEnv(t, "config:\n  lease.ttl: 5h\n")
+	ref := refOf(t, "card", "new", "--title", "x") // REPO-1
+
+	before := time.Now().UnixMilli()
+	out := runCmd(t, "card", "claim", ref, "--json")
+	var v struct {
+		LeaseUntil int64 `json:"lease_until"`
+	}
+	if err := json.Unmarshal([]byte(out), &v); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	got := time.Duration(v.LeaseUntil-before) * time.Millisecond
+	if got < 4*time.Hour || got > 6*time.Hour {
+		t.Errorf("claim %s: lease in %v, want ~5h from the repository lease.ttl", ref, got)
+	}
+}
+
+// mergeEnv merges API into MONO inside a pinned, git-boundaried directory and
+// leaves the working directory at repo, still pinned to /MONO. It seeds one
+// card in each project before merging, so API-1 survives as a merged-in ref
+// alongside MONO's own MONO-1.
+func mergeEnv(t *testing.T) (repo string) {
+	t.Helper()
+	repo = pinEnv(t, "mono")
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	seedProject(t, "MONO")
+	seedProject(t, "API")
+	writePin(t, repo, "/MONO\n")
+	api := filepath.Join(repo, "api")
+	if err := os.Mkdir(api, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writePin(t, api, "/API\n")
+
+	t.Chdir(api)
+	if ref := refOf(t, "card", "new", "--title", "from api"); ref != "API-1" {
+		t.Fatalf("seed card = %s", ref)
+	}
+	t.Chdir(repo)
+	if ref := refOf(t, "card", "new", "--title", "from mono"); ref != "MONO-1" {
+		t.Fatalf("seed card = %s", ref)
+	}
+	runCmd(t, "project", "merge", "api", "--into", "mono", "--apply")
+	t.Chdir(repo)
+	return repo
+}
+
+// review-cli #4: after a merge, a qualified ref such as API-1 names the
+// project that actually holds the card -- MONO, not the retired API -- so it
+// must not conflict with another reference that already names MONO.
+func TestMergedCardRefNamesItsHolderNotItsPrefix(t *testing.T) {
+	mergeEnv(t)
+
+	if out := runCmd(t, "card", "block", "1", "--by", "API-1", "--json"); !strings.Contains(out, `"ref":"MONO-1"`) {
+		t.Errorf("card block 1 --by API-1 = %s", out)
+	}
+	if out := runCmd(t, "card", "block", "MONO-1", "--by", "API-1", "--json"); !strings.Contains(out, `"ref":"MONO-1"`) {
+		t.Errorf("card block MONO-1 --by API-1 = %s", out)
+	}
+	if out := runCmd(t, "card", "show", "API-1", "--project", "MONO", "--json"); !strings.Contains(out, `"ref":"API-1"`) {
+		t.Errorf("--project MONO card show API-1 = %s", out)
+	}
+}
+
+// An ADDRESS under a merged key must still fail with project_merged: only a
+// qualified ref is redirected by CardHolder, because an address names the
+// project itself, which no longer exists.
+func TestAnAddressUnderAMergedKeyStillFails(t *testing.T) {
+	mergeEnv(t)
+
+	_, err := execCmd("card", "show", "/API/cards/API-1")
+	if ce := coreErr(t, err); ce.Code != "project_merged" {
+		t.Errorf("address under a merged key: %+v", ce)
 	}
 }

@@ -106,6 +106,21 @@ func TestEventsKindFilter(t *testing.T) {
 	}
 }
 
+// review-cli #8: "note" was renamed to "comment" in migration 0021; asking
+// for the stale name must fail loudly instead of printing nothing.
+func TestEventsRejectsAStaleKindName(t *testing.T) {
+	projectEnv(t)
+	runCmd(t, "card", "new", "--title", "Card")
+
+	_, err := runCmdErr(t, "events", "--kind", "note")
+	if err == nil {
+		t.Fatal("events --kind note was accepted")
+	}
+	if ce := coreErr(t, err); ce.Code != "unknown_event_kind" {
+		t.Errorf("code = %s, want unknown_event_kind", ce.Code)
+	}
+}
+
 func TestEventsConsumerResumesAfterAck(t *testing.T) {
 	projectEnv(t)
 	runCmd(t, "card", "new", "--title", "A")

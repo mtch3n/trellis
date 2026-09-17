@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -153,8 +154,8 @@ func newKnowledgeHistoryCmd() *cobra.Command {
 		Short: "List an entry's retained revisions",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBoard(func(app *appCtx) error {
-				revs, err := app.Core.ListKnowledgeRevisions(cmd.Context(), app.Project.ID, args[0])
+			return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
+				revs, err := app.Core.ListKnowledgeRevisions(cmd.Context(), app.Project.ID, ref)
 				if err != nil {
 					return err
 				}
@@ -179,8 +180,8 @@ func newKnowledgeDiffCmd() *cobra.Command {
 		Short: "Show a unified diff between two retained revisions",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBoard(func(app *appCtx) error {
-				d, err := app.Core.DiffKnowledge(cmd.Context(), app.Project.ID, args[0], from, to)
+			return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
+				d, err := app.Core.DiffKnowledge(cmd.Context(), app.Project.ID, ref, from, to)
 				if err != nil {
 					return err
 				}
@@ -383,7 +384,12 @@ func newKnowledgeEditCmd() *cobra.Command {
 					edit.Template = &template
 				}
 				if setPrivate {
-					p := private == "true"
+					p, perr := strconv.ParseBool(private)
+					if perr != nil {
+						return core.ErrUsage("invalid_value",
+							fmt.Sprintf("--private: %q is not true or false", private),
+							"trellis knowledge edit "+args[0]+" --private true")
+					}
 					edit.Private = &p
 				}
 				if ifVersion > 0 {
@@ -438,8 +444,12 @@ func newKnowledgeMvCmd() *cobra.Command {
 		Short: "Move or rename an entry within its project's vault",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBoard(func(app *appCtx) error {
-				doc, err := app.Core.MoveKnowledge(cmd.Context(), app.Project.ID, args[0], args[1], newDir)
+			return withTarget(refArg{Collection: vpath.CollectionKnowledge, Value: args[0]}, func(app *appCtx, ref string) error {
+				slug, err := knowledgeSlugArg(ref)
+				if err != nil {
+					return err
+				}
+				doc, err := app.Core.MoveKnowledge(cmd.Context(), app.Project.ID, slug, args[1], newDir)
 				if err != nil {
 					return err
 				}
@@ -449,6 +459,23 @@ func newKnowledgeMvCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&newDir, "new-dir", false, "create the destination directory even if it resembles an existing one")
 	return cmd
+}
+
+// knowledgeSlugArg reduces a knowledge reference to the bare slug
+// MoveKnowledge takes: unlike LoadKnowledge, it resolves a slug directly and
+// does not parse an address itself. withTarget has already decided which
+// project an address names, so only the address's own name segment is still
+// needed here.
+func knowledgeSlugArg(ref string) (string, error) {
+	v := strings.TrimSpace(ref)
+	if !strings.HasPrefix(v, "/") {
+		return v, nil
+	}
+	p, err := core.ParseAddress(v, vpath.CollectionKnowledge)
+	if err != nil {
+		return "", err
+	}
+	return p.Name, nil
 }
 
 func newKnowledgePinCmd() *cobra.Command {

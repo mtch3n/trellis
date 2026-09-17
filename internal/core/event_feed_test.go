@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -106,6 +107,23 @@ func TestEventFeedFiltersByKind(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].Kind != "label" || events[0].Ref != "urgent" {
 		t.Fatalf("events = %+v, want exactly one label event named urgent", events)
+	}
+}
+
+// review-cli #8: a stale or misspelled --kind must fail loudly, not match
+// nothing silently. "note" is the exact case: migration 0021 renamed those
+// events to "comment", and the CLI's own help text said "note" until this
+// fix.
+func TestEventFeedRejectsAnUnknownKind(t *testing.T) {
+	c, p, b := kbCore(t)
+	if _, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "card"}); err != nil {
+		t.Fatalf("CreateCard: %v", err)
+	}
+
+	_, _, err := c.EventFeed(t.Context(), EventQuery{ProjectID: p.ID, Kinds: []string{"note"}})
+	ce, ok := errors.AsType[*Error](err)
+	if !ok || ce.Code != "unknown_event_kind" {
+		t.Fatalf("err = %v, want an unknown_event_kind usage error", err)
 	}
 }
 

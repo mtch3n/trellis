@@ -31,6 +31,31 @@ func TestKnowledgeEditMetadataFlags(t *testing.T) {
 	}
 }
 
+// review-cli #2: --private is a StringVar, so only the exact string "true"
+// must not decide it; any other spelling of true is not silently false.
+func TestKnowledgeEditPrivateFlagAcceptsAnyBoolSpelling(t *testing.T) {
+	projectEnv(t)
+	runCmd(t, "knowledge", "new", "--title", "Secret", "--private")
+	v := showEntry(t, "secret").Version
+	runCmd(t, "knowledge", "edit", "secret", "--private", "True", "--if-version", strconv.FormatInt(v, 10))
+	if got := showEntry(t, "secret"); !got.Private {
+		t.Errorf("--private True made the entry public: %+v", got)
+	}
+}
+
+func TestKnowledgeEditPrivateFlagRejectsGarbage(t *testing.T) {
+	projectEnv(t)
+	runCmd(t, "knowledge", "new", "--title", "Secret2")
+	v := showEntry(t, "secret2").Version
+	_, err := runCmdErr(t, "knowledge", "edit", "secret2", "--private", "yes", "--if-version", strconv.FormatInt(v, 10))
+	if err == nil {
+		t.Fatal("--private yes was accepted")
+	}
+	if ce := coreErr(t, err); ce.Code != "invalid_value" {
+		t.Errorf("code = %s, want invalid_value", ce.Code)
+	}
+}
+
 // --tag and --label replace their lists; given empty, they clear them.
 func TestKnowledgeEditReplacesAndClearsTagsAndLabels(t *testing.T) {
 	projectEnv(t)
