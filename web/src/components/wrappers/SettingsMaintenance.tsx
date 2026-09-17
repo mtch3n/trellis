@@ -9,7 +9,7 @@ import { toast } from '@/components/ui/toast'
 import { ConfirmDialog } from '@/components/wrappers/ConfirmDialog'
 import { PageHeader } from '@/components/wrappers/PageHeader'
 import { readError } from '@/lib/api'
-import { bytes } from '@/lib/format'
+import { ago, bytes } from '@/lib/format'
 
 interface MaintenanceStats {
   database_bytes: number
@@ -36,14 +36,25 @@ const RETENTION = [
   { value: '365d', label: 'Older than a year', days: 365 },
 ] as const
 
-type Action = 'events' | 'invocations' | 'revisions' | 'leftovers' | 'compact'
+type Action = 'events' | 'invocations' | 'revisions' | 'leftovers' | 'compact' | 'backup' | 'backups'
+
+/** One backup Trellis wrote, as the backups route returns it. */
+interface Backup {
+  name: string
+  bytes: number
+  when: number
+}
+
+/** How many backups a prune keeps. */
+const KEEP = [1, 3, 5, 10]
 
 /** What each trim counts, one and many. */
-const DELETED: Record<Exclude<Action, 'compact'>, [string, string]> = {
+const DELETED: Record<'events' | 'invocations' | 'revisions' | 'leftovers' | 'backups', [string, string]> = {
   events: ['event', 'events'],
   invocations: ['invocation', 'invocations'],
   revisions: ['revision', 'revisions'],
   leftovers: ['revision folder', 'revision folders'],
+  backups: ['backup', 'backups'],
 }
 
 /**
@@ -58,14 +69,26 @@ export function SettingsMaintenance() {
   const [invocations, setInvocations] = useState('90d')
   const [confirming, setConfirming] = useState<Action | null>(null)
   // The last question asked, kept so its words stay while the dialog closes.
-  const [asked, setAsked] = useState<Exclude<Action, 'compact'>>('events')
+  const [asked, setAsked] = useState<Exclude<Action, 'compact' | 'backup'>>('events')
   const [running, setRunning] = useState<Action | null>(null)
+  // The backups on disk, and how many a prune would keep.
+  const [backups, setBackups] = useState<Backup[]>([])
+  const [directory, setDirectory] = useState('')
+  const [keep, setKeep] = useState('5')
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
-      const response = await fetch('/api/maintenance', { signal })
+      const [response, copies] = await Promise.all([
+        fetch('/api/maintenance', { signal }),
+        fetch('/api/backups', { signal }),
+      ])
       if (!response.ok) throw new Error(await readError(response))
       setStats((await response.json()) as MaintenanceStats)
+      if (copies.ok) {
+        const listed = (await copies.json()) as { directory: string; backups: Backup[] }
+        setBackups(listed.backups)
+        setDirectory(listed.directory)
+      }
       setError(null)
     } catch (err) {
       if (signal?.aborted) return
@@ -88,18 +111,31 @@ export function SettingsMaintenance() {
     }
   }
 
+  /** Where each action goes, and what it sends. */
+  const request = (action: Action): [string, unknown] => {
+    switch (action) {
+      case 'compact': return ['/api/maintenance/compact', {}]
+      case 'backup': return ['/api/maintenance/backup', {}]
+      case 'backups': return ['/api/maintenance/backup/prune', { keep: Number(keep) }]
+      default: return ['/api/maintenance/prune', prune(action)]
+    }
+  }
+
   const run = async (action: Action) => {
     setRunning(action)
     try {
-      const compact = action === 'compact'
-      const response = await fetch(compact ? '/api/maintenance/compact' : '/api/maintenance/prune', {
+      const [url, body] = request(action)
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(compact ? {} : prune(action)),
+        body: JSON.stringify(body),
       })
       if (!response.ok) throw new Error(await readError(response))
       if (action === 'compact') {
         toast.add({ title: 'Database compacted', type: 'success' })
+      } else if (action === 'backup') {
+        const { path } = (await response.json()) as { path: string }
+        toast.add({ title: 'Backed up', description: path, type: 'success' })
       } else {
         const { deleted } = (await response.json()) as { deleted: number }
         toast.add({ title: `Deleted ${deleted.toLocaleString()} ${DELETED[action][deleted === 1 ? 0 : 1]}`, type: 'success' })
@@ -114,7 +150,8 @@ export function SettingsMaintenance() {
   }
 
   const days = (value: string) => RETENTION.find((option) => option.value === value)?.days ?? 0
-  const questions: Record<Exclude<Action, 'compact'>, { title: string; description: string; confirm: string }> = {
+  // Only the acts that delete ask first, so only they have a question.
+  const questions: Record<Exclude<Action, 'compact' | 'backup'>, { title: string; description: string; confirm: string }> = {
     events: {
       title: `Delete events older than ${days(events)} days?`,
       description: 'The event log and card timelines lose everything before then. Cards and entries stay.',
@@ -135,6 +172,11 @@ export function SettingsMaintenance() {
       description: 'Revision folders whose entry no longer exists are deleted.',
       confirm: 'Remove revisions',
     },
+    backups: {
+      title: `Keep only the newest ${keep} ${Number(keep) === 1 ? 'backup' : 'backups'}?`,
+      description: `Older backups in ${directory || 'the backup directory'} are deleted. Nothing else in that directory is touched.`,
+      confirm: 'Delete old backups',
+    },
   }
   const question = questions[asked]
 
@@ -144,7 +186,9 @@ export function SettingsMaintenance() {
       size="sm"
       disabled={disabled || running !== null}
       onClick={() => {
-        if (action === 'compact') { void run(action); return }
+        // Compacting and backing up only add or rewrite, so they run at once;
+        // everything else deletes and asks first.
+        if (action === 'compact' || action === 'backup') { void run(action); return }
         setAsked(action)
         setConfirming(action)
       }}
@@ -216,6 +260,29 @@ export function SettingsMaintenance() {
             description: 'Rewrite the file to give back the space deletions left.',
             control: button('compact', 'Compact'),
           },
+          {
+            id: 'backup',
+            title: 'Back up now',
+            description: `A consistent copy, written with VACUUM INTO rather than copied from under a writer. ${
+              backups.length > 0
+                ? `${backups.length} ${backups.length === 1 ? 'backup' : 'backups'} in ${directory}, newest ${ago(backups[0].when)} (${bytes(backups[0].bytes)}).`
+                : directory
+                  ? `They go in ${directory}.`
+                  : ''
+            }`,
+            control: button('backup', 'Back up'),
+          },
+          {
+            id: 'backups',
+            title: 'Prune old backups',
+            description: 'Delete all but the newest backups Trellis wrote. Nothing else in that directory is touched.',
+            control: (
+              <>
+                <KeepSelect value={keep} onChange={setKeep} />
+                {button('backups', 'Prune', backups.length === 0)}
+              </>
+            ),
+          },
         ].map((row, index) => (
           <Fragment key={row.id}>
             {index > 0 && <Separator />}
@@ -225,7 +292,7 @@ export function SettingsMaintenance() {
       </ul>
 
       <ConfirmDialog
-        open={confirming !== null && confirming !== 'compact'}
+        open={confirming !== null && confirming !== 'compact' && confirming !== 'backup'}
         busy={running !== null}
         title={question.title}
         description={question.description}
@@ -247,6 +314,21 @@ function MaintenanceRow({ title, description, children }: { title: string; descr
       </div>
       <div className="flex shrink-0 items-center gap-2">{children}</div>
     </li>
+  )
+}
+
+/** How many backups to keep. */
+function KeepSelect({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const items = KEEP.map((count) => ({ value: String(count), label: `Keep the newest ${count}` }))
+  return (
+    <Select items={items} value={value} onValueChange={(next) => { if (next) onChange(next) }}>
+      <SelectTrigger size="sm" aria-label="Backups to keep" className="w-44">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {items.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
+      </SelectContent>
+    </Select>
   )
 }
 

@@ -1,7 +1,11 @@
 package ui
 
 import (
+	"context"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mtch3n/trellis/internal/core"
@@ -113,5 +117,99 @@ func TestColumnLifecycle(t *testing.T) {
 	}
 	if moved != 1 {
 		t.Errorf("the card did not move with the column: %+v", live)
+	}
+}
+
+// The admin reads: who holds what, what the installation looks like, what
+// this binary is, and where the backups go.
+func TestAdminReads(t *testing.T) {
+	f := newCardFixture(t, "ADMIN")
+	ctx := context.Background()
+	if _, err := f.core.RegisterAgent(ctx, "agent-one", "agent", "/tmp", "host", 42); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.core.ClaimCard(ctx, f.card.ID, 0, false, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	agents := decode[[]agentInfo](t, f.request(http.MethodGet, "/api/agents", ""))
+	var claimed []claimedCard
+	for _, agent := range agents {
+		if len(agent.Claimed) > 0 {
+			claimed = agent.Claimed
+		}
+	}
+	if len(claimed) != 1 || claimed[0].Ref != f.card.Ref || claimed[0].ProjectKey != "ADMIN" {
+		t.Errorf("agents = %+v, want one holding %s", agents, f.card.Ref)
+	}
+
+	// Every check the CLI's doctor runs, plus the daemon answering.
+	report := decode[struct {
+		Checks []struct{ Name, Status string } `json:"checks"`
+		Failed int                             `json:"failed"`
+	}](t, f.request(http.MethodGet, "/api/doctor", ""))
+	names := map[string]string{}
+	for _, check := range report.Checks {
+		names[check.Name] = check.Status
+	}
+	for _, want := range []string{"daemon", "binary", "storage root", "database", "config", "project keys", "vector search"} {
+		if _, ok := names[want]; !ok {
+			t.Errorf("the report has no %q check: %+v", want, names)
+		}
+	}
+
+	info := decode[versionInfo](t, f.request(http.MethodGet, "/api/version", ""))
+	if info.Version == "" || info.OS == "" || info.Latest != "" {
+		t.Errorf("version = %+v; the release check has to be asked for", info)
+	}
+
+	// Vector search is off by default, which is a state rather than an error.
+	status := decode[map[string]any](t, f.request(http.MethodGet, "/api/p/ADMIN/vector", ""))
+	if status["enabled"] != false {
+		t.Errorf("vector status = %+v", status)
+	}
+}
+
+// A backup is written where the person at the browser can find it, and
+// pruning keeps the newest.
+func TestBackupAndPrune(t *testing.T) {
+	f := newCardFixture(t, "COPIES")
+	first := decode[map[string]any](t, f.request(http.MethodPost, "/api/maintenance/backup", "{}"))
+	path, _ := first["path"].(string)
+	if !strings.Contains(path, "backups") || !strings.HasSuffix(path, ".db") {
+		t.Fatalf("backup = %+v", first)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("the backup is not on disk: %v", err)
+	}
+
+	listed := decode[struct {
+		Directory string           `json:"directory"`
+		Backups   []map[string]any `json:"backups"`
+	}](t, f.request(http.MethodGet, "/api/backups", ""))
+	if len(listed.Backups) != 1 {
+		t.Errorf("backups = %+v", listed)
+	}
+
+	// A relative directory is refused: the daemon's working directory is not
+	// a place the browser can see.
+	if rec := f.request(http.MethodPost, "/api/maintenance/backup", `{"directory":"copies"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("a relative directory = %d, want 400: %s", rec.Code, rec.Body)
+	}
+
+	// Pruning to one keeps the newest and says how many went.
+	stale := filepath.Join(filepath.Dir(path), "trellis-backup-20200101-000000.db")
+	if err := os.WriteFile(stale, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pruned := decode[map[string]int](t, f.request(http.MethodPost, "/api/maintenance/backup/prune", `{"keep":1}`))
+	if pruned["deleted"] != 1 {
+		t.Errorf("prune = %+v, want one deleted", pruned)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("the older backup is still there")
+	}
+	if rec := f.request(http.MethodPost, "/api/maintenance/backup/prune", `{"keep":0}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("keep=0 = %d, want 400: %s", rec.Code, rec.Body)
 	}
 }

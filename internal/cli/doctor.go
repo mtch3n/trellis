@@ -7,48 +7,35 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strconv"
 	"strings"
 
-	"github.com/jmoiron/sqlx"
-	"github.com/mtch3n/trellis/internal/address"
 	"github.com/mtch3n/trellis/internal/config"
+	"github.com/mtch3n/trellis/internal/doctor"
 	"github.com/mtch3n/trellis/internal/home"
 	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/mtch3n/trellis/internal/service"
 	"github.com/mtch3n/trellis/internal/store"
-	"github.com/mtch3n/trellis/internal/version"
 	"github.com/spf13/cobra"
 )
 
-// Check outcomes. warn means "works, but something will surprise you later";
-// fail means a command is broken right now. Only fail sets a non-zero exit.
+// Check and its outcomes are internal/doctor's, so `trellis doctor` and the
+// web UI's diagnostics report the same shape. The CLI adds only the checks
+// that depend on it: the daemon, the service manager, and the project the
+// working directory resolves to.
+type Check = doctor.Check
+
 const (
-	checkOK   = "ok"
-	checkWarn = "warn"
-	checkFail = "fail"
+	checkOK   = doctor.StatusOK
+	checkWarn = doctor.StatusWarn
+	checkFail = doctor.StatusFail
 )
 
-// Check is one diagnostic. Fix is the command that resolves it, so an agent
-// reading --json output can act without parsing prose.
-type Check struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Detail string `json:"detail"`
-	Fix    string `json:"fix,omitempty"`
-}
-
-func ok(name, detail string) Check { return Check{Name: name, Status: checkOK, Detail: detail} }
-func fail(name, detail, fix string) Check {
-	return Check{Name: name, Status: checkFail, Detail: detail, Fix: fix}
-}
-func warn(name, detail, fix string) Check {
-	return Check{Name: name, Status: checkWarn, Detail: detail, Fix: fix}
-}
+func ok(name, detail string) Check        { return doctor.OK(name, detail) }
+func warn(name, detail, fix string) Check { return doctor.Warn(name, detail, fix) }
+func fail(name, detail, fix string) Check { return doctor.Fail(name, detail, fix) }
 
 func newDoctorCmd() *cobra.Command {
 	return &cobra.Command{
@@ -105,22 +92,18 @@ func doctorTable(checks []Check) string {
 // runDoctor executes every check in order, cheapest and most foundational
 // first: a broken storage root explains most of what follows.
 func runDoctor(ctx context.Context) []Check {
-	checks := []Check{checkBinary()}
+	checks := []Check{doctor.Binary()}
 
 	root, err := home.Root()
 	if err != nil {
 		return append(checks, fail("storage root", "cannot resolve the storage root: "+err.Error(),
 			"set TRELLIS_HOME to a writable directory"))
 	}
-	checks = append(checks, checkStorageRoot(root), checkDatabase())
-
 	cfg, cfgErr := config.Load(root)
 	if cfgErr != nil {
-		checks = append(checks, warn("config", "unreadable, using defaults: "+cfgErr.Error(), "trellis config ls"))
 		cfg = config.Defaults()
-	} else {
-		checks = append(checks, ok("config", fmt.Sprintf("ui %s:%d, search %s", cfg.UI.Bind, cfg.UI.Port, cfg.Search.Method)))
 	}
+	checks = append(checks, doctor.StorageRoot(root), doctor.Database(), doctor.Config(cfg, cfgErr))
 
 	status, statusErr := resolveDaemonStatus(ctx)
 	if statusErr != nil {
@@ -128,57 +111,7 @@ func runDoctor(ctx context.Context) []Check {
 	} else {
 		checks = append(checks, checkDaemon(status), checkService(status), checkWebUI(status, cfg), checkPort(status, cfg))
 	}
-	return append(checks, checkProject(), checkProjectKeys(), checkVectorSearch(cfg))
-}
-
-func checkBinary() Check {
-	exe, err := os.Executable()
-	if err != nil {
-		return warn("binary", "cannot locate the running binary: "+err.Error(), "")
-	}
-	if resolved, resolveErr := filepath.EvalSymlinks(exe); resolveErr == nil {
-		exe = resolved
-	}
-	return ok("binary", fmt.Sprintf("%s (%s, %s/%s)", exe, version.Version, runtime.GOOS, runtime.GOARCH))
-}
-
-func checkStorageRoot(root string) Check {
-	info, err := os.Stat(root)
-	if err != nil {
-		return fail("storage root", root+": "+err.Error(), "set TRELLIS_HOME to a writable directory")
-	}
-	if !info.IsDir() {
-		return fail("storage root", root+" is not a directory", "remove it or set TRELLIS_HOME elsewhere")
-	}
-	// Stat cannot tell us about write permission portably; a probe file can.
-	probe := filepath.Join(root, ".doctor-write-probe")
-	if err := os.WriteFile(probe, []byte("x"), 0o600); err != nil {
-		return fail("storage root", root+" is not writable: "+err.Error(), "fix the directory permissions")
-	}
-	_ = os.Remove(probe)
-	return ok("storage root", root)
-}
-
-func checkDatabase() Check {
-	path, err := home.DBPath()
-	if err != nil {
-		return fail("database", err.Error(), "")
-	}
-	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-		return warn("database", "no database yet at "+path, "trellis init")
-	}
-	// Opening runs any pending migrations, so a clean open is also a clean
-	// schema. Counting projects proves the file is readable, not just present.
-	db, err := store.Open(path)
-	if err != nil {
-		return fail("database", "cannot open "+path+": "+err.Error(), "trellis backup, then restore or re-init")
-	}
-	defer db.Close()
-	var projects int
-	if err := db.Get(&projects, "SELECT count(*) FROM project"); err != nil {
-		return fail("database", "cannot read "+path+": "+err.Error(), "trellis maintenance")
-	}
-	return ok("database", fmt.Sprintf("%s (%d projects)", path, projects))
+	return append(checks, checkProject(), doctor.ProjectKeys(), doctor.VectorSearch(cfg))
 }
 
 func checkDaemon(status daemonStatus) Check {
@@ -330,83 +263,6 @@ func checkProject() Check {
 		return warn("project", detail+", but this database has no such project", "trellis init")
 	}
 	return ok("project", detail)
-}
-
-// checkProjectKeys lists projects whose key predates the key grammar. They
-// stay reachable with --project, but no marker can name them.
-func checkProjectKeys() Check {
-	db, err := openExistingDB()
-	if err != nil {
-		return ok("project keys", "no database yet")
-	}
-	defer db.Close()
-	var keys []string
-	if err := db.Select(&keys, `SELECT key FROM project ORDER BY key`); err != nil {
-		return warn("project keys", "cannot read project keys: "+err.Error(), "trellis maintenance")
-	}
-	bad := slices.DeleteFunc(keys, address.ValidKey)
-	if len(bad) == 0 {
-		return ok("project keys", "a marker can name every key")
-	}
-	return warn("project keys",
-		fmt.Sprintf("no marker can name %s: %s", plural(len(bad), "this project", "these projects"), strings.Join(bad, ", ")),
-		"trellis project merge <KEY> --into <VALID-KEY>")
-}
-
-// openExistingDB opens the database only when it already exists, so a check
-// never creates one.
-func openExistingDB() (*sqlx.DB, error) {
-	path, err := home.DBPath()
-	if err != nil {
-		return nil, err
-	}
-	if _, err := os.Stat(path); err != nil {
-		return nil, err
-	}
-	return store.Open(path)
-}
-
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return one
-	}
-	return many
-}
-
-// checkVectorSearch verifies the one part of search that depends on something
-// outside the binary: a user-supplied embedding command or endpoint.
-func checkVectorSearch(cfg config.Config) Check {
-	vector := cfg.Search.Vector
-	if !vector.Enabled {
-		if cfg.Search.Method == "vector" || cfg.Search.Method == "hybrid" {
-			return warn("vector search", "search.method is "+cfg.Search.Method+" but search.vector.enabled is false",
-				"trellis config set search.vector.enabled true")
-		}
-		return ok("vector search", "disabled")
-	}
-	switch vector.Provider {
-	case "command":
-		if vector.EmbedCommand == "" {
-			return fail("vector search", "provider is command but search.vector.embed_command is empty",
-				"trellis config set search.vector.embed_command <path>")
-		}
-		program := strings.Fields(vector.EmbedCommand)[0]
-		if _, err := exec.LookPath(program); err != nil {
-			return fail("vector search", "embed command not executable: "+program, "install it or fix search.vector.embed_command")
-		}
-		return ok("vector search", "command "+vector.EmbedCommand)
-	case "http":
-		if vector.Endpoint == "" {
-			return fail("vector search", "provider is http but search.vector.endpoint is empty",
-				"trellis config set search.vector.endpoint <url>")
-		}
-		return ok("vector search", "http "+vector.Endpoint)
-	case "":
-		return fail("vector search", "enabled but search.vector.provider is unset",
-			"trellis config set search.vector.provider command")
-	default:
-		return ok("vector search", vector.Provider)
-	}
 }
 
 // configFileHint names the config file so an error can point at it without

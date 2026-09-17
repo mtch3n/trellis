@@ -4,8 +4,6 @@ import (
 	"cmp"
 	"fmt"
 	"os"
-	"path/filepath"
-	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -122,45 +120,17 @@ func newBackupPruneCmd() *cobra.Command {
 		Use: "prune <directory>", Short: "Keep only the newest named Trellis backups",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if keep < 1 {
-				return core.ErrUsage("invalid_keep", "--keep must be at least 1", "trellis backup prune <directory> --keep 5")
-			}
-			entries, err := os.ReadDir(args[0])
+			c, db, err := openCore()
 			if err != nil {
 				return err
 			}
-			type backup struct {
-				path    string
-				modTime time.Time
+			defer db.Close()
+			deleted, err := c.BackupsPrune(args[0], keep)
+			if err != nil {
+				return err
 			}
-			backups := make([]backup, 0)
-			for _, entry := range entries {
-				if entry.IsDir() || !strings.HasPrefix(entry.Name(), "trellis-backup-") || !strings.HasSuffix(entry.Name(), ".db") {
-					continue
-				}
-				info, err := entry.Info()
-				if err != nil {
-					return err
-				}
-				backups = append(backups, backup{filepath.Join(args[0], entry.Name()), info.ModTime()})
-			}
-			slices.SortFunc(backups, func(a, b backup) int {
-				if a.modTime.After(b.modTime) {
-					return -1
-				}
-				if a.modTime.Before(b.modTime) {
-					return 1
-				}
-				return 0
-			})
-			deleted := 0
-			for _, item := range backups[min(keep, len(backups)):] {
-				if err := os.Remove(item.path); err != nil {
-					return err
-				}
-				deleted++
-			}
-			return Emit(cmd, map[string]int{"deleted": deleted, "kept": len(backups) - deleted}, func() string { return fmt.Sprintf("deleted %d old backups", deleted) })
+			return Emit(cmd, map[string]int{"deleted": deleted},
+				func() string { return fmt.Sprintf("deleted %d old backups", deleted) })
 		},
 	}
 	cmd.Flags().IntVar(&keep, "keep", 5, "number of newest named backups to retain")

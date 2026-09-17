@@ -1,7 +1,10 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { buttonVariants } from '@/components/ui/button'
 import { GuardedLink } from '@/components/wrappers/NavigationGuard'
+import { SettingsAgents } from '@/components/wrappers/SettingsAgents'
+import { SettingsDiagnostics } from '@/components/wrappers/SettingsDiagnostics'
 import { SettingsGeneral } from '@/components/wrappers/SettingsGeneral'
+import { SettingsVector } from '@/components/wrappers/SettingsVector'
 import { SettingsLogs } from '@/components/wrappers/SettingsLogs'
 import { SettingsMaintenance } from '@/components/wrappers/SettingsMaintenance'
 import { SettingsTemplates } from '@/components/wrappers/SettingsTemplates'
@@ -11,6 +14,9 @@ import { cn } from '@/lib/utils'
 const SECTIONS = [
   { path: 'general', label: 'General' },
   { path: 'templates', label: 'Templates' },
+  { path: 'agents', label: 'Agents' },
+  { path: 'diagnostics', label: 'Diagnostics' },
+  { path: 'vector', label: 'Vector index' },
   { path: 'maintenance', label: 'Maintenance' },
   { path: 'logs', label: 'Logs' },
 ] as const
@@ -54,6 +60,9 @@ export function SettingsPage() {
             <Route path="general" element={<SettingsGeneral />} />
             <Route path="templates" element={<SettingsTemplates />} />
             <Route path="templates/:name" element={<TemplateEditor />} />
+            <Route path="agents" element={<SettingsAgents />} />
+            <Route path="diagnostics" element={<SettingsDiagnostics />} />
+            <Route path="vector" element={<SettingsVector />} />
             <Route path="maintenance" element={<SettingsMaintenance />} />
             <Route path="logs" element={<SettingsLogs />} />
             <Route path="*" element={<Navigate to="general" replace />} />

@@ -12,33 +12,7 @@ import (
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/home"
 	"github.com/mtch3n/trellis/internal/service"
-	"github.com/mtch3n/trellis/internal/store"
 )
-
-func TestCheckStorageRoot(t *testing.T) {
-	root := t.TempDir()
-	if got := checkStorageRoot(root); got.Status != checkOK {
-		t.Errorf("a fresh temp dir should pass, got %+v", got)
-	}
-	if got := checkStorageRoot(filepath.Join(root, "absent")); got.Status != checkFail {
-		t.Errorf("a missing root should fail, got %+v", got)
-	}
-
-	file := filepath.Join(root, "afile")
-	write(t, file, "")
-	got := checkStorageRoot(file)
-	if got.Status != checkFail || !strings.Contains(got.Detail, "not a directory") {
-		t.Errorf("a file where the root should be must fail, got %+v", got)
-	}
-}
-
-func TestCheckDatabaseWarnsBeforeInit(t *testing.T) {
-	t.Setenv("TRELLIS_HOME", t.TempDir())
-	got := checkDatabase()
-	if got.Status != checkWarn || got.Fix != "trellis init" {
-		t.Errorf("an uninitialized root should warn and point at init, got %+v", got)
-	}
-}
 
 func TestCheckWebUI(t *testing.T) {
 	enabled := config.Defaults()
@@ -158,37 +132,6 @@ func TestCheckServiceNotInstalled(t *testing.T) {
 	}
 }
 
-func TestCheckVectorSearch(t *testing.T) {
-	cfg := config.Defaults()
-	if got := checkVectorSearch(cfg); got.Status != checkOK {
-		t.Errorf("vector search off by default should pass, got %+v", got)
-	}
-
-	cfg.Search.Method = "hybrid"
-	if got := checkVectorSearch(cfg); got.Status != checkWarn {
-		t.Errorf("hybrid search with vectors disabled should warn, got %+v", got)
-	}
-
-	cfg.Search.Vector.Enabled = true
-	cfg.Search.Vector.Provider = "command"
-	if got := checkVectorSearch(cfg); got.Status != checkFail {
-		t.Errorf("an empty embed command should fail, got %+v", got)
-	}
-	cfg.Search.Vector.EmbedCommand = filepath.Join(t.TempDir(), "no-such-embedder")
-	if got := checkVectorSearch(cfg); got.Status != checkFail {
-		t.Errorf("an unresolvable embed command should fail, got %+v", got)
-	}
-
-	cfg.Search.Vector.Provider = "http"
-	if got := checkVectorSearch(cfg); got.Status != checkFail {
-		t.Errorf("an http provider with no endpoint should fail, got %+v", got)
-	}
-	cfg.Search.Vector.Endpoint = "http://localhost:1234/embed"
-	if got := checkVectorSearch(cfg); got.Status != checkOK {
-		t.Errorf("a configured http provider should pass, got %+v", got)
-	}
-}
-
 func TestCheckProjectFromAMarker(t *testing.T) {
 	dir := markerEnv(t, "app")
 	seedProject(t, "APP")
@@ -248,35 +191,6 @@ func TestCheckProjectWithoutADatabaseWarns(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Errorf("the check created a database: %v", err)
-	}
-}
-
-func TestCheckProjectKeysFlagsKeysAMarkerCannotName(t *testing.T) {
-	markerEnv(t, "anywhere")
-	seedProject(t, "GOOD")
-	path, err := home.DBPath()
-	if err != nil {
-		t.Fatal(err)
-	}
-	db, err := store.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(`INSERT INTO project (id, key, name, created_at) VALUES ('x', 'MY_APP', 'MY_APP', 1)`)
-	db.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := checkProjectKeys()
-	if got.Status != checkWarn || !strings.Contains(got.Detail, "MY_APP") || strings.Contains(got.Detail, "GOOD") {
-		t.Errorf("check = %+v", got)
-	}
-}
-
-func TestCheckProjectKeysWithoutADatabase(t *testing.T) {
-	t.Setenv("TRELLIS_HOME", t.TempDir())
-	if got := checkProjectKeys(); got.Status != checkOK {
-		t.Errorf("check = %+v", got)
 	}
 }
 

@@ -330,3 +330,60 @@ func (s *Service) DropProject(ctx context.Context, projectKey string) error {
 	path := s.vectorDBFile(projectKey)
 	return vector.DropTables(ctx, s.db.DB, path)
 }
+
+// VectorStatus describes one project's vector index: whether vector search is
+// configured at all, how many entries would be indexed, and how many are.
+type VectorStatus struct {
+	Enabled           bool   `json:"enabled"`
+	Provider          string `json:"provider,omitempty"`
+	ConfiguredEntries int    `json:"configured_entries"`
+	IndexedEntries    int    `json:"indexed_entries"`
+	UnindexedEntries  int    `json:"unindexed_entries"`
+}
+
+// VectorStatus answers what `vector status` prints. Disabled is a state, not
+// an error: FTS search carries on without it.
+func (s *Service) VectorStatus(ctx context.Context, projectID string) (VectorStatus, error) {
+	cfg, _, err := s.vectorConfig(ctx, projectID)
+	if err != nil {
+		return VectorStatus{}, err
+	}
+	if !cfg.Enabled {
+		return VectorStatus{Provider: cfg.Provider}, nil
+	}
+	idx, err := s.projectIndex(ctx, projectID, cfg)
+	if err != nil {
+		return VectorStatus{}, err
+	}
+	defer idx.Close()
+	entries, err := s.core.ListSearchEntries(ctx, projectID)
+	if err != nil {
+		return VectorStatus{}, err
+	}
+	indexed, err := idx.Count(ctx, projectID)
+	if err != nil {
+		return VectorStatus{}, err
+	}
+	return VectorStatus{
+		Enabled:           true,
+		Provider:          cfg.Provider,
+		ConfiguredEntries: len(entries),
+		IndexedEntries:    indexed,
+		UnindexedEntries:  max(len(entries)-indexed, 0),
+	}, nil
+}
+
+// VectorCompact checkpoints and vacuums one project's vector database, giving
+// back the space deletions left.
+func (s *Service) VectorCompact(ctx context.Context, projectID string) error {
+	cfg, _, err := s.vectorConfig(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	idx, err := s.projectIndex(ctx, projectID, cfg)
+	if err != nil {
+		return err
+	}
+	defer idx.Close()
+	return idx.Compact(ctx)
+}
