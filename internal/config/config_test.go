@@ -29,9 +29,6 @@ func TestDefaultsLoadWithNoFile(t *testing.T) {
 	if cfg.UI.Bind != "127.0.0.1" {
 		t.Errorf("UI.Bind = %q, want 127.0.0.1", cfg.UI.Bind)
 	}
-	if cfg.DB.BusyTimeoutMs != 10000 {
-		t.Errorf("DB.BusyTimeoutMs = %d, want 10000", cfg.DB.BusyTimeoutMs)
-	}
 	if cfg.Lease.TTL != "30m" {
 		t.Errorf("Lease.TTL = %q, want 30m", cfg.Lease.TTL)
 	}
@@ -51,8 +48,6 @@ func TestYAMLFileOverridesDefaults(t *testing.T) {
 	content := `ui:
   port: 8888
   bind: 0.0.0.0
-db:
-  busy_timeout_ms: 5000
 labels:
   require_on_card: true
 `
@@ -74,9 +69,6 @@ labels:
 	}
 	if cfg.UI.Bind != "0.0.0.0" {
 		t.Errorf("UI.Bind = %q, want 0.0.0.0", cfg.UI.Bind)
-	}
-	if cfg.DB.BusyTimeoutMs != 5000 {
-		t.Errorf("DB.BusyTimeoutMs = %d, want 5000", cfg.DB.BusyTimeoutMs)
 	}
 	if !cfg.Labels.RequireOnCard {
 		t.Errorf("Labels.RequireOnCard = %v, want true", cfg.Labels.RequireOnCard)
@@ -371,7 +363,7 @@ func TestValidateValueRejectsNegativeHistoryKeep(t *testing.T) {
 	}
 }
 
-func TestValidateValueRejectsBadLeaseTTLGitTimeoutAndSearchMethod(t *testing.T) {
+func TestValidateValueRejectsBadLeaseTTLAndSearchMethod(t *testing.T) {
 	if err := ValidateValue("lease.ttl", "banana"); err == nil {
 		t.Error("ValidateValue(lease.ttl, banana), want an error")
 	}
@@ -383,15 +375,6 @@ func TestValidateValueRejectsBadLeaseTTLGitTimeoutAndSearchMethod(t *testing.T) 
 	}
 	if err := ValidateValue("lease.ttl", "30m"); err != nil {
 		t.Errorf("ValidateValue(lease.ttl, 30m): %v, want nil", err)
-	}
-	if err := ValidateValue("git.timeout", "banana"); err == nil {
-		t.Error("ValidateValue(git.timeout, banana), want an error")
-	}
-	if err := ValidateValue("git.timeout", "0s"); err == nil {
-		t.Error("ValidateValue(git.timeout, 0s), want an error: not positive")
-	}
-	if err := ValidateValue("git.timeout", "5s"); err != nil {
-		t.Errorf("ValidateValue(git.timeout, 5s): %v, want nil", err)
 	}
 	if err := ValidateValue("search.method", "bogus"); err == nil {
 		t.Error("ValidateValue(search.method, bogus), want an error")
@@ -583,18 +566,19 @@ func writeRepoFile(t *testing.T, dir, name, content string) {
 
 func TestRepoSafeKeys(t *testing.T) {
 	safe := []string{
-		"card.ls_limit", "card.duplicate_check", "card.duplicate_threshold",
+		"card.ls_limit",
 		"lease.ttl", "board.default_columns",
-		"labels.preset", "labels.require_on_card", "tags.require_on_card",
-		"search.limit", "search.method",
+		"labels.require_on_card", "tags.require_on_card",
+		"search.method",
 	}
 	for _, k := range safe {
 		if !RepoSafe(k) {
 			t.Errorf("RepoSafe(%q) = false, want true", k)
 		}
 	}
-	refused := []string{"ui.port", "ui.bind", "ui.enabled", "db.busy_timeout_ms", "git.timeout",
-		"search.vector.enabled", "search.vector.embed_command", "search.vector.endpoint"}
+	refused := []string{"ui.port", "ui.bind", "ui.enabled",
+		"search.vector.enabled", "search.vector.provider", "search.vector.model",
+		"search.vector.embed_command", "search.vector.endpoint"}
 	for _, k := range refused {
 		if RepoSafe(k) {
 			t.Errorf("RepoSafe(%q) = true, want false", k)
@@ -670,8 +654,8 @@ func TestLoadRepoAppliesAllowedKeys(t *testing.T) {
 			t.Errorf("Present[%q] = false, want true", k)
 		}
 	}
-	if doc.Present["search.limit"] {
-		t.Error("Present[\"search.limit\"] = true, but the file never set it")
+	if doc.Present["search.method"] {
+		t.Error("Present[\"search.method\"] = true, but the file never set it")
 	}
 }
 
@@ -727,16 +711,11 @@ func TestLoadRepoRejectsAnUnknownSearchMethod(t *testing.T) {
 }
 
 func TestLoadRepoRejectsANonPositiveLimit(t *testing.T) {
-	for _, tc := range []struct{ key, yaml string }{
-		{"card.ls_limit", "config:\n  card.ls_limit: 0\n"},
-		{"search.limit", "config:\n  search.limit: -5\n"},
-	} {
-		dir := t.TempDir()
-		writeRepoFile(t, dir, ".trellis.yaml", tc.yaml)
-		_, _, _, err := LoadRepo(dir)
-		if err == nil || !strings.Contains(err.Error(), tc.key) {
-			t.Errorf("%s: err = %v, want an error naming %s", tc.key, err, tc.key)
-		}
+	dir := t.TempDir()
+	writeRepoFile(t, dir, ".trellis.yaml", "config:\n  card.ls_limit: 0\n")
+	_, _, _, err := LoadRepo(dir)
+	if err == nil || !strings.Contains(err.Error(), "card.ls_limit") {
+		t.Errorf("err = %v, want an error naming card.ls_limit", err)
 	}
 }
 
@@ -902,9 +881,10 @@ func TestApplyRepoOverridesCopiesEveryPresentKey(t *testing.T) {
 		Config: Config{
 			Card:   CardConfig{LsLimit: 5},
 			Lease:  LeaseConfig{TTL: "5m"},
-			Search: SearchConfig{Limit: 3, Method: "vector"},
+			Search: SearchConfig{Method: "vector"},
+			Tags:   TagsConfig{RequireOnCard: true},
 		},
-		Present: map[string]bool{"card.ls_limit": true, "lease.ttl": true, "search.limit": true, "search.method": true},
+		Present: map[string]bool{"card.ls_limit": true, "lease.ttl": true, "search.method": true, "tags.require_on_card": true},
 	}
 	merged := ApplyRepoOverrides(cfg, repo)
 	if merged.Card.LsLimit != 5 {
@@ -913,8 +893,11 @@ func TestApplyRepoOverridesCopiesEveryPresentKey(t *testing.T) {
 	if merged.Lease.TTL != "5m" {
 		t.Errorf("Lease.TTL = %q, want 5m", merged.Lease.TTL)
 	}
-	if merged.Search.Limit != 3 || merged.Search.Method != "vector" {
-		t.Errorf("Search = %+v, want Limit=3 Method=vector", merged.Search)
+	if merged.Search.Method != "vector" {
+		t.Errorf("Search.Method = %q, want vector", merged.Search.Method)
+	}
+	if !merged.Tags.RequireOnCard {
+		t.Error("Tags.RequireOnCard = false, want true")
 	}
 	// board.default_columns was never present: the default must survive.
 	if len(merged.Board.DefaultColumns) != len(Defaults().Board.DefaultColumns) {

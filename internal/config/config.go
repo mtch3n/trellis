@@ -23,8 +23,6 @@ import (
 // zero-value defaults since YAML parsing leaves unset fields as zero values.
 type Config struct {
 	UI      UIConfig      `yaml:"ui"`
-	DB      DBConfig      `yaml:"db"`
-	Git     GitConfig     `yaml:"git"`
 	Lease   LeaseConfig   `yaml:"lease"`
 	Board   BoardConfig   `yaml:"board"`
 	Labels  LabelsConfig  `yaml:"labels"`
@@ -48,14 +46,6 @@ type UIConfig struct {
 // means yes.
 func (u UIConfig) UIEnabled() bool { return u.Enabled == nil || *u.Enabled }
 
-type DBConfig struct {
-	BusyTimeoutMs int `yaml:"busy_timeout_ms"`
-}
-
-type GitConfig struct {
-	Timeout string `yaml:"timeout"` // e.g., "5s"
-}
-
 type LeaseConfig struct {
 	TTL string `yaml:"ttl"` // e.g., "30m"
 }
@@ -65,8 +55,7 @@ type BoardConfig struct {
 }
 
 type LabelsConfig struct {
-	Preset        string `yaml:"preset"` // "default" or "none"
-	RequireOnCard bool   `yaml:"require_on_card"`
+	RequireOnCard bool `yaml:"require_on_card"`
 }
 
 type TagsConfig struct {
@@ -74,13 +63,10 @@ type TagsConfig struct {
 }
 
 type CardConfig struct {
-	LsLimit            int     `yaml:"ls_limit"`
-	DuplicateCheck     bool    `yaml:"duplicate_check"`
-	DuplicateThreshold float64 `yaml:"duplicate_threshold"`
+	LsLimit int `yaml:"ls_limit"`
 }
 
 type SearchConfig struct {
-	Limit  int                `yaml:"limit"`
 	Method string             `yaml:"method"` // fts, vector, or hybrid
 	Vector VectorSearchConfig `yaml:"vector"`
 }
@@ -126,12 +112,6 @@ func Defaults() Config {
 			Bind:    "127.0.0.1",
 			Enabled: ptr(true),
 		},
-		DB: DBConfig{
-			BusyTimeoutMs: 10000,
-		},
-		Git: GitConfig{
-			Timeout: "5s",
-		},
 		Lease: LeaseConfig{
 			TTL: "30m",
 		},
@@ -139,19 +119,15 @@ func Defaults() Config {
 			DefaultColumns: []string{"backlog", "in-progress", "review", "done"},
 		},
 		Labels: LabelsConfig{
-			Preset:        "default",
 			RequireOnCard: false,
 		},
 		Tags: TagsConfig{
 			RequireOnCard: false,
 		},
 		Card: CardConfig{
-			LsLimit:            50,
-			DuplicateCheck:     true,
-			DuplicateThreshold: 0.75,
+			LsLimit: 50,
 		},
 		Search: SearchConfig{
-			Limit:  50,
 			Method: "fts",
 			Vector: VectorSearchConfig{Limit: 10, ChunkSize: 1200, ChunkOverlap: 200},
 		},
@@ -234,29 +210,14 @@ func applyDefaults(cfg *Config) {
 	if cfg.UI.Enabled == nil {
 		cfg.UI.Enabled = defaults.UI.Enabled
 	}
-	if cfg.DB.BusyTimeoutMs == 0 {
-		cfg.DB.BusyTimeoutMs = defaults.DB.BusyTimeoutMs
-	}
-	if cfg.Git.Timeout == "" {
-		cfg.Git.Timeout = defaults.Git.Timeout
-	}
 	if cfg.Lease.TTL == "" {
 		cfg.Lease.TTL = defaults.Lease.TTL
 	}
 	if len(cfg.Board.DefaultColumns) == 0 {
 		cfg.Board.DefaultColumns = defaults.Board.DefaultColumns
 	}
-	if cfg.Labels.Preset == "" {
-		cfg.Labels.Preset = defaults.Labels.Preset
-	}
 	if cfg.Card.LsLimit == 0 {
 		cfg.Card.LsLimit = defaults.Card.LsLimit
-	}
-	if cfg.Card.DuplicateThreshold == 0 {
-		cfg.Card.DuplicateThreshold = defaults.Card.DuplicateThreshold
-	}
-	if cfg.Search.Limit == 0 {
-		cfg.Search.Limit = defaults.Search.Limit
 	}
 	if cfg.Search.Method == "" {
 		cfg.Search.Method = defaults.Search.Method
@@ -286,29 +247,17 @@ func GetValue(cfg Config, key string) (string, bool) {
 		return cfg.UI.Bind, true
 	case "ui.enabled":
 		return fmt.Sprintf("%v", cfg.UI.UIEnabled()), true
-	case "db.busy_timeout_ms":
-		return fmt.Sprintf("%d", cfg.DB.BusyTimeoutMs), true
-	case "git.timeout":
-		return cfg.Git.Timeout, true
 	case "lease.ttl":
 		return cfg.Lease.TTL, true
 	case "board.default_columns":
 		// For arrays, return comma-separated values.
 		return fmt.Sprintf("[%s]", fmt.Sprint(cfg.Board.DefaultColumns)), true
-	case "labels.preset":
-		return cfg.Labels.Preset, true
 	case "labels.require_on_card":
 		return fmt.Sprintf("%v", cfg.Labels.RequireOnCard), true
 	case "tags.require_on_card":
 		return fmt.Sprintf("%v", cfg.Tags.RequireOnCard), true
 	case "card.ls_limit":
 		return fmt.Sprintf("%d", cfg.Card.LsLimit), true
-	case "card.duplicate_check":
-		return fmt.Sprintf("%v", cfg.Card.DuplicateCheck), true
-	case "card.duplicate_threshold":
-		return fmt.Sprintf("%v", cfg.Card.DuplicateThreshold), true
-	case "search.limit":
-		return fmt.Sprintf("%d", cfg.Search.Limit), true
 	case "search.method":
 		return cfg.Search.Method, true
 	case "search.vector.enabled":
@@ -338,10 +287,9 @@ func GetValue(cfg Config, key string) (string, bool) {
 
 // ValidateValue rejects a value for a key with semantic constraints beyond
 // being a known key: history.keep's zero disables capture but its negative
-// values are nonsensical, not a synonym for "unlimited"; lease.ttl and
-// git.timeout are waits, so a zero or negative duration means "immediately"
-// or "before it started"; search.method must name a method the retrieval
-// service actually implements.
+// values are nonsensical, not a synonym for "unlimited"; lease.ttl is a
+// wait, so a zero or negative duration means "immediately"; search.method
+// must name a method the retrieval service actually implements.
 func ValidateValue(key, value string) error {
 	switch key {
 	case "history.keep":
@@ -353,7 +301,7 @@ func ValidateValue(key, value string) error {
 			return fmt.Errorf("history.keep must not be negative, got %d", n)
 		}
 		return nil
-	case "lease.ttl", "git.timeout":
+	case "lease.ttl":
 		return validatePositiveDuration(key, value)
 	case "search.method":
 		return validateChoice(key, value, searchMethods)
@@ -475,12 +423,12 @@ func ListProjectConfigs(ctx context.Context, db *sqlx.DB, projectID string) (map
 // able to redirect storage, open a port, or run a program.
 func RepoSafe(key string) bool {
 	switch key {
-	case "card.ls_limit", "card.duplicate_check", "card.duplicate_threshold",
+	case "card.ls_limit",
 		"lease.ttl",
 		"board.default_columns",
-		"labels.preset", "labels.require_on_card",
+		"labels.require_on_card",
 		"tags.require_on_card",
-		"search.limit", "search.method":
+		"search.method":
 		return true
 	default:
 		return false
@@ -611,10 +559,6 @@ func setConfigField(cfg *Config, key string, node *yaml.Node) error {
 			return err
 		}
 		return positiveNumber(cfg.Card.LsLimit)
-	case "card.duplicate_check":
-		return node.Decode(&cfg.Card.DuplicateCheck)
-	case "card.duplicate_threshold":
-		return node.Decode(&cfg.Card.DuplicateThreshold)
 	case "lease.ttl":
 		var raw string
 		if err := node.Decode(&raw); err != nil {
@@ -627,19 +571,10 @@ func setConfigField(cfg *Config, key string, node *yaml.Node) error {
 		return nil
 	case "board.default_columns":
 		return node.Decode(&cfg.Board.DefaultColumns)
-	case "labels.preset":
-		// No consumer reads this key yet, so there is no enum to validate
-		// against -- only a YAML type check, as before.
-		return node.Decode(&cfg.Labels.Preset)
 	case "labels.require_on_card":
 		return node.Decode(&cfg.Labels.RequireOnCard)
 	case "tags.require_on_card":
 		return node.Decode(&cfg.Tags.RequireOnCard)
-	case "search.limit":
-		if err := node.Decode(&cfg.Search.Limit); err != nil {
-			return err
-		}
-		return positiveNumber(cfg.Search.Limit)
 	case "search.method":
 		var raw string
 		if err := node.Decode(&raw); err != nil {
@@ -671,14 +606,11 @@ func positiveNumber(n int) error {
 func AllKeys() []string {
 	return []string{
 		"ui.port", "ui.bind", "ui.enabled",
-		"db.busy_timeout_ms",
-		"git.timeout",
 		"lease.ttl",
 		"board.default_columns",
-		"labels.preset", "labels.require_on_card",
+		"labels.require_on_card",
 		"tags.require_on_card",
-		"card.ls_limit", "card.duplicate_check", "card.duplicate_threshold",
-		"search.limit",
+		"card.ls_limit",
 		"search.method",
 		"search.vector.enabled", "search.vector.provider", "search.vector.embed_command", "search.vector.endpoint",
 		"search.vector.model", "search.vector.dimension", "search.vector.limit",
@@ -728,11 +660,8 @@ type KeyInfo struct {
 // something that lives for the process: the listener (ui.*) and the
 // retrieval service's search method and vector settings, both captured at
 // daemon startup and never re-read. It is false for the five keys the daemon
-// re-applies to its Core on every settings change (Core.ApplyGlobalConfig)
-// and for every other key, which either the CLI alone reads fresh on each
-// invocation, or -- db.busy_timeout_ms, git.timeout, labels.preset,
-// card.duplicate_check, card.duplicate_threshold, search.limit -- has no
-// runtime consumer yet beyond `config get`/`config ls` themselves.
+// re-applies to its Core on every settings change (Core.ApplyGlobalConfig) and for
+// card.ls_limit, which the CLI alone reads fresh on each invocation.
 func Describe() []KeyInfo {
 	return []KeyInfo{
 		{Key: "ui.port", Type: TypeInt, Editable: false, Restart: true,
@@ -741,28 +670,16 @@ func Describe() []KeyInfo {
 			Description: "The loopback address the daemon's web UI and API bind to."},
 		{Key: "ui.enabled", Type: TypeBool, Editable: false, Restart: true,
 			Description: "Whether the daemon serves the web UI at all, or stays on local IPC only."},
-		{Key: "db.busy_timeout_ms", Type: TypeInt, Editable: true, Restart: false,
-			Description: "How long SQLite waits on a busy lock before giving up."},
-		{Key: "git.timeout", Type: TypeDuration, Editable: true, Restart: false,
-			Description: "How long a git operation may run before it is cancelled."},
 		{Key: "lease.ttl", Type: TypeDuration, Editable: true, Restart: false,
 			Description: "How long a claim lasts before it expires."},
 		{Key: "board.default_columns", Type: TypeList, Editable: true, Restart: false,
 			Description: "The columns a new board starts with."},
-		{Key: "labels.preset", Type: TypeString, Editable: true, Restart: false,
-			Description: "Which built-in label set new projects start with."},
 		{Key: "labels.require_on_card", Type: TypeBool, Editable: true, Restart: false,
 			Description: "Whether a card must carry at least one label."},
 		{Key: "tags.require_on_card", Type: TypeBool, Editable: true, Restart: false,
 			Description: "Whether a card must carry at least one tag."},
 		{Key: "card.ls_limit", Type: TypeInt, Editable: true, Restart: false,
 			Description: "The default number of cards a listing returns."},
-		{Key: "card.duplicate_check", Type: TypeBool, Editable: true, Restart: false,
-			Description: "Whether creating a card warns about likely duplicates."},
-		{Key: "card.duplicate_threshold", Type: TypeNumber, Editable: true, Restart: false,
-			Description: "How similar two card titles must be to be flagged as duplicates."},
-		{Key: "search.limit", Type: TypeInt, Editable: true, Restart: false,
-			Description: "The default number of results a search returns."},
 		{Key: "search.method", Type: TypeEnum, Choices: slices.Clone(searchMethods), Editable: true, Restart: true,
 			Description: "Which method finds cards and knowledge entries: full-text, vector, or hybrid."},
 		{Key: "search.vector.enabled", Type: TypeBool, Editable: false, Restart: true,
@@ -806,28 +723,16 @@ func TypedValue(cfg Config, key string) (value any, ok bool) {
 		return cfg.UI.Bind, true
 	case "ui.enabled":
 		return cfg.UI.UIEnabled(), true
-	case "db.busy_timeout_ms":
-		return cfg.DB.BusyTimeoutMs, true
-	case "git.timeout":
-		return cfg.Git.Timeout, true
 	case "lease.ttl":
 		return cfg.Lease.TTL, true
 	case "board.default_columns":
 		return slices.Clone(cfg.Board.DefaultColumns), true
-	case "labels.preset":
-		return cfg.Labels.Preset, true
 	case "labels.require_on_card":
 		return cfg.Labels.RequireOnCard, true
 	case "tags.require_on_card":
 		return cfg.Tags.RequireOnCard, true
 	case "card.ls_limit":
 		return cfg.Card.LsLimit, true
-	case "card.duplicate_check":
-		return cfg.Card.DuplicateCheck, true
-	case "card.duplicate_threshold":
-		return cfg.Card.DuplicateThreshold, true
-	case "search.limit":
-		return cfg.Search.Limit, true
 	case "search.method":
 		return cfg.Search.Method, true
 	case "search.vector.enabled":
@@ -1189,9 +1094,8 @@ func LoadWithPresence() (Config, map[string]bool, error) {
 // presentKeys reports which of AllKeys raw actually set, by comparing
 // GetValue's string form of raw against the same key read from an entirely
 // zero Config. This shares GetValue's one known blind spot: an explicit
-// value equal to the zero value (search.limit: 0, ui.enabled: true) is
-// indistinguishable from absence — the same limitation applyDefaults already
-// has no way around.
+// value equal to the zero value (ui.enabled: true) is indistinguishable from
+// absence — the same limitation applyDefaults already has no way around.
 func presentKeys(raw Config) map[string]bool {
 	present := map[string]bool{}
 	var zero Config
@@ -1216,22 +1120,14 @@ func ApplyRepoOverrides(cfg Config, repo RepoDoc) Config {
 		switch key {
 		case "card.ls_limit":
 			cfg.Card.LsLimit = repo.Config.Card.LsLimit
-		case "card.duplicate_check":
-			cfg.Card.DuplicateCheck = repo.Config.Card.DuplicateCheck
-		case "card.duplicate_threshold":
-			cfg.Card.DuplicateThreshold = repo.Config.Card.DuplicateThreshold
 		case "lease.ttl":
 			cfg.Lease.TTL = repo.Config.Lease.TTL
 		case "board.default_columns":
 			cfg.Board.DefaultColumns = repo.Config.Board.DefaultColumns
-		case "labels.preset":
-			cfg.Labels.Preset = repo.Config.Labels.Preset
 		case "labels.require_on_card":
 			cfg.Labels.RequireOnCard = repo.Config.Labels.RequireOnCard
 		case "tags.require_on_card":
 			cfg.Tags.RequireOnCard = repo.Config.Tags.RequireOnCard
-		case "search.limit":
-			cfg.Search.Limit = repo.Config.Search.Limit
 		case "search.method":
 			cfg.Search.Method = repo.Config.Search.Method
 		}
