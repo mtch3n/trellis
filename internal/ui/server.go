@@ -110,6 +110,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}/cards/{card}/relations/{rel}/{ref}", s.handleDeleteCardRelation)
 	s.mux.HandleFunc("GET /api/p/{key}/b/{board}/knowledge", s.handleKnowledgeList)
 	s.mux.HandleFunc("GET /api/p/{key}/knowledge", s.handleProjectKnowledgeList)
+	s.mux.HandleFunc("GET /api/p/{key}/links/knowledge", s.handleKnowledgeLinks)
 	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}/history", s.handleKnowledgeHistory)
 	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}/diff", s.handleKnowledgeDiff)
 	s.mux.HandleFunc("GET /api/p/{key}/knowledge/{slug}", s.handleGetKnowledge)
@@ -1072,6 +1073,22 @@ func (s *Server) handleProjectKnowledgeList(w http.ResponseWriter, r *http.Reque
 	}
 	withoutContent(docs)
 	writeJSON(w, http.StatusOK, knowledgeItems(p.Key, docs))
+}
+
+func (s *Server) handleKnowledgeLinks(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+	p, err := s.projectByKey(ctx, r.PathValue("key"))
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	links, err := s.core.KnowledgeLinks(ctx, p.ID)
+	if err != nil {
+		s.coreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, links)
 }
 
 func (s *Server) handleGlobalKnowledgeList(w http.ResponseWriter, r *http.Request) {
