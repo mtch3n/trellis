@@ -159,7 +159,7 @@ func TestSeededTemplatesAllParse(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantEnforce := map[string]string{
-		"decision": "reject", "finding": "reject",
+		"decision": "reject", "finding": "reject", "glossary": "reject",
 		"reference": "warn", "research": "warn", "runbook": "warn",
 	}
 	for _, name := range Templates() {

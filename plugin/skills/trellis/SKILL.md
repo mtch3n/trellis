@@ -20,6 +20,8 @@ say so; when none is, apply ordinary judgment and the rules below.
 | Does this work belong on the board? | `trellis:when-to-use-trellis` |
 | Is this finding worth recording, and where? | `trellis:writing-knowledge` |
 | Another actor holds the card | `trellis:coordinating` |
+| What is this called here? | `trellis:using-glossary` |
+| The project's glossary needs a new or changed term | `trellis:keeping-glossary` |
 
 Writing to the board is authorized by whichever of those applies, or by the user
 asking directly. Reading is always allowed.
@@ -114,7 +116,8 @@ trellis link XPSCTL-12 concurrency-model#decision
 trellis knowledge nominate <slug> --reason "..."  # human gate; agents only nominate
 ```
 
-Templates: `note`, `decision`, `finding`, `research`, `runbook`, `reference`.
+Templates: `decision`, `finding`, `glossary`, `reference`, `research`, `runbook`.
+An entry created without `--template` has no template.
 `decision` and `finding` refuse an entry that cites no `--source`. A source is
 free text — a URL, `path:lines`, a command — except that an internal reference
 (`[[slug]]`, `/KEY/cards/KEY-12`, `/KEY/knowledge/slug`, `/GLOBAL/knowledge/slug`,

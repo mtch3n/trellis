@@ -147,6 +147,8 @@ class HookTests(unittest.TestCase):
         self.assertIn("when-to-use-trellis", context)
         self.assertIn("writing-knowledge", context)
         self.assertIn("coordinating", context)
+        self.assertIn("using-glossary", context)
+        self.assertIn("keeping-glossary", context)
 
     def test_config_commands_resolve_outside_plugin_directory(self):
         config = json.loads((ROOT / "plugin/hooks/hooks.json").read_text())
