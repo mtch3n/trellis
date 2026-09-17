@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/pressly/goose/v3"
 )
 
 func TestOpenAppliesPragmas(t *testing.T) {
@@ -218,4 +220,53 @@ func TestImmediateTxlockPreventsBusySnapshot(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("second writer (B) did not complete in time")
 	}
+}
+
+func TestOpenCurrentNeverCreatesADatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "t.db")
+	if _, err := OpenCurrent(path); err == nil {
+		t.Fatal("OpenCurrent opened a database that does not exist")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("OpenCurrent left %s behind: %v", path, err)
+	}
+}
+
+func TestOpenCurrentNeverMigrates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "t.db")
+	old, err := connect(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := goose.UpTo(old.DB, "migrations", 13); err != nil {
+		t.Fatal(err)
+	}
+	old.Close()
+
+	if db, err := OpenCurrent(path); err == nil {
+		db.Close()
+		t.Fatal("OpenCurrent accepted a database at an older version")
+	}
+	db, err := connect(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if v, err := goose.GetDBVersion(db.DB); err != nil || v != 13 {
+		t.Errorf("version = %d, %v; want 13 untouched", v, err)
+	}
+}
+
+func TestOpenCurrentOpensAnUpToDateDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "t.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	db, err = OpenCurrent(path)
+	if err != nil {
+		t.Fatalf("OpenCurrent: %v", err)
+	}
+	db.Close()
 }
