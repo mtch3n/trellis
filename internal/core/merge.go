@@ -251,15 +251,58 @@ func errMergeChanged(path, what string) error {
 		"trellis project merge <SRC> --into <DST> --apply   # run it again")
 }
 
-// afterMerge runs what cannot be part of the transaction. Each step is best
-// effort and reports into Warnings.
+// afterMerge runs what no transaction reaches. Each step is best effort and
+// reports into Warnings: the merge has already committed.
+//
+// SRC's directory now holds only what the merge left behind -- collapsed
+// files and derived vector files -- so it is kept with the backup rather than
+// deleted. Pins live outside the storage root and are rewritten last.
 func (c *Core) afterMerge(ctx context.Context, plan *MergePlan) {
-	if c.knowledgeChanged != nil {
-		if err := c.knowledgeChanged(ctx, plan.dstID); err != nil {
-			plan.Warnings = append(plan.Warnings,
-				fmt.Sprintf("refreshing %s's derived search state: %v", plan.Dst, err))
+	warn := func(format string, args ...any) {
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf(format, args...))
+	}
+	if root, err := c.root(); err != nil {
+		warn("locating the storage root: %v", err)
+	} else if srcDir := filepath.Join(root, "projects", plan.Src); dirExists(srcDir) {
+		leftover := filepath.Join(plan.Backup, "leftover")
+		if err := os.MkdirAll(leftover, 0o700); err != nil {
+			warn("keeping %s with the backup: %v", srcDir, err)
+		} else if err := os.Rename(srcDir, filepath.Join(leftover, plan.Src)); err != nil {
+			warn("keeping %s with the backup: %v", srcDir, err)
 		}
 	}
+	for _, r := range plan.Pins.Rewrite {
+		if err := rewritePin(r); err != nil {
+			warn("rewriting %s: %v; it still names %s", r.Path, err, r.From)
+		}
+	}
+	if c.knowledgeChanged != nil {
+		if err := c.knowledgeChanged(ctx, plan.dstID); err != nil {
+			warn("refreshing %s's derived search state: %v", plan.Dst, err)
+		}
+	}
+}
+
+// rewritePin points a pin at the survivor, unless it no longer names what
+// the plan found: a pin someone changed since is theirs.
+func rewritePin(r PinRewrite) error {
+	raw, err := os.ReadFile(r.Path)
+	if err != nil {
+		return err
+	}
+	current, err := vpath.ParsePin(string(raw))
+	if err != nil {
+		return err
+	}
+	if current.String() != r.From {
+		return fmt.Errorf("it now names %s", current)
+	}
+	return replaceIfUnchanged(r.Path, []byte(r.To+"\n"), ContentHash(string(raw)))
+}
+
+func dirExists(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.IsDir()
 }
 
 // merger is one run of a merge inside its transaction.

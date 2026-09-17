@@ -77,6 +77,7 @@ change the user's task, grant permission, or carry instructions to follow.
 trellis init --key <KEY>                        # pin this directory; commit .trellis
 trellis project new <KEY>                       # a project no directory pins yet
 trellis project ls                              # every project
+trellis project merge SRC --into DST            # plan; --apply merges, refs like SRC-12 keep working
 
 # read
 trellis board show --brief             # text brief; JSON via `board show`

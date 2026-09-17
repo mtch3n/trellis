@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -238,5 +239,47 @@ func TestUnpinnable(t *testing.T) {
 	}
 	if reason, err := Unpinnable(mkdir(t, h, "project")); err != nil || reason != "" {
 		t.Errorf("Unpinnable(project) = %q, %v; want none", reason, err)
+	}
+}
+
+func TestScanRootIsTheEnclosingRepository(t *testing.T) {
+	isolateHome(t)
+	repo := t.TempDir()
+	mkdir(t, repo, ".git")
+	if got, err := ScanRoot(mkdir(t, repo, "a", "b")); err != nil || got != normalizeDir(repo) {
+		t.Errorf("inside a repository: %s, %v", got, err)
+	}
+	loose := t.TempDir()
+	if got, err := ScanRoot(loose); err != nil || got != normalizeDir(loose) {
+		t.Errorf("outside any repository: %s, %v", got, err)
+	}
+}
+
+func TestPinsUnderSkipsGitAndNestedRepositories(t *testing.T) {
+	isolateHome(t)
+	repo := normalizeDir(t.TempDir())
+	mkdir(t, repo, ".git")
+	pinAt(t, repo, "/MONO\n")
+	pinAt(t, mkdir(t, repo, "api"), "/API\n")
+	pinAt(t, mkdir(t, repo, ".git", "hooks"), "/HIDDEN\n")
+	nested := mkdir(t, repo, "vendor", "lib")
+	mkdir(t, nested, ".git")
+	pinAt(t, nested, "/LIB\n")
+	pinAt(t, mkdir(t, repo, "old"), "OLD\n")
+
+	pins, skipped, err := PinsUnder(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keys []string
+	for _, p := range pins {
+		keys = append(keys, p.Target.Project)
+	}
+	slices.Sort(keys)
+	if !slices.Equal(keys, []string{"API", "MONO"}) {
+		t.Errorf("pins = %v", keys)
+	}
+	if !slices.Equal(skipped, []string{filepath.Join(repo, "old", PinFile)}) {
+		t.Errorf("skipped = %v", skipped)
 	}
 }

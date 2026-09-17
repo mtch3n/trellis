@@ -52,6 +52,8 @@ written install. Re-running the install script has the same effect.
 **Init**
 ```bash
 trellis init              # Pin this directory to a project (commit the .trellis it writes)
+trellis project merge API --into MONO            # print what a merge would do
+trellis project merge API --into MONO --apply    # back up, merge, rewrite pins
 ```
 
 **Interactive terminal**

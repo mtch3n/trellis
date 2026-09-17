@@ -350,7 +350,7 @@ func checkProjectKeys() Check {
 	}
 	return warn("project keys",
 		fmt.Sprintf("no pin can name %s: %s", plural(len(bad), "this project", "these projects"), strings.Join(bad, ", ")),
-		"trellis --project <KEY> ...   # still reachable by name")
+		"trellis project merge <KEY> --into <VALID-KEY>")
 }
 
 // openExistingDB opens the database only when it already exists, so a check

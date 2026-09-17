@@ -169,6 +169,15 @@ func targetContext(a refArg, key, ref string, relative bool) (*appCtx, error) {
 		return fail(rerr)
 	}
 	p, err := c.ProjectByKey(ctx, key)
+	// A card ref names a card, and a merged project's cards live on in the
+	// project it was merged into; an address names the project itself, which
+	// is gone (project-merge design, "The merged key is reserved").
+	if ce, ok := errors.AsType[*core.Error](err); ok && ce.Code == "project_merged" &&
+		a.Collection == vpath.CollectionCards && !strings.HasPrefix(strings.TrimSpace(a.Value), "/") {
+		if detail, ok := ce.Detail.(map[string]string); ok && detail["into"] != "" {
+			p, err = c.ProjectByKey(ctx, detail["into"])
+		}
+	}
 	if err != nil {
 		return fail(err)
 	}

@@ -1,6 +1,8 @@
 package core
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -336,5 +338,85 @@ func TestMergeCarriesCardRevisionsRelationsAndHistory(t *testing.T) {
 	// Every API event moved, plus the merge's own event on MONO.
 	if n := f.count(`SELECT count(*) FROM event WHERE project_id = ?`, f.mono.ID); n < monoEvents+apiEvents+1 {
 		t.Errorf("MONO has %d events, want at least %d", n, monoEvents+apiEvents+1)
+	}
+}
+
+func TestMergeFinishesAfterTheCommit(t *testing.T) {
+	f := newMergeFixture(t)
+	f.doc(f.api, "Runbook", "x\n")
+	repo := t.TempDir()
+	pinPath := filepath.Join(repo, "api", ".trellis")
+	writeFile(t, pinPath, "/API\n")
+	var notified []string
+	f.c.SetKnowledgeChanged(func(_ context.Context, id string) error {
+		notified = append(notified, id)
+		return nil
+	})
+
+	plan := f.merge(MergeOptions{Apply: true, ScanRoot: repo,
+		Pins: []resolve.Pin{{Path: pinPath, Target: vpath.ProjectPath("API")}}})
+
+	if got := readFile(t, pinPath); got != "/MONO/boards/api\n" {
+		t.Errorf("pin = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(f.root, "projects", "API")); !os.IsNotExist(err) {
+		t.Errorf("API's directory is still in the storage root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(plan.Backup, "leftover", "API")); err != nil {
+		t.Errorf("API's leftovers were not kept with the backup: %v", err)
+	}
+	if !slices.Contains(notified, f.mono.ID) {
+		t.Errorf("MONO's derived state was not refreshed: %v", notified)
+	}
+	if len(plan.Warnings) != 0 {
+		t.Errorf("warnings = %v", plan.Warnings)
+	}
+}
+
+// A pin changed since the plan is left alone and reported.
+func TestMergeLeavesAPinThatChanged(t *testing.T) {
+	f := newMergeFixture(t)
+	repo := t.TempDir()
+	pinPath := filepath.Join(repo, "api", ".trellis")
+	writeFile(t, pinPath, "/OTHER\n")
+
+	plan := f.merge(MergeOptions{Apply: true, ScanRoot: repo,
+		Pins: []resolve.Pin{{Path: pinPath, Target: vpath.ProjectPath("API")}}})
+
+	if got := readFile(t, pinPath); got != "/OTHER\n" {
+		t.Errorf("pin = %q, want it untouched", got)
+	}
+	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "OTHER") {
+		t.Errorf("warnings = %v", plan.Warnings)
+	}
+}
+
+func TestMergeReportsAFailedRefresh(t *testing.T) {
+	f := newMergeFixture(t)
+	f.c.SetKnowledgeChanged(func(context.Context, string) error { return errors.New("embedder down") })
+	plan := f.merge(MergeOptions{Apply: true})
+	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "embedder down") {
+		t.Errorf("warnings = %v", plan.Warnings)
+	}
+}
+
+func TestMergeDropsDerivedStateBeforeApplying(t *testing.T) {
+	f := newMergeFixture(t)
+	var dropped []string
+	f.c.SetDropDerived(func(_ context.Context, key string) error {
+		if f.count(`SELECT count(*) FROM project WHERE key = ?`, key) != 1 {
+			t.Errorf("%s was dropped after it was merged away", key)
+		}
+		dropped = append(dropped, key)
+		return errors.New("vector tables busy")
+	})
+
+	plan := f.merge(MergeOptions{Apply: true})
+
+	if !slices.Equal(dropped, []string{"API"}) {
+		t.Errorf("dropped = %v", dropped)
+	}
+	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "vector tables busy") {
+		t.Errorf("warnings = %v", plan.Warnings)
 	}
 }
