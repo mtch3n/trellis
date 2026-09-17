@@ -58,7 +58,7 @@ type Knowledge struct {
 	Labels    []string      `db:"-" json:"labels,omitempty"`
 	Artifacts []ArtifactRef `db:"-" json:"artifacts,omitempty"`
 	Sources   []string      `db:"-" json:"sources,omitempty"`
-	Missing   bool          `db:"-" json:"missing,omitempty"` // file is missing; content withheld
+	Missing   bool          `db:"-" json:"missing,omitzero"` // file is missing; content withheld
 	// Warnings is set only by CreateKnowledge, when creating from a
 	// template under enforce: warn found a problem: a missing required
 	// field, a value outside its choices, or a missing section. It is
