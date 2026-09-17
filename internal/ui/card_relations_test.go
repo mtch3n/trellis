@@ -14,14 +14,15 @@ import (
 )
 
 func testServerWithCards(t *testing.T) *Server {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
 
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "test")
-	return NewServer(c, db, "127.0.0.1:0")
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "test", dir)
+	return NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 }
 
 func TestHandleCardDetailIncludesRelations(t *testing.T) {

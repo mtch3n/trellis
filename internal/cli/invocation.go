@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,16 +26,16 @@ func logInvocation(args []string, exit int, started time.Time) {
 	// Logging never breaks a command, and never creates or migrates the
 	// database either: `trellis --help` from a newer build must not be what
 	// upgrades it.
-	path, err := home.DBPath()
+	root, err := home.Root()
 	if err != nil {
 		return
 	}
-	db, err := store.OpenCurrent(path)
+	db, err := store.OpenCurrent(filepath.Join(root, "trellis.db"))
 	if err != nil {
 		return
 	}
 	defer db.Close()
-	_ = core.New(db, core.RealClock{}, cliActor()).LogInvocation(context.Background(), redactArgv(args), exit,
+	_ = core.New(db, core.RealClock{}, cliActor(), root).LogInvocation(context.Background(), redactArgv(args), exit,
 		time.Since(started).Milliseconds())
 }
 

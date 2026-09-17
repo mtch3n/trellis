@@ -62,6 +62,33 @@ func (c *Core) Compact(ctx context.Context) error {
 	return nil
 }
 
+// knowledgeWithPaths returns knowledge rows with Path derived and filled in,
+// scoped to projectID (empty means every project). It exists for maintenance
+// and health code that walks a file directly rather than through
+// loadDoc/refreshFromFile, which set Path as a side effect of reading one
+// entry's own file.
+func (c *Core) knowledgeWithPaths(tx *sqlx.Tx, projectID string) ([]Knowledge, error) {
+	q := `SELECT k.*, p.key AS pkey FROM knowledge k JOIN project p ON p.id = k.project_id`
+	var args []any
+	if projectID != "" {
+		q += ` WHERE k.project_id = ?`
+		args = append(args, projectID)
+	}
+	var rows []struct {
+		Knowledge
+		Key string `db:"pkey"`
+	}
+	if err := tx.Select(&rows, q, args...); err != nil {
+		return nil, err
+	}
+	docs := make([]Knowledge, len(rows))
+	for i, r := range rows {
+		docs[i] = r.Knowledge
+		docs[i].Path = c.docPath(r.Key, docs[i].Global, docs[i].Slug)
+	}
+	return docs, nil
+}
+
 // PruneRevisions trims every knowledge entry's and every card's revisions
 // down to history.keep. Capture already enforces the limit going forward;
 // this is for after lowering it, when the excess would otherwise wait for
@@ -69,7 +96,9 @@ func (c *Core) Compact(ctx context.Context) error {
 func (c *Core) PruneRevisions(ctx context.Context) (int64, error) {
 	var docs []Knowledge
 	if err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		return tx.Select(&docs, `SELECT * FROM knowledge`)
+		var err error
+		docs, err = c.knowledgeWithPaths(tx, "")
+		return err
 	}); err != nil {
 		return 0, err
 	}
@@ -146,7 +175,8 @@ func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]stri
 	var allDocs []Knowledge
 	var keys []string
 	if err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		if err := tx.Select(&allDocs, `SELECT * FROM knowledge`); err != nil {
+		var err error
+		if allDocs, err = c.knowledgeWithPaths(tx, ""); err != nil {
 			return err
 		}
 		kq := `SELECT key FROM project`
@@ -160,15 +190,10 @@ func (c *Core) orphanRevisionDirs(ctx context.Context, projectID string) ([]stri
 		return nil, err
 	}
 
-	root, err := c.root()
-	if err != nil {
-		return nil, err
-	}
-	// The vaults to walk: every project's own directory, the global one, and
-	// wherever the rows actually point, which covers a moved storage root.
-	vaults := map[string]bool{filepath.Join(root, "global", "knowledge"): true}
+	// The vaults to walk: every project's own directory, plus the global one.
+	vaults := map[string]bool{c.docDir(GlobalKey, true): true}
 	for _, key := range keys {
-		vaults[filepath.Join(root, "projects", key, "knowledge")] = true
+		vaults[c.docDir(key, false)] = true
 	}
 	live := make(map[string]bool, len(allDocs))
 	for _, d := range allDocs {

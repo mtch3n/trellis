@@ -17,7 +17,7 @@ func TestCreateComment(t *testing.T) {
 	}
 	defer db.Close()
 
-	core := New(db, FixedClock{MS: 1000000}, "test-actor")
+	core := New(db, FixedClock{MS: 1000000}, "test-actor", filepath.Dir(path))
 	ctx := context.Background()
 
 	proj, err := core.CreateProject(ctx, "COMMENT", false)

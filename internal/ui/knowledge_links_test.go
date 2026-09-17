@@ -13,14 +13,14 @@ import (
 )
 
 func TestKnowledgeLinksEndpoint(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test")
-	c.WithKBRoot(t.TempDir())
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test", dir)
 	p, err := c.CreateProject(context.Background(), "UITEST", false)
 	if err != nil {
 		t.Fatal(err)
@@ -30,7 +30,7 @@ func TestKnowledgeLinksEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "")
+	s := NewServer(c, db, "", filepath.Join(dir, "trellis.db"))
 	ts := httptest.NewServer(s.mux)
 	defer ts.Close()
 

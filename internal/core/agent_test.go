@@ -61,7 +61,7 @@ func TestRegisterAgent(t *testing.T) {
 	}
 	defer db.Close()
 
-	core := New(db, FixedClock{MS: 1000000}, "agent-1")
+	core := New(db, FixedClock{MS: 1000000}, "agent-1", filepath.Dir(path))
 	ctx := context.Background()
 
 	// Register an agent.

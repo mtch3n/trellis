@@ -12,7 +12,6 @@ import (
 func kbCore(t *testing.T) (*Core, Project, Board) {
 	t.Helper()
 	c := testCore(t)
-	c.WithKBRoot(t.TempDir())
 	p := seededProject(t, c)
 	b := seededBoard(t, c, p)
 	return c, p, b

@@ -13,7 +13,7 @@ func retire(t *testing.T, c *Core, key string, into Project) {
 }
 
 func TestAMergedKeyIsReserved(t *testing.T) {
-	c := testCore(t).WithKBRoot(t.TempDir())
+	c := testCore(t)
 	ctx := t.Context()
 	mono, err := c.CreateProject(ctx, "MONO", false)
 	if err != nil {

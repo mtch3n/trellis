@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 )
 
@@ -54,20 +53,6 @@ func artifactsInFile(t *testing.T, path string) []string {
 		t.Fatal(err)
 	}
 	return fm.Artifacts
-}
-
-// insertDuplicateArtifact adds a second row with a's name and a different path,
-// which is what a storage root that moved between two `artifact add` calls
-// leaves behind.
-func insertDuplicateArtifact(t *testing.T, c *Core, projectID string, a Artifact) {
-	t.Helper()
-	if _, err := c.db.Exec(
-		`INSERT INTO artifact (id, project_id, name, path, kind, mime, size, content_hash, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		NewCardID(), projectID, a.Name, filepath.Join(t.TempDir(), a.Name),
-		a.Kind, a.MIME, a.Size, a.ContentHash, 1, 1); err != nil {
-		t.Fatalf("insert duplicate: %v", err)
-	}
 }
 
 func artifactNamesOf(doc Knowledge) []string {
@@ -150,25 +135,6 @@ func TestRemovingANameFromTheFileRemovesTheLink(t *testing.T) {
 	}
 }
 
-func TestANameSharedByTwoArtifactsIsAStub(t *testing.T) {
-	c, p, _ := kbCore(t)
-	a := addArtifact(t, c, p.ID, "diagram.png", "\x89PNG\r\n\x1a\nfirst")
-	insertDuplicateArtifact(t, c, p.ID, a)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Design"})
-	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
-	}
-	setArtifactsInFile(t, doc.Path, a.Name)
-
-	got, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
-	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
-	}
-	if len(got.Artifacts) != 1 || !got.Artifacts[0].Missing {
-		t.Errorf("Artifacts = %+v, want an ambiguous name left unresolved", got.Artifacts)
-	}
-}
-
 // An artifact's name keeps its extension's case, so a lower-cased lookup would
 // never find "photo.PNG". The list also keeps the file's order, and a name
 // listed twice links once.
@@ -227,14 +193,14 @@ func TestEditingTheBodyKeepsTheArtifactList(t *testing.T) {
 	}
 }
 
-// A storage root that moved leaves rows whose files live elsewhere. Their
-// names still resolve entries, so a new artifact must not take one.
+// A row can claim a name whose file was removed by hand outside Trellis, or
+// whose creation never finished; a new artifact must not reuse the name.
 func TestANameTakenInTheDatabaseIsNotReused(t *testing.T) {
 	c, p, _ := kbCore(t)
 	if _, err := c.db.Exec(
-		`INSERT INTO artifact (id, project_id, name, path, kind, mime, size, content_hash, created_at, updated_at)
-		 VALUES (?, ?, 'x.png', ?, 'image', 'image/png', 3, 'h', 1, 1)`,
-		NewCardID(), p.ID, filepath.Join(t.TempDir(), "x.png")); err != nil {
+		`INSERT INTO artifact (id, project_id, name, kind, mime, size, content_hash, created_at, updated_at)
+		 VALUES (?, ?, 'x.png', 'image', 'image/png', 3, 'h', 1, 1)`,
+		NewCardID(), p.ID); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 	a := addArtifact(t, c, p.ID, "x.png", "\x89PNG\r\n\x1a\nx")
@@ -309,46 +275,6 @@ func TestDeletingAnArtifactLeavesEntryLinksAsStubs(t *testing.T) {
 	}
 }
 
-// Deleting one of two same-named artifacts leaves a single survivor for the
-// name. An entry that held the name as an ambiguous stub must resolve to that
-// survivor without any edit of its own.
-func TestDeletingOneOfTwoSameNamedArtifactsBindsTheSurvivor(t *testing.T) {
-	c, p, _ := kbCore(t)
-	a := addArtifact(t, c, p.ID, "twin.png", "\x89PNG\r\n\x1a\nfirst")
-	insertDuplicateArtifact(t, c, p.ID, a)
-	doc, err := c.CreateKnowledge(t.Context(), p.ID, NewKnowledge{Title: "Twins"})
-	if err != nil {
-		t.Fatalf("CreateKnowledge: %v", err)
-	}
-	setArtifactsInFile(t, doc.Path, a.Name)
-
-	got, err := c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
-	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
-	}
-	if len(got.Artifacts) != 1 || !got.Artifacts[0].Missing {
-		t.Fatalf("setup: Artifacts = %+v, want an ambiguous stub", got.Artifacts)
-	}
-
-	var dupID string
-	if err := c.db.Get(&dupID,
-		`SELECT id FROM artifact WHERE project_id = ? AND name = ? AND id != ?`,
-		p.ID, a.Name, a.ID); err != nil {
-		t.Fatalf("find duplicate: %v", err)
-	}
-	if err := c.DeleteArtifact(t.Context(), p.ID, dupID); err != nil {
-		t.Fatalf("DeleteArtifact: %v", err)
-	}
-
-	got, err = c.LoadKnowledge(t.Context(), p.ID, doc.Slug)
-	if err != nil {
-		t.Fatalf("LoadKnowledge: %v", err)
-	}
-	if len(got.Artifacts) != 1 || got.Artifacts[0].Missing || got.Artifacts[0].Kind != a.Kind {
-		t.Errorf("Artifacts = %+v, want %s resolved by the backfill", got.Artifacts, a.Name)
-	}
-}
-
 // Unlinking by the artifact's id, not its name, still removes it from the
 // entry's list.
 func TestUnlinkArtifactFromEntryByID(t *testing.T) {
@@ -397,15 +323,6 @@ func TestResolveArtifactByIDOrName(t *testing.T) {
 	}
 	if _, err := c.ResolveArtifact(t.Context(), p.ID, "nope.png"); artifactErrCode(err) != "artifact_not_found" {
 		t.Errorf("unknown: err = %v, want artifact_not_found", err)
-	}
-
-	insertDuplicateArtifact(t, c, p.ID, a)
-	_, err = c.ResolveArtifact(t.Context(), p.ID, a.Name)
-	if artifactErrCode(err) != "artifact_ambiguous" {
-		t.Fatalf("shared name: err = %v, want artifact_ambiguous", err)
-	}
-	if !strings.Contains(err.Error(), a.ID) {
-		t.Errorf("error %q does not name the matching ids", err)
 	}
 }
 

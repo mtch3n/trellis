@@ -35,16 +35,16 @@ func pinEnv(t *testing.T, name string) string {
 // would hold the database, and on Windows would block TempDir cleanup.
 func seedProject(t *testing.T, key string, boards ...string) core.Project {
 	t.Helper()
-	path, err := home.DBPath()
+	root, err := home.Root()
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := store.Open(path)
+	db, err := store.Open(filepath.Join(root, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	c := core.New(db, core.RealClock{}, "test")
+	c := core.New(db, core.RealClock{}, "test", root)
 	p, err := c.CreateProject(t.Context(), key, false)
 	if err != nil {
 		t.Fatalf("CreateProject(%s): %v", key, err)

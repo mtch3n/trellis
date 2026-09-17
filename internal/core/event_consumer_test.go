@@ -115,7 +115,7 @@ func TestEventGapAfterPartialPruning(t *testing.T) {
 	}
 
 	baseMS := c.clock.NowMS()
-	later := New(c.db, FixedClock{MS: baseMS + 1000}, c.actor)
+	later := New(c.db, FixedClock{MS: baseMS + 1000}, c.actor, c.root)
 	if _, err := later.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "later"}); err != nil {
 		t.Fatalf("CreateCard (later): %v", err)
 	}

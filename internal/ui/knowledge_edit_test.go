@@ -17,12 +17,13 @@ import (
 // A web save sends title, summary and body together. Each one present must be
 // written, and each one absent must keep its value.
 func TestKnowledgeEditWritesTitleAndSummary(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-edit-test").WithKBRoot(t.TempDir())
+	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-edit-test", dir)
 	ctx := context.Background()
 	p, err := c.CreateProject(ctx, "EDIT", false)
 	if err != nil {
@@ -36,7 +37,7 @@ func TestKnowledgeEditWritesTitleAndSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	patch := func(body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPatch, "/api/p/EDIT/b/default/knowledge/"+doc.Slug, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -91,12 +92,13 @@ func TestKnowledgeEditWritesTitleAndSummary(t *testing.T) {
 
 // EditKnowledgeMetadata tests changing type, private, tags, and labels via PATCH.
 func TestKnowledgeEditMetadata(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-edit-metadata-test").WithKBRoot(t.TempDir())
+	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-edit-metadata-test", dir)
 	ctx := context.Background()
 	p, err := c.CreateProject(ctx, "META", false)
 	if err != nil {
@@ -113,7 +115,7 @@ func TestKnowledgeEditMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	patch := func(body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPatch, "/api/p/META/b/default/knowledge/"+doc.Slug, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -152,12 +154,13 @@ func TestKnowledgeEditMetadata(t *testing.T) {
 // A template that rejects an entry without sources must still be usable from
 // the web, so the create request carries sources and template fields.
 func TestKnowledgeCreateCarriesSources(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-create-test").WithKBRoot(t.TempDir())
+	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-create-test", dir)
 	ctx := context.Background()
 	p, err := c.CreateProject(ctx, "CREATE", false)
 	if err != nil {
@@ -166,7 +169,7 @@ func TestKnowledgeCreateCarriesSources(t *testing.T) {
 	if _, err := c.CreateBoard(ctx, p.ID, "default", true); err != nil {
 		t.Fatal(err)
 	}
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	post := func(body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/api/p/CREATE/b/default/knowledge", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -200,12 +203,13 @@ func TestKnowledgeCreateCarriesSources(t *testing.T) {
 // first write: the file on disk must say so from the moment CreateKnowledge
 // returns, not after a follow-up request.
 func TestKnowledgeCreatePrivateOverHTTPIsPrivateFromFirstWrite(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-create-test").WithKBRoot(t.TempDir())
+	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-create-test", dir)
 	ctx := context.Background()
 	p, err := c.CreateProject(ctx, "CREATE", false)
 	if err != nil {
@@ -214,7 +218,7 @@ func TestKnowledgeCreatePrivateOverHTTPIsPrivateFromFirstWrite(t *testing.T) {
 	if _, err := c.CreateBoard(ctx, p.ID, "default", true); err != nil {
 		t.Fatal(err)
 	}
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	post := func(body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/api/p/CREATE/b/default/knowledge", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")

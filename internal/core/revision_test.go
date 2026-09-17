@@ -420,7 +420,7 @@ func TestAFailedEscalateMovesTheRevisionDirectoryBack(t *testing.T) {
 	if _, err := os.Stat(revisionFilePath(doc.Path, 1)); err != nil {
 		t.Errorf("revision directory not restored at %s: %v", oldDir, err)
 	}
-	globalDir := filepath.Join(c.kbRoot, "global", "knowledge")
+	globalDir := filepath.Join(c.root, "global", "knowledge")
 	if _, err := os.Stat(filepath.Join(globalDir, "."+filepath.Base(doc.Path))); !os.IsNotExist(err) {
 		t.Errorf("revision directory should not remain in the global directory")
 	}

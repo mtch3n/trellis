@@ -15,12 +15,13 @@ import (
 // The timeline reads the same feed an extension does: every event carries a
 // title, knowledge carries its type, and reads stay out.
 func TestProjectEventsComeFromTheFeed(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-events-test").WithKBRoot(t.TempDir())
+	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-events-test", dir)
 	ctx := context.Background()
 	p, err := c.CreateProject(ctx, "FEED", false)
 	if err != nil {
@@ -43,7 +44,7 @@ func TestProjectEventsComeFromTheFeed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	req := httptest.NewRequest(http.MethodGet, "/api/p/FEED/events", nil)
 	rec := httptest.NewRecorder()
 	s.mux.ServeHTTP(rec, req)

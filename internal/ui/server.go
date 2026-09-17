@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -20,7 +21,6 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/home"
 	"github.com/mtch3n/trellis/internal/retrieval"
 	frontend "github.com/mtch3n/trellis/web"
 )
@@ -57,14 +57,17 @@ func webActor() string {
 	return "human:web"
 }
 
-// NewServer creates a new UI server.
-func NewServer(c *core.Core, db *sqlx.DB, listen string) *Server {
-	dbPath, _ := home.DBPath()
-	cfg, err := config.Load()
+// NewServer creates a new UI server. dbPath is the database file the caller
+// already opened db from, always <root>/trellis.db; the storage root for
+// config and vector index files is derived from it, rather than resolved
+// here — see TRELLIS-48.
+func NewServer(c *core.Core, db *sqlx.DB, listen, dbPath string) *Server {
+	root := filepath.Dir(dbPath)
+	cfg, err := config.Load(root)
 	if err != nil {
 		cfg = config.Defaults()
 	}
-	return NewServerWithSearch(c, db, listen, retrieval.NewService(c, db, dbPath, cfg))
+	return NewServerWithSearch(c, db, listen, retrieval.NewService(c, db, dbPath, cfg, root))
 }
 
 // NewServerWithSearch lets the daemon give HTTP and IPC the same long-lived

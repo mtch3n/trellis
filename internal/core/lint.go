@@ -76,7 +76,7 @@ func (c *Core) Lint(ctx context.Context, projectID string) ([]LintFinding, error
 				return err
 			}
 			for _, r := range rows {
-				f, ok, err := linkFinding(tx, targets, d, r.ToRaw, r.ToID, r.Anchor)
+				f, ok, err := linkFinding(c, tx, targets, d, r.ToRaw, r.ToID, r.Anchor)
 				if err != nil {
 					return err
 				}
@@ -247,7 +247,7 @@ func (c *Core) knownExtraFields(ctx context.Context) (map[string]bool, error) {
 }
 
 // linkFinding judges one wikilink held by d.
-func linkFinding(tx *sqlx.Tx, targets linkTargets, d Knowledge, raw string,
+func linkFinding(c *Core, tx *sqlx.Tx, targets linkTargets, d Knowledge, raw string,
 	toID, anchor sql.NullString) (LintFinding, bool, error) {
 	ref := ParseReference(raw)
 	if !toID.Valid {
@@ -272,7 +272,7 @@ func linkFinding(tx *sqlx.Tx, targets linkTargets, d Knowledge, raw string,
 	if !anchor.Valid || anchor.String == "" {
 		return LintFinding{}, false, nil
 	}
-	target, found, err := targets.get(tx, toID.String)
+	target, found, err := targets.get(c, tx, toID.String)
 	if err != nil || !found || target.anchors[anchor.String] {
 		return LintFinding{}, false, err
 	}
@@ -291,15 +291,17 @@ type linkTargets map[string]linkTarget
 
 // get returns the target with id, reading its file the first time. found is
 // false when the row or its file has gone, which is not an anchor problem.
-func (t linkTargets) get(tx *sqlx.Tx, id string) (linkTarget, bool, error) {
+func (t linkTargets) get(c *Core, tx *sqlx.Tx, id string) (linkTarget, bool, error) {
 	if lt, ok := t[id]; ok {
 		return lt, true, nil
 	}
 	var row struct {
-		Path string `db:"path"`
-		Ref  string `db:"ref"`
+		Slug   string `db:"slug"`
+		Global bool   `db:"global"`
+		Key    string `db:"key"`
+		Ref    string `db:"ref"`
 	}
-	err := tx.Get(&row, `SELECT k.path, `+docAddressSQL+` AS ref
+	err := tx.Get(&row, `SELECT k.slug, k.global, p.key, `+docAddressSQL+` AS ref
 		FROM knowledge k JOIN project p ON p.id = k.project_id WHERE k.id = ?`, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return linkTarget{}, false, nil
@@ -307,14 +309,15 @@ func (t linkTargets) get(tx *sqlx.Tx, id string) (linkTarget, bool, error) {
 	if err != nil {
 		return linkTarget{}, false, err
 	}
-	raw, err := os.ReadFile(row.Path)
+	path := c.docPath(row.Key, row.Global, row.Slug)
+	raw, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return linkTarget{}, false, nil
 	}
 	if err != nil {
 		return linkTarget{}, false, err
 	}
-	_, body, err := splitDocFile(row.Path, raw)
+	_, body, err := splitDocFile(path, raw)
 	if err != nil {
 		return linkTarget{}, false, err
 	}

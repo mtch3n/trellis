@@ -18,12 +18,13 @@ import (
 
 func artifactTestServer(t *testing.T) (*Server, *core.Core, core.Project) {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-artifact-test").WithKBRoot(t.TempDir())
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-artifact-test", dir)
 	p, err := c.CreateProject(t.Context(), "ART", false)
 	if err != nil {
 		t.Fatal(err)
@@ -31,7 +32,7 @@ func artifactTestServer(t *testing.T) (*Server, *core.Core, core.Project) {
 	if _, err := c.CreateBoard(t.Context(), p.ID, "default", true); err != nil {
 		t.Fatal(err)
 	}
-	return NewServer(c, db, "127.0.0.1:0"), c, p
+	return NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db")), c, p
 }
 
 func storeArtifact(t *testing.T, c *core.Core, projectID, filename string, content []byte) core.Artifact {
@@ -222,9 +223,9 @@ func TestAnSVGRowIsSandboxed(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.db.Exec(
-		`INSERT INTO artifact (id, project_id, name, path, kind, mime, size, content_hash, created_at, updated_at)
-		 VALUES (?, ?, 'drawing.svg', ?, 'image', 'image/svg+xml', ?, 'h', 1, 1)`,
-		core.NewCardID(), p.ID, svgPath, len(svg)); err != nil {
+		`INSERT INTO artifact (id, project_id, name, kind, mime, size, content_hash, created_at, updated_at)
+		 VALUES (?, ?, 'drawing.svg', 'image', 'image/svg+xml', ?, 'h', 1, 1)`,
+		core.NewCardID(), p.ID, len(svg)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -298,15 +299,18 @@ func TestArtifactNotFound(t *testing.T) {
 			}
 			return artifactURL("ART", a.Name)
 		},
-		"path outside the directory": func(t *testing.T, s *Server, c *core.Core, p core.Project, a core.Artifact) string {
-			outside := filepath.Join(t.TempDir(), "secret.txt")
+		// Path is derived from name (TRELLIS-36), not stored, so the only way
+		// left to make it resolve outside the artifacts directory is a name
+		// that escapes it -- a corrupted or hand-edited row.
+		"a name that resolves outside the directory": func(t *testing.T, s *Server, c *core.Core, p core.Project, a core.Artifact) string {
+			outside := filepath.Join(filepath.Dir(filepath.Dir(a.Path)), "secret.txt")
 			if err := os.WriteFile(outside, []byte("not yours"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := s.db.Exec(`UPDATE artifact SET path = ? WHERE id = ?`, outside, a.ID); err != nil {
+			if _, err := s.db.Exec(`UPDATE artifact SET name = ? WHERE id = ?`, "../secret.txt", a.ID); err != nil {
 				t.Fatal(err)
 			}
-			return artifactURL("ART", a.Name)
+			return artifactURL("ART", "../secret.txt")
 		},
 	}
 	for name, setup := range cases {
@@ -351,27 +355,9 @@ func TestArtifactRouteIsProtected(t *testing.T) {
 	}
 }
 
-// A name shared by two artifacts cannot be resolved to one file, so the route
-// answers the same as any other unresolvable name.
-func TestArtifactAmbiguousNameIsNotFound(t *testing.T) {
-	s, c, p := artifactTestServer(t)
-	a := storeArtifact(t, c, p.ID, "twin.png", pngBytes)
-	dup := filepath.Join(filepath.Dir(a.Path), "twin-2.png")
-	if err := os.WriteFile(dup, pngBytes, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.Exec(
-		`INSERT INTO artifact (id, project_id, name, path, kind, mime, size, content_hash, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1)`,
-		core.NewCardID(), p.ID, a.Name, dup, a.Kind, a.MIME, a.Size, a.ContentHash); err != nil {
-		t.Fatal(err)
-	}
-
-	rec := serve(s, http.MethodGet, artifactURL("ART", a.Name), nil)
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("status = %d, want 404", rec.Code)
-	}
-}
+// A name shared by two artifacts is no longer constructible:
+// UNIQUE(project_id, name) (TRELLIS-36) refuses the very insert that used to
+// simulate it.
 
 // protectedHandler denies a request whose Origin names a different host, even
 // with a valid token, before the token is ever checked.
@@ -436,15 +422,15 @@ func TestArtifactRouteRejectsCrossSite(t *testing.T) {
 func TestAFilenameCannotBreakTheDispositionHeader(t *testing.T) {
 	s, c, p := artifactTestServer(t)
 	base := storeArtifact(t, c, p.ID, "base.png", pngBytes)
-	copyPath := filepath.Join(filepath.Dir(base.Path), "copy.png")
-	if err := os.WriteFile(copyPath, pngBytes, 0o600); err != nil {
+	evil := "evil\".png\r\nX-Injected: yes"
+	evilPath := filepath.Join(filepath.Dir(base.Path), evil)
+	if err := os.WriteFile(evilPath, pngBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	evil := "evil\".png\r\nX-Injected: yes"
 	if _, err := s.db.Exec(
-		`INSERT INTO artifact (id, project_id, name, path, kind, mime, size, content_hash, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1)`,
-		core.NewCardID(), p.ID, evil, copyPath, base.Kind, base.MIME, base.Size, base.ContentHash); err != nil {
+		`INSERT INTO artifact (id, project_id, name, kind, mime, size, content_hash, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1)`,
+		core.NewCardID(), p.ID, evil, base.Kind, base.MIME, base.Size, base.ContentHash); err != nil {
 		t.Fatal(err)
 	}
 

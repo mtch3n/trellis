@@ -11,12 +11,13 @@ import (
 
 func testCore(t *testing.T) *Core {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "t.db"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return New(db, FixedClock{MS: 1_757_000_000_000}, "test:1")
+	return New(db, FixedClock{MS: 1_757_000_000_000}, "test:1", dir)
 }
 
 func TestRecordEventIsMonotonic(t *testing.T) {

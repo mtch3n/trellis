@@ -14,10 +14,8 @@ import (
 )
 
 func TestDefaultsLoadWithNoFile(t *testing.T) {
-	// An empty home has no config file, so Load returns the defaults. The
-	// user's own ~/.trellis/config.yaml must not decide this test.
-	t.Setenv("TRELLIS_HOME", t.TempDir())
-	cfg, err := Load()
+	// An empty root has no config file, so Load returns the defaults.
+	cfg, err := Load(t.TempDir())
 	if err != nil {
 		t.Fatalf("Load() with missing file: %v", err)
 	}
@@ -294,11 +292,10 @@ func TestUIEnabledDefaultsToTrue(t *testing.T) {
 
 func TestLoadKeepsUIDisabled(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("TRELLIS_HOME", root)
 	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte("ui:\n  enabled: false\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	cfg, err := Load()
+	cfg, err := Load(root)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -329,11 +326,10 @@ func TestHistoryKeepZeroSurvivesApplyDefaults(t *testing.T) {
 
 func TestLoadKeepsHistoryKeepZero(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("TRELLIS_HOME", root)
 	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte("history:\n  keep: 0\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	cfg, err := Load()
+	cfg, err := Load(root)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -347,11 +343,10 @@ func TestLoadKeepsHistoryKeepZero(t *testing.T) {
 
 func TestLoadRejectsNegativeHistoryKeep(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("TRELLIS_HOME", root)
 	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte("history:\n  keep: -1\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	if _, err := Load(); err == nil {
+	if _, err := Load(root); err == nil {
 		t.Error("Load with history.keep: -1, want an error")
 	}
 }
@@ -604,11 +599,10 @@ func TestAllKeysIncludesEveryKeyGetValueKnows(t *testing.T) {
 
 func TestLoadWithPresenceDistinguishesFileFromDefault(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("TRELLIS_HOME", root)
 	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte("lease:\n  ttl: 10m\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	cfg, present, err := LoadWithPresence()
+	cfg, present, err := LoadWithPresence(root)
 	if err != nil {
 		t.Fatalf("LoadWithPresence: %v", err)
 	}
@@ -624,8 +618,7 @@ func TestLoadWithPresenceDistinguishesFileFromDefault(t *testing.T) {
 }
 
 func TestLoadWithPresenceOnAnEmptyHomeMarksNothingPresent(t *testing.T) {
-	t.Setenv("TRELLIS_HOME", t.TempDir())
-	_, present, err := LoadWithPresence()
+	_, present, err := LoadWithPresence(t.TempDir())
 	if err != nil {
 		t.Fatalf("LoadWithPresence: %v", err)
 	}

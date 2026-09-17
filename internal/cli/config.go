@@ -14,6 +14,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/core"
+	"github.com/mtch3n/trellis/internal/home"
 	"github.com/mtch3n/trellis/internal/resolve"
 	"github.com/spf13/cobra"
 )
@@ -26,6 +27,21 @@ type projectContext struct {
 	cfg     config.Config
 	present map[string]bool
 	repo    config.RepoDoc
+}
+
+// loadGlobalConfig resolves the storage root and loads the global config
+// file, falling back to defaults on any error: a bad or unreadable file must
+// not block a read-only listing.
+func loadGlobalConfig() (config.Config, map[string]bool) {
+	root, err := home.Root()
+	if err != nil {
+		return config.Defaults(), map[string]bool{}
+	}
+	cfg, present, err := config.LoadWithPresence(root)
+	if err != nil {
+		return config.Defaults(), map[string]bool{}
+	}
+	return cfg, present
 }
 
 // currentProject resolves the current project without requiring a board. It
@@ -54,13 +70,9 @@ func currentProject() (*projectContext, error) {
 		repoDir = filepath.Dir(r.Pin.Path)
 	}
 
-	cfg, present, err := config.LoadWithPresence()
-	if err != nil {
-		// Log but don't fail: config file issues are warnings, not hard stops.
-		// Fall back to defaults.
-		cfg = config.Defaults()
-		present = map[string]bool{}
-	}
+	// Config file issues are warnings, not hard stops: loadGlobalConfig falls
+	// back to defaults.
+	cfg, present := loadGlobalConfig()
 	repo, _, _, err := config.LoadRepo(repoDir)
 	if err != nil {
 		db.Close()
@@ -165,10 +177,7 @@ func newConfigGetCmd() *cobra.Command {
 			}
 
 			// Global scope: just get the default value.
-			globalCfg, present, err := config.LoadWithPresence()
-			if err != nil {
-				globalCfg, present = config.Defaults(), map[string]bool{}
-			}
+			globalCfg, present := loadGlobalConfig()
 			value, found := config.GetValue(globalCfg, key)
 			if !found {
 				return core.ErrUsage("unknown_key",
@@ -232,10 +241,7 @@ func newConfigSetCmd() *cobra.Command {
 			// config set (without --repo) only ever writes a project
 			// override: the global file is hand-edited YAML (§5.4), so there
 			// is no scope to choose.
-			globalCfg, err := config.Load()
-			if err != nil {
-				globalCfg = config.Defaults()
-			}
+			globalCfg, _ := loadGlobalConfig()
 			_, found := config.GetValue(globalCfg, key)
 			if !found {
 				return core.ErrUsage("unknown_key",
@@ -306,10 +312,7 @@ func newConfigLsCmd() *cobra.Command {
 			}
 
 			// Global scope: just show defaults, or the global file's values.
-			globalCfg, present, err := config.LoadWithPresence()
-			if err != nil {
-				globalCfg, present = config.Defaults(), map[string]bool{}
-			}
+			globalCfg, present := loadGlobalConfig()
 			for _, key := range config.AllKeys() {
 				value, _ := config.GetValue(globalCfg, key)
 				source := "default"

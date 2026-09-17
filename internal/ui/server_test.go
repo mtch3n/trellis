@@ -16,13 +16,14 @@ import (
 )
 
 func TestServerCardLifecycleAndEmbeddedSPA(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test")
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test", dir)
 	p, err := c.CreateProject(context.Background(), "UITEST", false)
 	if err != nil {
 		t.Fatal(err)
@@ -31,7 +32,7 @@ func TestServerCardLifecycleAndEmbeddedSPA(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	request := func(method, path string, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -95,13 +96,14 @@ func TestServerCardLifecycleAndEmbeddedSPA(t *testing.T) {
 }
 
 func TestServerKnowledgeGraphLabelsAndStealRoutes(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-p5-test").WithKBRoot(t.TempDir())
+	c := core.New(db, core.FixedClock{MS: 2_000_000}, "ui-p5-test", dir)
 	p, err := c.CreateProject(context.Background(), "P5TEST", false)
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +118,7 @@ func TestServerKnowledgeGraphLabelsAndStealRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -196,13 +198,14 @@ func TestServerKnowledgeGraphLabelsAndStealRoutes(t *testing.T) {
 }
 
 func TestServerDeletesAProjectOnlyWhenTheKeyIsRetyped(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	c := core.New(db, core.FixedClock{MS: 3_000_000}, "ui-delete-test").WithKBRoot(t.TempDir())
+	c := core.New(db, core.FixedClock{MS: 3_000_000}, "ui-delete-test", dir)
 	for _, key := range []string{"GONE", "KEPT"} {
 		p, err := c.CreateProject(context.Background(), key, false)
 		if err != nil {
@@ -213,7 +216,7 @@ func TestServerDeletesAProjectOnlyWhenTheKeyIsRetyped(t *testing.T) {
 		}
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -271,13 +274,14 @@ func TestServerDeletesAProjectOnlyWhenTheKeyIsRetyped(t *testing.T) {
 // project-scoped feed even though the event rows themselves carry the
 // project.
 func TestActivityScopedToProjectIncludesDeletedLabelAndCommentEvents(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-activity-test").WithKBRoot(t.TempDir())
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-activity-test", dir)
 	p, err := c.CreateProject(context.Background(), "SCOPE", false)
 	if err != nil {
 		t.Fatal(err)
@@ -287,7 +291,7 @@ func TestActivityScopedToProjectIncludesDeletedLabelAndCommentEvents(t *testing.
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -339,13 +343,14 @@ func TestActivityScopedToProjectIncludesDeletedLabelAndCommentEvents(t *testing.
 }
 
 func TestServerBoardListsCardsByPriorityThenRank(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	c := core.New(db, core.FixedClock{MS: 4_000_000}, "ui-order-test")
+	c := core.New(db, core.FixedClock{MS: 4_000_000}, "ui-order-test", dir)
 	p, err := c.CreateProject(context.Background(), "ORDER", false)
 	if err != nil {
 		t.Fatal(err)
@@ -353,7 +358,7 @@ func TestServerBoardListsCardsByPriorityThenRank(t *testing.T) {
 	if _, err := c.CreateBoard(context.Background(), p.ID, "default", true); err != nil {
 		t.Fatal(err)
 	}
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -394,15 +399,15 @@ func TestServerBoardListsCardsByPriorityThenRank(t *testing.T) {
 }
 
 func TestServerProjectEventsPageThroughCardAndKnowledgeHistory(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
 	ctx := context.Background()
-	c := core.New(db, core.FixedClock{MS: 5_000_000}, "ui-events-test")
-	c.WithKBRoot(t.TempDir())
+	c := core.New(db, core.FixedClock{MS: 5_000_000}, "ui-events-test", dir)
 	p, err := c.CreateProject(ctx, "EVT", false)
 	if err != nil {
 		t.Fatal(err)
@@ -430,7 +435,7 @@ func TestServerProjectEventsPageThroughCardAndKnowledgeHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	type page struct {
 		Events []core.FeedEvent `json:"events"`
 		Next   *int64           `json:"next"`
@@ -513,13 +518,14 @@ func TestServerProjectEventsPageThroughCardAndKnowledgeHistory(t *testing.T) {
 }
 
 func TestServerClaimCardValidatesJSON(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "claim-test")
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "claim-test", dir)
 	p, err := c.CreateProject(context.Background(), "CLAIMTEST", false)
 	if err != nil {
 		t.Fatal(err)
@@ -533,7 +539,7 @@ func TestServerClaimCardValidatesJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")

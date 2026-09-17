@@ -308,3 +308,143 @@ func TestMigration0014GoesDownAndUpAgain(t *testing.T) {
 		t.Errorf("comments after up again = %d, %v", comments, err)
 	}
 }
+
+// seedArtifact adds one v13 artifact row, keyed to p1 ('ALPHA') from seedV13.
+// v13's artifact table still has path; seedV13 itself has no artifact rows,
+// since row-count checks elsewhere enumerate every table it touches.
+func seedArtifact(t *testing.T, db *sqlx.DB, id, projectID, name string) {
+	t.Helper()
+	mustExec(t, db, `INSERT INTO artifact (id, project_id, name, path, kind, mime, size, content_hash, created_at, updated_at) VALUES
+	   ('`+id+`', '`+projectID+`', '`+name+`', '/kb/artifacts/`+name+`', 'image', 'image/png', 100, 'ah-`+id+`', 1, 1)`)
+}
+
+// TestMigration0014DropsStoredPathsButKeepsEverythingElse is TRELLIS-36: the
+// file location is derived from the storage root, the project key and the
+// slug or name, never stored, so up must drop path from both tables while
+// leaving every other column exactly as it was.
+func TestMigration0014DropsStoredPathsButKeepsEverythingElse(t *testing.T) {
+	db := openAtVersion(t, 13)
+	seedV13(t, db)
+	seedArtifact(t, db, "a1", "p1", "shot.png")
+	migrateUp(t, db)
+
+	if got := columns(t, db, "knowledge"); slices.Contains(got, "path") {
+		t.Errorf("knowledge columns = %v, want no path", got)
+	}
+	if got := columns(t, db, "artifact"); slices.Contains(got, "path") {
+		t.Errorf("artifact columns = %v, want no path", got)
+	}
+
+	var doc struct {
+		Slug        string `db:"slug"`
+		Title       string `db:"title"`
+		ContentHash string `db:"content_hash"`
+		Mtime       int64  `db:"mtime"`
+		Size        int64  `db:"size"`
+		CreatedAt   int64  `db:"created_at"`
+		UpdatedAt   int64  `db:"updated_at"`
+	}
+	if err := db.Get(&doc, `SELECT slug, title, content_hash, mtime, size, created_at, updated_at FROM knowledge WHERE id = 'n1'`); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Slug != "design" || doc.Title != "Design" || doc.ContentHash != "h1" || doc.Mtime != 1 || doc.Size != 1 {
+		t.Errorf("knowledge row lost a value: %+v", doc)
+	}
+
+	var art struct {
+		Name        string `db:"name"`
+		Kind        string `db:"kind"`
+		MIME        string `db:"mime"`
+		ContentHash string `db:"content_hash"`
+		Size        int64  `db:"size"`
+	}
+	if err := db.Get(&art, `SELECT name, kind, mime, content_hash, size FROM artifact WHERE id = 'a1'`); err != nil {
+		t.Fatal(err)
+	}
+	if art.Name != "shot.png" || art.Kind != "image" || art.MIME != "image/png" || art.ContentHash != "ah-a1" || art.Size != 100 {
+		t.Errorf("artifact row lost a value: %+v", art)
+	}
+}
+
+// TestMigration0014ArtifactNameUniqueWithinProject is TRELLIS-36's
+// UNIQUE(project_id, name), replacing UNIQUE(project_id, path). The two never
+// differed in practice -- path was always derived 1:1 from (project, name) --
+// so this changes nothing a real caller could already do; it now holds
+// directly on the column Trellis actually addresses artifacts by.
+func TestMigration0014ArtifactNameUniqueWithinProject(t *testing.T) {
+	db := openAtVersion(t, 13)
+	seedV13(t, db)
+	seedArtifact(t, db, "a1", "p1", "shot.png")
+	migrateUp(t, db)
+
+	if _, err := db.Exec(`INSERT INTO artifact (id, project_id, name, kind, mime, size, content_hash, created_at, updated_at) VALUES
+		('a2', 'p1', 'shot.png', 'image', 'image/png', 200, 'ah-a2', 2, 2)`); err == nil {
+		t.Error("a second artifact named the same in the same project was accepted")
+	}
+	// A different project may reuse the name.
+	if _, err := db.Exec(`INSERT INTO artifact (id, project_id, name, kind, mime, size, content_hash, created_at, updated_at) VALUES
+		('a3', 'p2', 'shot.png', 'image', 'image/png', 300, 'ah-a3', 3, 3)`); err != nil {
+		t.Errorf("a different project could not reuse the name: %v", err)
+	}
+}
+
+// TestMigration0014DownRestoresDerivedPaths checks down's re-added path
+// against exactly what Core.docPath/Core.artifactPath would derive: root is
+// the directory holding the database file itself (PRAGMA database_list,
+// row main), never a guess. Then up again must drop path again: the two
+// migrations round-trip.
+func TestMigration0014DownRestoresDerivedPaths(t *testing.T) {
+	db := openAtVersion(t, 13)
+	seedV13(t, db)
+	seedArtifact(t, db, "a1", "p1", "shot.png")
+	// A global entry, to exercise the other half of docPath's branch.
+	mustExec(t, db, `INSERT INTO knowledge (id, project_id, slug, title, path, doc_type, content_hash, mtime, size, global, created_at, updated_at) VALUES
+	   ('n3', 'p1', 'shared/glossary', 'Glossary', '/kb/glossary.md', 'note', 'h3', 1, 1, 1, 1, 1)`)
+	migrateUp(t, db)
+	if err := goose.DownTo(db.DB, "migrations", 13); err != nil {
+		t.Fatalf("DownTo(13): %v", err)
+	}
+
+	var dbFile string
+	if err := db.Get(&dbFile, `SELECT file FROM pragma_database_list WHERE name = 'main'`); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Dir(dbFile)
+
+	var docPath string
+	if err := db.Get(&docPath, `SELECT path FROM knowledge WHERE id = 'n1'`); err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(root, "projects", "ALPHA", "knowledge", "design.md"); docPath != want {
+		t.Errorf("path = %q, want %q", docPath, want)
+	}
+
+	var globalPath string
+	if err := db.Get(&globalPath, `SELECT path FROM knowledge WHERE id = 'n3'`); err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(root, "global", "knowledge", "shared", "glossary.md"); globalPath != want {
+		t.Errorf("global path = %q, want %q", globalPath, want)
+	}
+
+	var artPath string
+	if err := db.Get(&artPath, `SELECT path FROM artifact WHERE id = 'a1'`); err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(root, "projects", "ALPHA", "artifacts", "shot.png"); artPath != want {
+		t.Errorf("artifact path = %q, want %q", artPath, want)
+	}
+
+	// Round-trip: up again drops path once more.
+	migrateUp(t, db)
+	if got := columns(t, db, "knowledge"); slices.Contains(got, "path") {
+		t.Errorf("knowledge columns after up again = %v, want no path", got)
+	}
+	if got := columns(t, db, "artifact"); slices.Contains(got, "path") {
+		t.Errorf("artifact columns after up again = %v, want no path", got)
+	}
+	var artifacts int
+	if err := db.Get(&artifacts, `SELECT count(*) FROM artifact`); err != nil || artifacts != 1 {
+		t.Errorf("artifacts after round-trip = %d, %v, want 1", artifacts, err)
+	}
+}

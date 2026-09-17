@@ -20,13 +20,14 @@ import (
 
 // TestGetSingleKnowledge tests GET /api/p/{key}/knowledge/{slug}
 func TestGetSingleKnowledge(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test")
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test", dir)
 	projKey := fmt.Sprintf("GETSINGLE%d", rand.Intn(100000))
 	p, err := c.CreateProject(context.Background(), projKey, false)
 	if err != nil {
@@ -37,7 +38,7 @@ func TestGetSingleKnowledge(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	request := func(method, path string, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -84,13 +85,14 @@ func TestGetSingleKnowledge(t *testing.T) {
 
 // TestGetSingleKnowledgeWithEncodedSlug tests percent-encoded slugs
 func TestGetSingleKnowledgeWithEncodedSlug(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test")
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test", dir)
 	projKey := fmt.Sprintf("GETENC%d", rand.Intn(100000))
 	p, err := c.CreateProject(context.Background(), projKey, false)
 	if err != nil {
@@ -101,7 +103,7 @@ func TestGetSingleKnowledgeWithEncodedSlug(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	request := func(method, path string, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -140,13 +142,14 @@ func TestGetSingleKnowledgeWithEncodedSlug(t *testing.T) {
 
 // TestListKnowledgeExcludesBody tests that list endpoints don't include body
 func TestListKnowledgeExcludesBody(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test")
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test", dir)
 	projKey := fmt.Sprintf("LISTBODY%d", rand.Intn(100000))
 	p, err := c.CreateProject(context.Background(), projKey, false)
 	if err != nil {
@@ -157,7 +160,7 @@ func TestListKnowledgeExcludesBody(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	request := func(method, path string, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -222,13 +225,14 @@ func TestListKnowledgeExcludesBody(t *testing.T) {
 
 // TestPrivateKnowledgeListExcludesSummaryRecap tests that private entries don't include summary/recap in lists
 func TestPrivateKnowledgeListExcludesSummaryRecap(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test").WithKBRoot(t.TempDir())
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test", dir)
 	ctx := context.Background()
 	p, err := c.CreateProject(ctx, "PRIVLIST", false)
 	if err != nil {
@@ -239,7 +243,7 @@ func TestPrivateKnowledgeListExcludesSummaryRecap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	request := func(method, path string, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -333,13 +337,14 @@ func TestPrivateKnowledgeListExcludesSummaryRecap(t *testing.T) {
 
 // TestGlobalKnowledgeListExcludesBody tests that global knowledge list excludes body
 func TestGlobalKnowledgeListExcludesBody(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test").WithKBRoot(t.TempDir())
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test", dir)
 	ctx := context.Background()
 	p, err := c.CreateProject(ctx, "GLOBTEST", false)
 	if err != nil {
@@ -350,7 +355,7 @@ func TestGlobalKnowledgeListExcludesBody(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	request := func(method, path string, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -410,13 +415,14 @@ func TestGlobalKnowledgeListExcludesBody(t *testing.T) {
 // project (and the vault, which has none), must never carry one, even for an
 // entry that had an artifact linked before it was escalated.
 func TestGlobalKnowledgeListNeverCarriesArtifacts(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test").WithKBRoot(t.TempDir())
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test", dir)
 	ctx := context.Background()
 	p, err := c.CreateProject(ctx, "GLOBART", false)
 	if err != nil {
@@ -426,7 +432,7 @@ func TestGlobalKnowledgeListNeverCarriesArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -466,14 +472,15 @@ func TestGlobalKnowledgeListNeverCarriesArtifacts(t *testing.T) {
 
 // TestGetKnowledgeFields tests that Fields are included in responses
 func TestGetKnowledgeFields(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
 	ctx := context.Background()
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test")
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test", dir)
 	projKey := fmt.Sprintf("FIELDS%d", rand.Intn(100000))
 	p, err := c.CreateProject(ctx, projKey, false)
 	if err != nil {
@@ -484,7 +491,7 @@ func TestGetKnowledgeFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	request := func(method, path string, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -529,14 +536,15 @@ func TestGetKnowledgeFields(t *testing.T) {
 
 // TestGetKnowledgeFieldsPrivateList tests that Fields are empty for private entries in lists
 func TestGetKnowledgeFieldsPrivateList(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
 
 	ctx := context.Background()
-	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test")
+	c := core.New(db, core.FixedClock{MS: 1_000_000}, "ui-test", dir)
 	projKey := fmt.Sprintf("PRIVLIST%d", rand.Intn(100000))
 	p, err := c.CreateProject(ctx, projKey, false)
 	if err != nil {
@@ -547,7 +555,7 @@ func TestGetKnowledgeFieldsPrivateList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	request := func(method, path string, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")

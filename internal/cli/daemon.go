@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -67,19 +68,16 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	if port < 0 || port > 65535 {
 		return fmt.Errorf("daemon port %d is out of range", port)
 	}
-	dbPath, err := home.DBPath()
+	root, err := home.Root()
 	if err != nil {
 		return err
 	}
+	dbPath := filepath.Join(root, "trellis.db")
 	db, err := store.Open(dbPath)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	root, err := home.Root()
-	if err != nil {
-		return err
-	}
 	lock := flock.New(root + "/daemon.lock")
 	ok, err := lock.TryLock()
 	if err != nil {
@@ -98,11 +96,11 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	if actor == "" {
 		actor = fmt.Sprintf("daemon:%d", os.Getpid())
 	}
-	c := core.New(db, core.RealClock{}, actor)
+	c := core.New(db, core.RealClock{}, actor, root)
 	if err := c.SyncKnowledgeSearch(parent); err != nil {
 		return err
 	}
-	cfg, cfgErr := config.Load()
+	cfg, cfgErr := config.Load(root)
 	if cfgErr != nil {
 		cfg = config.Defaults()
 	}
@@ -118,7 +116,7 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	c.SetDefaultColumns(cfg.Board.DefaultColumns)
 	c.SetCardRequirements(cfg.Labels.RequireOnCard, cfg.Tags.RequireOnCard)
 	c.SetHistoryKeep(cfg.History.EffectiveKeep())
-	search := retrieval.NewService(c, db, dbPath, cfg)
+	search := retrieval.NewService(c, db, dbPath, cfg, root)
 	c.SetKnowledgeChanged(search.ReconcileProject)
 	c.SetDropDerived(search.DropProject)
 	address := net.JoinHostPort(bind, fmt.Sprint(port))

@@ -45,20 +45,21 @@ var actorSuffix string
 var projectFlagKey string
 
 func openCore() (*core.Core, *sqlx.DB, error) {
-	path, err := home.DBPath()
+	root, err := home.Root()
 	if err != nil {
 		return nil, nil, err
 	}
+	path := filepath.Join(root, "trellis.db")
 	db, err := store.Open(path)
 	if err != nil {
 		return nil, nil, err
 	}
-	c := core.New(db, core.RealClock{}, cliActor())
+	c := core.New(db, core.RealClock{}, cliActor(), root)
 	if err := c.SyncKnowledgeSearch(context.Background()); err != nil {
 		db.Close()
 		return nil, nil, fmt.Errorf("rebuild knowledge search: %w", err)
 	}
-	cfg, cfgErr := config.Load()
+	cfg, cfgErr := config.Load(root)
 	if cfgErr != nil {
 		cfg = config.Defaults()
 	}
@@ -68,7 +69,7 @@ func openCore() (*core.Core, *sqlx.DB, error) {
 	c.SetDefaultColumns(cfg.Board.DefaultColumns)
 	c.SetCardRequirements(cfg.Labels.RequireOnCard, cfg.Tags.RequireOnCard)
 	c.SetHistoryKeep(cfg.History.EffectiveKeep())
-	search := retrieval.NewService(c, db, path, cfg)
+	search := retrieval.NewService(c, db, path, cfg, root)
 	c.SetKnowledgeChanged(search.ReconcileProject)
 	c.SetDropDerived(search.DropProject)
 	return c, db, nil
@@ -139,9 +140,11 @@ func applyRepoConfig(c *core.Core, r resolvedProject) (config.Config, error) {
 	if r.Pin != nil {
 		repoDir = filepath.Dir(r.Pin.Path)
 	}
-	cfg, _, cfgErr := config.LoadWithPresence()
-	if cfgErr != nil {
-		cfg = config.Defaults()
+	cfg := config.Defaults()
+	if root, rootErr := home.Root(); rootErr == nil {
+		if loaded, _, cfgErr := config.LoadWithPresence(root); cfgErr == nil {
+			cfg = loaded
+		}
 	}
 	repo, _, _, repoErr := config.LoadRepo(repoDir)
 	if repoErr != nil {

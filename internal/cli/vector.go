@@ -21,10 +21,12 @@ func newVectorCmd() *cobra.Command {
 }
 
 func effectiveVectorConfig(ctx context.Context, db *sqlx.DB, projectID string) (config.VectorSearchConfig, error) {
-	cfg, present, err := config.LoadWithPresence()
-	if err != nil {
-		cfg = config.Defaults()
-		present = map[string]bool{}
+	cfg := config.Defaults()
+	present := map[string]bool{}
+	if root, err := home.Root(); err == nil {
+		if loaded, loadedPresent, err := config.LoadWithPresence(root); err == nil {
+			cfg, present = loaded, loadedPresent
+		}
 	}
 	// No search.vector.* key is repository-safe (Global Constraints), so an
 	// empty RepoDoc is correct here, not a placeholder to fill in later.

@@ -10,7 +10,9 @@ import (
 type artifactRow struct {
 	ID   string `db:"id"`
 	Name string `db:"name"`
-	Path string `db:"path"`
+	// Path is derived, not scanned: see planArtifacts, which fills it in for
+	// every row it selects.
+	Path string `db:"-"`
 }
 
 // artifactMove is what happens to one SRC artifact: it moves under name, or,
@@ -26,11 +28,17 @@ type artifactMove struct {
 func (m *merger) planArtifacts() error {
 	var src, dst []artifactRow
 	if err := m.tx.Select(&src,
-		`SELECT id, name, path FROM artifact WHERE project_id = ? ORDER BY name`, m.src.ID); err != nil {
+		`SELECT id, name FROM artifact WHERE project_id = ? ORDER BY name`, m.src.ID); err != nil {
 		return err
 	}
-	if err := m.tx.Select(&dst, `SELECT id, name, path FROM artifact WHERE project_id = ?`, m.dst.ID); err != nil {
+	if err := m.tx.Select(&dst, `SELECT id, name FROM artifact WHERE project_id = ?`, m.dst.ID); err != nil {
 		return err
+	}
+	for i := range src {
+		src[i].Path = m.c.artifactPath(m.src.Key, src[i].Name)
+	}
+	for i := range dst {
+		dst[i].Path = m.c.artifactPath(m.dst.Key, dst[i].Name)
 	}
 	byName, taken := map[string]artifactRow{}, map[string]bool{}
 	for _, d := range dst {
@@ -40,15 +48,15 @@ func (m *merger) planArtifacts() error {
 		taken[s.Name] = true
 	}
 	out := &m.plan.Artifacts
-	dir := filepath.Join(m.root, "projects", m.dst.Key, "artifacts")
 	movable := func(s artifactRow, name string) bool {
 		if _, err := os.Lstat(s.Path); err != nil {
 			out.Conflicts = append(out.Conflicts, MergeConflict{Name: s.Name, Reason: "its file is missing: " + s.Path})
 			return false
 		}
-		if _, err := os.Lstat(filepath.Join(dir, name)); err == nil {
+		dest := m.c.artifactPath(m.dst.Key, name)
+		if _, err := os.Lstat(dest); err == nil {
 			out.Conflicts = append(out.Conflicts,
-				MergeConflict{Name: s.Name, Reason: "a file with no artifact is already at " + filepath.Join(dir, name)})
+				MergeConflict{Name: s.Name, Reason: "a file with no artifact is already at " + dest})
 			return false
 		}
 		return true
@@ -105,7 +113,6 @@ func freeArtifactName(name, suffix string, taken map[string]bool) string {
 // that finds nothing left, since every link naming it was already re-pointed.
 // Its file stays in SRC's directory, which is kept with the backup.
 func (m *merger) moveArtifacts() error {
-	dir := filepath.Join(m.root, "projects", m.dst.Key, "artifacts")
 	for _, mv := range m.artMoves {
 		a := mv.row
 		if mv.into != "" {
@@ -140,9 +147,9 @@ func (m *merger) moveArtifacts() error {
 			}
 			continue
 		}
-		path := filepath.Join(dir, mv.name)
-		if _, err := m.tx.Exec(`UPDATE artifact SET project_id = ?, name = ?, path = ? WHERE id = ?`,
-			m.dst.ID, mv.name, path, a.ID); err != nil {
+		path := m.c.artifactPath(m.dst.Key, mv.name)
+		if _, err := m.tx.Exec(`UPDATE artifact SET project_id = ?, name = ? WHERE id = ?`,
+			m.dst.ID, mv.name, a.ID); err != nil {
 			return err
 		}
 		if err := m.touch(a.Path); err != nil {

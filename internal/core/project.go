@@ -117,11 +117,7 @@ func (c *Core) DeleteProject(ctx context.Context, key string) error {
 				"trellis knowledge demote <slug>   # to delete them too; otherwise keep the project")
 		}
 
-		root, err := c.root()
-		if err != nil {
-			return err
-		}
-		if staged, err = stageRemoval(filepath.Join(root, "projects", p.Key)); err != nil {
+		if staged, err = stageRemoval(filepath.Join(c.root, "projects", p.Key)); err != nil {
 			return err
 		}
 

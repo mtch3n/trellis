@@ -16,12 +16,13 @@ import (
 // A browser switches an entry to a strict template and meets it in the same
 // save, reads a refusal as a list, and creates an entry inside a directory.
 func TestKnowledgeTemplateSwitchFromTheWeb(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "trellis.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	c := core.New(db, core.FixedClock{MS: 3_000_000}, "ui-switch-test").WithKBRoot(t.TempDir())
+	c := core.New(db, core.FixedClock{MS: 3_000_000}, "ui-switch-test", dir)
 	ctx := context.Background()
 	p, err := c.CreateProject(ctx, "SWITCH", false)
 	if err != nil {
@@ -30,7 +31,7 @@ func TestKnowledgeTemplateSwitchFromTheWeb(t *testing.T) {
 	if _, err := c.CreateBoard(ctx, p.ID, "default", true); err != nil {
 		t.Fatal(err)
 	}
-	s := NewServer(c, db, "127.0.0.1:0")
+	s := NewServer(c, db, "127.0.0.1:0", filepath.Join(dir, "trellis.db"))
 	send := func(method, path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, "/api/p/SWITCH/b/default/knowledge"+path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
@@ -53,11 +54,12 @@ func newSearchCmd() *cobra.Command {
 				if method != "" {
 					cfg.Search.Method = method
 				}
-				path, err := home.DBPath()
+				root, err := home.Root()
 				if err != nil {
 					return err
 				}
-				service := retrieval.NewService(app.Core, app.db, path, cfg)
+				path := filepath.Join(root, "trellis.db")
+				service := retrieval.NewService(app.Core, app.db, path, cfg, root)
 				hits, err := service.Search(cmd.Context(), app.Project.ID, args[0], opts)
 				if err != nil {
 					return err

@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/mtch3n/trellis/internal/home"
 	"gopkg.in/yaml.v3"
 )
 
@@ -158,28 +157,22 @@ func Defaults() Config {
 	}
 }
 
-// configPath returns config.yaml inside the storage root. It goes through
-// home.Root so TRELLIS_HOME moves the settings along with the database; a
-// pinned root whose config still came from ~/.trellis would serve the wrong
-// port for the daemon installed against it.
-func configPath() (string, error) {
-	root, err := home.Root()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(root, "config.yaml"), nil
+// configPath returns config.yaml inside root. The caller resolves root
+// (TRELLIS_HOME or the platform default) and passes it in, so a pinned root
+// whose config still came from a different home never serves the wrong port
+// for the daemon installed against it.
+func configPath(root string) string {
+	return filepath.Join(root, "config.yaml")
 }
 
 func ptr[T any](v T) *T { return &v }
 
-// Load reads and parses the global config file. Returns Defaults() if the file
-// does not exist. Returns an error if the file exists but is malformed.
-func Load() (Config, error) {
+// Load reads and parses the global config file inside root. Returns
+// Defaults() if the file does not exist. Returns an error if the file exists
+// but is malformed.
+func Load(root string) (Config, error) {
 	cfg := Defaults()
-	path, err := configPath()
-	if err != nil {
-		return cfg, err
-	}
+	path := configPath(root)
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -645,12 +638,9 @@ func AllKeys() []string {
 // set. This is why it exists: EffectiveValue must report "config", not
 // "default", for a value that came from the file, and by the time Load
 // applies its defaults onto an unset field the two are indistinguishable.
-func LoadWithPresence() (Config, map[string]bool, error) {
+func LoadWithPresence(root string) (Config, map[string]bool, error) {
 	cfg := Defaults()
-	path, err := configPath()
-	if err != nil {
-		return cfg, map[string]bool{}, err
-	}
+	path := configPath(root)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

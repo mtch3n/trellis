@@ -10,7 +10,8 @@ import (
 )
 
 func TestTUIWorkflowAndConflict(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "t.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +20,7 @@ func TestTUIWorkflowAndConflict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := core.New(db, core.RealClock{}, "tui:test")
+	c := core.New(db, core.RealClock{}, "tui:test", dir)
 	b, err := c.CreateBoard(t.Context(), "p", "main", true)
 	if err != nil {
 		t.Fatal(err)

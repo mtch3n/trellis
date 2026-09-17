@@ -59,7 +59,7 @@ func TestConcurrentKnowledgeEditsFirstToFinishWins(t *testing.T) {
 			t.Fatalf("store.Open %d: %v", i, err)
 		}
 		t.Cleanup(func() { db.Close() })
-		cores[i] = New(db, FixedClock{MS: 1_757_000_000_000}, fmt.Sprintf("writer:%d", i)).WithKBRoot(root)
+		cores[i] = New(db, FixedClock{MS: 1_757_000_000_000}, fmt.Sprintf("writer:%d", i), root)
 	}
 
 	p := seededProject(t, cores[0])
@@ -332,7 +332,7 @@ func TestAFailedEscalateMovesTheFileBack(t *testing.T) {
 	if _, err := os.Stat(original); err != nil {
 		t.Errorf("file should be back at %s: %v", original, err)
 	}
-	globalDir := filepath.Join(c.kbRoot, "global", "knowledge")
+	globalDir := filepath.Join(c.root, "global", "knowledge")
 	if _, err := os.Stat(filepath.Join(globalDir, filepath.Base(original))); !os.IsNotExist(err) {
 		t.Errorf("file should not remain in the global directory")
 	}
@@ -538,7 +538,7 @@ func TestAPanicAfterTheEditWritePutsTheFileBack(t *testing.T) {
 	// loadDoc's refresh and the pre-write "now" each spend one call; the
 	// panic lands on the third, spent recording the "edited" event -- after
 	// the write already replaced the file.
-	pc := New(c.db, &panicClock{calls: 2}, c.actor).WithKBRoot(c.kbRoot)
+	pc := New(c.db, &panicClock{calls: 2}, c.actor, c.root)
 	newBody := "v2\n"
 	mustPanic(t, func() {
 		pc.EditKnowledgeFields(t.Context(), p.ID, doc.Slug, KnowledgeEdit{Body: &newBody, IfVersion: &doc.Version})
@@ -577,7 +577,7 @@ func TestAPanicAfterTheDeleteWritePutsTheFileBack(t *testing.T) {
 	// Nothing in DeleteKnowledge spends a clock call before recordEvent,
 	// which runs last -- after stageRemoval has already moved the file
 	// aside -- so the very first call is the one to panic on.
-	pc := New(c.db, &panicClock{calls: 0}, c.actor).WithKBRoot(c.kbRoot)
+	pc := New(c.db, &panicClock{calls: 0}, c.actor, c.root)
 	mustPanic(t, func() {
 		pc.DeleteKnowledge(t.Context(), p.ID, doc.Slug)
 	})
@@ -611,7 +611,7 @@ func TestAPanicAfterTheEscalateMoveMovesTheFileBack(t *testing.T) {
 
 	// loadDoc's refresh spends the one call before the move; the panic
 	// lands on the next, which computes reviewBy right after the move.
-	pc := New(c.db, &panicClock{calls: 1}, c.actor).WithKBRoot(c.kbRoot)
+	pc := New(c.db, &panicClock{calls: 1}, c.actor, c.root)
 	mustPanic(t, func() {
 		pc.EscalateKnowledge(t.Context(), p.ID, doc.Slug, "reason")
 	})
@@ -619,7 +619,7 @@ func TestAPanicAfterTheEscalateMoveMovesTheFileBack(t *testing.T) {
 	if _, err := os.Stat(original); err != nil {
 		t.Errorf("file should be back at %s: %v", original, err)
 	}
-	globalDir := filepath.Join(c.kbRoot, "global", "knowledge")
+	globalDir := filepath.Join(c.root, "global", "knowledge")
 	if _, err := os.Stat(filepath.Join(globalDir, filepath.Base(original))); !os.IsNotExist(err) {
 		t.Errorf("file should not remain in the global directory")
 	}
@@ -648,7 +648,7 @@ func TestAPanicAfterTheDemoteMoveMovesTheFileBack(t *testing.T) {
 
 	// DemoteKnowledge looks its row up directly, without loadDoc, so the
 	// very first clock call is the one right after the move.
-	pc := New(c.db, &panicClock{calls: 0}, c.actor).WithKBRoot(c.kbRoot)
+	pc := New(c.db, &panicClock{calls: 0}, c.actor, c.root)
 	mustPanic(t, func() {
 		pc.DemoteKnowledge(t.Context(), doc.Slug, "wrong call")
 	})

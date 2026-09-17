@@ -26,9 +26,10 @@ type Core struct {
 	// policies is empty by default; see policy.go and §14.
 	policies []Policy
 
-	// kbRoot overrides the storage root for knowledge files; empty means
-	// resolve it from TRELLIS_HOME the usual way.
-	kbRoot string
+	// root is the storage root every knowledge and artifact file lives
+	// under. The caller resolves it (TRELLIS_HOME or the platform default)
+	// and injects it here; Core never looks it up itself.
+	root string
 
 	// knowledgeChanged is a best-effort derived-state hook. Source writes do
 	// not fail when an optional embedding provider is unavailable.
@@ -48,8 +49,16 @@ func (c *Core) WithActor(actor string) *Core {
 	return &clone
 }
 
-func New(db *sqlx.DB, clock Clock, actor string) *Core {
-	return &Core{db: db, clock: clock, actor: actor, leaseTTL: 30 * 60 * 1000, historyKeep: 100}
+// New constructs a Core against db, writing events as actor, with every
+// knowledge and artifact file rooted under root. root is not optional: an
+// empty one is a programming error, not user input, so it panics rather than
+// falling back to a default — the fallback is exactly what let tests that
+// forgot to isolate themselves write into the caller's real home.
+func New(db *sqlx.DB, clock Clock, actor, root string) *Core {
+	if root == "" {
+		panic("core.New: root must not be empty")
+	}
+	return &Core{db: db, clock: clock, actor: actor, root: root, leaseTTL: 30 * 60 * 1000, historyKeep: 100}
 }
 
 // SetLeaseTTL configures the default lease duration in milliseconds.
