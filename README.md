@@ -101,9 +101,14 @@ trellis column ls         # List columns in the current board
 **Artifacts**
 ```bash
 trellis artifact add screenshot.png --card 12
-trellis artifact link artifact-id --card 12
+trellis artifact link screenshot.png --card 12      # by name, or /KEY/artifacts/<name>
 trellis artifact ls --card 12
 ```
+
+Every object has an address: `/KEY/boards/<slug>`, `/KEY/cards/KEY-12`,
+`/KEY/knowledge/<slug>`, `/GLOBAL/knowledge/<slug>` and
+`/KEY/artifacts/<name>`. Any command that takes a reference also takes an
+address, and an address acts in its own project from any directory.
 
 Artifacts accept images, PDFs, text, audio, video, and common archives. The
 file is copied under the project directory; its bytes are not stored in the

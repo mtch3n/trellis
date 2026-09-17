@@ -84,6 +84,8 @@ trellis card ls                        # --limit N, --all, --archived, --all-pro
 trellis card show XPSCTL-12
 trellis search "wal checkpoint"        # cards and knowledge; --all-projects
 trellis knowledge show concurrency-model
+trellis knowledge show /XPSCTL/knowledge/concurrency-model   # the ref search and recall print
+trellis card show /OTHER/cards/OTHER-3        # an address names its own project; no --project
 trellis graph XPSCTL-12 --rel blocked_by --depth 3
 trellis agent ls
 trellis --project XPSCTL card ls       # target another project explicitly
@@ -118,7 +120,10 @@ free text — a URL, `path:lines`, a command — except that an internal referen
 `/KEY/artifacts/name`) must resolve. `trellis knowledge template show <name>`
 says what a template requires.
 Use column names from the current board rather than assuming the ones above.
-Use the slug the CLI returns rather than guessing one from the title.
+Use the ref the CLI returns rather than guessing one from the title. Search and
+recall print entries as addresses (`/KEY/knowledge/<slug>`, or
+`/GLOBAL/knowledge/<slug>` for the vault); pass them back unchanged. `KEY-N`
+and `/KEY/...` name their own project, so they work from any directory.
 Consult `trellis <command> --help` for less common flags instead of guessing.
 
 ## Leases

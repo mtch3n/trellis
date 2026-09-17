@@ -62,29 +62,19 @@ that applies directly: minimally opinionated, tolerate incompleteness.
 `docs/rollback` coexist without suffixes. Today those would become `rollback` and
 `rollback-2`.
 
-## Reference syntax: `/` is path, `:` is project
+## Reference syntax
 
-```
-[[deployment/rollback]]          path in the current project
-[[GLOBAL:integrations-layout]]   the global vault
-```
+Superseded by `2026-09-16-virtual-paths-design.md`, which ships first.
+Cross-project and vault references are absolute addresses
+(`[[/OTHER/knowledge/x]]`, `[[/GLOBAL/knowledge/x]]`), and the old `KEY/slug`
+qualifier is already gone. A `/` inside a relative reference is therefore free
+for directories: `[[deployment/rollback]]` means the path `deployment/rollback`
+in the current project.
 
-`ParseWikilinks` currently reads the first `/` segment as a project key
-(`internal/core/markdown.go:101`), so `[[deployment/rollback]]` would parse as
-project `DEPLOYMENT`. Path separators and cross-project references collide
-head-on, and the separator wins because it is the common case.
-
-Six sites construct or split a reference on `/`:
-`markdown.go:101`, `markdown.go:165`, `doc_relations.go:142`, `lint.go:61`,
-`knowledge.go:379` (`key + "/" + doc.Slug`), and the `p.key || '/' || k.slug`
-expression in the recall query.
-
-The qualifier is barely load-bearing. `resolveDocRef`
-(`internal/core/doc_relations.go:84`) returns nil for a qualified reference to
-any project other than `GLOBAL` — "another project: a stub, deliberately
-unresolvable". In practice the prefix only ever means `GLOBAL`. Eight wikilinks
-exist in the entire vault and none uses the qualified form, so the old syntax is
-removed outright rather than supported alongside the new one.
+What this spec adds is that relative references and the name part of
+`/KEY/knowledge/<name>` may contain directory segments. The knowledge-slug rule
+in `internal/vpath` (`ValidDocSlug`) is relaxed to one slug per segment, and
+`ParseReference` stops slugifying a relative target whole.
 
 ## Validation
 
@@ -324,8 +314,8 @@ relevant document. Not in this design.
 - `mv`: file moves, row updates, inbound wikilinks rewritten, and a link that
   could not be rewritten shows up in lint.
 - `promote`/`demote`: subpath preserved in both directions.
-- Reference syntax: `[[a/b]]` resolves as a path, `[[GLOBAL:x]]` resolves to the
-  global vault, and the old `[[KEY/x]]` form no longer parses as a qualifier.
+- Reference syntax: `[[a/b]]` resolves as the path `a/b`, and
+  `[[/KEY/knowledge/a/b]]` resolves the same entry by address.
 - Retrieval: a document under `deployment/` is returned by a search that names
   neither the directory nor any part of it.
 - New directories: `new --in deploy` is refused when `deployment/` exists, and
