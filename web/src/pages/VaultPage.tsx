@@ -423,7 +423,7 @@ export function VaultPage() {
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-full" />
         </div>
-        <main className="grid justify-center gap-x-14 px-6 py-8 grid-cols-measure lg:px-12 xl:grid-cols-entry">
+        <main className="grid gap-x-14 px-6 py-8 grid-cols-1 lg:px-12 xl:grid-cols-facts">
           <div className="flex flex-col gap-4">
             <Skeleton className="h-4 w-48" />
             <Skeleton className="h-8 w-3/4" />
@@ -501,7 +501,7 @@ export function VaultPage() {
               {/* One row of actions over the entry, sticky while it scrolls: Edit, or
                   Save and Cancel in its place, then the facts toggle. Keeping them out
                   of the title's row means an edit never rewraps the title. */}
-              <ActionRow className={cn('mx-auto h-16 max-w-measure lg:top-0', facts && 'xl:max-w-entry')}>
+              <ActionRow className="h-16 lg:top-0">
                 <Breadcrumb className="min-w-0">
                   <BreadcrumbList className="flex-nowrap">
                     <BreadcrumbItem>
@@ -546,8 +546,9 @@ export function VaultPage() {
                 key={entry.id}
                 className={cn(
                   // The gap under the action row leaves room for the title's edit wash.
-                  'grid animate-enter justify-center gap-x-14 gap-y-10 pt-3 grid-cols-measure',
-                  facts && 'xl:grid-cols-entry',
+                  // The entry takes the pane's width, all of it when the facts are hidden.
+                  'grid animate-enter gap-x-14 gap-y-10 pt-3 grid-cols-1',
+                  facts && 'xl:grid-cols-facts',
                 )}
               >
                 {shown ? (

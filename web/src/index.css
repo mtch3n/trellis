@@ -316,14 +316,26 @@
   }
 }
 
-.typeset-notes {
-  --typeset-font-body: var(--font-geist);
-  --typeset-font-heading: var(--font-geist);
-  --typeset-font-mono: var(--font-geist-mono);
-  --typeset-size: 0.9375rem;
-  --typeset-leading: 1.65;
-  --typeset-flow: 1.25em;
-  max-width: var(--container-measure);
+/* Layered, so a page that wants the prose wider can say so with a utility. */
+@layer components {
+  .typeset-notes {
+    --typeset-font-body: var(--font-geist);
+    --typeset-font-heading: var(--font-geist);
+    --typeset-font-mono: var(--font-geist-mono);
+    --typeset-size: 0.9375rem;
+    --typeset-leading: 1.65;
+    --typeset-flow: 1.25em;
+    max-width: var(--container-measure);
+  }
+
+  /* A table wider than its column scrolls inside it, never over what sits
+     beside it. Cells still wrap first; only what cannot wrap scrolls. */
+  .typeset :where(table) {
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    overflow-x: auto;
+  }
 }
 
 @layer base {

@@ -130,7 +130,7 @@ export function EntryView({
   )
 
   return (
-    <article className="min-w-0">
+    <article className="min-w-0 [&_.typeset-notes]:max-w-none">
       {editing ? <EditForm id="entry-form" onSubmit={submit}>{content}</EditForm> : content}
     </article>
   )
