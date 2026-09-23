@@ -7,7 +7,7 @@ import { Toggle } from '@/components/ui/toggle'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { IconButton } from '@/components/wrappers/IconButton'
 import { shortActor } from '@/lib/cards'
-import { axisTicks, buildAxis, skipped, type TimeAxis } from '@/lib/time-axis'
+import { axisTicks, buildAxis, rulerLabels, skipped, type TimeAxis } from '@/lib/time-axis'
 import { clusterMarks, type Cluster, type LaneName, type Mark } from '@/lib/timeline-marks'
 import { cn } from '@/lib/utils'
 
@@ -173,29 +173,46 @@ function clamp(rate: number) {
 
 /** Day and hour marks, each skip's length, and now. */
 function Ruler({ axis, ticks, now }: { axis: TimeAxis; ticks: ReturnType<typeof axisTicks>; now: number }) {
+  const nowX = axis.x(now)
+  // Short spans sit close together, so their labels are laid out to never
+  // touch: whatever does not fit is left out, never drawn over another.
+  // The ticks name days the same way, so today's name can be matched.
+  const today = new Date(now).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
+  const labels = useMemo(() => rulerLabels(ticks, axis.skips, nowX, today), [ticks, axis.skips, nowX, today])
   return (
     <div className="flex h-11">
       <div className="sticky left-0 z-10 w-32 shrink-0 bg-background" />
       <div className="relative flex-1">
         {ticks.map((tick) => (
           <div key={tick.at} className="absolute inset-y-0 flex flex-col justify-end pb-1" style={{ left: tick.x }}>
-            {tick.day && <span className="pl-1.5 text-label whitespace-nowrap">{tick.day}</span>}
+            <span className={cn('pl-1.5 text-label whitespace-nowrap', !labels.days.has(tick.at) && 'invisible')}>
+              {tick.day ?? '\u00a0'}
+            </span>
             <span className="flex items-center gap-1.5 text-meta whitespace-nowrap text-muted-foreground">
               <span className="h-2.5 w-px bg-rule-strong" />
-              {tick.time}
+              {labels.times.has(tick.at) && tick.time}
             </span>
           </div>
         ))}
         {axis.skips.map((skip) => (
           <div
             key={skip.from}
+            title={`${skipped(skip.to - skip.from)} of quiet skipped`}
             className="absolute inset-y-0 flex items-end justify-center gap-0.5 pb-1 text-xs whitespace-nowrap text-muted-foreground"
             style={{ left: skip.x, width: skip.width }}
           >
-            {skipped(skip.to - skip.from)}
+            {labels.skips.has(skip.from) && skipped(skip.to - skip.from)}
           </div>
         ))}
-        <span className="absolute top-1 -translate-x-1/2 text-label" style={{ left: axis.x(now) }}>
+        <span
+          className={cn(
+            'absolute top-1 text-label',
+            labels.now === 'center' && '-translate-x-1/2',
+            labels.now === 'after' && 'ml-1.5',
+            labels.now === 'before' && '-ml-1.5 -translate-x-full',
+          )}
+          style={{ left: nowX }}
+        >
           Now
         </span>
       </div>

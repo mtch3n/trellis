@@ -1,6 +1,7 @@
-import { useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { useDefaultLayout, usePanelRef } from 'react-resizable-panels'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
+import { cn } from '@/lib/utils'
 
 const WIDE = '(min-width: 64rem)'
 
@@ -46,11 +47,18 @@ export function VaultLayout({
   // The width the navigator last had open, in pixels.
   const lastWidth = useRef(storedWidth())
 
+  // Set while the toggle opens or closes the navigator, so the change eases
+  // in; a drag follows the pointer with no transition.
+  const [animating, setAnimating] = useState(false)
+
   useEffect(() => {
     const handle = panel.current
     if (!handle || handle.isCollapsed() !== navOpen) return
+    setAnimating(true)
     if (navOpen) handle.resize(lastWidth.current ? `${lastWidth.current}px` : '18rem')
     else handle.collapse()
+    const done = setTimeout(() => setAnimating(false), 250)
+    return () => clearTimeout(done)
   }, [navOpen, panel, wide])
 
   const resized = () => {
@@ -79,12 +87,18 @@ export function VaultLayout({
   return (
     <div className="h-under-shell">
       <ResizablePanelGroup
+        className="vault-frame"
+        data-animating={animating || undefined}
         orientation="horizontal"
         defaultLayout={defaultLayout}
         onLayoutChanged={onLayoutChanged}
       >
+        {/* The library sets overflow inline on the panel's content box, so only
+            an important class clips it: collapsed, the navigator keeps its
+            narrowest width inside a zero-width panel and must not scroll. */}
         <ResizablePanel
           id="navigator"
+          className="overflow-hidden!"
           panelRef={panel}
           collapsible
           defaultSize="18rem"
@@ -93,8 +107,15 @@ export function VaultLayout({
           groupResizeBehavior="preserve-pixel-size"
           onResize={resized}
         >
-          {/* Out of the tab order while collapsed, not just out of sight. */}
-          <div className="h-full" inert={!navOpen}>{nav}</div>
+          {/* Out of the tab order while collapsed, not just out of sight. It keeps
+              its narrowest width while closing, so the tree is clipped rather
+              than rewrapped, and fades as it goes. */}
+          <div
+            className={cn('h-full min-w-56 transition-opacity duration-200 ease-settle', !navOpen && 'opacity-0')}
+            inert={!navOpen}
+          >
+            {nav}
+          </div>
         </ResizablePanel>
         <ResizableHandle
           aria-label="Resize the navigator"

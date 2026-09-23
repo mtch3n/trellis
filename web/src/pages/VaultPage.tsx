@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { FoldHorizontal, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Pencil, Pin, UnfoldHorizontal } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -126,18 +126,21 @@ export function VaultPage() {
   const [facts, setFacts] = useState(() => {
     try { return localStorage.getItem('trellis.vault-facts') !== 'hidden' } catch { return true }
   })
-  const toggleFacts = () => {
-    const next = !facts
+  const showFacts = (next: boolean) => {
     setFacts(next)
     try { localStorage.setItem('trellis.vault-facts', next ? 'shown' : 'hidden') } catch { /* private mode */ }
   }
+  const toggleFacts = () => showFacts(!facts)
   // The entry reads at a fitted width unless asked to take the whole pane.
+  // Taking it puts the facts away, and fitting it again brings them back; the
+  // facts toggle still opens them at full width.
   const [full, setFull] = useState(() => {
     try { return localStorage.getItem('trellis.vault-width') === 'full' } catch { return false }
   })
   const toggleFull = () => {
     const next = !full
     setFull(next)
+    showFacts(!next)
     try { localStorage.setItem('trellis.vault-width', next ? 'full' : 'fitted') } catch { /* private mode */ }
   }
   // The navigator can be put away too, for reading one entry at length.
@@ -260,12 +263,19 @@ export function VaultPage() {
   const setEditing = (on: boolean) => { setEditingSlug(on ? (slug ?? null) : null); setSource(false) }
   // Read from the page as rendered, so it is empty while editing: the editor
   // gives headings no ids.
-  const outline = useOutline(editing ? null : body, shown?.body)
+  const { headings: outline, version: outlineVersion } = useOutline(editing ? null : body, shown?.body)
+  const outlineOpen = !editing && outline.length > 1
   // What this browser opened last, for the page shown when nothing is open.
   useEffect(() => {
     if (projectKey && entry) rememberOpened(projectKey, entry.slug)
   }, [projectKey, entry])
   const opened = !entry && projectKey ? recentlyOpened(projectKey) : []
+  // The panes stay mounted from one entry to the next, so each starts the
+  // next entry at its top by hand.
+  useLayoutEffect(() => {
+    if (scroller) scroller.scrollTop = 0
+    if (body) body.scrollTop = 0
+  }, [entry?.id, scroller, body])
 
   const neighbours = useMemo(() => {
     if (!activeNode) return []
@@ -509,7 +519,7 @@ export function VaultPage() {
           )}
 
           {!error && !entry && (
-            <div className="min-h-0 flex-1 px-6 pb-8 lg:overflow-y-auto lg:px-12">
+            <div className="min-h-0 flex-1 scrollbar-hidden px-6 pb-8 lg:overflow-y-auto lg:px-12">
               <ActionRow className="h-16 lg:top-0">
                 {navToggle}
               </ActionRow>
@@ -531,7 +541,9 @@ export function VaultPage() {
                   sits, then Edit, or Save and Cancel in its place, the width and the
                   facts. Keeping them out of the title's row means an edit never
                   rewraps the title. */}
-              <ActionRow className="h-16 shrink-0 px-6 lg:top-0 lg:px-12">
+              {/* The row carries its own padding, so its surface stops at its edges
+                  instead of reaching past them, which would scroll the pane sideways. */}
+              <ActionRow className="h-16 shrink-0 px-6 before:inset-x-0 lg:top-0 lg:px-12">
                 {navToggle}
                 <Breadcrumb className="min-w-0">
                   <BreadcrumbList className="flex-nowrap">
@@ -576,12 +588,15 @@ export function VaultPage() {
                 </div>
               </ActionRow>
 
-              <div key={entry.id} ref={setBody} className="min-h-0 flex-1 animate-enter lg:overflow-y-auto xl:flex xl:overflow-hidden">
-                <div ref={setScroller} className="min-w-0 flex-1 px-6 pb-8 lg:px-12 xl:overflow-y-auto">
+              {/* Only the entry's words enter afresh when another entry opens; the
+                  outline and facts columns stay put and change their contents in
+                  place, so switching entries never closes and reopens them. */}
+              <div ref={setBody} className="min-h-0 flex-1 scrollbar-hidden lg:overflow-y-auto xl:flex xl:overflow-hidden">
+                <div ref={setScroller} className="min-w-0 flex-1 scrollbar-hidden px-6 pb-8 lg:px-12 xl:overflow-y-auto">
                   {/* The gap under the action row leaves room for the title's edit wash.
                       Fitted, the entry keeps a width a line can be read at; full, it
                       takes whatever the pane has. */}
-                  <div className={cn('pt-3', !full && 'mx-auto max-w-reading')}>
+                  <div key={entry.id} className={cn('animate-enter pt-3', !full && 'mx-auto max-w-reading')}>
                     {shown ? (
                       <EntryView
                         entry={shown}
@@ -605,17 +620,30 @@ export function VaultPage() {
                 </div>
 
                 {/* The outline needs the room the facts leave: beside them only
-                    on the widest screens. */}
-                {!editing && outline.length > 1 && (
-                  <EntryOutline
-                    headings={outline}
-                    scroller={scroller}
-                    className={cn('hidden w-56 shrink-0 pt-3 pr-8 pb-8 xl:min-h-0', facts ? '2xl:flex' : 'xl:flex')}
-                  />
-                )}
+                    on the widest screens. It and the facts stay mounted from xl
+                    and ease their width and opacity, so showing or hiding either
+                    slides the entry over rather than jumping it. The content keeps
+                    its width while the column closes, so it clips, not rewraps. */}
+                <div
+                  inert={!outlineOpen}
+                  className={cn(
+                    'hidden shrink-0 overflow-hidden transition-all duration-200 ease-settle xl:flex xl:flex-col',
+                    outlineOpen ? (facts ? 'w-0 opacity-0 2xl:w-56 2xl:opacity-100' : 'w-56') : 'w-0 opacity-0',
+                  )}
+                >
+                  {outline.length > 1 && (
+                    <EntryOutline key={outlineVersion} headings={outline} scroller={scroller} className="min-h-0 w-56 flex-1 animate-enter pt-3 pr-8 pb-8" />
+                  )}
+                </div>
 
-                {facts && (
-                  <MetaPanel className="px-6 pb-8 lg:px-12 xl:w-80 xl:shrink-0 xl:overflow-y-auto xl:pt-3 xl:pl-0">
+                <div
+                  inert={!facts}
+                  className={cn(
+                    'shrink-0 overflow-hidden transition-all duration-200 ease-settle xl:flex xl:flex-col',
+                    facts ? 'xl:w-80' : 'max-xl:hidden xl:w-0 xl:opacity-0',
+                  )}
+                >
+                  <MetaPanel key={entry.id} className="scrollbar-hidden px-6 pb-8 lg:px-12 xl:min-h-0 xl:w-80 xl:flex-1 xl:overflow-y-auto xl:pt-3 xl:pl-0">
                     {/* The template and the sources apply the moment they change,
                         editing or not, like a card's status. */}
                     <MetaGroup label="Template">
@@ -799,7 +827,7 @@ export function VaultPage() {
                       </MetaGroup>
                     )}
                   </MetaPanel>
-                )}
+                </div>
               </div>
             </>
           )}

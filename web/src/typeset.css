@@ -328,6 +328,11 @@
       font-size: 0.875em;
       color: var(--typeset-muted);
     }
+    /* The way back to a citation: a quiet arrow, not a link to read. */
+    &:where([data-footnote-backref]) {
+      color: var(--typeset-muted);
+      text-decoration: none;
+    }
 
     /* Math. */
     &:where(math[display="block"]) {

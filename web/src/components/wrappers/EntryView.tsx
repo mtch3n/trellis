@@ -123,7 +123,7 @@ export function EntryView({
         />
       ) : (
         <div className="edit-hint" onClick={startEdit('body')}>
-          <MarkdownContent content={body.rest} wikilinks={wikilinks} anchors />
+          <MarkdownContent content={body.rest} wikilinks={wikilinks} anchors citations />
         </div>
       )}
     </>

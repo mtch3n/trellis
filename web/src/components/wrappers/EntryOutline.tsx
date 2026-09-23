@@ -20,7 +20,9 @@ export function EntryOutline({
   className?: string
 }) {
   const [active, setActive] = useState<string[]>([])
-  const [thumb, setThumb] = useState<{ top: number; height: number } | null>(null)
+  // `instant` on the first placement, so a fresh outline's thumb lands where it
+  // belongs instead of sliding down from the top.
+  const [thumb, setThumb] = useState<{ top: number; height: number; instant: boolean } | null>(null)
   const items = useRef(new Map<string, HTMLLIElement>())
   const list = useRef<HTMLDivElement>(null)
 
@@ -51,7 +53,11 @@ export function EntryOutline({
   useLayoutEffect(() => {
     const first = active.length ? items.current.get(active[0]) : undefined
     const last = active.length ? items.current.get(active[active.length - 1]) : undefined
-    setThumb(first && last ? { top: first.offsetTop, height: last.offsetTop + last.offsetHeight - first.offsetTop } : null)
+    setThumb((current) =>
+      first && last
+        ? { top: first.offsetTop, height: last.offsetTop + last.offsetHeight - first.offsetTop, instant: current === null }
+        : null,
+    )
     // A long outline scrolls itself to keep the first section read in sight.
     const rail = list.current
     if (!first || !rail) return
@@ -70,15 +76,16 @@ export function EntryOutline({
   return (
     <nav aria-label="On this page" className={cn('flex flex-col gap-3', className)}>
       <h2 className="text-label text-muted-foreground">On this page</h2>
-      <div ref={list} className="relative min-h-0 overflow-y-auto">
+      <div ref={list} className="relative min-h-0 scrollbar-hidden overflow-y-auto">
         <div aria-hidden="true" className="absolute inset-y-0 left-0 w-px bg-border" />
         <div
           aria-hidden="true"
           className={cn(
-            'absolute left-0 w-0.5 bg-foreground transition-all duration-200 ease-settle',
+            'absolute left-0 w-0.5 bg-foreground',
+            thumb?.instant ? 'transition-none' : 'transition-all duration-200 ease-settle',
             !thumb && 'opacity-0',
           )}
-          style={thumb ?? undefined}
+          style={thumb ? { top: thumb.top, height: thumb.height } : undefined}
         />
         <ul className="flex flex-col">
           {headings.map((heading) => {

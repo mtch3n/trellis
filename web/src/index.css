@@ -268,6 +268,15 @@
   --grid-template-columns-history: 11rem minmax(0, 1fr);
 }
 
+/* A pane that scrolls without drawing a bar, for reading surfaces where the
+   bar is noise. The wheel, touch and keys still scroll it. */
+@utility scrollbar-hidden {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 @utility text-meta {
   font-family: var(--font-geist-mono);
   font-size: 0.75rem;
@@ -331,7 +340,13 @@
     max-width: var(--container-measure);
   }
 
-  /* A heading an outline jumps to lands clear of the pane's top edge. */
+  /* The vault navigator eases open and shut from its toggle, on the same curve
+   as the facts and the outline. Only while toggling: a drag stays direct. */
+.vault-frame[data-animating] > [data-panel] {
+  transition: flex-grow 200ms var(--ease-settle);
+}
+
+/* A heading an outline jumps to lands clear of the pane's top edge. */
   .typeset :where(h1, h2, h3)[id] {
     scroll-margin-top: 0.75rem;
   }

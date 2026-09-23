@@ -165,3 +165,79 @@ export function skipped(ms: number) {
   const rest = hours % 24
   return rest ? `${days}d ${rest}h` : `${days}d`
 }
+
+/** A label's width on the ruler, estimated: close enough to keep labels apart. */
+const CHAR = 7.5
+/** The least room between two labels on one row. */
+const APART = 6
+/** A tick's text starts past its line and the gap after it. */
+const TICK_INSET = 7
+
+const width = (text: string) => text.length * CHAR
+
+/** Which of the ruler's labels to draw, so none lands on another. */
+export interface RulerLabels {
+  days: Set<number>
+  times: Set<number>
+  skips: Set<number>
+  /** Where "Now" sits against its line. */
+  now: 'center' | 'after' | 'before'
+}
+
+/**
+ * The ruler has two rows of words. The upper holds "Now" and the day names;
+ * the lower holds tick times and how long each skip jumped. A label that
+ * would touch one already placed is left out; a tick's line and a skip's
+ * hatching are drawn either way.
+ *
+ * On the upper row, the other days' names go first, then "Now", centred on
+ * its line if it fits, else just after or just before it, then today's name,
+ * which "Now" already implies. On the lower row every tick's time goes first,
+ * then the skips where they fit.
+ */
+export function rulerLabels(ticks: Tick[], skips: Skip[], nowX: number | null, today: string): RulerLabels {
+  const clear = (row: Array<[number, number]>, from: number, to: number) =>
+    !row.some(([start, end]) => to + APART > start && from < end + APART)
+  const place = (row: Array<[number, number]>, from: number, to: number) => {
+    if (!clear(row, from, to)) return false
+    row.push([from, to])
+    return true
+  }
+
+  const upper: Array<[number, number]> = []
+  const days = new Set<number>()
+  for (const tick of ticks) {
+    if (tick.day && tick.day !== today && place(upper, tick.x + TICK_INSET, tick.x + TICK_INSET + width(tick.day))) {
+      days.add(tick.at)
+    }
+  }
+  let now: RulerLabels['now'] = 'center'
+  if (nowX !== null) {
+    const w = width('Now')
+    const spots: Array<[RulerLabels['now'], number, number]> = [
+      ['center', nowX - w / 2, nowX + w / 2],
+      ['after', nowX + APART, nowX + APART + w],
+      ['before', nowX - APART - w, nowX - APART],
+    ]
+    const spot = spots.find(([, from, to]) => clear(upper, from, to)) ?? spots[0]
+    now = spot[0]
+    upper.push([spot[1], spot[2]])
+  }
+  for (const tick of ticks) {
+    if (tick.day === today && place(upper, tick.x + TICK_INSET, tick.x + TICK_INSET + width(tick.day))) days.add(tick.at)
+  }
+
+  const lower: Array<[number, number]> = []
+  const times = new Set<number>()
+  for (const tick of ticks) {
+    if (place(lower, tick.x, tick.x + TICK_INSET + width(tick.time))) times.add(tick.at)
+  }
+  const shown = new Set<number>()
+  for (const skip of skips) {
+    const half = width(skipped(skip.to - skip.from)) / 2
+    const centre = skip.x + skip.width / 2
+    if (place(lower, centre - half, centre + half)) shown.add(skip.from)
+  }
+
+  return { days, times, skips: shown, now }
+}
