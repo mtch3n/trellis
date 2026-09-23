@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
+import { PatchView } from '@/components/wrappers/DiffView'
 import { IconButton } from '@/components/wrappers/IconButton'
 import { readError } from '@/lib/api'
 import { ago } from '@/lib/format'
@@ -25,7 +26,7 @@ export interface Revision {
  * The list is on the left, newest first, and the diff for the selected
  * version fills the rest. Choosing a version shows what that save changed,
  * which is the question a reader actually has; the server answers it with a
- * unified diff, so it is rendered as text. Versions have gaps — a move bumps
+ * unified diff, drawn with the same rows as every other diff. Versions have gaps — a move bumps
  * a card's version without keeping a revision — so the list is what the
  * server kept, never a count.
  */
@@ -160,8 +161,7 @@ export function HistoryDialog({ open, title, base, onOpenChange }: {
               diff.trim() === '' ? (
                 <p className="pt-4 text-sm text-muted-foreground">This version changed no text.</p>
               ) : (
-                // The server's diff is unified text, so it is shown as text.
-                <pre className="pt-4 text-meta leading-relaxed whitespace-pre-wrap">{diff}</pre>
+                <div className="pt-2"><PatchView patch={diff} /></div>
               )
             )}
           </div>

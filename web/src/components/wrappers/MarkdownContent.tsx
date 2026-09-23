@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
+import rehypeSlug from 'rehype-slug'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
 import { remarkWikilinks, WIKILINK_PREFIX, type WikilinkTargets } from '@/lib/wikilinks'
@@ -14,14 +15,20 @@ interface MarkdownContentProps {
    * is what a card's comment or a diff wants.
    */
   wikilinks?: WikilinkTargets
+  /**
+   * Give each heading an id from its text, GitHub's way, so an outline can
+   * point at it. It runs after sanitizing, which would otherwise prefix the
+   * ids it did not write.
+   */
+  anchors?: boolean
 }
 
-export function MarkdownContent({ content, className, wikilinks }: MarkdownContentProps) {
+export function MarkdownContent({ content, className, wikilinks, anchors }: MarkdownContentProps) {
   return (
     <div className={cn('typeset typeset-notes', className)}>
       <ReactMarkdown
         remarkPlugins={wikilinks ? [remarkGfm, [remarkWikilinks, wikilinks]] : [remarkGfm]}
-        rehypePlugins={[rehypeSanitize]}
+        rehypePlugins={anchors ? [rehypeSanitize, rehypeSlug] : [rehypeSanitize]}
         components={wikilinks ? { a: WikiAnchor } : undefined}
       >
         {content}

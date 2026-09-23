@@ -90,14 +90,15 @@ export function AppShell({
   }, [location.pathname])
 
   // One reading of connection state, shown once. The board used to repeat it
-  // as a banner, which said nothing the lamp had not already said.
+  // as a banner, which said nothing the lamp had not already said. A screen
+  // with no live stream shows no lamp at all: idle says nothing worth reading.
   const status = !reachable
     ? { lamp: 'alarm' as const, label: 'Offline', tone: 'text-danger', title: 'The daemon is not responding' }
     : live === 'disconnected'
       ? { lamp: 'claimed' as const, label: 'Stale', tone: 'text-claimed', title: 'Live updates dropped. Showing the last state received.' }
       : live === 'connected'
         ? { lamp: 'live' as const, label: 'Live', tone: 'text-muted-foreground', title: 'Receiving live updates' }
-        : { lamp: 'idle' as const, label: 'Idle', tone: 'text-muted-foreground', title: 'No live stream on this screen' }
+        : null
 
   const current = projects.find((project) => project.key === projectKey)
   // Ordered the way the picker is read: where you are, then what is live,
@@ -196,15 +197,17 @@ export function AppShell({
         </nav>
 
         <div className="ml-auto flex items-center gap-2 sm:gap-3">
-          <span
-            className={cn('flex items-center gap-2 text-xs', status.tone)}
-            title={status.title}
-          >
-            <Lamp state={status.lamp} label={status.label} />
-            {/* The lamp carries the label for screen readers; on a narrow screen it
-                also stands alone on screen, so the controls beside it fit. */}
-            <span aria-hidden="true" className="max-sm:hidden">{status.label}</span>
-          </span>
+          {status && (
+            <span
+              className={cn('flex items-center gap-2 text-xs', status.tone)}
+              title={status.title}
+            >
+              <Lamp state={status.lamp} label={status.label} />
+              {/* The lamp carries the label for screen readers; on a narrow screen it
+                  also stands alone on screen, so the controls beside it fit. */}
+              <span aria-hidden="true" className="max-sm:hidden">{status.label}</span>
+            </span>
+          )}
           <ThemeToggle />
           {/* A link, so it is announced as one; the tooltip names it, as on every icon-only control. */}
           <Tooltip>

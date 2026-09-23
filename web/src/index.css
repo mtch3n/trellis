@@ -246,6 +246,9 @@
 
   /* The reading measure. Title, summary, rule and prose share one right edge. */
   --container-measure: 42rem;
+  /* A vault entry fitted to the pane: wider than the measure, because entries
+     carry tables, and still a width a line can be read across. */
+  --container-reading: 52rem;
   /* The measure, the facts rail and the gap between them. */
   --container-entry: 60.5rem;
 
@@ -326,6 +329,11 @@
     --typeset-leading: 1.65;
     --typeset-flow: 1.25em;
     max-width: var(--container-measure);
+  }
+
+  /* A heading an outline jumps to lands clear of the pane's top edge. */
+  .typeset :where(h1, h2, h3)[id] {
+    scroll-margin-top: 0.75rem;
   }
 
   /* A table wider than its column scrolls inside it, never over what sits

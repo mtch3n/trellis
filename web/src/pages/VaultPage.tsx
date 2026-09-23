@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { FilePlus, Network, PanelRightClose, PanelRightOpen, Pencil, Pin } from 'lucide-react'
+import { FoldHorizontal, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Pencil, Pin, UnfoldHorizontal } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -11,13 +11,13 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb'
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from '@/components/ui/toast'
 import { ArtifactList } from '@/components/wrappers/ArtifactList'
 import { ActionRow } from '@/components/wrappers/ActionRow'
 import { EditActions } from '@/components/wrappers/EditInPlace'
 import { EntryMenu } from '@/components/wrappers/EntryMenu'
+import { EntryOutline } from '@/components/wrappers/EntryOutline'
 import { EntryView, type EntryDraft } from '@/components/wrappers/EntryView'
 import { HistoryDialog } from '@/components/wrappers/HistoryDialog'
 import { LifecycleDialog, type Lifecycle } from '@/components/wrappers/LifecycleDialog'
@@ -37,12 +37,15 @@ import { SourcesEditor } from '@/components/wrappers/SourcesEditor'
 import { TemplateSelect } from '@/components/wrappers/TemplateSelect'
 import { TemplateSwitchDialog, type TemplateSwitch } from '@/components/wrappers/TemplateSwitchDialog'
 import { VaultLayout } from '@/components/wrappers/VaultLayout'
+import { VaultStart } from '@/components/wrappers/VaultStart'
 import { sentence, templateLabel } from '@/lib/format'
 import { buildGraph, entryNodeId, type GraphNode, type EntryLink } from '@/lib/entry-graph'
 import type { Entry } from '@/lib/entry'
 import { fieldRows, switchNeedsDialog, type TemplateInfo } from '@/lib/templates'
 import { cn } from '@/lib/utils'
 import { projectFolders } from '@/lib/vault-tree'
+import { useOutline } from '@/lib/outline'
+import { rememberOpened, recentlyOpened } from '@/lib/recent'
 import { readError, refusalText, type Refusal } from '@/lib/api'
 
 
@@ -128,6 +131,31 @@ export function VaultPage() {
     setFacts(next)
     try { localStorage.setItem('trellis.vault-facts', next ? 'shown' : 'hidden') } catch { /* private mode */ }
   }
+  // The entry reads at a fitted width unless asked to take the whole pane.
+  const [full, setFull] = useState(() => {
+    try { return localStorage.getItem('trellis.vault-width') === 'full' } catch { return false }
+  })
+  const toggleFull = () => {
+    const next = !full
+    setFull(next)
+    try { localStorage.setItem('trellis.vault-width', next ? 'full' : 'fitted') } catch { /* private mode */ }
+  }
+  // The navigator can be put away too, for reading one entry at length.
+  const [navOpen, setNavOpen] = useState(() => {
+    try { return localStorage.getItem('trellis.vault-nav') !== 'hidden' } catch { return true }
+  })
+  const changeNavOpen = useCallback((next: boolean) => {
+    setNavOpen(next)
+    try { localStorage.setItem('trellis.vault-nav', next ? 'shown' : 'hidden') } catch { /* private mode */ }
+  }, [])
+  const navToggle = (
+    <IconButton label={navOpen ? 'Hide the navigator' : 'Show the navigator'} className="-ml-1.5" onClick={() => changeNavOpen(!navOpen)}>
+      {navOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
+    </IconButton>
+  )
+  // The pane the entry scrolls in, and what holds its body, for the outline.
+  const [scroller, setScroller] = useState<HTMLElement | null>(null)
+  const [body, setBody] = useState<HTMLElement | null>(null)
 
   const load = useCallback(async (signal?: AbortSignal) => {
     if (!projectKey) return
@@ -230,6 +258,14 @@ export function VaultPage() {
   const activeNode = entry ? entryNodeId(entry) : undefined
   const editing = Boolean(slug) && editingSlug === slug
   const setEditing = (on: boolean) => { setEditingSlug(on ? (slug ?? null) : null); setSource(false) }
+  // Read from the page as rendered, so it is empty while editing: the editor
+  // gives headings no ids.
+  const outline = useOutline(editing ? null : body, shown?.body)
+  // What this browser opened last, for the page shown when nothing is open.
+  useEffect(() => {
+    if (projectKey && entry) rememberOpened(projectKey, entry.slug)
+  }, [projectKey, entry])
+  const opened = !entry && projectKey ? recentlyOpened(projectKey) : []
 
   const neighbours = useMemo(() => {
     if (!activeNode) return []
@@ -417,7 +453,7 @@ export function VaultPage() {
   if (vault === null || project === null) {
     return (
       <div className="lg:grid lg:grid-cols-nav">
-        <div className="flex flex-col gap-3 px-4 pt-5 lg:h-under-shell lg:border-r lg:border-border">
+        <div className="flex flex-col gap-3 px-4 pt-5 lg:h-under-shell">
           <Skeleton className="h-8 w-full" />
           <Skeleton className="mt-4 h-4 w-24" />
           <Skeleton className="h-10 w-full" />
@@ -445,6 +481,8 @@ export function VaultPage() {
   return (
     <>
       <VaultLayout
+        navOpen={navOpen}
+        onNavOpenChange={changeNavOpen}
         nav={
           <VaultNav
             entries={entries}
@@ -459,7 +497,10 @@ export function VaultPage() {
           />
         }
       >
-        <main className="min-w-0 px-6 pb-8 lg:h-full lg:overflow-y-auto lg:px-12">
+        {/* A fixed frame: the action row stays put, and from xl the entry and its
+            facts scroll on their own, beside an outline that never moves. Below
+            xl they stack and scroll as one. */}
+        <main className="flex min-w-0 flex-col lg:h-full">
           {error && (
             <Alert variant="destructive" className="mx-auto mt-8 max-w-measure">
               <AlertTitle>Could not load the vault</AlertTitle>
@@ -468,40 +509,30 @@ export function VaultPage() {
           )}
 
           {!error && !entry && (
-            <Empty className="min-h-under-shell -mb-8 border-0">
-              <EmptyHeader>
-                <EmptyTitle>
-                  {entries.length === 0 ? 'Nothing written yet' : slug ? 'No entry by that name' : 'Choose an entry'}
-                </EmptyTitle>
-                <EmptyDescription>
-                  {entries.length === 0
-                    ? 'Agents write entries here as they work.'
-                    : slug
-                      ? `Nothing in this project or the vault is called ${slug}.`
-                      : `${entries.length} ${entries.length === 1 ? 'entry' : 'entries'} in this project and the vault.`}
-                </EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent className="flex-row justify-center">
-                <Button variant="outline" size="sm" onClick={() => setCreatingIn('')}>
-                  <FilePlus data-icon="inline-start" />
-                  New entry
-                </Button>
-                {graph.nodes.length > 0 && (
-                  <Button variant="outline" size="sm" onClick={() => setExploring(true)}>
-                    <Network data-icon="inline-start" />
-                    Open the graph
-                  </Button>
-                )}
-              </EmptyContent>
-            </Empty>
+            <div className="min-h-0 flex-1 px-6 pb-8 lg:overflow-y-auto lg:px-12">
+              <ActionRow className="h-16 lg:top-0">
+                {navToggle}
+              </ActionRow>
+              <VaultStart
+                projectKey={projectKey ?? ''}
+                entries={entries}
+                opened={opened}
+                pins={pins}
+                missing={slug}
+                onCreate={() => setCreatingIn('')}
+                onOpenGraph={graph.nodes.length > 0 ? () => setExploring(true) : undefined}
+              />
+            </div>
           )}
 
           {!error && entry && (
             <>
-              {/* One row of actions over the entry, sticky while it scrolls: Edit, or
-                  Save and Cancel in its place, then the facts toggle. Keeping them out
-                  of the title's row means an edit never rewraps the title. */}
-              <ActionRow className="h-16 lg:top-0">
+              {/* One row of actions over the entry: the navigator, where the entry
+                  sits, then Edit, or Save and Cancel in its place, the width and the
+                  facts. Keeping them out of the title's row means an edit never
+                  rewraps the title. */}
+              <ActionRow className="h-16 shrink-0 px-6 lg:top-0 lg:px-12">
+                {navToggle}
                 <Breadcrumb className="min-w-0">
                   <BreadcrumbList className="flex-nowrap">
                     <BreadcrumbItem>
@@ -522,6 +553,9 @@ export function VaultPage() {
                       Edit
                     </Button>
                   )}
+                  <IconButton label={full ? 'Fit to reading width' : 'Use the full width'} className="max-xl:hidden" onClick={toggleFull}>
+                    {full ? <FoldHorizontal /> : <UnfoldHorizontal />}
+                  </IconButton>
                   <IconButton label={facts ? 'Hide details' : 'Show details'} onClick={toggleFacts}>
                     {facts ? <PanelRightClose /> : <PanelRightOpen />}
                   </IconButton>
@@ -542,37 +576,46 @@ export function VaultPage() {
                 </div>
               </ActionRow>
 
-              <div
-                key={entry.id}
-                className={cn(
-                  // The gap under the action row leaves room for the title's edit wash.
-                  // The entry takes the pane's width, all of it when the facts are hidden.
-                  'grid animate-enter gap-x-14 gap-y-10 pt-3 grid-cols-1',
-                  facts && 'xl:grid-cols-facts',
-                )}
-              >
-                {shown ? (
-                  <EntryView
-                    entry={shown}
-                    editing={editing}
-                    initialFocus={shown.slug === fresh ? 'body' : 'title'}
-                    source={source}
-                    wikilinks={wikilinks}
-                    onEditingChange={setEditing}
-                    onSave={save}
-                  />
-                ) : (
-                  // The title is already known; the body is on its way.
-                  <div className="flex min-w-0 flex-col gap-3">
-                    <h1 className="text-title text-balance">{entry.title}</h1>
-                    <Skeleton className="mt-9 h-4 w-full" />
-                    <Skeleton className="h-4 w-11/12" />
-                    <Skeleton className="h-4 w-4/5" />
+              <div key={entry.id} ref={setBody} className="min-h-0 flex-1 animate-enter lg:overflow-y-auto xl:flex xl:overflow-hidden">
+                <div ref={setScroller} className="min-w-0 flex-1 px-6 pb-8 lg:px-12 xl:overflow-y-auto">
+                  {/* The gap under the action row leaves room for the title's edit wash.
+                      Fitted, the entry keeps a width a line can be read at; full, it
+                      takes whatever the pane has. */}
+                  <div className={cn('pt-3', !full && 'mx-auto max-w-reading')}>
+                    {shown ? (
+                      <EntryView
+                        entry={shown}
+                        editing={editing}
+                        initialFocus={shown.slug === fresh ? 'body' : 'title'}
+                        source={source}
+                        wikilinks={wikilinks}
+                        onEditingChange={setEditing}
+                        onSave={save}
+                      />
+                    ) : (
+                      // The title is already known; the body is on its way.
+                      <div className="flex min-w-0 flex-col gap-3">
+                        <h1 className="text-title text-balance">{entry.title}</h1>
+                        <Skeleton className="mt-9 h-4 w-full" />
+                        <Skeleton className="h-4 w-11/12" />
+                        <Skeleton className="h-4 w-4/5" />
+                      </div>
+                    )}
                   </div>
+                </div>
+
+                {/* The outline needs the room the facts leave: beside them only
+                    on the widest screens. */}
+                {!editing && outline.length > 1 && (
+                  <EntryOutline
+                    headings={outline}
+                    scroller={scroller}
+                    className={cn('hidden w-56 shrink-0 pt-3 pr-8 pb-8 xl:min-h-0', facts ? '2xl:flex' : 'xl:flex')}
+                  />
                 )}
 
                 {facts && (
-                  <MetaPanel className="xl:sticky xl:top-16 xl:self-start">
+                  <MetaPanel className="px-6 pb-8 lg:px-12 xl:w-80 xl:shrink-0 xl:overflow-y-auto xl:pt-3 xl:pl-0">
                     {/* The template and the sources apply the moment they change,
                         editing or not, like a card's status. */}
                     <MetaGroup label="Template">

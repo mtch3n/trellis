@@ -1,4 +1,4 @@
-import { diffLines, diffWordsWithSpace } from 'diff'
+import { diffLines, diffWordsWithSpace, parsePatch } from 'diff'
 import { cn } from '@/lib/utils'
 
 /**
@@ -58,6 +58,31 @@ export function DiffView({ before, after, mode = 'lines' }: { before: string; af
   return (
     <div className="overflow-x-auto py-2 text-meta leading-relaxed">
       {renderLinesWithCollapse(lines)}
+    </div>
+  )
+}
+
+/**
+ * A unified diff the server already made, drawn with the same rows as a diff
+ * made here. The file names are left out, since the dialog already says what
+ * changed, and each hunk opens with where it sits.
+ */
+export function PatchView({ patch }: { patch: string }) {
+  const hunks = parsePatch(patch).flatMap((file) => file.hunks)
+  return (
+    <div className="overflow-x-auto py-2 text-meta leading-relaxed">
+      {hunks.map((hunk, h) => (
+        <div key={h} className={cn(h > 0 && 'mt-3')}>
+          <div className="px-3 pb-1 text-xs text-muted-foreground">
+            Lines {hunk.newStart}–{hunk.newStart + Math.max(hunk.newLines - 1, 0)}
+          </div>
+          {hunk.lines
+            .filter((line) => !line.startsWith('\\'))
+            .map((line, i) =>
+              renderLine({ value: line.slice(1), added: line[0] === '+', removed: line[0] === '-' }, `${h}-${i}`),
+            )}
+        </div>
+      ))}
     </div>
   )
 }

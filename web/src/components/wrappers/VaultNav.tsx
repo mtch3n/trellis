@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import { NavLink } from 'react-router-dom'
-import { ArrowUpDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, FilePlus, ListFilter, Lock, Network, Search, Stethoscope } from 'lucide-react'
+import { ArrowUpDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, ListFilter, Lock, Network, Plus, Search, Stethoscope } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
@@ -200,9 +200,11 @@ export function VaultNav({
   const filtering = filter.trim() !== '' || keptTemplates.length > 0 || keptProvenances.length > 0
 
   return (
-    <nav aria-label="Vault" className="flex flex-col border-border max-lg:border-b lg:h-full lg:border-t">
-      <div className="flex shrink-0 items-center gap-1 px-3 pt-4 pb-2">
-        <InputGroup className="min-w-0 flex-1">
+    <nav aria-label="Vault" className="flex flex-col border-border max-lg:border-b lg:h-full">
+      {/* Two rows, so the filter gets the width to be read and each tool
+          room to be hit. */}
+      <div className="flex shrink-0 flex-col gap-1.5 px-3 pt-4 pb-2">
+        <InputGroup>
           <InputGroupAddon>
             <Search />
           </InputGroupAddon>
@@ -213,32 +215,35 @@ export function VaultNav({
             onChange={(event) => setFilter(event.target.value)}
           />
         </InputGroup>
-        <IconButton label="New entry" onClick={() => onCreate('')}>
-          <FilePlus />
-        </IconButton>
-        <FilterMenu
-          templates={templates}
-          keptTemplates={keptTemplates}
-          keptProvenances={keptProvenances}
-          group={group}
-          onTemplates={setKeptTemplates}
-          onProvenances={setKeptProvenances}
-          onGroup={setGroup}
-        />
-        <SortMenu sort={sort} onSort={setSort} />
-        <IconButton
-          label={allClosed ? 'Expand all' : 'Collapse all'}
-          disabled={folders.length === 0}
-          onClick={() => setClosed(allClosed ? new Set() : new Set(folders))}
-        >
-          {allClosed ? <ChevronsUpDown /> : <ChevronsDownUp />}
-        </IconButton>
-        <IconButton label="Vault health" onClick={onOpenHealth}>
-          <Stethoscope />
-        </IconButton>
-        <IconButton label="Open the graph" className="lg:hidden" onClick={onOpenGraph}>
-          <Network />
-        </IconButton>
+        <div className="flex items-center justify-between">
+          <IconButton label="New entry" size="icon" onClick={() => onCreate('')}>
+            <Plus className="size-4.5" />
+          </IconButton>
+          <FilterMenu
+            templates={templates}
+            keptTemplates={keptTemplates}
+            keptProvenances={keptProvenances}
+            group={group}
+            onTemplates={setKeptTemplates}
+            onProvenances={setKeptProvenances}
+            onGroup={setGroup}
+          />
+          <SortMenu sort={sort} onSort={setSort} />
+          <IconButton
+            label={allClosed ? 'Expand all' : 'Collapse all'}
+            size="icon"
+            disabled={folders.length === 0}
+            onClick={() => setClosed(allClosed ? new Set() : new Set(folders))}
+          >
+            {allClosed ? <ChevronsUpDown className="size-4.5" /> : <ChevronsDownUp className="size-4.5" />}
+          </IconButton>
+          <IconButton label="Vault health" size="icon" onClick={onOpenHealth}>
+            <Stethoscope className="size-4.5" />
+          </IconButton>
+          <IconButton label="Open the graph" size="icon" className="lg:hidden" onClick={onOpenGraph}>
+            <Network className="size-4.5" />
+          </IconButton>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 scroll-fade-y overflow-y-auto px-2 pb-6 max-lg:max-h-80">
@@ -350,7 +355,7 @@ function FilterMenu({ templates, keptTemplates, keptProvenances, group, onTempla
               render={
                 <Button
                   variant="ghost"
-                  size="icon-sm"
+                  size="icon"
                   aria-label="Filter and group"
                   className={cn(active && 'bg-muted text-foreground')}
                 />
@@ -358,7 +363,7 @@ function FilterMenu({ templates, keptTemplates, keptProvenances, group, onTempla
             />
           }
         >
-          <ListFilter />
+          <ListFilter className="size-4.5" />
         </TooltipTrigger>
         <TooltipContent side="bottom">Filter and group</TooltipContent>
       </Tooltip>
@@ -421,9 +426,9 @@ function SortMenu({ sort, onSort }: { sort: TreeSort; onSort: (sort: TreeSort) =
     <DropdownMenu>
       <Tooltip>
         <TooltipTrigger
-          render={<DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Sort" />} />}
+          render={<DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label="Sort" />} />}
         >
-          <ArrowUpDown />
+          <ArrowUpDown className="size-4.5" />
         </TooltipTrigger>
         <TooltipContent side="bottom">Sort</TooltipContent>
       </Tooltip>
@@ -511,7 +516,7 @@ function Folder({
             className="absolute top-0.5 right-1 bg-muted opacity-0 group-hover/folder:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
             onClick={create}
           >
-            <FilePlus />
+            <Plus className="size-4" />
           </IconButton>
         )}
       </div>
