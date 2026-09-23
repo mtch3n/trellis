@@ -42,7 +42,9 @@ func (c *Core) BackupInto(ctx context.Context, dir string) (string, error) {
 
 // BackupsPrune keeps the newest named backups in a directory and deletes the
 // rest. Only files Trellis named are considered: a directory holding other
-// things must come back holding them.
+// things must come back holding them. Newest is read from the name, which
+// records when the backup was taken; a file's modification time changes when
+// it is copied or restored, and would delete the wrong ones.
 func (c *Core) BackupsPrune(dir string, keep int) (int, error) {
 	if keep < 1 {
 		return 0, ErrUsage("invalid_keep", "keep at least one backup", "trellis backup prune <directory> --keep 5")
@@ -51,25 +53,18 @@ func (c *Core) BackupsPrune(dir string, keep int) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	type backup struct {
-		path    string
-		modTime time.Time
-	}
-	backups := make([]backup, 0, len(entries))
+	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasPrefix(entry.Name(), backupPrefix) || !strings.HasSuffix(entry.Name(), ".db") {
 			continue
 		}
-		info, err := entry.Info()
-		if err != nil {
-			return 0, err
-		}
-		backups = append(backups, backup{filepath.Join(dir, entry.Name()), info.ModTime()})
+		names = append(names, entry.Name())
 	}
-	slices.SortFunc(backups, func(a, b backup) int { return b.modTime.Compare(a.modTime) })
+	// The stamp in the name sorts as the time it records.
+	slices.SortFunc(names, func(a, b string) int { return strings.Compare(b, a) })
 	deleted := 0
-	for _, item := range backups[min(keep, len(backups)):] {
-		if err := os.Remove(item.path); err != nil {
+	for _, name := range names[min(keep, len(names)):] {
+		if err := os.Remove(filepath.Join(dir, name)); err != nil {
 			return deleted, err
 		}
 		deleted++

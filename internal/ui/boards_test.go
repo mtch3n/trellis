@@ -197,8 +197,11 @@ func TestBackupAndPrune(t *testing.T) {
 		t.Errorf("a relative directory = %d, want 400: %s", rec.Code, rec.Body)
 	}
 
-	// Pruning to one keeps the newest and says how many went.
-	stale := filepath.Join(filepath.Dir(path), "trellis-backup-20200101-000000.db")
+	// Pruning to one keeps the newest and says how many went. Newest is read
+	// from the name, and the fixture's clock stands 16 minutes after the
+	// epoch, so the older backup is named for the epoch itself. It is written
+	// last, so ordering by modification time would keep it instead.
+	stale := filepath.Join(filepath.Dir(path), "trellis-backup-19700101-000000.db")
 	if err := os.WriteFile(stale, []byte("old"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -208,6 +211,9 @@ func TestBackupAndPrune(t *testing.T) {
 	}
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Errorf("the older backup is still there")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("the newest backup is gone: %v", err)
 	}
 	if rec := f.request(http.MethodPost, "/api/maintenance/backup/prune", `{"keep":0}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("keep=0 = %d, want 400: %s", rec.Code, rec.Body)
