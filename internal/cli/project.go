@@ -15,8 +15,8 @@ import (
 )
 
 func newProjectCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "project", Short: "Create and list projects"}
-	cmd.AddCommand(newProjectNewCmd(), newProjectLsCmd(), newProjectMergeCmd())
+	cmd := &cobra.Command{Use: "project", Short: "Create, list and describe projects"}
+	cmd.AddCommand(newProjectNewCmd(), newProjectLsCmd(), newProjectEditCmd(), newProjectMergeCmd())
 	return cmd
 }
 
@@ -62,10 +62,11 @@ func newProjectLsCmd() *cobra.Command {
 				return err
 			}
 			type row struct {
-				Key       string `json:"key"`
-				Name      string `json:"name"`
-				Boards    int    `json:"boards"`
-				CreatedAt int64  `json:"created_at"`
+				Key         string `json:"key"`
+				Name        string `json:"name"`
+				Description string `json:"description"`
+				Boards      int    `json:"boards"`
+				CreatedAt   int64  `json:"created_at"`
 			}
 			rows := make([]row, len(projects))
 			for i, p := range projects {
@@ -73,20 +74,54 @@ func newProjectLsCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				rows[i] = row{Key: p.Key, Name: p.Name, Boards: len(boards), CreatedAt: p.CreatedAt}
+				rows[i] = row{Key: p.Key, Name: p.Name, Description: p.Description, Boards: len(boards), CreatedAt: p.CreatedAt}
 			}
 			return Emit(cmd, map[string]any{"projects": rows}, func() string {
 				var b strings.Builder
 				w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 				for _, r := range rows {
-					fmt.Fprintf(w, "%s\t%d boards\t%s\n", r.Key, r.Boards,
-						time.UnixMilli(r.CreatedAt).UTC().Format(time.DateOnly))
+					fmt.Fprintf(w, "%s\t%d boards\t%s\t%s\n", r.Key, r.Boards,
+						time.UnixMilli(r.CreatedAt).UTC().Format(time.DateOnly), r.Description)
 				}
 				w.Flush()
 				return strings.TrimRight(b.String(), "\n")
 			})
 		},
 	}
+}
+
+func newProjectEditCmd() *cobra.Command {
+	var description string
+	cmd := &cobra.Command{
+		Use:   "edit <KEY> --description <text>",
+		Short: "Describe a project",
+		Long: fmt.Sprintf("Set what a project is, in at most %d words. The web UI shows it under the\n"+
+			"key in the project switcher. An empty --description clears it.", core.MaxDescriptionWords),
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !cmd.Flags().Changed("description") {
+				return core.ErrUsage("missing_description", "name what to change",
+					"trellis project edit "+args[0]+" --description \"...\"")
+			}
+			c, db, err := openCore()
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			p, err := c.SetProjectDescription(cmd.Context(), args[0], description)
+			if err != nil {
+				return err
+			}
+			return Emit(cmd, p, func() string {
+				if p.Description == "" {
+					return "cleared the description of " + p.Key
+				}
+				return "described " + p.Key + ": " + p.Description
+			})
+		},
+	}
+	cmd.Flags().StringVar(&description, "description", "", "what the project is, in at most 50 words")
+	return cmd
 }
 
 func newProjectMergeCmd() *cobra.Command {

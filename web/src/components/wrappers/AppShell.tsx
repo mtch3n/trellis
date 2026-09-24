@@ -26,6 +26,7 @@ export type Section = 'overview' | 'board' | 'vault' | 'settings'
 
 export interface ProjectSummary {
   key: string
+  description: string
   board_count: number
   in_progress: number
   expired_claims: number
@@ -156,6 +157,7 @@ export function AppShell({
               current={projectKey}
               projects={ordered.map((project) => ({
                 key: project.key,
+                description: project.description,
                 cards: cardCount(project),
                 expired: project.expired_claims,
               }))}
