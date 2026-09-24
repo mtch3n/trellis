@@ -18,10 +18,49 @@ import (
 // Project is a virtual namespace, named by its key. No directory belongs to
 // it; a .trellis marker is how a directory reaches it.
 type Project struct {
-	ID        string `db:"id" json:"id"`
-	Key       string `db:"key" json:"key"`
-	Name      string `db:"name" json:"name"`
-	CreatedAt int64  `db:"created_at" json:"created_at"`
+	ID   string `db:"id" json:"id"`
+	Key  string `db:"key" json:"key"`
+	Name string `db:"name" json:"name"`
+	// Description says what the project is, in at most MaxDescriptionWords.
+	Description string `db:"description" json:"description"`
+	CreatedAt   int64  `db:"created_at" json:"created_at"`
+}
+
+// MaxDescriptionWords bounds a project description: enough to tell projects
+// apart in a switcher, short enough to stay a description.
+const MaxDescriptionWords = 50
+
+// SetProjectDescription replaces a project's description. Whitespace is
+// collapsed, so the stored text is one line; an empty description clears it.
+func (c *Core) SetProjectDescription(ctx context.Context, key, description string) (Project, error) {
+	words := strings.Fields(description)
+	if len(words) > MaxDescriptionWords {
+		return Project{}, ErrUsage("description_too_long",
+			fmt.Sprintf("the description has %d words; a project description holds at most %d", len(words), MaxDescriptionWords),
+			"shorten it to one or two sentences")
+	}
+	description = strings.Join(words, " ")
+	p, err := c.ProjectByKey(ctx, key)
+	if err != nil {
+		return Project{}, err
+	}
+	err = c.Tx(ctx, func(tx *sqlx.Tx) error {
+		if err := tx.Get(&p.Description, `SELECT description FROM project WHERE id = ?`, p.ID); err != nil {
+			return err
+		}
+		if p.Description == description {
+			return nil
+		}
+		if _, err := tx.Exec(`UPDATE project SET description = ? WHERE id = ?`, description, p.ID); err != nil {
+			return err
+		}
+		return c.recordEvent(tx, "project", p.ID, "edited", "description", p.Description, description)
+	})
+	if err != nil {
+		return Project{}, err
+	}
+	p.Description = description
+	return p, nil
 }
 
 // ListProjects returns every project, newest first.

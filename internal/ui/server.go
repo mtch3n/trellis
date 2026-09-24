@@ -212,6 +212,7 @@ func (s *Server) handleMe(w http.ResponseWriter, _ *http.Request) {
 type projectInfo struct {
 	Key           string       `json:"key"`
 	Name          string       `json:"name"`
+	Description   string       `json:"description"`
 	BoardCount    int          `json:"board_count"`
 	InProgress    int          `json:"in_progress"`
 	ExpiredClaims int          `json:"expired_claims"`
@@ -308,6 +309,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		result = append(result, projectInfo{
 			Key:           p.Key,
 			Name:          p.Name,
+			Description:   p.Description,
 			BoardCount:    len(boards),
 			InProgress:    inProgress,
 			ExpiredClaims: expiredClaims,
