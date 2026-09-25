@@ -117,6 +117,13 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/templates/{name}/reinstall", s.handleTemplateReinstall)
 	s.mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	s.mux.HandleFunc("PATCH /api/settings", s.handlePatchSettings)
+	s.mux.HandleFunc("GET /api/providers", s.handleProviders)
+	s.mux.HandleFunc("PATCH /api/providers", s.handlePatchProviders)
+	s.mux.HandleFunc("PUT /api/providers/{id}", s.handlePutProvider)
+	s.mux.HandleFunc("DELETE /api/providers/{id}", s.handleDeleteProvider)
+	s.mux.HandleFunc("POST /api/providers/{id}/test", s.handleTestProvider)
+	s.mux.HandleFunc("/api/providers/{id}/proxy/{rest...}", s.handleProviderProxy)
+	s.mux.HandleFunc("POST /api/p/{key}/chat", s.handleChat)
 	s.mux.HandleFunc("GET /api/maintenance", s.handleMaintenance)
 	s.mux.HandleFunc("POST /api/maintenance/prune", s.handleMaintenancePrune)
 	s.mux.HandleFunc("POST /api/maintenance/compact", s.handleMaintenanceCompact)
@@ -488,7 +495,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "retype the project key to confirm; nothing changed")
 		return
 	}
-	if err := s.write.DeleteProject(ctx, key); err != nil {
+	if err := s.writer(r).DeleteProject(ctx, key); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -568,7 +575,7 @@ func (s *Server) handleCreateBoard(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "board name required")
 		return
 	}
-	b, err := s.write.CreateBoard(ctx, p.ID, in.Name, !in.NoColumns)
+	b, err := s.writer(r).CreateBoard(ctx, p.ID, in.Name, !in.NoColumns)
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -993,7 +1000,7 @@ func (s *Server) handleStealCard(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	claimed, err := s.write.ClaimCard(ctx, card.ID, 30*60*1000, true, in.Reason)
+	claimed, err := s.writer(r).ClaimCard(ctx, card.ID, 30*60*1000, true, in.Reason)
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -1033,7 +1040,7 @@ func (s *Server) handleClaimCard(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	claimed, err := s.write.ClaimCard(ctx, card.ID, ttlMS, false, "")
+	claimed, err := s.writer(r).ClaimCard(ctx, card.ID, ttlMS, false, "")
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -1058,7 +1065,7 @@ func (s *Server) handleReleaseCard(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if err := s.write.ReleaseCard(ctx, card.ID); err != nil {
+	if err := s.writer(r).ReleaseCard(ctx, card.ID); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -1093,7 +1100,7 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	comment, err := s.write.CreateComment(ctx, card.ID, in.Body)
+	comment, err := s.writer(r).CreateComment(ctx, card.ID, in.Body)
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -1126,7 +1133,7 @@ func (s *Server) handleCreateCardRelation(w http.ResponseWriter, r *http.Request
 		}
 		return
 	}
-	if err := s.write.RelateCards(ctx, p.ID, core.ParseCardRef(card.Ref), in.Rel, core.ParseCardRef(in.Ref)); err != nil {
+	if err := s.writer(r).RelateCards(ctx, p.ID, core.ParseCardRef(card.Ref), in.Rel, core.ParseCardRef(in.Ref)); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -1159,7 +1166,7 @@ func (s *Server) handleDeleteCardRelation(w http.ResponseWriter, r *http.Request
 		}
 		return
 	}
-	if err := s.write.UnrelateCards(ctx, p.ID, core.ParseCardRef(card.Ref), rel, core.ParseCardRef(ref)); err != nil {
+	if err := s.writer(r).UnrelateCards(ctx, p.ID, core.ParseCardRef(card.Ref), rel, core.ParseCardRef(ref)); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -1289,7 +1296,7 @@ func (s *Server) handleTemplateUpdate(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	t, err := s.write.EditTemplate(ctx, r.PathValue("name"), in.Raw)
+	t, err := s.writer(r).EditTemplate(ctx, r.PathValue("name"), in.Raw)
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -1309,7 +1316,7 @@ func (s *Server) handleTemplateCreate(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	t, err := s.write.NewTemplate(ctx, in.Name)
+	t, err := s.writer(r).NewTemplate(ctx, in.Name)
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -1320,7 +1327,7 @@ func (s *Server) handleTemplateCreate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTemplateDelete(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
-	if err := s.write.DeleteTemplate(ctx, r.PathValue("name")); err != nil {
+	if err := s.writer(r).DeleteTemplate(ctx, r.PathValue("name")); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -1330,7 +1337,7 @@ func (s *Server) handleTemplateDelete(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTemplateReinstall(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
-	t, err := s.write.ReinstallTemplate(ctx, r.PathValue("name"))
+	t, err := s.writer(r).ReinstallTemplate(ctx, r.PathValue("name"))
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -1401,7 +1408,7 @@ func (s *Server) handleEntryCreate(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "entry title required")
 		return
 	}
-	entry, err := s.write.CreateEntry(ctx, p.ID, core.NewEntry{
+	entry, err := s.writer(r).CreateEntry(ctx, p.ID, core.NewEntry{
 		Title: in.Title, Body: in.Body, Summary: in.Summary, Template: in.Template,
 		Private: in.Private, Board: b.Name, Sources: in.Sources, Set: in.Set, Dir: in.Directory,
 	})
@@ -1442,7 +1449,7 @@ func (s *Server) handleEntryEdit(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "invalid entry JSON")
 		return
 	}
-	entry, err := s.write.EditEntryFields(ctx, p.ID, r.PathValue("slug"), core.EntryEdit{
+	entry, err := s.writer(r).EditEntryFields(ctx, p.ID, r.PathValue("slug"), core.EntryEdit{
 		Title: in.Title, Summary: in.Summary, Body: in.Body, IfVersion: in.Version,
 		Template: in.Template, Private: in.Private, Tags: in.Tags, Labels: in.Labels,
 		Sources: in.Sources, Set: in.Set,
@@ -1463,7 +1470,7 @@ func (s *Server) handleDeleteEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slug := r.PathValue("slug")
-	if err := s.write.DeleteEntry(ctx, p.ID, slug); err != nil {
+	if err := s.writer(r).DeleteEntry(ctx, p.ID, slug); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -1544,7 +1551,7 @@ func (s *Server) handleCreateLabel(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "label name required")
 		return
 	}
-	label, err := s.write.CreateLabel(ctx, p.ID, in.Name, in.Description)
+	label, err := s.writer(r).CreateLabel(ctx, p.ID, in.Name, in.Description)
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -1561,7 +1568,7 @@ func (s *Server) handleDeleteLabel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.PathValue("name")
-	if err := s.write.DeleteLabel(ctx, p.ID, name); err != nil {
+	if err := s.writer(r).DeleteLabel(ctx, p.ID, name); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -1581,7 +1588,7 @@ func (s *Server) handleLabelMerge(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "from and into labels required")
 		return
 	}
-	if err := s.write.MergeLabel(ctx, p.ID, in.From, in.Into); err != nil {
+	if err := s.writer(r).MergeLabel(ctx, p.ID, in.From, in.Into); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -1601,7 +1608,7 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "card title required")
 		return
 	}
-	card, err := s.write.CreateCard(ctx, p.ID, b.ID, core.NewCard{
+	card, err := s.writer(r).CreateCard(ctx, p.ID, b.ID, core.NewCard{
 		Title: in.Title, Body: in.Body, Column: in.Column, Priority: in.Priority,
 		Labels: in.Labels, Tags: in.Tags,
 	})
@@ -1632,7 +1639,7 @@ func (s *Server) handleDeleteCard(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusNotFound, "card not found on this board")
 		return
 	}
-	if err := s.write.DeleteCard(ctx, p.ID, ref); err != nil {
+	if err := s.writer(r).DeleteCard(ctx, p.ID, ref); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -1652,7 +1659,7 @@ func (s *Server) handleUpdateCard(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "invalid card JSON")
 		return
 	}
-	card, err := s.write.EditCard(ctx, p.ID, core.ParseCardRef(r.PathValue("card")), core.CardEdit{
+	card, err := s.writer(r).EditCard(ctx, p.ID, core.ParseCardRef(r.PathValue("card")), core.CardEdit{
 		Title: in.Title, Body: in.Body, Priority: in.Priority, IfVersion: in.IfVersion,
 		AddLabels: in.AddLabels, RemoveLabels: in.RemoveLabels,
 		AddTags: in.AddTags, RemoveTags: in.RemoveTags,
@@ -1677,7 +1684,7 @@ func (s *Server) handleMoveCard(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "column required")
 		return
 	}
-	card, err := s.write.MoveCardBefore(ctx, p.ID, b.ID, core.ParseCardRef(r.PathValue("card")), in.Column, in.Before)
+	card, err := s.writer(r).MoveCardBefore(ctx, p.ID, b.ID, core.ParseCardRef(r.PathValue("card")), in.Column, in.Before)
 	if err != nil {
 		s.coreError(w, err)
 		return

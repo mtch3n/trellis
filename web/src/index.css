@@ -243,6 +243,8 @@
   --spacing-under-shell: calc(100svh - 3.375rem);
   /* Where a sticky rail rests: under the shell, level with the page padding. */
   --spacing-shell-gap: 5.375rem;
+  /* The chat docked at the right edge, and the room the page leaves it on a wide screen. */
+  --spacing-chat: 28rem;
 
   /* The reading measure. Title, summary, rule and prose share one right edge. */
   --container-measure: 42rem;
@@ -409,6 +411,26 @@
 
   .lamp-live { animation: trellis-lamp-live 2.6s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
   .lamp-alarm { animation: trellis-lamp-alarm 1.15s steps(1) infinite; }
+}
+
+@layer components {
+  /* The end of a chat reply that is still arriving: a dot where the next
+     word lands. It sits after the last paragraph, list item or code block,
+     so it follows the text rather than starting a line of its own. */
+  @keyframes trellis-caret { 50% { opacity: 0.25; } }
+
+  .chat-caret > :last-child:not(ul, ol)::after,
+  .chat-caret > :is(ul, ol):last-child > li:last-child::after {
+    content: '';
+    display: inline-block;
+    width: 0.5em;
+    height: 0.5em;
+    margin-left: 0.3em;
+    border-radius: 9999px;
+    background: currentColor;
+    vertical-align: 0.05em;
+    animation: trellis-caret 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
 }
 
 @layer components {

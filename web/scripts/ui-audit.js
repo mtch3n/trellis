@@ -46,6 +46,11 @@ function checkImports() {
     '@dnd-kit/sortable',
     '@dnd-kit/modifiers',
     '@dnd-kit/utilities',
+    // The AI SDK streams a conversation and carries it to a provider: a
+    // transport, a Chat store and message parts. It draws nothing; the chat's
+    // markup is the registry's MessageScroller, Message and Bubble.
+    'ai',
+    '@ai-sdk/react',
   ];
 
   files.forEach(file => {

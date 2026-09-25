@@ -6,6 +6,7 @@ import { SettingsDiagnostics } from '@/components/wrappers/SettingsDiagnostics'
 import { SettingsGeneral } from '@/components/wrappers/SettingsGeneral'
 import { SettingsVector } from '@/components/wrappers/SettingsVector'
 import { SettingsLogs } from '@/components/wrappers/SettingsLogs'
+import { SettingsProviders } from '@/components/wrappers/SettingsProviders'
 import { SettingsMaintenance } from '@/components/wrappers/SettingsMaintenance'
 import { SettingsTemplates } from '@/components/wrappers/SettingsTemplates'
 import { TemplateEditor } from '@/components/wrappers/TemplateEditor'
@@ -14,6 +15,7 @@ import { cn } from '@/lib/utils'
 const SECTIONS = [
   { path: 'general', label: 'General' },
   { path: 'templates', label: 'Templates' },
+  { path: 'providers', label: 'Providers' },
   { path: 'agents', label: 'Agents' },
   { path: 'diagnostics', label: 'Diagnostics' },
   { path: 'vector', label: 'Vector index' },
@@ -60,6 +62,7 @@ export function SettingsPage() {
             <Route path="general" element={<SettingsGeneral />} />
             <Route path="templates" element={<SettingsTemplates />} />
             <Route path="templates/:name" element={<TemplateEditor />} />
+            <Route path="providers" element={<SettingsProviders />} />
             <Route path="agents" element={<SettingsAgents />} />
             <Route path="diagnostics" element={<SettingsDiagnostics />} />
             <Route path="vector" element={<SettingsVector />} />

@@ -1,0 +1,1 @@
+import{Bt as e,fn as t}from"./dist-kXaXzicy.js";function n(n){return t(e,n)}export{n as t};
