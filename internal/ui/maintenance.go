@@ -84,7 +84,7 @@ func (s *Server) handleMaintenancePrune(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		before := time.Now().Add(-age).UnixMilli()
-		n, err := s.write.PruneHistory(ctx, before, in.Events, in.Invocations)
+		n, err := s.writer(r).PruneHistory(ctx, before, in.Events, in.Invocations)
 		if err != nil {
 			s.coreError(w, err)
 			return
@@ -92,7 +92,7 @@ func (s *Server) handleMaintenancePrune(w http.ResponseWriter, r *http.Request) 
 		total += n
 	}
 	if in.Revisions {
-		n, err := s.write.PruneRevisions(ctx)
+		n, err := s.writer(r).PruneRevisions(ctx)
 		if err != nil {
 			s.coreError(w, err)
 			return
@@ -100,7 +100,7 @@ func (s *Server) handleMaintenancePrune(w http.ResponseWriter, r *http.Request) 
 		total += n
 	}
 	if in.LeftoverRevisions {
-		n, err := s.write.PruneLeftoverRevisions(ctx)
+		n, err := s.writer(r).PruneLeftoverRevisions(ctx)
 		if err != nil {
 			s.coreError(w, err)
 			return
@@ -113,7 +113,7 @@ func (s *Server) handleMaintenancePrune(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleMaintenanceCompact(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
-	if err := s.write.Compact(ctx); err != nil {
+	if err := s.writer(r).Compact(ctx); err != nil {
 		s.coreError(w, err)
 		return
 	}

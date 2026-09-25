@@ -252,6 +252,39 @@ graph, label-merge, Markdown preview, and claim-steal flows in Chromium.
 | 4    | Conflict | Card changed since last read |
 | 5    | Policy | Action violates board rules |
 
+## Chat in the web UI
+
+The web UI can chat with a model about the project you have open. Open the chat
+from the shell's chat button or with `Ctrl .`; it docks beside the board. It
+reads the board and vault, and changes cards when you ask it to. Its writes are
+recorded as `agent:chat-<provider id>`.
+
+Add providers in Settings › Providers. They are saved under `ai` in
+`config.yaml`:
+
+```yaml
+ai:
+  default_provider: work
+  providers:
+    - id: work
+      kind: azure              # openai, azure, anthropic, google, openai-compatible
+      base_url: https://<resource>.openai.azure.com/openai/v1
+      model: gpt-5             # the deployment name for Azure
+      api_key_env: AZURE_API_KEY   # overrides api_key when set for the daemon
+      effort: medium           # low, medium, high or xhigh; empty is the model's own
+    - id: claude
+      kind: claude-code        # or codex: a local agent the daemon runs
+      model: sonnet
+      dir: ~/code              # the directory it starts in
+```
+
+An API provider runs on the Vercel AI SDK in the browser. Its requests go
+through the daemon, which adds the key, so the key never reaches the browser.
+A local agent (Claude Code or Codex) runs in the daemon with `TRELLIS_PROJECT`
+set, and works the board through the `trellis` CLI. Claude Code may run only
+`trellis` and read files; Codex runs in its workspace-write sandbox, which may
+also write the Trellis store.
+
 ## Optional vector search
 
 Vector search is disabled by default. Configure an external embedding

@@ -76,8 +76,12 @@ func (s *Server) protectedHandler(address string) http.Handler {
 				}
 			}
 			limit := int64(2 << 20)
-			if upload {
+			switch {
+			case upload:
 				limit = artifactUploadLimit
+			case isProxyPath(r.URL.Path):
+				// A chat resends its whole conversation every turn.
+				limit = proxyBodyLimit
 			}
 			r.Body = http.MaxBytesReader(w, r.Body, limit)
 		}
@@ -94,6 +98,20 @@ func isUploadPath(path string) bool {
 	}
 	key, tail, ok := strings.Cut(rest, "/")
 	return ok && key != "" && tail == "artifacts"
+}
+
+// proxyBodyLimit bounds one request forwarded to a provider.
+const proxyBodyLimit = 32 << 20
+
+// isProxyPath reports whether a path is forwarded to a provider:
+// /api/providers/{id}/proxy/...
+func isProxyPath(path string) bool {
+	rest, ok := strings.CutPrefix(path, "/api/providers/")
+	if !ok {
+		return false
+	}
+	_, tail, ok := strings.Cut(rest, "/")
+	return ok && strings.HasPrefix(tail, "proxy/")
 }
 
 func (s *Server) validToken(token string) bool {

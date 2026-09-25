@@ -48,9 +48,9 @@ func (s *Server) archiveOrRestore(w http.ResponseWriter, r *http.Request, archiv
 		return
 	}
 	ref := core.ParseCardRef(card.Ref)
-	changed := s.write.RestoreCard
+	changed := s.writer(r).RestoreCard
 	if archive {
-		changed = s.write.ArchiveCard
+		changed = s.writer(r).ArchiveCard
 	}
 	updated, err := changed(ctx, p.ID, ref)
 	if err != nil {
@@ -82,7 +82,7 @@ func (s *Server) handleLinkCardToEntry(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "an entry to link to is required")
 		return
 	}
-	if err := s.write.LinkCardToEntry(ctx, p.ID, core.ParseCardRef(card.Ref), in.Target); err != nil {
+	if err := s.writer(r).LinkCardToEntry(ctx, p.ID, core.ParseCardRef(card.Ref), in.Target); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -102,7 +102,7 @@ func (s *Server) handleUnlinkCardFromEntry(w http.ResponseWriter, r *http.Reques
 		s.error(w, http.StatusBadRequest, "the entry to unlink is required")
 		return
 	}
-	if err := s.write.UnlinkCardFromEntry(ctx, p.ID, core.ParseCardRef(card.Ref), in.Target); err != nil {
+	if err := s.writer(r).UnlinkCardFromEntry(ctx, p.ID, core.ParseCardRef(card.Ref), in.Target); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -133,7 +133,7 @@ func (s *Server) handleImportCards(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "the import must be a JSON array of cards; nothing changed")
 		return
 	}
-	cards, err := s.write.ImportCards(ctx, p.ID, b.ID, in)
+	cards, err := s.writer(r).ImportCards(ctx, p.ID, b.ID, in)
 	if err != nil {
 		s.coreError(w, err)
 		return

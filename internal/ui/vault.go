@@ -47,7 +47,7 @@ func (s *Server) handlePinEntry(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "invalid JSON; nothing changed")
 		return
 	}
-	pin, err := s.write.PinEntry(ctx, p.ID, r.PathValue("slug"), in.Recap, in.Board)
+	pin, err := s.writer(r).PinEntry(ctx, p.ID, r.PathValue("slug"), in.Recap, in.Board)
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -66,7 +66,7 @@ func (s *Server) handleUnpinEntry(w http.ResponseWriter, r *http.Request) {
 	var in pinRequest
 	// The body is optional: a pin with no board is the common case.
 	_ = decodeJSON(w, r, &in)
-	if err := s.write.UnpinEntry(ctx, p.ID, r.PathValue("slug"), in.Board); err != nil {
+	if err := s.writer(r).UnpinEntry(ctx, p.ID, r.PathValue("slug"), in.Board); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -177,7 +177,7 @@ func (s *Server) handlePromoteEntry(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "say why this belongs beyond its project; nothing changed")
 		return
 	}
-	entry, err := s.write.PromoteEntry(ctx, p.ID, slug, in.Reason)
+	entry, err := s.writer(r).PromoteEntry(ctx, p.ID, slug, in.Reason)
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -198,7 +198,7 @@ func (s *Server) handleDemoteEntry(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "say why it does not belong globally; nothing changed")
 		return
 	}
-	entry, err := s.write.DemoteEntry(ctx, slug, in.Reason)
+	entry, err := s.writer(r).DemoteEntry(ctx, slug, in.Reason)
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -217,7 +217,7 @@ func (s *Server) handleVerifyEntry(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "retype the entry's name to confirm; nothing changed")
 		return
 	}
-	if err := s.write.VerifyEntry(ctx, slug); err != nil {
+	if err := s.writer(r).VerifyEntry(ctx, slug); err != nil {
 		s.coreError(w, err)
 		return
 	}

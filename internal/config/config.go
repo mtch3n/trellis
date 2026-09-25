@@ -29,6 +29,7 @@ type Config struct {
 	Card    CardConfig    `yaml:"card"`
 	Search  SearchConfig  `yaml:"search"`
 	History HistoryConfig `yaml:"history"`
+	AI      AIConfig      `yaml:"ai"`
 }
 
 type UIConfig struct {

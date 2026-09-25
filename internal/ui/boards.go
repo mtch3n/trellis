@@ -36,7 +36,7 @@ func (s *Server) handleUpdateBoard(w http.ResponseWriter, r *http.Request) {
 			s.error(w, http.StatusBadRequest, "a board needs a name")
 			return
 		}
-		board, err = s.write.RenameBoard(ctx, p.ID, board.Name, *in.Name)
+		board, err = s.writer(r).RenameBoard(ctx, p.ID, board.Name, *in.Name)
 		if err != nil {
 			s.coreError(w, err)
 			return
@@ -45,7 +45,7 @@ func (s *Server) handleUpdateBoard(w http.ResponseWriter, r *http.Request) {
 	// Only making a board the default means anything; a project always has
 	// one, so unsetting it would leave none.
 	if in.IsDefault != nil && *in.IsDefault {
-		board, err = s.write.SetDefaultBoard(ctx, p.ID, board.Name)
+		board, err = s.writer(r).SetDefaultBoard(ctx, p.ID, board.Name)
 		if err != nil {
 			s.coreError(w, err)
 			return
@@ -65,7 +65,7 @@ func (s *Server) handleDeleteBoard(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
-	if err := s.write.DeleteBoard(ctx, p.ID, b.Name, truthy(r.URL.Query().Get("force"))); err != nil {
+	if err := s.writer(r).DeleteBoard(ctx, p.ID, b.Name, truthy(r.URL.Query().Get("force"))); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -113,7 +113,7 @@ func (s *Server) handleCreateColumn(w http.ResponseWriter, r *http.Request) {
 		s.error(w, http.StatusBadRequest, "a column needs a name")
 		return
 	}
-	column, err := s.write.AddColumn(ctx, b.ID, in.Name, in.After, in.Done)
+	column, err := s.writer(r).AddColumn(ctx, b.ID, in.Name, in.After, in.Done)
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -144,7 +144,7 @@ func (s *Server) handleUpdateColumn(w http.ResponseWriter, r *http.Request) {
 	}
 	name := r.PathValue("column")
 	if in.After != nil {
-		if err := s.write.MoveColumn(ctx, b.ID, name, *in.After); err != nil {
+		if err := s.writer(r).MoveColumn(ctx, b.ID, name, *in.After); err != nil {
 			s.coreError(w, err)
 			return
 		}
@@ -154,7 +154,7 @@ func (s *Server) handleUpdateColumn(w http.ResponseWriter, r *http.Request) {
 			s.error(w, http.StatusBadRequest, "a column needs a name")
 			return
 		}
-		if err := s.write.RenameColumn(ctx, b.ID, name, *in.Name); err != nil {
+		if err := s.writer(r).RenameColumn(ctx, b.ID, name, *in.Name); err != nil {
 			s.coreError(w, err)
 			return
 		}
@@ -181,7 +181,7 @@ func (s *Server) handleDeleteColumn(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
-	if err := s.write.DeleteColumn(ctx, b.ID, r.PathValue("column"), r.URL.Query().Get("move_cards_to")); err != nil {
+	if err := s.writer(r).DeleteColumn(ctx, b.ID, r.PathValue("column"), r.URL.Query().Get("move_cards_to")); err != nil {
 		s.coreError(w, err)
 		return
 	}

@@ -221,7 +221,7 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	artifact, err := s.write.CreateArtifact(ctx, p.ID, staged)
+	artifact, err := s.writer(r).CreateArtifact(ctx, p.ID, staged)
 	if err != nil {
 		s.coreError(w, err)
 		return
@@ -234,7 +234,7 @@ func (s *Server) handleArtifactUpload(w http.ResponseWriter, r *http.Request) {
 			s.coreError(w, err)
 			return
 		}
-		if err := s.write.LinkArtifactToCard(ctx, p.ID, card.ID, artifact.ID); err != nil {
+		if err := s.writer(r).LinkArtifactToCard(ctx, p.ID, card.ID, artifact.ID); err != nil {
 			s.coreError(w, err)
 			return
 		}
@@ -261,7 +261,7 @@ func (s *Server) handleDeleteArtifact(w http.ResponseWriter, r *http.Request) {
 		s.coreError(w, err)
 		return
 	}
-	if err := s.write.DeleteArtifact(ctx, p.ID, artifact.ID); err != nil {
+	if err := s.writer(r).DeleteArtifact(ctx, p.ID, artifact.ID); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -292,7 +292,7 @@ func (s *Server) handleLinkCardArtifact(w http.ResponseWriter, r *http.Request) 
 		s.coreError(w, err)
 		return
 	}
-	if err := s.write.LinkArtifactToCard(ctx, p.ID, card.ID, artifact.ID); err != nil {
+	if err := s.writer(r).LinkArtifactToCard(ctx, p.ID, card.ID, artifact.ID); err != nil {
 		s.coreError(w, err)
 		return
 	}
@@ -312,7 +312,7 @@ func (s *Server) handleUnlinkCardArtifact(w http.ResponseWriter, r *http.Request
 		s.coreError(w, err)
 		return
 	}
-	if err := s.write.UnlinkArtifactFromCard(ctx, p.ID, card.ID, artifact.ID); err != nil {
+	if err := s.writer(r).UnlinkArtifactFromCard(ctx, p.ID, card.ID, artifact.ID); err != nil {
 		s.coreError(w, err)
 		return
 	}

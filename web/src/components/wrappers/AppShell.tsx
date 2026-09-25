@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ChevronsUpDown, Settings } from 'lucide-react'
+import { ChevronsUpDown, MessageSquareText, Settings } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -21,6 +21,12 @@ import { useNavigationGuard } from '@/lib/navigation-guard'
 import { ThemeToggle } from '@/components/wrappers/ThemeToggle'
 import { TrellisMark } from '@/components/wrappers/TrellisMark'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Kbd } from '@/components/ui/kbd'
+
+const CHAT_OPEN_KEY = 'trellis.chat.open'
+
+// The chat and the AI SDK behind it load the first time it opens.
+const ChatPanel = lazy(() => import('@/components/wrappers/ChatPanel').then((module) => ({ default: module.ChatPanel })))
 
 export type Section = 'overview' | 'board' | 'vault' | 'settings'
 
@@ -71,6 +77,32 @@ export function AppShell({
   // hairline appears so the sticky bar keeps an edge.
   const top = useRef<HTMLDivElement>(null)
   const [scrolled, setScrolled] = useState(false)
+  // The chat stays open or closed across pages and reloads, the way a
+  // docked tool window does.
+  const [chatOpen, setChatOpen] = useState(() => localStorage.getItem(CHAT_OPEN_KEY) === '1')
+  // Once opened, the panel stays mounted, so closing it keeps its scroll and draft.
+  const [chatLoaded, setChatLoaded] = useState(chatOpen)
+  const [chatBusy, setChatBusy] = useState(false)
+  if (chatOpen && !chatLoaded) setChatLoaded(true)
+  const toggleChat = (next: boolean) => {
+    setChatOpen(next)
+    localStorage.setItem(CHAT_OPEN_KEY, next ? '1' : '0')
+  }
+
+  useEffect(() => {
+    if (!projectKey) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === '.' && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey) {
+        event.preventDefault()
+        setChatOpen((open) => {
+          localStorage.setItem(CHAT_OPEN_KEY, open ? '0' : '1')
+          return !open
+        })
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [projectKey])
 
   useEffect(() => {
     const marker = top.current
@@ -129,8 +161,8 @@ export function AppShell({
   }
 
   const tab =
-    'relative flex items-center px-2.5 text-sm text-muted-foreground transition-colors duration-150 hover:text-foreground sm:px-4 ' +
-    'after:absolute after:inset-x-2.5 sm:after:inset-x-4 after:bottom-2.5 after:h-0.5 after:scale-x-0 after:bg-foreground after:transition-transform after:duration-200 after:ease-settle ' +
+    'relative flex items-center px-2 text-sm text-muted-foreground transition-colors duration-150 hover:text-foreground sm:px-4 ' +
+    'after:absolute after:inset-x-2 sm:after:inset-x-4 after:bottom-2.5 after:h-0.5 after:scale-x-0 after:bg-foreground after:transition-transform after:duration-200 after:ease-settle ' +
     'aria-[current=page]:text-foreground aria-[current=page]:after:scale-x-100'
 
   const selectedBoard = current ? pickBoard(current.boards) : undefined
@@ -140,7 +172,7 @@ export function AppShell({
       <div ref={top} aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-px" />
       <div
         data-scrolled={scrolled || undefined}
-        className="sticky top-0 z-20 flex h-shell items-stretch gap-3 border-b border-transparent bg-background px-6 transition-colors duration-200 data-scrolled:border-border sm:gap-6 lg:px-8"
+        className="sticky top-0 z-20 flex h-shell items-stretch gap-2 border-b border-transparent bg-background px-4 transition-colors duration-200 data-scrolled:border-border sm:gap-6 sm:px-6 lg:px-8"
       >
         {/* On a narrow screen the project scope stands in for the mark, so every control still fits. */}
         <GuardedLink
@@ -198,7 +230,7 @@ export function AppShell({
           </GuardedLink>
         </nav>
 
-        <div className="ml-auto flex items-center gap-2 sm:gap-3">
+        <div className="ml-auto flex items-center gap-1 sm:gap-3">
           {status && (
             <span
               className={cn('flex items-center gap-2 text-xs', status.tone)}
@@ -209,6 +241,29 @@ export function AppShell({
                   also stands alone on screen, so the controls beside it fit. */}
               <span aria-hidden="true" className="max-sm:hidden">{status.label}</span>
             </span>
+          )}
+          {projectKey && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Chat"
+                    aria-pressed={chatOpen}
+                    className="relative aria-pressed:bg-muted aria-pressed:text-foreground"
+                    onClick={() => toggleChat(!chatOpen)}
+                  />
+                }
+              >
+                <MessageSquareText />
+                {/* A reply still arriving behind a closed panel. */}
+                {chatBusy && !chatOpen && (
+                  <span aria-hidden="true" className="lamp-live absolute top-1 right-1 size-1.5 rounded-full bg-foreground" />
+                )}
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Chat <Kbd>Ctrl .</Kbd></TooltipContent>
+            </Tooltip>
           )}
           <ThemeToggle />
           {/* A link, so it is announced as one; the tooltip names it, as on every icon-only control. */}
@@ -232,7 +287,17 @@ export function AppShell({
           </Tooltip>
         </div>
       </div>
-      {children}
+      {projectKey ? (
+        <>
+          {/* On a wide screen the page makes room, so nothing hides under the chat. */}
+          <div className={cn(chatOpen && 'lg:pr-chat')}>{children}</div>
+          {chatLoaded && (
+            <Suspense fallback={null}>
+              <ChatPanel projectKey={projectKey} open={chatOpen} onClose={() => toggleChat(false)} onBusyChange={setChatBusy} />
+            </Suspense>
+          )}
+        </>
+      ) : children}
     </>
   )
 }
