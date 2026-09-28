@@ -19,6 +19,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 
+import follow_through  # noqa: E402
 import open_items  # noqa: E402
 import shadow  # noqa: E402
 from migrations import check_draft, check_migration  # noqa: E402
@@ -83,7 +84,50 @@ def asked(event):
     return [q.get("question") for q in questions if isinstance(q, dict)]
 
 
+def written_text(event):
+    """(path, [(first line in the file, text written)]) for Write, Edit and MultiEdit."""
+    tool_input = event.get("tool_input") or {}
+    path = tool_input.get("file_path")
+    if not isinstance(path, str):
+        return None, []
+    if isinstance(tool_input.get("content"), str):
+        return path, [(1, tool_input["content"])]
+    pieces = [e.get("new_string") for e in tool_input.get("edits") or [] if isinstance(e, dict)]
+    pieces.append(tool_input.get("new_string"))
+    try:
+        current = pathlib.Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        current = ""
+    out = []
+    for piece in pieces:
+        if isinstance(piece, str) and piece:
+            at = current.find(piece)
+            out.append((current.count("\n", 0, at) + 1 if at >= 0 else 1, piece))
+    return path, out
+
+
+def placeholder_facts(event):
+    path, pieces = written_text(event)
+    found = []
+    for first, text in pieces:
+        found += [f"{pathlib.Path(path).name}:{first + n - 1}: {line}"
+                  for n, line in follow_through.placeholders(path, text)]
+    if not found:
+        return None
+    return {"decision": "block", "reason": "sdd: placeholders where the work should be:\n- " + "\n- ".join(found)
+            + "\nWrite the real code. A deliberate one carries `sdd: allow-placeholder` on its line."}
+
+
+def merge(*outputs):
+    blocks = [o for o in outputs if o]
+    if not blocks:
+        return None
+    return {"decision": "block", "reason": "\n\n".join(o["reason"] for o in blocks)}
+
+
 def post_tool(event):
+    if event.get("tool_name") in ("Write", "Edit", "MultiEdit"):
+        return merge(migration_facts(event), placeholder_facts(event))
     if event.get("tool_name") == "AskUserQuestion":
         response = event.get("tool_response")
         answers = response.get("answers") if isinstance(response, dict) else None
@@ -162,8 +206,18 @@ def stop(event):
     if not isinstance(cwd, str):
         return None
     root = state.repo_root(cwd)
-    found = [m.group(1) for m in map(QUESTION.match, last_reply(event).splitlines()) if m]
+    reply = last_reply(event)
+    found = [m.group(1) for m in map(QUESTION.match, reply.splitlines()) if m]
     queue_questions(cwd, found + declined_questions(root, event), event.get("session_id") or "")
+    if not found and follow_through.asks_to_continue(reply):
+        top = git(["rev-parse", "--show-toplevel"], cwd)
+        left = follow_through.work_left(root, pathlib.Path(top.strip()) if top else root)
+        if left:
+            listing = "\n- ".join(left)
+            if event.get("stop_hook_active"):
+                return {"systemMessage": f"sdd: the agent asked to continue while probes show work left:\n- {listing}"}
+            return {"decision": "block", "reason": "sdd: do not ask; the probes say the work is not done:\n- "
+                    + listing + "\nContinue. If something blocks you, say what it is."}
     if not (state.folder(root) / "shadow.jsonl").is_file():
         return None
     lines = shadow.unshown(root)

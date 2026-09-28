@@ -43,6 +43,7 @@ never from a model.
 | `verify.py` | Suite, spec, approved tests, debug logs, drafts; cached by tree hash |
 | `open_items.py` | The queue: `list`, `resolve`, `compact` |
 | `repro.py` | Debugging loops: `record`, `run`, `bisect` |
+| `follow_through.py` | Placeholder patterns, asking-to-continue, and the work probes say is left |
 | `release.py`, `release_check.py` | Merge drafts at release; fail while drafts remain |
 | `shadow.py` | The observe-only model run; its lines reach only the user |
 
@@ -53,8 +54,8 @@ None runs the test suite.
 | Event | Does |
 |---|---|
 | `SessionStart` | One line when open items wait; nothing otherwise |
-| `PostToolUse` | Migration facts after a write; queues unanswered `AskUserQuestion` questions |
-| `Stop` | Queues the `Qn.` questions of the last reply and any declined `AskUserQuestion` in the transcript; shows new shadow lines to the user |
+| `PostToolUse` | After a write: migration facts, and placeholders where the work should be (`// ...`, `TODO: implement`, `panic("not implemented")`). After `AskUserQuestion`: queues unanswered questions |
+| `Stop` | Queues the `Qn.` questions of the last reply and any declined `AskUserQuestion` in the transcript; sends back a reply that asks to continue while a blocker or an untested approved case is left; shows new shadow lines to the user |
 | `SessionEnd` | The same transcript scan when a session ends with `/clear` or exit |
 
 ## The `.sdd/` folder

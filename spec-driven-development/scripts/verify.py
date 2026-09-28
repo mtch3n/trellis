@@ -30,7 +30,6 @@ from specs import all_segments  # noqa: E402
 PROBES = ("test", "spec", "approved-tests", "debug-tags", "migrations")
 TAIL_LINES = 30
 DEBUG_TAG = r"\[DEBUG-[0-9a-f]{4,}\]"
-APPROVED = re.compile(r"^Status: cases approved \S+ at ([0-9a-f]{7,40})\b", re.MULTILINE)
 SEVERITY = {"collision": "decide", "uncovered": "decide", "no_unexpected": "note", "untested": "note"}
 
 
@@ -63,20 +62,6 @@ def probe_test(top, config):
     return [problem("test", "blocker", f"`{command}` exited {result.returncode}\n{tail}", tail)]
 
 
-def story_of(name):
-    return str(pathlib.PurePosixPath(name).parent) if "/" in name else name
-
-
-def approvals(segments):
-    """{story: approval commit} for every story whose cases are approved."""
-    found = {}
-    for name, text in segments:
-        match = APPROVED.search(text)
-        if match:
-            found[story_of(name)] = match.group(1)
-    return found
-
-
 def probe_spec(top, segments, approved):
     cases, decisions, problems = spec_check.parse(segments)
     problems += spec_check.check_decisions(decisions, cases)
@@ -89,7 +74,7 @@ def probe_spec(top, segments, approved):
                 "uncovered": decisions.get(subject, {}).get("in", ""),
                 "no_unexpected": subject}.get(kind)
         # Once the user approved a story's cases, a gap in them stops the work.
-        if home is not None and story_of(home) in approved:
+        if home is not None and spec_check.story_of(home) in approved:
             severity = "blocker"
         out.append(problem("spec", severity, f"{kind}: {detail}"))
     return out, cases
@@ -124,7 +109,7 @@ def chunk(text, cid):
 def probe_approved_tests(top, cases, approved):
     out = []
     for cid, case in sorted(cases.items()):
-        since = approved.get(story_of(case["in"]))
+        since = approved.get(spec_check.story_of(case["in"]))
         if not since:
             continue
         regex = case_regex(cid).replace("(?<![A-Za-z0-9])", "").replace("(?![0-9])", "")
@@ -204,7 +189,7 @@ def verify(cwd):
 
     config = state.load_config(top)
     segments = all_segments(top)
-    approved = approvals(segments)
+    approved = spec_check.approvals(segments)
     problems = probe_test(top, config)
     spec_problems, cases = probe_spec(top, segments, approved)
     problems += spec_problems

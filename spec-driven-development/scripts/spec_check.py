@@ -41,6 +41,7 @@ CASE_IN_CODE = re.compile(r"(?<![A-Z0-9])([A-Z][A-Z0-9]*)[-_]C(\d+)(?!\d)")
 TEST_FILES = ("*_test.go", "test_*.py", "*_test.py", "*.test.*", "*.spec.*",
               "tests/*", "test/*", "__tests__/*", "e2e/*")
 HEADING = re.compile(r"^#+\s*(.*?)\s*$")
+APPROVED = re.compile(r"^Status: cases approved \S+ at ([0-9a-f]{7,40})\b", re.MULTILINE)
 KINDS = {"expected", "unexpected"}
 DECISION_ID = re.compile(r"[A-Z][A-Z0-9]*-D\d+")
 
@@ -135,6 +136,20 @@ def check_decisions(decisions, cases):
                                  f"{a} and {b} both govern {', '.join(sorted(shared))}; "
                                  "one must supersede the other, or they must govern different things"))
     return problems
+
+
+def story_of(name):
+    return str(pathlib.PurePosixPath(name).parent) if "/" in name else name
+
+
+def approvals(segments):
+    """{story: approval commit} for every story whose cases are approved."""
+    found = {}
+    for name, text in segments:
+        match = APPROVED.search(text)
+        if match:
+            found[story_of(name)] = match.group(1)
+    return found
 
 
 def is_test_file(rel):

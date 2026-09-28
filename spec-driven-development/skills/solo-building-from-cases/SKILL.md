@@ -22,6 +22,11 @@ and tell the user: that is a decision change.
 
 ## While building
 
+- Write the whole thing. A placeholder where the work should be (`// ...`,
+  `TODO: implement`, `panic("not implemented")`) is blocked when written; a
+  deliberate one carries `sdd: allow-placeholder` on its line.
+- Do not stop to ask whether to continue while cases are left: keep going. Ask
+  only real decisions, as `Qn.` questions.
 - Comment only a reason the code cannot show, such as a workaround or an
   outside constraint. Decisions live in the spec, not in comments.
 - A schema change is a draft: `<migrations dir>/draft/<slug>.<ext>`, never a
