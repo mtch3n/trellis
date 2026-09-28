@@ -149,16 +149,21 @@ def check_decisions(decisions, cases):
 
 
 def story_of(name):
+    """The story a segment belongs to: specs/<story>, whether it is one file or a directory."""
+    parts = pathlib.PurePosixPath(name).parts
+    if "specs" in parts[:-1]:
+        at = len(parts) - 1 - parts[::-1].index("specs")
+        story = pathlib.PurePosixPath(*parts[:at + 2])
+        return str(story.with_suffix("") if story.suffix == ".md" else story)
     return str(pathlib.PurePosixPath(name).parent) if "/" in name else name
 
 
 def approvals(segments):
-    """{story: approval commit} for every story whose cases are approved."""
+    """{story: [approval commits]} for every story whose cases are approved."""
     found = {}
     for name, text in segments:
-        match = APPROVED.search(text)
-        if match:
-            found[story_of(name)] = match.group(1)
+        for commit in APPROVED.findall(text):
+            found.setdefault(story_of(name), []).append(commit)
     return found
 
 

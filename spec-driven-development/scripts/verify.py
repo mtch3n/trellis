@@ -109,35 +109,54 @@ def chunk(text, cid):
     return "\n".join(lines[start:end]).rstrip()
 
 
+def newest(top, commits):
+    """The approval commit no other one descends from; unknown commits are skipped."""
+    known = [c for c in commits if state.git(["cat-file", "-e", f"{c}^{{commit}}"], top) is not None]
+    for commit in known:
+        if all(other == commit or state.git(["merge-base", "--is-ancestor", other, commit], top) is not None
+               for other in known):
+            return commit
+    return known[-1] if known else (commits[-1] if commits else None)
+
+
+def baseline(top, cid, since):
+    """(commit, test file) the approved test is locked to, per SDD-D58."""
+    pattern = case_regex(cid)
+    at_approval = (state.git(["grep", "-l", "-P", pattern, since], top) or "").splitlines()
+    tests = [e.split(":", 1)[1] for e in at_approval if spec_check.is_test_file(e.split(":", 1)[1])]
+    if tests:
+        return [(since, rel) for rel in tests]
+    regex = pattern.replace("(?<![A-Za-z0-9])", "").replace("(?![0-9])", "")
+    log = state.git(["log", "--reverse", "--format=%x00%H", "--name-only", "-G", regex, f"{since}..HEAD"], top) or ""
+    # The first commit that touched a test file naming the case, not a spec that mentions it.
+    for block in log.split("\0"):
+        names = block.split()
+        if names and any(spec_check.is_test_file(f) for f in names[1:]):
+            listed = (state.git(["grep", "-l", "-P", pattern, names[0]], top) or "").splitlines()
+            return [(names[0], e.split(":", 1)[1]) for e in listed if spec_check.is_test_file(e.split(":", 1)[1])]
+    return []
+
+
 def probe_approved_tests(top, cases, approved):
     out = []
     for cid, case in sorted(cases.items()):
-        since = approved.get(spec_check.story_of(case["in"]))
-        if not since:
+        commits = approved.get(spec_check.story_of(case["in"]))
+        if not commits:
             continue
-        regex = case_regex(cid).replace("(?<![A-Za-z0-9])", "").replace("(?![0-9])", "")
-        log = state.git(["log", "--reverse", "--format=%x00%H", "--name-only", "-G", regex, f"{since}..HEAD"], top)
-        if log is None:
+        since = newest(top, commits)
+        if state.git(["cat-file", "-e", f"{since}^{{commit}}"], top) is None:
             out.append(problem("approved-tests", "decide", f"approval commit {since} is not in this history"))
             continue
-        # The first commit that touched a test file naming the case, not a spec that mentions it.
-        first = [block.split()[0] for block in log.split("\0") if block.strip()
-                 if any(spec_check.is_test_file(f) for f in block.split()[1:])][:1]
-        if not first:
-            continue
-        listed = state.git(["grep", "-l", "-P", case_regex(cid), first[0]], top) or ""
-        for entry in listed.splitlines():
-            rel = entry.split(":", 1)[1]
-            if not spec_check.is_test_file(rel):
-                continue
-            landed = chunk(state.git(["show", f"{first[0]}:{rel}"], top) or "", cid)
+        for landed_in, rel in baseline(top, cid, since):
+            landed = chunk(state.git(["show", f"{landed_in}:{rel}"], top) or "", cid)
             path = top / rel
             now = chunk(path.read_text(encoding="utf-8", errors="replace"), cid) if path.is_file() else None
             if landed and now != landed:
                 change = "was removed" if now is None else "changed"
                 out.append(problem("approved-tests", "blocker",
-                                   f"the test for approved case {cid} in {rel} {change} after it landed in "
-                                   f"{first[0][:7]}; an approved case changes only with the user"))
+                                   f"the test for approved case {cid} in {rel} {change} after it was locked at "
+                                   f"{landed_in[:7]}; an approved case changes only with the user, who accepts "
+                                   "a change by approving the cases again"))
     return out
 
 

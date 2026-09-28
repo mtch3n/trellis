@@ -214,6 +214,43 @@ class VerifyTests(VerifyTest):
         self.repo.write("tests/test_pins.py", TESTS.replace('pin(None) is None', 'True'))
         self.assertTrue(any("PIN-C2" in b and "tests/test_pins.py" in b for b in self.blockers(self.verify())))
 
+    def reapprove(self, path="specs/pins.md"):
+        self.repo.commit("work")
+        now = self.repo.git("rev-parse", "--short", "HEAD").strip()
+        text = (self.root / path).read_text(encoding="utf-8")
+        import re as _re
+        self.repo.write(path, _re.sub(r"Status: cases approved \S+ at [0-9a-f]+", f"Status: cases approved 2026-09-29 at {now}", text))
+        self.repo.commit("re-approve")
+
+    def approved_changes(self):
+        return [p["detail"] for p in self.verify()["problems"] if p["probe"] == "approved-tests"]
+
+    def test_SDD_C93_re_approval_accepts_a_changed_test(self):
+        self.config(test="true")
+        self.approved_story()
+        self.repo.write("tests/test_pins.py", TESTS.replace('pin(None) is None', 'True'))
+        self.assertTrue(self.approved_changes())
+        self.reapprove()
+        self.assertEqual(self.approved_changes(), [])
+
+    def test_SDD_C94_a_change_after_re_approval_is_still_caught(self):
+        self.config(test="true")
+        self.approved_story()
+        self.reapprove()
+        self.repo.write("tests/test_pins.py", TESTS.replace('pin(None) is None', 'True'))
+        changes = self.approved_changes()
+        self.assertTrue(any("PIN-C2" in c for c in changes), changes)
+
+    def test_SDD_C95_the_newest_approval_in_a_story_is_the_baseline(self):
+        self.config(test="true")
+        self.approved_story()
+        self.repo.write("tests/test_pins.py", TESTS.replace('pin(None) is None', 'True'))
+        self.repo.commit("changed")
+        now = self.repo.git("rev-parse", "--short", "HEAD").strip()
+        self.repo.write("specs/pins/extra.md", f"# More pins\n\nStatus: cases approved 2026-09-29 at {now}\n")
+        self.repo.commit("second segment approved later")
+        self.assertEqual(self.approved_changes(), [])
+
 
 if __name__ == "__main__":
     unittest.main()
