@@ -9,9 +9,11 @@ Scripts live in `<this skill's directory>/../../scripts/` (`<scripts>` below).
 
 ## For each case, in order
 
-1. Write its test, with the case ID in the test's name (`PIN_C2` or `PIN-C2`).
+1. Write its test, with the case ID on the line that defines it (`def test_PIN_C2`,
+   `func TestPin_PIN_C2`, `test('PIN-C2 …', …)`). An ID only in a comment is not a test.
 2. Record it failing: `python3 <scripts>/red.py PIN-C2 "<command that runs this test>"`.
-   The command must name the case ID, and it is refused if the test passes. A
+   The command must name the case ID, and the output must show that case failing:
+   a passing run, another case failing, or a run where no test ran is refused. A
    test never seen failing has not proved it can catch anything; verify blocks
    an approved case with no red record. A guard case, whose test passes before
    any code exists (something must stay silent or must not happen), is

@@ -71,18 +71,22 @@ def load_config(root):
 
 
 class Lock:
-    def __init__(self, root):
-        self.path = ensure(root) / "lock"
+    """An exclusive lock file under .sdd/; one older than `stale` seconds is taken over."""
+
+    def __init__(self, root, name="lock", wait=LOCK_WAIT, stale=LOCK_STALE):
+        self.path = ensure(root) / name
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.wait, self.stale = wait, stale
 
     def __enter__(self):
-        deadline = time.monotonic() + LOCK_WAIT
+        deadline = time.monotonic() + self.wait
         while True:
             try:
                 os.close(os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
                 return self
             except FileExistsError:
                 try:
-                    if time.time() - self.path.stat().st_mtime > LOCK_STALE:
+                    if time.time() - self.path.stat().st_mtime > self.stale:
                         self.path.unlink()
                         continue
                 except FileNotFoundError:

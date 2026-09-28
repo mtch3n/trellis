@@ -17,7 +17,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import state  # noqa: E402
 from migrations import default_branch  # noqa: E402
-from specs import all_segments  # noqa: E402
+from specs import StoreError, all_segments  # noqa: E402
 
 MAX_LINES = 20
 DIFF_CHARS = 60_000
@@ -44,7 +44,10 @@ def path(root):
 def run(root, top, tree, claude):
     base = default_branch(top) or "HEAD"
     diff = state.git(["diff", base], top, timeout=60) or ""
-    spec = "\n\n".join(text for _, text in all_segments(top))
+    try:
+        spec = "\n\n".join(text for _, text in all_segments(top))
+    except StoreError:
+        spec = ""
     prompt = PROMPT.format(spec=spec[:SPEC_CHARS], base=base, diff=diff[:DIFF_CHARS])
     rows = []
     try:

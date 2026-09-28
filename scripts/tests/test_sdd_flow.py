@@ -19,6 +19,8 @@ from unittest import mock
 from sdd_helpers import PLUGIN, ROOT, Repo, load
 
 HOOK = load("sdd_hook", "spec-driven-development/hooks/sdd_hook.py")
+VERIFY = load("verify", "spec-driven-development/scripts/verify.py")
+CHECKER = load("spec_check", "spec-driven-development/scripts/spec_check.py")
 STORE = PLUGIN / "scripts/store.py"
 SKILLS = PLUGIN / "skills"
 FLOW = {
@@ -75,10 +77,22 @@ class PluginTests(unittest.TestCase):
             self.assertFalse(marker.exists())
 
 
+    def test_SDD_C124_a_no_op_stop_with_a_transcript_creates_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (pathlib.Path(tmp) / "r").mkdir()
+            repo = Repo(pathlib.Path(tmp) / "r")
+            transcript = pathlib.Path(tmp) / "t.jsonl"
+            transcript.write_text(json.dumps({"type": "assistant", "message": {"content": [
+                {"type": "text", "text": "Renamed the parser."}]}}) + "\n", encoding="utf-8")
+            HOOK.stop({"cwd": str(repo.root), "session_id": "s", "transcript_path": str(transcript),
+                       "last_assistant_message": "Renamed the parser."})
+            self.assertFalse((repo.root / ".sdd").exists())
+
+
 class StoreTests(unittest.TestCase):
     """store.py against a stand-in trellis, so no test touches a real Trellis home."""
 
-    def run_store(self, answer):
+    def run_store(self, answer, marker=False, code=False):
         with tempfile.TemporaryDirectory() as tmp:
             bin_dir = pathlib.Path(tmp) / "bin"
             bin_dir.mkdir()
@@ -87,17 +101,46 @@ class StoreTests(unittest.TestCase):
             fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
             (pathlib.Path(tmp) / "repo").mkdir()
             repo = Repo(pathlib.Path(tmp) / "repo")
+            if marker:
+                repo.write(".trellis", "/PINS\n")
             with mock.patch.dict(os.environ, {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}):
-                return subprocess.run([sys.executable, str(STORE)], cwd=repo.root, capture_output=True,
-                                      text=True, timeout=30, check=False).stdout
+                result = subprocess.run([sys.executable, str(STORE)], cwd=repo.root, capture_output=True,
+                                        text=True, timeout=30, check=False)
+                return (result.returncode, result.stdout + result.stderr) if code else result.stdout
+
+    def test_SDD_C110_an_unreadable_trellis_store_is_an_error(self):
+        code, out = self.run_store("#!/bin/sh\necho boom >&2\nexit 1\n", marker=True, code=True)
+        self.assertNotEqual(code, 0)
+        self.assertNotIn("store: files", out)
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = pathlib.Path(tmp) / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "trellis").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+            (bin_dir / "trellis").chmod(0o755)
+            (pathlib.Path(tmp) / "repo").mkdir()
+            repo = Repo(pathlib.Path(tmp) / "repo")
+            repo.write(".trellis", "/PINS\n")
+            repo.write(".sdd/config.json", json.dumps({"test": "true"}))
+            with mock.patch.dict(os.environ, {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}):
+                problems = VERIFY.verify(repo.root)["problems"]
+            self.assertTrue(any(p["severity"] == "blocker" and "spec store" in p["detail"] for p in problems), problems)
 
     def test_SDD_C3_no_marker_means_files_even_with_trellis_installed(self):
         out = self.run_store("#!/bin/sh\necho 'no .trellis marker' >&2\nexit 3\n")
         self.assertIn("store: files", out)
 
     def test_SDD_C4_a_trellis_project_with_no_specs(self):
-        out = self.run_store("#!/bin/sh\necho '{\"entries\":[]}'\n")
+        out = self.run_store("#!/bin/sh\necho '{\"entries\":[]}'\n", marker=True)
         self.assertEqual(out.splitlines(), ["store: trellis", "specs: none"])
+
+
+class PathTests(unittest.TestCase):
+    def test_SDD_C111_backslash_segment_names_share_a_story(self):
+        self.assertEqual(CHECKER.story_of("specs\\pins\\index.md"), "specs/pins")
+        self.assertEqual(CHECKER.story_of("specs\\pins\\flow.md"), "specs/pins")
+        approved = CHECKER.approvals([("specs\\pins\\index.md", "Status: cases approved 2026-09-28 at abc1234\n"),
+                                      ("specs\\pins\\flow.md", "| PIN-C1 | PIN-D1 | expected | x |\n")])
+        self.assertIn(CHECKER.story_of("specs\\pins\\flow.md"), approved)
 
 
 class VocabularyTests(unittest.TestCase):

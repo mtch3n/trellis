@@ -22,6 +22,9 @@ TAIL_LINES = 20
 TIMEOUT = 600
 CASE = re.compile(r"^[A-Z][A-Z0-9]*-C\d+$")
 # What test runners print when nothing ran: a failure then proves nothing.
+# How runners mark a failed test on the line that names it: unittest "FAIL: test_x",
+# pytest "FAILED path::test_x", go "--- FAIL: TestX", jest "✕ name".
+FAILED = re.compile(r"(?i)\b(?:fail(?:ed|ure)?|error)\b|✕|✗|×")
 NO_TEST = re.compile(r"(?i)Ran 0 tests|no tests ran|no tests to run|collected 0 items|\[build failed\]|\[setup failed\]")
 
 
@@ -63,6 +66,9 @@ def record(cwd, case, command):
         return 1
     if not names_case(output, case):
         print(f"refused: the output does not name {case}, so the runner did not run its test.\n{tail}")
+        return 1
+    if not any(names_case(line, case) and FAILED.search(line) for line in output.splitlines()):
+        print(f"refused: {case} did not fail; the output names it only beside a pass or without a failure.\n{tail}")
         return 1
     root = state.repo_root(cwd)
     state.ensure(root)

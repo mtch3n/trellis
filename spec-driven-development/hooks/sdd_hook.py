@@ -168,7 +168,9 @@ def declined_questions(root, event):
             elif (part.get("type") == "tool_result" and part.get("tool_use_id") in asked_by_id
                   and row.get("toolUseResult") == DECLINED):
                 declined += asked_by_id[part["tool_use_id"]]
-    if declined or marks.get(session or path) != start + len(data):
+    # A session with nothing to capture leaves no trace: the cursor is kept only
+    # once .sdd/ exists for some other reason.
+    if declined or (state.folder(root).is_dir() and marks.get(session or path) != start + len(data)):
         state.ensure(root)
         marks[session or path] = start + len(data)
         marks_path.write_text(json.dumps(marks), encoding="utf-8")
@@ -209,8 +211,10 @@ def stop(event):
     reply = last_reply(event)
     found = [m.group(1) for m in map(QUESTION.match, reply.splitlines()) if m]
     queue_questions(cwd, found + declined_questions(root, event), event.get("session_id") or "")
+    top = git(["rev-parse", "--show-toplevel"], cwd)
+    top = pathlib.Path(top.strip()) if top else root
     if not found and follow_through.asks_to_continue(reply):
-        left = follow_through.work_left(root)
+        left = follow_through.work_left(root, top)
         if left:
             listing = "\n- ".join(left)
             if event.get("stop_hook_active"):
@@ -218,8 +222,7 @@ def stop(event):
             return {"decision": "block", "reason": "sdd: do not ask; the probes say the work is not done:\n- "
                     + listing + "\nContinue. If something blocks you, say what it is."}
     if not found and follow_through.claims_done(reply) and load_config(root).get("test"):
-        top = git(["rev-parse", "--show-toplevel"], cwd)
-        if not follow_through.verified(root, pathlib.Path(top.strip()) if top else root):
+        if not follow_through.verified(root, top):
             ask = "run verify.py before saying the work is done or the tests pass; report what it prints."
             if event.get("stop_hook_active"):
                 return {"systemMessage": f"sdd: the agent claimed done with no passing verify for this tree; {ask}"}

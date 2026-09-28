@@ -2,6 +2,7 @@
 
 import json
 import os
+import pathlib
 import shutil
 import stat
 import tempfile
@@ -268,6 +269,46 @@ class VerifyTests(VerifyTest):
         self.repo.write("app.go", "package app\n\nfunc Run() {}\n")
         self.repo.commit("code after")
         self.assertEqual([p for p in self.verify()["problems"] if p["probe"] == "drift"], [])
+
+    def js_story(self, first=None):
+        self.config(test="true")
+        self.repo.write("specs/pins.md", SPEC.format(status="Status: cases pending approval"))
+        self.repo.commit("spec")
+        approval = self.repo.git("rev-parse", "--short", "HEAD").strip()
+        self.repo.write("specs/pins.md", SPEC.format(status=f"Status: cases approved 2026-09-28 at {approval}"))
+        self.repo.write("tests/pins.test.js", first or "test('PIN-C1 pins', () => {\n  expect(pin('a')).toBe('a')\n})\n\n"
+                        "test('PIN-C2 missing', () => {\n  expect(pin(null)).toBe(null)\n})\n")
+        self.repo.commit("js tests")
+        for case in ("PIN-C1", "PIN-C2"):
+            self.repo.write(f".sdd/red/{case}.json", json.dumps({"case": case}))
+
+    def test_SDD_C112_a_javascript_test_is_locked(self):
+        self.js_story()
+        self.repo.write("tests/pins.test.js", "test('PIN-C1 pins', () => {\n  expect(true).toBe(true)\n})\n\n"
+                        "test('PIN-C2 missing', () => {\n  expect(pin(null)).toBe(null)\n})\n")
+        changes = self.approved_changes()
+        self.assertTrue(any("PIN-C1" in c for c in changes), changes)
+
+    def test_SDD_C114_a_named_but_undefined_approved_test_is_reported(self):
+        self.js_story(first="// PIN-C1 is checked by hand\n\ntest('PIN-C2 missing', () => {\n  expect(pin(null)).toBe(null)\n})\n")
+        problems = self.verify()["problems"]
+        self.assertTrue(any("PIN-C1" in p["detail"] and "definition" in p["detail"] for p in problems), problems)
+
+    def test_SDD_C123_concurrent_verifies_run_the_suite_once(self):
+        counter = self.root.parent / (self.root.name + ".suite")
+        self.config(test=f"echo run >> {counter}; sleep 1")
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); import verify; verify.verify(sys.argv[2])")
+        import subprocess, sys
+        procs = [subprocess.Popen([sys.executable, "-c", code, str(pathlib.Path(VERIFY.__file__).parent), str(self.root)])
+                 for _ in range(2)]
+        for proc in procs:
+            self.assertEqual(proc.wait(timeout=60), 0)
+        self.assertEqual(counter.read_text(encoding="utf-8").count("run"), 1)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not self.calls.exists():
+            time.sleep(0.1)
+        time.sleep(0.5)
+        self.assertLessEqual(self.calls.read_text(encoding="utf-8").count("call") if self.calls.exists() else 0, 1)
 
 
 if __name__ == "__main__":

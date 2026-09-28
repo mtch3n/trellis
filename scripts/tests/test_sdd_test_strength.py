@@ -57,18 +57,18 @@ class StrengthTest(unittest.TestCase):
 
     def check(self, spec):
         self.repo.write("specs/pins.md", spec)
-        self.repo.write("tests/test_all.py", " ".join(f"PIN_C{n}" for n in range(1, 20)))
+        self.repo.write("tests/test_all.py", "".join(f"def test_PIN_C{n}():\n    pass\n" for n in range(1, 20)))
         result = self.run_script(CHECK, "specs", "--json")
         return [(p["kind"], p["detail"]) for p in json.loads(result.stdout)["problems"]]
 
 
 class RedTests(StrengthTest):
     def test_SDD_C76_a_failing_run_naming_the_case_is_recorded(self):
-        result = self.red("PIN-C2", "echo PIN_C2 broke; exit 1")
+        result = self.red("PIN-C2", "echo FAIL: test_PIN_C2 broke; exit 1")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         saved = json.loads((self.root / ".sdd/red/PIN-C2.json").read_text(encoding="utf-8"))
-        self.assertEqual(saved["command"], "echo PIN_C2 broke; exit 1")
-        self.assertIn("PIN_C2 broke", saved["tail"])
+        self.assertEqual(saved["command"], "echo FAIL: test_PIN_C2 broke; exit 1")
+        self.assertIn("test_PIN_C2 broke", saved["tail"])
         for key in ("tree", "at"):
             self.assertIn(key, saved)
 
@@ -91,7 +91,7 @@ class RedTests(StrengthTest):
 
     def test_SDD_C80_a_recorded_red_run_clears_the_case(self):
         self.approved()
-        self.assertEqual(self.red("PIN-C1", "echo PIN_C1; exit 1").returncode, 0)
+        self.assertEqual(self.red("PIN-C1", "echo FAIL: test_PIN_C1; exit 1").returncode, 0)
         blockers = self.blockers()
         self.assertFalse(any("PIN-C1" in b for b in blockers), blockers)
         self.assertTrue(any("PIN-C2" in b for b in blockers), blockers)
@@ -163,6 +163,25 @@ class RedStrictnessTests(StrengthTest):
             result = self.red("PIN-C2", f"echo PIN_C2; echo '{output}'; exit 1")
             self.assertEqual(result.returncode, 1, output)
             self.assertIn("no test ran", result.stdout, output)
+
+    def test_SDD_C118_a_passing_case_beside_a_failing_one_is_not_red(self):
+        result = self.red("PIN-C2", "echo ok: test_PIN_C2; echo FAIL: test_PIN_C3; exit 1")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("PIN-C2 did not fail", result.stdout)
+
+    def test_SDD_C113_a_comment_is_not_a_test(self):
+        self.repo.write(".sdd/config.json", json.dumps({"test": "true"}))
+        self.repo.write("specs/pins.md", "# Pins\n")
+        self.repo.write("tests/test_pins.py", "# PIN_C1 is covered elsewhere\n\ndef test_PIN_C2():\n    pass\n")
+        self.repo.commit("comment only")
+        since = self.repo.git("rev-parse", "HEAD").strip()
+        self.repo.write("specs/pins.md", SPEC.format(approval=since[:7]))
+        self.repo.commit("approve")
+        self.repo.write(".sdd/config.json", json.dumps({"test": "true", "red_since": since}))
+        problems = VERIFY.verify(self.root)["problems"]
+        self.assertTrue(any(p["probe"] == "spec" and "PIN-C1" in p["detail"] and "untested" in p["detail"] for p in problems))
+        self.assertTrue(any(p["probe"] == "red" and "PIN-C1" in p["detail"] for p in problems))
+        self.assertFalse(any(p["probe"] == "red" and "PIN-C2" in p["detail"] for p in problems))
 
 
 if __name__ == "__main__":

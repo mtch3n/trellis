@@ -27,7 +27,7 @@ import open_items  # noqa: E402
 import spec_check  # noqa: E402
 import state  # noqa: E402
 from migrations import drafts  # noqa: E402
-from specs import all_segments  # noqa: E402
+from specs import StoreError, all_segments  # noqa: E402
 
 PROBES = ("test", "spec", "approved-tests", "red", "debug-tags", "migrations")
 TAIL_LINES = 30
@@ -88,9 +88,6 @@ def case_regex(cid):
     return rf"(?<![A-Za-z0-9]){re.escape(prefix)}[-_]C{number}(?![0-9])"
 
 
-DEFINITION = re.compile(r"^\s*(?:async\s+def|def|func|fn|it\s*\(|test\s*\(|describe\s*\(|@Test|(?:public\s+)?void)\b")
-
-
 def chunk(text, cid):
     """The test that names cid: its defining line through the end of its body.
 
@@ -100,7 +97,7 @@ def chunk(text, cid):
     lines = text.splitlines()
     pattern = re.compile(case_regex(cid))
     for start, line in enumerate(lines):
-        if pattern.search(line) and DEFINITION.match(line):
+        if pattern.search(line) and spec_check.DEFINITION.match(line):
             break
     else:
         return None
@@ -156,6 +153,11 @@ def probe_approved_tests(top, cases, approved):
             continue
         for landed_in, rel in baseline(top, cid, since):
             landed = chunk(state.git(["show", f"{landed_in}:{rel}"], top) or "", cid)
+            if landed is None:
+                if (top / rel).is_file() and chunk((top / rel).read_text(encoding="utf-8", errors="replace"), cid) is None:
+                    out.append(problem("approved-tests", "decide", f"{rel} names approved case {cid} but no test "
+                                       "definition does, so its test cannot be locked"))
+                continue
             path = top / rel
             now = chunk(path.read_text(encoding="utf-8", errors="replace"), cid) if path.is_file() else None
             if landed and now != landed:
@@ -174,9 +176,10 @@ def probe_red(top, root, cases, approved, config):
     if since:
         ids = r"[A-Z][A-Z0-9]*[-_]C\d+(?![0-9])"
         listed = (state.git(["grep", "-l", "-P", ids, since], top) or "").splitlines()
-        tests = [e.split(":", 1)[1] for e in listed if spec_check.is_test_file(e.split(":", 1)[1])]
-        found = state.git(["grep", "-h", "-o", "-P", ids, since, "--", *tests], top) or "" if tests else ""
-        exempt = {m.replace("_", "-") for m in found.split()}
+        for entry in listed:
+            rel = entry.split(":", 1)[1]
+            if spec_check.is_test_file(rel):
+                exempt |= spec_check.defined_ids(state.git(["show", f"{since}:{rel}"], top) or "")
     out = []
     for cid, case in sorted(cases.items()):
         if spec_check.story_of(case["in"]) not in approved or cid in exempt:
@@ -229,12 +232,31 @@ def start_shadow(root, top, tree):
     return "started"
 
 
+def latest_path(root, top):
+    """Where this worktree's latest verify result is recorded."""
+    name = hashlib.sha1(str(pathlib.Path(top).resolve()).encode()).hexdigest()[:12]
+    return state.folder(root) / "verify" / f"latest-{name}.json"
+
+
+def publish(root, top, cache, result):
+    cache.parent.mkdir(exist_ok=True)
+    for path in (cache, latest_path(root, top)):
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+
+
 def verify(cwd):
     top = worktree_top(cwd)
     root = state.repo_root(cwd)
     state.ensure(root)
     tree = state.tree_hash(top)
-    segments = all_segments(top)
+    store_problems = []
+    try:
+        segments = all_segments(top)
+    except StoreError as error:
+        segments = []
+        store_problems = [problem("spec", "blocker", f"the spec store could not be read: {error}")]
     # Specs in a Trellis vault and red records live outside the tree, so they
     # are part of the key too: a new red run must not return a stale verdict.
     key = hashlib.sha1(tree.encode())
@@ -242,26 +264,31 @@ def verify(cwd):
         key.update(f"\0{name}\0{text}".encode("utf-8"))
     for red in sorted((state.folder(root) / "red").glob("*.json")):
         key.update(f"\0{red.name}\0".encode() + red.read_bytes())
+    key.update(json.dumps(store_problems).encode())
     cache = state.folder(root) / "verify" / f"{key.hexdigest()}.json"
-    if cache.is_file():
-        return {**json.loads(cache.read_text(encoding="utf-8")), "cached": True}
-
     config = state.load_config(top)
-    approved = spec_check.approvals(segments)
-    problems = probe_test(top, config)
-    spec_problems, cases, decisions = probe_spec(top, segments, approved)
-    problems += spec_problems
-    problems += probe_approved_tests(top, cases, approved)
-    problems += probe_red(top, root, cases, approved, config)
-    problems += probe_debug_tags(top)
-    problems += probe_migrations(top, config)
-    record(root, problems)
-
-    blocked = any(p["severity"] == "blocker" for p in problems)
-    result = {"tree": tree, "key": key.hexdigest(), "at": state.now_iso(), "exit": 1 if blocked else 0, "problems": problems,
-              "shadow": "not started: a blocker stands" if blocked else start_shadow(root, top, tree)}
-    cache.parent.mkdir(exist_ok=True)
-    cache.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    wait = config.get("test_timeout", 600) + 120
+    # One run per key, however many agents ask at once: the second waits and reuses it.
+    with state.Lock(root, f"verify/{key.hexdigest()}.lock", wait=wait, stale=wait):
+        if cache.is_file():
+            result = json.loads(cache.read_text(encoding="utf-8"))
+            record(root, result["problems"])
+            publish(root, top, cache, result)
+            return {**result, "cached": True}
+        approved = spec_check.approvals(segments)
+        problems = store_problems + probe_test(top, config)
+        spec_problems, cases, decisions = probe_spec(top, segments, approved)
+        problems += spec_problems
+        problems += probe_approved_tests(top, cases, approved)
+        problems += probe_red(top, root, cases, approved, config)
+        problems += probe_debug_tags(top)
+        problems += probe_migrations(top, config)
+        record(root, problems)
+        blocked = any(p["severity"] == "blocker" for p in problems)
+        result = {"tree": tree, "key": key.hexdigest(), "at": state.now_iso(), "exit": 1 if blocked else 0,
+                  "problems": problems,
+                  "shadow": "not started: a blocker stands" if blocked else start_shadow(root, top, tree)}
+        publish(root, top, cache, result)
     return {**result, "cached": False}
 
 

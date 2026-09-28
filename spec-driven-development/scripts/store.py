@@ -8,42 +8,17 @@ or
     store: files (/repo/specs)
     specs: none
 
-Trellis is the store when the CLI is on PATH and this directory resolves to a
-Trellis project; otherwise the repository's specs/ directory is.
+Exits 1 when the store is Trellis but cannot be read: never guess another store.
 """
 
-import json
 import pathlib
-import shutil
 import subprocess
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-def trellis_specs(cwd):
-    if not shutil.which("trellis"):
-        return None
-    result = subprocess.run(["trellis", "vault", "ls", "specs"], cwd=cwd,
-                            capture_output=True, text=True, timeout=20, check=False)
-    if result.returncode:
-        return None
-    stories = {}
-    for entry in json.loads(result.stdout).get("entries") or []:
-        parts = entry["slug"].split("/")
-        story = "/".join(parts[:2]) if len(parts) > 2 else entry["slug"]
-        stories[story] = stories.get(story, 0) + 1
-    return stories
-
-
-def file_specs(root):
-    base = root / "specs"
-    stories = {}
-    if base.is_dir():
-        for path in sorted(base.iterdir()):
-            if path.is_dir():
-                stories[f"specs/{path.name}"] = len(list(path.rglob("*.md")))
-            elif path.suffix == ".md":
-                stories[f"specs/{path.stem}"] = 1
-    return stories
+from spec_check import story_of  # noqa: E402
+from specs import StoreError, all_segments, trellis_store  # noqa: E402
 
 
 def main():
@@ -51,12 +26,18 @@ def main():
     top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=cwd,
                          capture_output=True, text=True, check=False)
     root = pathlib.Path(top.stdout.strip()) if top.returncode == 0 else cwd
-    stories = trellis_specs(cwd)
-    if stories is not None:
-        print("store: trellis")
-    else:
-        stories = file_specs(root)
-        print(f"store: files ({root / 'specs'})")
+    trellis = trellis_store(cwd)
+    try:
+        segments = all_segments(cwd if trellis else root)
+    except StoreError as error:
+        print(f"error: the spec store is Trellis but could not be read: {error}", file=sys.stderr)
+        return 1
+    print("store: trellis" if trellis else f"store: files ({root / 'specs'})")
+    stories = {}
+    for name, _ in segments:
+        story = story_of(name)
+        story = story[story.find("specs/"):] if "specs/" in story else story
+        stories[story] = stories.get(story, 0) + 1
     if not stories:
         print("specs: none")
     for story, count in sorted(stories.items()):

@@ -33,7 +33,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from specs import trellis_segments  # noqa: E402
+from specs import StoreError, trellis_segments  # noqa: E402
 
 CASE_ROW = re.compile(r"^\|\s*([A-Z][A-Z0-9]*-C\d+)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|")
 DECISION = re.compile(r"^\s*[-*]\s*\**([A-Z][A-Z0-9]*-D\d+)\**\b(.*)$")
@@ -45,6 +45,10 @@ TEST_FILES = ("*_test.go", "test_*.py", "*_test.py", "*.test.*", "*.spec.*",
 HEADING = re.compile(r"^#+\s*(.*?)\s*$")
 APPROVED = re.compile(r"^Status: cases approved \S+ at ([0-9a-f]{7,40})\b", re.MULTILINE)
 KINDS = {"expected", "unexpected"}
+# A line that defines a test: only such a line makes a case ID a test.
+DEFINITION = re.compile(r"^\s*(?:export\s+)?(?:async\s+)?(?:def|func|fn|function)\b"
+                        r"|^\s*(?:it|test|describe|context|scenario)(?:\.\w+)?\s*\("
+                        r"|^\s*t\.Run\s*\(|^\s*(?:public\s+)?void\s+\w+\s*\(")
 NOT_APPLICABLE = re.compile(r"(?i)unexpected:\s*n/a\s*[—–-]+\s*\S")
 CROWDED_AT = 4
 DECISION_ID = re.compile(r"[A-Z][A-Z0-9]*-D\d+")
@@ -61,10 +65,10 @@ def segments_from_paths(paths):
 
 
 def segments_from_trellis(directory, cwd):
-    found = trellis_segments(directory, cwd)
-    if found is None:
-        raise SystemExit(f"trellis vault ls {directory} failed: is this a Trellis project?")
-    return found
+    try:
+        return trellis_segments(directory, cwd)
+    except StoreError as error:
+        raise SystemExit(str(error)) from error
 
 
 def parse(segments):
@@ -150,6 +154,7 @@ def check_decisions(decisions, cases):
 
 def story_of(name):
     """The story a segment belongs to: specs/<story>, whether it is one file or a directory."""
+    name = name.replace("\\", "/")
     parts = pathlib.PurePosixPath(name).parts
     if "specs" in parts[:-1]:
         at = len(parts) - 1 - parts[::-1].index("specs")
@@ -181,6 +186,12 @@ def test_files(root):
             yield root / rel
 
 
+def defined_ids(text):
+    """Case IDs that a test definition line names."""
+    return {f"{prefix}-C{number}" for line in text.splitlines() if DEFINITION.match(line)
+            for prefix, number in CASE_IN_CODE.findall(line)}
+
+
 def check_tests(cases, root):
     named = {}
     for path in test_files(root):
@@ -188,8 +199,8 @@ def check_tests(cases, root):
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        for prefix, number in CASE_IN_CODE.findall(text):
-            named.setdefault(f"{prefix}-C{number}", str(path.relative_to(root)))
+        for cid in sorted(defined_ids(text)):
+            named.setdefault(cid, str(path.relative_to(root)))
     prefixes = {cid.split("-C")[0] for cid in cases}
     problems = [("untested", f"{cid} has no test naming it") for cid in sorted(cases) if cid not in named]
     problems += [("unknown", f"{where} names {cid}, which the spec does not define")

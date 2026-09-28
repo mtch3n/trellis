@@ -111,6 +111,14 @@ class ReleaseTests(MigrationFlowTest):
         self.assertIn("wip/other", result.stdout)
         self.assertEqual(self.listing(), [f"{DIR}/0015_cards.sql", f"{DIR}/0016_pins.sql", f"{DIR}/draft/a.sql"])
 
+    def test_SDD_C117_a_prefixed_go_migration_does_not_break_numbering(self):
+        self.repo.write(".sdd/config.json", json.dumps({"migrations": [f"{DIR}/*", "store/migrate_[0-9][0-9][0-9][0-9].go"]}))
+        self.repo.write("store/migrate_0017.go", "package store\n")
+        self.drafts("labels.sql")
+        result = self.run_script(RELEASE, "plan", "--name", "labels")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"{DIR}/0018_labels.sql", result.stdout)
+
     def test_SDD_C41_release_check_fails_while_a_draft_remains(self):
         self.assertEqual(self.run_script(CHECK).returncode, 0)
         self.drafts("labels.sql")

@@ -28,11 +28,16 @@ WITH_STRING = [
     re.compile(r"(?i)\bpanic\(\s*\"(?:not implemented|unimplemented|todo)"),
     re.compile(r"(?i)\bthrow new Error\(\s*[\"'](?:not implemented|todo)"),
 ]
+# Each pattern must match a whole affirmative sentence's claim; see claims_done.
 CLAIMS_DONE = re.compile(
-    r"(?i)\b(?:all\s+)?(?:the\s+)?(?:tests?|suite)\s+(?:now\s+)?(?:pass(?:es|ed|ing)?|green)\b"
-    r"|\ball (?:green|passing)\b|\b\d+\s+(?:tests?\s+)?passed\b"
-    r"|\b(?:it(?:'s| is)|work is|everything is|all)\s+(?:done|finished|complete)\b|\b(?:is|are|now)\s+fixed\b"
-    r"|(?:測試|测试)[^。\n]{0,12}?(?:通過|通过|過了|过了)|全(?:部)?(?:通過|通过|綠|绿)|(?:做完|完成)了")
+    r"(?i)\b(?:all\s+)?(?:the\s+)?(?:tests?|suite)\s+(?:now\s+)?(?:pass(?:es|ed)?|(?:are|is)\s+(?:now\s+)?(?:passing|green))\b"
+    r"|\ball (?:tests )?(?:green|passing)\b|\b\d+\s+(?:tests?\s+)?passed\b"
+    r"|^\s*(?:all\s+)?done\s*$|\b(?:it(?:'s| is)|work is|everything is|all)\s+(?:done|finished|complete)\b"
+    r"|\b(?:is|are|now)\s+fixed\b"
+    r"|全部通過|全部通过|全過|全过|全綠|全绿|(?:測試|测试)(?:都)?(?:通過|通过)|做完了|全部完成")
+CONDITIONAL = re.compile(r"(?i)\b(?:if|unless|once|when|whether)\b|如果|若|假如|等到")
+QUOTED = re.compile(r"```.*?```|`[^`]*`|\"[^\"]*\"|“[^”]*”|「[^」]*」", re.DOTALL)
+SENTENCE = re.compile(r"[.!?。！？\n]+")
 NEGATION = re.compile(r"(?i)\bnot\b|n't\b|\bfail|未|沒|没|不")
 ASKS_TO_CONTINUE = re.compile(
     r"(?i)\b(?:should|shall)\s+(?:i|we)\s+(?:continue|proceed|keep going|go on|finish)"
@@ -50,35 +55,45 @@ def placeholders(rel, text):
                                       or any(p.search(line) for p in WITH_STRING))]
 
 
+def sentences(text):
+    """Sentences outside quotes and code, with CRLF read as LF."""
+    plain = QUOTED.sub(" ", (text or "").replace("\r\n", "\n").replace("\r", "\n"))
+    return [part.strip() for part in SENTENCE.split(plain) if part.strip()]
+
+
+def affirmed(text, pattern):
+    """A sentence matches pattern and carries no negation or condition."""
+    return any(pattern.search(s) and not NEGATION.search(s) and not CONDITIONAL.search(s) for s in sentences(text))
+
+
 def asks_to_continue(reply):
-    """True when the reply's last paragraph asks whether to go on."""
-    tail = reply.strip().split("\n\n")[-1] if reply.strip() else ""
-    return bool(ASKS_TO_CONTINUE.search(tail[-400:]))
+    """True when the reply's last paragraph really asks whether to go on."""
+    paragraphs = [p for p in (reply or "").replace("\r\n", "\n").split("\n\n") if p.strip()]
+    return bool(paragraphs) and affirmed(paragraphs[-1][-400:], ASKS_TO_CONTINUE)
 
 
 def claims_done(reply):
-    return any(not NEGATION.search(m.group()) for m in CLAIMS_DONE.finditer(reply or ""))
+    """True on an affirmative claim that the work is done or the tests pass (SDD-D63)."""
+    return affirmed(reply, CLAIMS_DONE)
 
 
-def results(root):
-    """Verify results, newest first."""
-    found = []
-    for path in sorted((state.folder(root) / "verify").glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
-        try:
-            found.append(json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, ValueError):
-            continue
-    return found
+def latest(root, top):
+    """This worktree's latest verify result, cache hits included, or None."""
+    import verify
+    try:
+        return json.loads(verify.latest_path(root, top).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
 
 
-def work_left(root):
-    """The blockers in the newest verify result: what the probes last said is unfinished."""
-    newest = results(root)[:1]
-    return [f"{p['probe']}: {p['detail'].splitlines()[0]}" for r in newest
-            for p in r.get("problems", []) if p.get("severity") == "blocker"]
+def work_left(root, top):
+    """The blockers in this worktree's latest verify result."""
+    result = latest(root, top) or {}
+    return [f"{p['probe']}: {p['detail'].splitlines()[0]}" for p in result.get("problems", [])
+            if p.get("severity") == "blocker"]
 
 
 def verified(root, top):
-    """True when a verify result for the current tree passed."""
-    tree = state.tree_hash(top)
-    return any(r.get("tree") == tree and r.get("exit") == 0 for r in results(root))
+    """True when this worktree's latest verify result passed on the current tree."""
+    result = latest(root, top)
+    return bool(result) and result.get("exit") == 0 and result.get("tree") == state.tree_hash(top)

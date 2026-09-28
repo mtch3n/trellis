@@ -112,6 +112,19 @@ class BisectTests(ReproTest):
         self.assertEqual(result.returncode, 1)
         self.assertIn("fixture.json", result.stdout)
 
+    def test_SDD_C115_bisect_from_a_detached_head_returns_to_it(self):
+        good = self.repo.git("rev-parse", "HEAD").strip()
+        bad = self.history()
+        loop_id = self.record()
+        head = self.repo.git("rev-parse", "HEAD").strip()
+        self.repo.git("checkout", "-q", "--detach", head)
+        result = self.repro("bisect", loop_id, good)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(bad, result.stdout)
+        self.assertEqual(self.repo.git("rev-parse", "HEAD").strip(), head)
+        detached = subprocess.run(["git", "symbolic-ref", "-q", "HEAD"], cwd=self.root, capture_output=True)
+        self.assertNotEqual(detached.returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

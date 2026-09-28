@@ -146,6 +146,50 @@ class DoneClaimTests(FollowThroughTest):
         finally:
             HOOK.state.tree_hash = original
 
+    def test_SDD_C116_a_newer_blocked_verify_outweighs_an_older_pass(self):
+        self.repo.write(".sdd/config.json", json.dumps({"test": "true"}))
+        self.repo.write("specs/pins.md", "# Pins\n")
+        self.repo.commit("spec")
+        approval = self.repo.git("rev-parse", "--short", "HEAD").strip()
+        self.repo.write("specs/pins.md", f"# Pins\n\nStatus: cases approved 2026-09-28 at {approval}\n\n"
+                        "## Decisions\n- **PIN-D1** d. Governs: g. Unexpected: n/a — a sketch.\n\n"
+                        "## Cases\n| ID | Covers | Kind | Case |\n|---|---|---|---|\n| PIN-C1 | PIN-D1 | expected | x |\n")
+        self.repo.write("tests/test_pins.py", "def test_PIN_C1():\n    pass\n")
+        self.repo.commit("tests")
+        self.repo.write(".sdd/red/PIN-C1.json", "{}")
+        self.assertEqual(VERIFY.verify(self.root)["exit"], 0)
+        (self.root / ".sdd/red/PIN-C1.json").unlink()  # same tree, different inputs
+        self.assertEqual(VERIFY.verify(self.root)["exit"], 1)
+        self.assertEqual((self.claim() or {}).get("decision"), "block")
+
+    def test_SDD_C119_negated_conditional_and_quoted_claims_are_not_claims(self):
+        self.repo.write(".sdd/config.json", json.dumps({"test": "true"}))
+        for reply in ("Not all tests pass.", "If tests pass, commit the change.", 'I wrote "tests pass" in the log.'):
+            self.assertNotIn("decision", self.claim(reply) or {}, reply)
+
+    def test_SDD_C120_plain_claims_are_caught(self):
+        self.repo.write(".sdd/config.json", json.dumps({"test": "true"}))
+        for reply in ("Done.", "All tests are passing."):
+            self.assertEqual((self.claim(reply) or {}).get("decision"), "block", reply)
+
+
+class ContinueEdgeTests(FollowThroughTest):
+    def test_SDD_C121_only_a_real_closing_question_asks_to_continue(self):
+        self.blocker()
+        self.assertIsNone(self.stop('I will not ask "Should I continue?" again; the fix is in.'))
+        self.assertNotIn("decision", self.stop("Should I continue?\r\n\r\nNo: everything is committed.") or {})
+        self.assertEqual(self.stop("Half of it is in.\r\n\r\nShould I continue?")["decision"], "block")
+
+    def test_SDD_C122_returning_to_a_cached_clear_tree_clears_the_blocker(self):
+        self.repo.write(".sdd/config.json", json.dumps({"test": "test ! -f broken"}))
+        self.repo.write("app.py", "x = 1\n")
+        self.assertEqual(VERIFY.verify(self.root)["exit"], 0)
+        self.repo.write("broken", "")
+        self.assertEqual(VERIFY.verify(self.root)["exit"], 1)
+        (self.root / "broken").unlink()
+        self.assertTrue(VERIFY.verify(self.root)["cached"])
+        self.assertIsNone(self.stop("Half done. Should I continue?"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -91,7 +91,9 @@ def run(top, root, loop_id):
 
 def bisect(top, root, loop_id, good):
     loop = load(root, loop_id)
-    start = (state.git(["rev-parse", "--abbrev-ref", "HEAD"], top) or "HEAD").strip()
+    # Restore exactly where we were: the branch if attached, else the commit itself.
+    branch = (state.git(["symbolic-ref", "-q", "--short", "HEAD"], top) or "").strip()
+    start = branch or (state.git(["rev-parse", "HEAD"], top) or "").strip()
     dirty = state.git(["status", "--porcelain", "--", ".", ":!.sdd"], top)
     if dirty is None or dirty.strip():
         print("refused: commit, stash or remove these first; bisect checks out other commits "
@@ -104,6 +106,9 @@ def bisect(top, root, loop_id, good):
         passed, _ = run_loop(loop["command"], top)
     finally:
         state.git(["checkout", "-q", start], top)
+    if (state.git(["rev-parse", "HEAD"], top) or "").strip() != (state.git(["rev-parse", start], top) or "x").strip():
+        print(f"could not return to {start}; check the working tree before going on")
+        return 1
     if not passed:
         print(f"refused: the loop is red at {good} too, so bisect has no good side.")
         return 1

@@ -22,7 +22,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import state  # noqa: E402
-from migrations import check_migration, draft_of, drafts, migration_unit, repo_files, version  # noqa: E402
+from migrations import check_migration, draft_of, drafts, migration_unit, repo_files  # noqa: E402
 
 
 DATA_CHANGE = re.compile(r"^\s*(?:UPDATE|INSERT|DELETE|MERGE)\b", re.IGNORECASE | re.MULTILINE)
@@ -48,9 +48,9 @@ def numbering(top, home, patterns):
     best, width = 0, 4
     for rel in repo_files(top):
         hit = migration_unit(rel, patterns)
-        if hit and hit[0] == namespace and version(hit[1]) is not None and version(hit[1]) >= best:
-            best = version(hit[1])
-            width = len(re.match(r"\d+", hit[1]).group())
+        digits = re.search(r"\d+", hit[1]) if hit and hit[0] == namespace else None
+        if digits and int(digits.group()) >= best:
+            best, width = int(digits.group()), len(digits.group())
     return best + 1, width
 
 
