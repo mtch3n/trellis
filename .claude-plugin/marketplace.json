@@ -9,6 +9,11 @@
       "name": "trellis",
       "source": "./plugin",
       "description": "Work with trellis board state, cards, and vault entries. SessionStart hook for adoption."
+    },
+    {
+      "name": "sdd",
+      "source": "./spec-driven-development",
+      "description": "Spec-first work that stands on tests: one spec per story, cases approved before code, and hooks that check claims against git and the test suite. Uses Trellis when installed; works without it."
     }
   ]
 }

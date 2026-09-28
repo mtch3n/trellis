@@ -23,7 +23,14 @@
       "name": "mtchen"
     },
     "description": "Local kanban boards and vaults for AI agents. SessionStart hook injects board state and a command cheatsheet. The skills cover claiming work, recording progress, and when to write an entry.",
-    "pluginDescription": "Work with trellis board state, cards, and vault entries. SessionStart hook for adoption."
+    "pluginDescription": "Work with trellis board state, cards, and vault entries. SessionStart hook for adoption.",
+    "otherPlugins": [
+      {
+        "name": "sdd",
+        "source": "./spec-driven-development",
+        "description": "Spec-first work that stands on tests: one spec per story, cases approved before code, and hooks that check claims against git and the test suite. Uses Trellis when installed; works without it."
+      }
+    ]
   },
   "harnesses": {
     "claude": {

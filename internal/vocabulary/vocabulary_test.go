@@ -34,6 +34,9 @@ var skipped = []string{
 	"docs/superpowers/", "CLAUDE.md", "internal/vocabulary/",
 	"internal/store/migrations/", "internal/store/migrate_",
 	"go.sum", "web/pnpm-lock.yaml",
+	// The sdd plugin ships from this repository but is not Trellis: the
+	// glossary governs Trellis's own code, not another plugin's words.
+	"spec-driven-development/", "scripts/tests/test_sdd", "scripts/tests/sdd_helpers.py",
 }
 
 type key struct{ path, rule string }

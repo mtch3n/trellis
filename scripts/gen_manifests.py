@@ -38,7 +38,7 @@ def manifests(spec):
             "name": shared["name"],
             "source": market["source"],
             "description": market["pluginDescription"],
-        }],
+        }, *market.get("otherPlugins", [])],
     }))
     return out
 

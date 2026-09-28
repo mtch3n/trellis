@@ -1,0 +1,222 @@
+"""sdd hooks: facts about the work, checked by probes rather than by a model.
+
+post-tool      After a write to a migration, compare its version with every
+               local branch and the default branch; speaks only on a collision.
+               After AskUserQuestion, queue every question left unanswered.
+stop           Queue every "Qn." question in the last reply, and every question
+               of an AskUserQuestion the user declined (read from the transcript).
+session-end    The same transcript scan, for a session ending with /clear or exit.
+session-start  One line when open items are waiting; nothing otherwise.
+
+None of them runs the test suite. Requires Python 3 and git.
+"""
+
+import json
+import os
+import pathlib
+import re
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
+
+import open_items  # noqa: E402
+import shadow  # noqa: E402
+from migrations import check_draft, check_migration  # noqa: E402
+import state  # noqa: E402
+from state import git, load_config  # noqa: E402
+
+# A question asked in the plugin's format: "Q1. <question> — recommended: <answer>".
+QUESTION = re.compile(r"^\s*(?:[-*]\s*)?\**Q\d+[.):]\**\s+(.*\S)")
+RECOMMENDED = re.compile(r"\s*[—–-]*\s*(?:recommended|建議|建议)\s*[:：]\s*", re.IGNORECASE)
+STORY = re.compile(r"\bspecs/([\w.-]+)")
+# How Claude Code records a user declining a tool call (verified 2026-09-28);
+# any other error is a failure, not a decision.
+DECLINED = "User rejected tool use"
+
+
+# --- migrations ---------------------------------------------------------
+
+def migration_facts(event):
+    tool_input = event.get("tool_input") or {}
+    target = tool_input.get("file_path") or tool_input.get("path")
+    cwd = event.get("cwd")
+    if not isinstance(target, str) or not isinstance(cwd, str):
+        return None
+    top = git(["rev-parse", "--show-toplevel"], cwd)
+    if not top:
+        return None
+    root = pathlib.Path(top.strip())
+    try:
+        rel = pathlib.Path(target).resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return None
+    patterns = load_config(root).get("migrations") or []
+    release = (state.folder(state.repo_root(cwd)) / "release.json").is_file()
+    problems = check_migration(root, rel, patterns, release) + check_draft(root, rel, patterns)
+    if not problems:
+        return None
+    return {"decision": "block", "reason": "sdd (migration facts, from git):\n- " + "\n- ".join(problems)}
+
+
+# --- open items ---------------------------------------------------------
+
+def queue_questions(cwd, texts, session=""):
+    texts = [t for t in texts if isinstance(t, str) and t.strip()]
+    if not texts or not isinstance(cwd, str):
+        return None
+    root = state.repo_root(cwd)
+    for text in texts:
+        question, recommended = split_question(text)
+        story = STORY.search(text)
+        open_items.capture(root, "question", question, recommended=recommended, session=session,
+                           story=f"specs/{story.group(1)}" if story else "")
+    return None
+
+
+def split_question(text):
+    parts = RECOMMENDED.split(text, maxsplit=1)
+    return parts[0].strip(), parts[1].strip() if len(parts) > 1 else ""
+
+
+def asked(event):
+    questions = (event.get("tool_input") or {}).get("questions") or []
+    return [q.get("question") for q in questions if isinstance(q, dict)]
+
+
+def post_tool(event):
+    if event.get("tool_name") == "AskUserQuestion":
+        response = event.get("tool_response")
+        answers = response.get("answers") if isinstance(response, dict) else None
+        answers = answers if isinstance(answers, dict) else {}
+        return queue_questions(event.get("cwd"), [q for q in asked(event) if q not in answers],
+                               event.get("session_id") or "")
+    return migration_facts(event)
+
+
+def declined_questions(root, event):
+    """Questions of AskUserQuestion calls the user declined since the last scan.
+
+    Declining with Esc interrupts the turn and fires no hook, so the transcript
+    is the only record. Each session's scanned length is kept in
+    .sdd/transcripts.json, so a question is found once.
+    """
+    path, session = event.get("transcript_path"), event.get("session_id") or ""
+    if not isinstance(path, str) or not pathlib.Path(path).is_file():
+        return []
+    marks_path = state.folder(root) / "transcripts.json"
+    marks = json.loads(marks_path.read_text(encoding="utf-8")) if marks_path.is_file() else {}
+    start = marks.get(session or path, 0)
+    asked_by_id, declined = {}, []
+    with open(path, "rb") as stream:
+        stream.seek(start)
+        data = stream.read()
+    for line in data.decode("utf-8", errors="replace").splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        parts = (row.get("message") or {}).get("content") if isinstance(row, dict) else None
+        for part in parts if isinstance(parts, list) else []:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "tool_use" and part.get("name") == "AskUserQuestion":
+                asked_by_id[part.get("id")] = asked({"tool_input": part.get("input")})
+            elif (part.get("type") == "tool_result" and part.get("tool_use_id") in asked_by_id
+                  and row.get("toolUseResult") == DECLINED):
+                declined += asked_by_id[part["tool_use_id"]]
+    if declined or marks.get(session or path) != start + len(data):
+        state.ensure(root)
+        marks[session or path] = start + len(data)
+        marks_path.write_text(json.dumps(marks), encoding="utf-8")
+    return declined
+
+
+def last_reply(event):
+    text = event.get("last_assistant_message")
+    if isinstance(text, str):
+        return text
+    # Older harnesses only give the transcript. Its schema is undocumented,
+    # so a miss here means no capture, never a wrong one.
+    path = event.get("transcript_path")
+    if not isinstance(path, str) or not pathlib.Path(path).is_file():
+        return ""
+    reply = ""
+    with open(path, encoding="utf-8") as stream:
+        for line in stream:
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            message = row.get("message") if isinstance(row, dict) else None
+            if row.get("type") == "assistant" and isinstance(message, dict):
+                parts = message.get("content")
+                if isinstance(parts, list):
+                    texts = [p.get("text", "") for p in parts if isinstance(p, dict) and p.get("type") == "text"]
+                    if any(texts):
+                        reply = "\n".join(texts)
+    return reply
+
+
+def stop(event):
+    cwd = event.get("cwd")
+    if not isinstance(cwd, str):
+        return None
+    root = state.repo_root(cwd)
+    found = [m.group(1) for m in map(QUESTION.match, last_reply(event).splitlines()) if m]
+    queue_questions(cwd, found + declined_questions(root, event), event.get("session_id") or "")
+    if not (state.folder(root) / "shadow.jsonl").is_file():
+        return None
+    lines = shadow.unshown(root)
+    if not lines:
+        return None
+    # systemMessage goes to the user; the shadow never speaks to the agent.
+    return {"systemMessage": "sdd shadow (observe-only; mark with shadow.py mark <n> useful|not):\n"
+            + "\n".join(f"{n}. {line}" for n, line in enumerate(lines, 1))}
+
+
+def session_end(event):
+    cwd = event.get("cwd")
+    if isinstance(cwd, str):
+        queue_questions(cwd, declined_questions(state.repo_root(cwd), event), event.get("session_id") or "")
+    return None
+
+
+def session_start(event):
+    cwd = event.get("cwd")
+    if not isinstance(cwd, str):
+        return None
+    root = state.repo_root(cwd)
+    if not open_items.queue_path(root).is_file():
+        return None
+    items = open_items.open_items(root)
+    if not items:
+        return None
+    questions = sum(1 for i in items if i["kind"] == "question")
+    stale = sum(1 for i in items if i["state"] != "open")
+    detail = f"{questions} question(s), {len(items) - questions} finding(s)" + (f", {stale} stale" if stale else "")
+    return f"sdd: {len(items)} open item(s) waiting for the user ({detail}). The user resumes them with /sdd:triaging-open-items."
+
+
+HANDLERS = {"post-tool": post_tool, "stop": stop, "session-end": session_end, "session-start": session_start}
+
+
+def main():
+    if os.environ.get("SDD_SHADOW"):
+        return
+    try:
+        if len(sys.argv) != 2 or sys.argv[1] not in HANDLERS:
+            raise ValueError("usage: sdd_hook.py " + "|".join(HANDLERS))
+        event = json.load(sys.stdin)
+        if not isinstance(event, dict):
+            raise ValueError("hook input must be an object")
+        output = HANDLERS[sys.argv[1]](event)
+    except (OSError, ValueError, TimeoutError) as error:
+        output = {"systemMessage": f"sdd hook skipped: {error}"}
+    if isinstance(output, str):
+        print(output)
+    elif output:
+        print(json.dumps(output))
+
+
+if __name__ == "__main__":
+    main()

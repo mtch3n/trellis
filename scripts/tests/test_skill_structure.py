@@ -11,11 +11,12 @@ ROOT = Path(__file__).resolve().parents[2]
 class SkillStructureTest(unittest.TestCase):
     def test_skill_metadata_validity(self):
         """Validate SKILL.md frontmatter: name matches directory, description is meaningful."""
-        skills_dir = ROOT / "plugin" / "skills"
-        self.assertTrue(skills_dir.exists(), f"Skills directory not found at {skills_dir}")
+        roots = [ROOT / "plugin" / "skills", ROOT / "spec-driven-development" / "skills"]
+        for skills_dir in roots:
+            self.assertTrue(skills_dir.exists(), f"Skills directory not found at {skills_dir}")
 
         errors = []
-        for skill_dir in sorted(skills_dir.iterdir()):
+        for skill_dir in sorted(d for root in roots for d in root.iterdir()):
             if not skill_dir.is_dir():
                 continue
 
