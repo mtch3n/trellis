@@ -186,9 +186,17 @@ def test_files(root):
             yield root / rel
 
 
+BLOCK_TEXT = re.compile(r'"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'|/\*[\s\S]*?\*/')
+
+
+def mask(text):
+    """text with docstrings, triple-quoted strings and block comments blanked, lines kept."""
+    return BLOCK_TEXT.sub(lambda m: "\n" * m.group().count("\n"), text)
+
+
 def defined_ids(text):
-    """Case IDs that a test definition line names."""
-    return {f"{prefix}-C{number}" for line in text.splitlines() if DEFINITION.match(line)
+    """Case IDs that a test definition line names, outside docstrings and comments."""
+    return {f"{prefix}-C{number}" for line in mask(text).splitlines() if DEFINITION.match(line)
             for prefix, number in CASE_IN_CODE.findall(line)}
 
 

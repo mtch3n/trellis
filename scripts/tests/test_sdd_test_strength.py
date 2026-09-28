@@ -169,6 +169,11 @@ class RedStrictnessTests(StrengthTest):
         self.assertEqual(result.returncode, 1)
         self.assertIn("PIN-C2 did not fail", result.stdout)
 
+    def test_SDD_C128_a_passing_line_that_mentions_error_is_not_red(self):
+        result = self.red("PIN-C2", "echo '  ✓ PIN_C2 returns an error for bad input'; echo '  ✕ PIN_C3 pins'; exit 1")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("PIN-C2 did not fail", result.stdout)
+
     def test_SDD_C113_a_comment_is_not_a_test(self):
         self.repo.write(".sdd/config.json", json.dumps({"test": "true"}))
         self.repo.write("specs/pins.md", "# Pins\n")

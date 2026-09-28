@@ -310,6 +310,36 @@ class VerifyTests(VerifyTest):
         time.sleep(0.5)
         self.assertLessEqual(self.calls.read_text(encoding="utf-8").count("call") if self.calls.exists() else 0, 1)
 
+    def test_SDD_C125_publishing_two_results_at_once_does_not_race(self):
+        import threading
+        results = [dict(tree="t", key=str(n), exit=0, problems=[], shadow="skipped") for n in range(40)]
+        errors = []
+
+        def publish(result):
+            try:
+                VERIFY.publish(self.root, self.root, self.root / ".sdd/verify" / f"{result['key']}.json", result)
+            except Exception as error:  # noqa: BLE001 - the test records any failure
+                errors.append(error)
+        (self.root / ".sdd/verify").mkdir(parents=True, exist_ok=True)
+        threads = [threading.Thread(target=publish, args=(r,)) for r in results]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(errors, [])
+        latest = json.loads(VERIFY.latest_path(self.root, self.root).read_text(encoding="utf-8"))
+        self.assertIn(latest, results)
+
+    def test_SDD_C127_a_comment_at_approval_does_not_unlock_the_later_test(self):
+        self.js_story(first="// PIN-C1 comes later\n\ntest('PIN-C2 missing', () => {\n  expect(pin(null)).toBe(null)\n})\n")
+        self.repo.write("tests/pins.test.js", "test('PIN-C1 pins', () => {\n  expect(pin('a')).toBe('a')\n})\n\n"
+                        "test('PIN-C2 missing', () => {\n  expect(pin(null)).toBe(null)\n})\n")
+        self.repo.commit("the real test")
+        self.repo.write("tests/pins.test.js", "test('PIN-C1 pins', () => {\n  expect(true).toBe(true)\n})\n\n"
+                        "test('PIN-C2 missing', () => {\n  expect(pin(null)).toBe(null)\n})\n")
+        changes = self.approved_changes()
+        self.assertTrue(any("PIN-C1" in c for c in changes), changes)
+
 
 if __name__ == "__main__":
     unittest.main()

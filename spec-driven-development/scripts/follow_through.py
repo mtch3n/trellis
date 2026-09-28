@@ -36,13 +36,16 @@ CLAIMS_DONE = re.compile(
     r"|\b(?:is|are|now)\s+fixed\b"
     r"|全部通過|全部通过|全過|全过|全綠|全绿|(?:測試|测试)(?:都)?(?:通過|通过)|做完了|全部完成")
 CONDITIONAL = re.compile(r"(?i)\b(?:if|unless|once|when|whether)\b|如果|若|假如|等到")
-QUOTED = re.compile(r"```.*?```|`[^`]*`|\"[^\"]*\"|“[^”]*”|「[^」]*」", re.DOTALL)
+QUOTED = re.compile(r"```.*?```|`[^`]*`|\"[^\"]*\"|“[^”]*”|「[^」]*」|(?<![\w])'[^'\n]+'(?![\w])", re.DOTALL)
+# Question forms that contain a negation character without negating: 要不要, 可不可以.
+NOT_NEGATION = re.compile(r"要不要|可不可以|能不能|是不是|好不好")
 SENTENCE = re.compile(r"[.!?。！？\n]+")
 NEGATION = re.compile(r"(?i)\bnot\b|n't\b|\bfail|未|沒|没|不")
 ASKS_TO_CONTINUE = re.compile(
     r"(?i)\b(?:should|shall)\s+(?:i|we)\s+(?:continue|proceed|keep going|go on|finish)"
     r"|\b(?:do you want|would you like|want)\s+me\s+to\s+(?:continue|proceed|keep going|go on|finish)"
     r"|\blet me know if you(?:'d| would) like me to (?:continue|proceed)"
+    r"|\bi can (?:continue|keep going|go on|finish the rest)"
     r"|要(?:我)?繼續|要不要繼續|是否(?:要)?繼續|要(?:我)?继续|要不要继续|是否(?:要)?继续")
 
 
@@ -61,15 +64,24 @@ def sentences(text):
     return [part.strip() for part in SENTENCE.split(plain) if part.strip()]
 
 
-def affirmed(text, pattern):
-    """A sentence matches pattern and carries no negation or condition."""
-    return any(pattern.search(s) and not NEGATION.search(s) and not CONDITIONAL.search(s) for s in sentences(text))
+def negated(sentence):
+    return bool(NEGATION.search(NOT_NEGATION.sub("", sentence)))
+
+
+def affirmed(text, pattern, conditions=True):
+    """A sentence matches pattern and carries no negation, nor, if asked, a condition."""
+    return any(pattern.search(s) and not negated(s) and not (conditions and CONDITIONAL.search(s))
+               for s in sentences(text))
 
 
 def asks_to_continue(reply):
-    """True when the reply's last paragraph really asks whether to go on."""
+    """True when the reply's last paragraph really asks or offers to go on.
+
+    An offer is often conditional ("If you want, I can continue"), so conditions
+    do not cancel it; a negation still does.
+    """
     paragraphs = [p for p in (reply or "").replace("\r\n", "\n").split("\n\n") if p.strip()]
-    return bool(paragraphs) and affirmed(paragraphs[-1][-400:], ASKS_TO_CONTINUE)
+    return bool(paragraphs) and affirmed(paragraphs[-1][-400:], ASKS_TO_CONTINUE, conditions=False)
 
 
 def claims_done(reply):

@@ -22,9 +22,10 @@ TAIL_LINES = 20
 TIMEOUT = 600
 CASE = re.compile(r"^[A-Z][A-Z0-9]*-C\d+$")
 # What test runners print when nothing ran: a failure then proves nothing.
-# How runners mark a failed test on the line that names it: unittest "FAIL: test_x",
-# pytest "FAILED path::test_x", go "--- FAIL: TestX", jest "✕ name".
-FAILED = re.compile(r"(?i)\b(?:fail(?:ed|ure)?|error)\b|✕|✗|×")
+# The status marker runners put on the line of a failed test, never words in its
+# description: unittest "FAIL: test_x", pytest "FAILED path::test_x" or
+# "path::test_x FAILED", go "--- FAIL: TestX", TAP "not ok", jest "✕ name".
+FAILED = re.compile(r"^\s*(?:FAIL(?:ED)?\b|ERROR\b|---\s*FAIL\b|not ok\b|[✕✗×])|\b(?:FAILED|FAIL|ERROR)\s*$")
 NO_TEST = re.compile(r"(?i)Ran 0 tests|no tests ran|no tests to run|collected 0 items|\[build failed\]|\[setup failed\]")
 
 

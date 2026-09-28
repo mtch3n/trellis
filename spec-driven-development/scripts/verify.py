@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -95,9 +96,11 @@ def chunk(text, cid):
     not mistaken for the test.
     """
     lines = text.splitlines()
+    masked = spec_check.mask(text).splitlines()
     pattern = re.compile(case_regex(cid))
-    for start, line in enumerate(lines):
+    for start, line in enumerate(masked):
         if pattern.search(line) and spec_check.DEFINITION.match(line):
+            line = lines[start]
             break
     else:
         return None
@@ -126,18 +129,25 @@ def newest(top, commits):
 def baseline(top, cid, since):
     """(commit, test file) the approved test is locked to, per SDD-D58."""
     pattern = case_regex(cid)
-    at_approval = (state.git(["grep", "-l", "-P", pattern, since], top) or "").splitlines()
-    tests = [e.split(":", 1)[1] for e in at_approval if spec_check.is_test_file(e.split(":", 1)[1])]
+    def defining(commit, names):
+        return [rel for rel in names if spec_check.is_test_file(rel)
+                and cid in spec_check.defined_ids(state.git(["show", f"{commit}:{rel}"], top) or "")]
+
+    at_approval = [e.split(":", 1)[1] for e in (state.git(["grep", "-l", "-P", pattern, since], top) or "").splitlines()]
+    tests = defining(since, at_approval)
     if tests:
         return [(since, rel) for rel in tests]
     regex = pattern.replace("(?<![A-Za-z0-9])", "").replace("(?![0-9])", "")
     log = state.git(["log", "--reverse", "--format=%x00%H", "--name-only", "-G", regex, f"{since}..HEAD"], top) or ""
     # The first commit that touched a test file naming the case, not a spec that mentions it.
+    # The first commit whose test files define the case, past any that only mention it.
     for block in log.split("\0"):
         names = block.split()
-        if names and any(spec_check.is_test_file(f) for f in names[1:]):
-            listed = (state.git(["grep", "-l", "-P", pattern, names[0]], top) or "").splitlines()
-            return [(names[0], e.split(":", 1)[1]) for e in listed if spec_check.is_test_file(e.split(":", 1)[1])]
+        if names:
+            listed = [e.split(":", 1)[1] for e in (state.git(["grep", "-l", "-P", pattern, names[0]], top) or "").splitlines()]
+            found = defining(names[0], listed)
+            if found:
+                return [(names[0], rel) for rel in found]
     return []
 
 
@@ -151,12 +161,18 @@ def probe_approved_tests(top, cases, approved):
         if state.git(["cat-file", "-e", f"{since}^{{commit}}"], top) is None:
             out.append(problem("approved-tests", "decide", f"approval commit {since} is not in this history"))
             continue
-        for landed_in, rel in baseline(top, cid, since):
+        locks = baseline(top, cid, since)
+        if not locks:
+            # Named in a test file, defined nowhere: say so rather than skip it.
+            pattern = re.compile(case_regex(cid))
+            for path in spec_check.test_files(top):
+                text = path.read_text(encoding="utf-8", errors="replace")
+                if pattern.search(text) and cid not in spec_check.defined_ids(text):
+                    out.append(problem("approved-tests", "decide", f"{path.relative_to(top).as_posix()} names "
+                                       f"approved case {cid} but no test definition does, so it cannot be locked"))
+        for landed_in, rel in locks:
             landed = chunk(state.git(["show", f"{landed_in}:{rel}"], top) or "", cid)
             if landed is None:
-                if (top / rel).is_file() and chunk((top / rel).read_text(encoding="utf-8", errors="replace"), cid) is None:
-                    out.append(problem("approved-tests", "decide", f"{rel} names approved case {cid} but no test "
-                                       "definition does, so its test cannot be locked"))
                 continue
             path = top / rel
             now = chunk(path.read_text(encoding="utf-8", errors="replace"), cid) if path.is_file() else None
@@ -241,7 +257,8 @@ def latest_path(root, top):
 def publish(root, top, cache, result):
     cache.parent.mkdir(exist_ok=True)
     for path in (cache, latest_path(root, top)):
-        tmp = path.with_suffix(".tmp")
+        # A temp file per writer: two verifies of one worktree may publish at once.
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
         tmp.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(tmp, path)
 

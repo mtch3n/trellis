@@ -172,8 +172,18 @@ class DoneClaimTests(FollowThroughTest):
         for reply in ("Done.", "All tests are passing."):
             self.assertEqual((self.claim(reply) or {}).get("decision"), "block", reply)
 
+    def test_SDD_C129_single_quotes_hide_a_claim_but_apostrophes_do_not(self):
+        self.repo.write(".sdd/config.json", json.dumps({"test": "true"}))
+        self.assertNotIn("decision", self.claim("I wrote 'tests pass' in the log.") or {})
+        self.assertEqual((self.claim("Everything's in and it's done.") or {}).get("decision"), "block")
+
 
 class ContinueEdgeTests(FollowThroughTest):
+    def test_SDD_C130_chinese_and_conditional_offers_ask_to_continue(self):
+        self.blocker()
+        for reply in ("做了一半。要不要繼續？", "Half of it is in. If you want, I can continue."):
+            self.assertEqual((self.stop(reply) or {}).get("decision"), "block", reply)
+
     def test_SDD_C121_only_a_real_closing_question_asks_to_continue(self):
         self.blocker()
         self.assertIsNone(self.stop('I will not ask "Should I continue?" again; the fix is in.'))

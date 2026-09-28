@@ -168,6 +168,12 @@ class SpecCheckTests(unittest.TestCase):
         _, report = self.run_check(spec, {"x_test.py": "def test_X_C1():\n    pass\n\ndef test_X_C2():\n    pass\n"})
         self.assertEqual(self.kinds(report), ["bad_kind", "no_unexpected"])
 
+    def test_SDD_C126_a_definition_inside_a_docstring_is_not_a_test(self):
+        spec = ("- **X-D1** a. Governs: a. Unexpected: n/a — a sketch.\n"
+                "| X-C1 | X-D1 | expected | ok |\n")
+        _, report = self.run_check(spec, {"x_test.py": '"""Example:\n\ndef test_X_C1():\n    pass\n"""\n'})
+        self.assertEqual(self.kinds(report), ["untested"])
+
 
 if __name__ == "__main__":
     unittest.main()
