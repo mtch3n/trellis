@@ -210,14 +210,20 @@ def stop(event):
     found = [m.group(1) for m in map(QUESTION.match, reply.splitlines()) if m]
     queue_questions(cwd, found + declined_questions(root, event), event.get("session_id") or "")
     if not found and follow_through.asks_to_continue(reply):
-        top = git(["rev-parse", "--show-toplevel"], cwd)
-        left = follow_through.work_left(root, pathlib.Path(top.strip()) if top else root)
+        left = follow_through.work_left(root)
         if left:
             listing = "\n- ".join(left)
             if event.get("stop_hook_active"):
                 return {"systemMessage": f"sdd: the agent asked to continue while probes show work left:\n- {listing}"}
             return {"decision": "block", "reason": "sdd: do not ask; the probes say the work is not done:\n- "
                     + listing + "\nContinue. If something blocks you, say what it is."}
+    if not found and follow_through.claims_done(reply) and load_config(root).get("test"):
+        top = git(["rev-parse", "--show-toplevel"], cwd)
+        if not follow_through.verified(root, pathlib.Path(top.strip()) if top else root):
+            ask = "run verify.py before saying the work is done or the tests pass; report what it prints."
+            if event.get("stop_hook_active"):
+                return {"systemMessage": f"sdd: the agent claimed done with no passing verify for this tree; {ask}"}
+            return {"decision": "block", "reason": f"sdd: no passing verify result for this tree. Please {ask}"}
     if not (state.folder(root) / "shadow.jsonl").is_file():
         return None
     lines = shadow.unshown(root)
@@ -242,7 +248,7 @@ def session_start(event):
     root = state.repo_root(cwd)
     if not open_items.queue_path(root).is_file():
         return None
-    items = open_items.open_items(root)
+    items = open_items.open_items(root, resolve_answers=False)
     if not items:
         return None
     questions = sum(1 for i in items if i["kind"] == "question")
@@ -264,8 +270,8 @@ def main():
         if not isinstance(event, dict):
             raise ValueError("hook input must be an object")
         output = HANDLERS[sys.argv[1]](event)
-    except (OSError, ValueError, TimeoutError) as error:
-        output = {"systemMessage": f"sdd hook skipped: {error}"}
+    except Exception as error:  # a hook must never fail the user's turn
+        output = {"systemMessage": f"sdd hook skipped: {type(error).__name__}: {error}"}
     if isinstance(output, str):
         print(output)
     elif output:

@@ -120,6 +120,33 @@ class ToolErrorTests(QueueTest):
         self.assertEqual(self.open_items(), [])
 
 
+class RobustnessTests(QueueTest):
+    def test_SDD_C103_a_row_missing_fields_crashes_nothing(self):
+        self.stop(REPLY)
+        with open(self.repo.root / ".sdd/queue.jsonl", "a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"event": "opened", "id": "q-00000000"}) + "\n")
+        self.stop("Nothing to ask.")
+        out = HOOK.session_start({"cwd": str(self.repo.root), "source": "startup"})
+        self.assertIn("2 open", out)
+
+    def test_SDD_C104_hooks_never_call_trellis(self):
+        self.stop(REPLY)
+        import os, pathlib
+        bin_dir = pathlib.Path(self.repo.root.parent) / (self.repo.root.name + "-bin")
+        bin_dir.mkdir()
+        marker = bin_dir / "called"
+        (bin_dir / "trellis").write_text(f"#!/bin/sh\ntouch {marker}\nsleep 30\n", encoding="utf-8")
+        (bin_dir / "trellis").chmod(0o755)
+        path = os.environ["PATH"]
+        os.environ["PATH"] = f"{bin_dir}{os.pathsep}{path}"
+        try:
+            self.stop("Should I continue?")
+            HOOK.session_start({"cwd": str(self.repo.root), "source": "startup"})
+        finally:
+            os.environ["PATH"] = path
+        self.assertFalse(marker.exists())
+
+
 class ResolveTests(QueueTest):
     def test_SDD_C68_an_unknown_action_is_refused(self):
         self.stop(REPLY)

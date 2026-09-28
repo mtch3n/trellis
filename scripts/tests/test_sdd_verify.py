@@ -251,6 +251,24 @@ class VerifyTests(VerifyTest):
         self.repo.commit("second segment approved later")
         self.assertEqual(self.approved_changes(), [])
 
+    def test_SDD_C96_a_docstring_naming_cases_is_not_the_lock(self):
+        self.config(test="true")
+        self.approved_story()
+        self.repo.write("tests/test_pins.py", '"""Cases PIN-C1 to PIN-C2."""\n\n\n' + TESTS)
+        self.reapprove(path="specs/pins.md")
+        self.repo.write("tests/test_pins.py", '"""Cases PIN-C1 to PIN-C2."""\n\n\n' + TESTS.replace('pin("a") == "a"', 'True'))
+        changes = self.approved_changes()
+        self.assertTrue(any("PIN-C1" in c for c in changes), changes)
+
+    def test_SDD_C109_verify_reports_no_drift(self):
+        self.config(test="true")
+        self.repo.write("app.go", "package app\n")
+        self.repo.write("specs/app.md", "# App\n\n## Decisions\n- **APP-D1** Run once. Governs: app.go.\n")
+        self.repo.commit("spec")
+        self.repo.write("app.go", "package app\n\nfunc Run() {}\n")
+        self.repo.commit("code after")
+        self.assertEqual([p for p in self.verify()["problems"] if p["probe"] == "drift"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

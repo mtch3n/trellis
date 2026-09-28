@@ -22,7 +22,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import state  # noqa: E402
-from migrations import draft_of, drafts, migration_unit, repo_files, version  # noqa: E402
+from migrations import check_migration, draft_of, drafts, migration_unit, repo_files, version  # noqa: E402
 
 
 DATA_CHANGE = re.compile(r"^\s*(?:UPDATE|INSERT|DELETE|MERGE)\b", re.IGNORECASE | re.MULTILINE)
@@ -97,6 +97,10 @@ def apply(top, root, patterns, name, commands, timeout=1800):
     if not writes:
         print("nothing to merge: no draft migrations")
         return 0
+    clashes = [problem for rel, _, _ in writes for problem in check_migration(top, rel, patterns, release=True)]
+    if clashes:
+        print("release refused; nothing was changed:\n- " + "\n- ".join(clashes))
+        return 1
     taken = [rel for rel, _, _ in writes if (top / rel).exists()]
     if taken:
         print(f"{', '.join(taken)} already exist; nothing was changed")

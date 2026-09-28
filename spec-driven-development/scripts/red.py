@@ -21,11 +21,13 @@ import state  # noqa: E402
 TAIL_LINES = 20
 TIMEOUT = 600
 CASE = re.compile(r"^[A-Z][A-Z0-9]*-C\d+$")
+# What test runners print when nothing ran: a failure then proves nothing.
+NO_TEST = re.compile(r"(?i)Ran 0 tests|no tests ran|no tests to run|collected 0 items|\[build failed\]|\[setup failed\]")
 
 
-def names_case(command, case):
+def names_case(text, case):
     prefix, number = case.split("-C")
-    return re.search(rf"(?<![A-Za-z0-9]){re.escape(prefix)}[-_]C{number}(?![0-9])", command) is not None
+    return re.search(rf"(?<![A-Za-z0-9]){re.escape(prefix)}[-_]C{number}(?![0-9])", text) is not None
 
 
 def record_path(root, case):
@@ -48,9 +50,19 @@ def record(cwd, case, command):
     except subprocess.TimeoutExpired:
         print(f"refused: the command did not finish in {TIMEOUT}s")
         return 1
-    tail = "\n".join((result.stdout + result.stderr).rstrip().splitlines()[-TAIL_LINES:])
+    output = result.stdout + result.stderr
+    tail = "\n".join(output.rstrip().splitlines()[-TAIL_LINES:])
     if result.returncode == 0:
         print(f"refused: {case}'s test is not red. Write the test before the code and watch it fail.\n{tail}")
+        return 1
+    # A runner's verdict is in its closing lines; a failure message quoting
+    # these words further up is not the runner saying nothing ran.
+    closing = "\n".join([line for line in output.splitlines() if line.strip()][-3:])
+    if NO_TEST.search(closing):
+        print(f"refused: no test ran, so the failure proves nothing about {case}.\n{tail}")
+        return 1
+    if not names_case(output, case):
+        print(f"refused: the output does not name {case}, so the runner did not run its test.\n{tail}")
         return 1
     root = state.repo_root(cwd)
     state.ensure(root)

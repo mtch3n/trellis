@@ -22,8 +22,7 @@ HOOK = load("sdd_hook", "spec-driven-development/hooks/sdd_hook.py")
 STORE = PLUGIN / "scripts/store.py"
 SKILLS = PLUGIN / "skills"
 FLOW = {
-    "writing-spec": ["/sdd:writing-cases"],
-    "writing-cases": ["/sdd:solo-building-from-cases", "/sdd:team-workflow"],
+    "writing-spec": ["/sdd:solo-building-from-cases", "/sdd:team-workflow"],
     "solo-building-from-cases": ["/sdd:verifying-before-done"],
     "team-workflow": ["/sdd:verifying-before-done"],
     "systematic-debugging": ["/sdd:verifying-before-done"],
@@ -112,7 +111,7 @@ class VocabularyTests(unittest.TestCase):
 
 
 class SkillTests(unittest.TestCase):
-    def test_SDD_C6_exactly_the_eight_skills(self):
+    def test_SDD_C6_exactly_the_seven_skills(self):
         present = sorted(p.name for p in SKILLS.iterdir() if p.is_dir())
         self.assertEqual(present, sorted(FLOW))
         for skill in FLOW:
@@ -141,7 +140,7 @@ class SkillTests(unittest.TestCase):
             self.assertIn(word, route)
 
     def test_SDD_C67_writing_cases_walks_the_unexpected_list(self):
-        text = self.skill_text("writing-cases")
+        text = self.skill_text("writing-spec")
         for item in ("bad input", "missing data", "permissions", "concurrency", "interruption and retry",
                      "upgrade from the current schema", "| ID | Covers | Kind | Case |"):
             self.assertIn(item, text)
@@ -204,8 +203,8 @@ class HaikuEvals(unittest.TestCase):
             (fake / "trellis").write_text("#!/bin/sh\necho '%s'\n" % json.dumps({"entries": [entry]}), encoding="utf-8")
             (fake / "trellis").chmod(0o755)
             with mock.patch.dict(os.environ, {"PATH": f"{fake}{os.pathsep}{os.environ['PATH']}"}):
-                reply, _ = self.session(repo.root, "/sdd:writing-cases the story in specs/pins.md. "
-                                                   "Its decisions are settled.")
+                reply, _ = self.session(repo.root, "/sdd:writing-spec the story in specs/pins.md. "
+                                                   "Its decisions are settled; write the cases.")
         self.assertRegex(reply, r"PIN-C\d")
         self.assertRegex(reply.lower(), r"approv")
         self.assertRegex(reply.lower(), r"solo")
@@ -214,8 +213,8 @@ class HaikuEvals(unittest.TestCase):
     def test_SDD_C10_without_trellis_team_is_not_offered(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self.repo(tmp)
-            reply, _ = self.session(repo.root, "/sdd:writing-cases the story in specs/pins.md. "
-                                               "Its decisions are settled.")
+            reply, _ = self.session(repo.root, "/sdd:writing-spec the story in specs/pins.md. "
+                                               "Its decisions are settled; write the cases.")
         self.assertRegex(reply, r"PIN-C\d")
         self.assertIn("trellis", reply.lower())
         self.assertNotRegex(reply.lower(), r"team:\s|choose team|or team")

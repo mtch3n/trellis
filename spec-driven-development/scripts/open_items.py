@@ -66,6 +66,8 @@ def fold(events):
         if not isinstance(iid, str):
             continue
         if kind == "opened":
+            if not all(isinstance(event.get(k), str) for k in ("kind", "at", "text")):
+                continue
             items[iid] = {**event, "last_seen": event.get("at"), "resolved": None}
         elif iid in items and kind == "seen":
             items[iid]["last_seen"] = event.get("at")
@@ -141,12 +143,16 @@ def drifted(root, item):
     return bool(changed and changed.strip())
 
 
-def open_items(root, now=None, specs=None):
-    """Open items with a state: open, drifted or aged. Resolves answered questions first."""
+def open_items(root, now=None, specs=None, resolve_answers=True):
+    """Open items with a state: open, drifted or aged.
+
+    With resolve_answers, questions a spec decision answers are resolved first;
+    that reads every spec, so hooks, which must stay fast, pass False.
+    """
     root = pathlib.Path(root)
     items = fold(state.read_jsonl(queue_path(root))[0])
     pending = [i for i in items.values() if not i["resolved"]]
-    if any(i["kind"] == "question" for i in pending):
+    if resolve_answers and any(i["kind"] == "question" for i in pending):
         answers = answered_ids((specs or all_segments)(root))
         for item in pending:
             if item["kind"] == "question" and item["id"] in answers:

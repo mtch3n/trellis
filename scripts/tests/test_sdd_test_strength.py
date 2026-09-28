@@ -120,8 +120,8 @@ class SizeAndCoverageTests(StrengthTest):
         self.assertIn("break the code it guards", text)
 
     def test_SDD_C82_the_approval_message_lists_cases_per_decision(self):
-        text = (PLUGIN / "skills/writing-cases/SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("per decision", text[text.index("## 4."):])
+        text = (PLUGIN / "skills/writing-spec/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("per decision", text[text.index("## 8."):])
 
     def test_SDD_C83_a_decision_without_an_unexpected_case_is_named(self):
         decisions = "- **PIN-D1** a. Governs: a.\n- **PIN-D2** b. Governs: b.\n"
@@ -140,42 +140,29 @@ class SizeAndCoverageTests(StrengthTest):
         self.assertIn("no_unexpected", [k for k, _ in problems])
 
 
-class DriftTests(StrengthTest):
-    def drift(self):
-        return [p["detail"] for p in VERIFY.verify(self.root)["problems"] if p["probe"] == "drift"]
-
-    def governed(self, governs):
+class RedStrictnessTests(StrengthTest):
+    def test_SDD_C97_red_since_counts_only_test_files(self):
         self.repo.write(".sdd/config.json", json.dumps({"test": "true"}))
-        self.repo.write("app.go", "package app\n")
-        self.repo.write("specs/app.md", "# App\n\n## Decisions\n"
-                        f"- **APP-D1** Run once. Governs: {governs}. Unexpected: n/a — a sketch.\n\n"
-                        "## Cases\n| ID | Covers | Kind | Case |\n|---|---|---|---|\n| APP-C1 | APP-D1 | expected | x |\n")
-        self.repo.write("tests/test_app.py", "APP_C1\n")
-        self.repo.commit("spec and code")
+        self.repo.write("specs/pins.md", "# Pins\n\nPIN-C1 and PIN-C2 are planned.\n")
+        self.repo.commit("spec names the cases")
+        since = self.repo.git("rev-parse", "HEAD").strip()
+        self.repo.write("specs/pins.md", SPEC.format(approval=since[:7]))
+        self.repo.write("tests/test_pins.py", TESTS)
+        self.repo.commit("tests after")
+        self.repo.write(".sdd/config.json", json.dumps({"test": "true", "red_since": since}))
+        blockers = self.blockers()
+        self.assertTrue(any("PIN-C1" in b and "red" in b for b in blockers), blockers)
 
-    def test_SDD_C86_a_governed_file_changed_after_its_spec_is_drift(self):
-        self.governed("app.go")
-        self.repo.write("app.go", "package app\n\nfunc Run() {}\n")
-        self.repo.commit("code only")
-        drift = self.drift()
-        self.assertEqual(len(drift), 1, drift)
-        self.assertIn("APP-D1", drift[0])
-        self.assertIn("app.go", drift[0])
+    def test_SDD_C98_output_that_does_not_name_the_case_is_refused(self):
+        result = self.red("PIN-C2", "echo PIN_C2 >/dev/null; echo something else broke; exit 1")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("output does not name PIN-C2", result.stdout)
 
-    def test_SDD_C87_a_governs_that_is_not_a_path_is_not_checked(self):
-        self.governed("cards.ref")
-        self.repo.write("app.go", "package app\n\nfunc Run() {}\n")
-        self.repo.commit("code only")
-        self.assertEqual(self.drift(), [])
-
-    def test_SDD_C88_a_spec_newer_than_its_file_is_not_drift(self):
-        self.governed("app.go")
-        self.repo.write("app.go", "package app\n\nfunc Run() {}\n")
-        self.repo.commit("code")
-        spec = (self.root / "specs/app.md").read_text(encoding="utf-8")
-        self.repo.write("specs/app.md", spec + "\n")
-        self.repo.commit("spec after")
-        self.assertEqual(self.drift(), [])
+    def test_SDD_C99_a_run_where_no_test_ran_is_refused(self):
+        for output in ("Ran 0 tests in 0.000s", "no tests ran in 0.01s", "FAIL pkg [build failed]"):
+            result = self.red("PIN-C2", f"echo PIN_C2; echo '{output}'; exit 1")
+            self.assertEqual(result.returncode, 1, output)
+            self.assertIn("no test ran", result.stdout, output)
 
 
 if __name__ == "__main__":

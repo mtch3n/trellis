@@ -100,6 +100,17 @@ class ReleaseTests(MigrationFlowTest):
         self.assertEqual(self.listing(), [f"{DIR}/0015_cards.sql", f"{DIR}/0016_pins.sql", f"{DIR}/draft/a.sql"])
         self.assertFalse((self.root / ".sdd/release.json").exists())
 
+    def test_SDD_C101_release_refuses_a_number_another_branch_took(self):
+        self.repo.git("checkout", "-q", "-b", "wip/other")
+        self.repo.write(f"{DIR}/0017_other.sql", "SELECT 2;\n")
+        self.repo.commit("other took 17")
+        self.repo.git("checkout", "-q", "main")
+        self.drafts("a.sql")
+        result = self.run_script(RELEASE, "apply")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("wip/other", result.stdout)
+        self.assertEqual(self.listing(), [f"{DIR}/0015_cards.sql", f"{DIR}/0016_pins.sql", f"{DIR}/draft/a.sql"])
+
     def test_SDD_C41_release_check_fails_while_a_draft_remains(self):
         self.assertEqual(self.run_script(CHECK).returncode, 0)
         self.drafts("labels.sql")

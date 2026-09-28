@@ -4,8 +4,8 @@
     verify.py [--json]
 
 Probes, in order: the configured test command, spec_check, approved-test
-drift, a recorded red run per approved case, decisions whose governed file
-changed after their spec, leftover [DEBUG-xxxx] tags, and draft migrations. Each problem is a blocker, decide or note
+drift, a recorded red run per approved case, leftover [DEBUG-xxxx] tags, and
+draft migrations. Each problem is a blocker, decide or note
 and is written to the open-items queue; any blocker exits 1. A result is cached
 by the hash of the working tree, so a second call on the same tree, from any
 agent, reruns nothing. With no blocker, an observe-only shadow is started.
@@ -27,9 +27,9 @@ import open_items  # noqa: E402
 import spec_check  # noqa: E402
 import state  # noqa: E402
 from migrations import drafts  # noqa: E402
-from specs import all_segments, trellis_entries  # noqa: E402
+from specs import all_segments  # noqa: E402
 
-PROBES = ("test", "spec", "approved-tests", "red", "drift", "debug-tags", "migrations")
+PROBES = ("test", "spec", "approved-tests", "red", "debug-tags", "migrations")
 TAIL_LINES = 30
 DEBUG_TAG = r"\[DEBUG-[0-9a-f]{4,}\]"
 SEVERITY = {"collision": "decide", "uncovered": "decide", "no_unexpected": "note", "untested": "note",
@@ -88,12 +88,19 @@ def case_regex(cid):
     return rf"(?<![A-Za-z0-9]){re.escape(prefix)}[-_]C{number}(?![0-9])"
 
 
+DEFINITION = re.compile(r"^\s*(?:async\s+def|def|func|fn|it\s*\(|test\s*\(|describe\s*\(|@Test|(?:public\s+)?void)\b")
+
+
 def chunk(text, cid):
-    """The test that names cid: its first naming line through the end of its body."""
+    """The test that names cid: its defining line through the end of its body.
+
+    Only a definition starts it, so a docstring or comment listing case IDs is
+    not mistaken for the test.
+    """
     lines = text.splitlines()
     pattern = re.compile(case_regex(cid))
     for start, line in enumerate(lines):
-        if pattern.search(line):
+        if pattern.search(line) and DEFINITION.match(line):
             break
     else:
         return None
@@ -165,7 +172,10 @@ def probe_red(top, root, cases, approved, config):
     since = config.get("red_since")
     exempt = set()
     if since:
-        found = state.git(["grep", "-h", "-o", "-P", r"[A-Z][A-Z0-9]*[-_]C\d+(?![0-9])", since], top) or ""
+        ids = r"[A-Z][A-Z0-9]*[-_]C\d+(?![0-9])"
+        listed = (state.git(["grep", "-l", "-P", ids, since], top) or "").splitlines()
+        tests = [e.split(":", 1)[1] for e in listed if spec_check.is_test_file(e.split(":", 1)[1])]
+        found = state.git(["grep", "-h", "-o", "-P", ids, since, "--", *tests], top) or "" if tests else ""
         exempt = {m.replace("_", "-") for m in found.split()}
     out = []
     for cid, case in sorted(cases.items()):
@@ -174,51 +184,6 @@ def probe_red(top, root, cases, approved, config):
         if not (state.folder(root) / "red" / f"{cid}.json").is_file():
             out.append(problem("red", "blocker", f"{cid} has no recorded red run: "
                                f"red.py {cid} \"<the command that runs its test>\""))
-    return out
-
-
-def governed_paths(top, decision):
-    for entry in decision["governs"]:
-        if (top / entry).is_file():
-            yield entry
-
-
-def last_change(top, rel):
-    """(commit, dirty) for a repository file."""
-    commit = (state.git(["log", "-1", "--format=%H", "--", rel], top) or "").strip() or None
-    dirty = state.git(["diff", "--quiet", "HEAD", "--", rel], top) is None
-    return commit, dirty
-
-
-def changed_after(top, earlier, later):
-    return bool(later and later != earlier and
-                (earlier is None or state.git(["merge-base", "--is-ancestor", earlier, later], top) is not None))
-
-
-def probe_drift(top, decisions):
-    """A decision whose governed file changed after the decision's spec did."""
-    superseded = {old for d in decisions.values() for old in d["supersedes"]}
-    vault = None
-    out = []
-    for did, decision in sorted(decisions.items()):
-        if did in superseded:
-            continue
-        for rel in governed_paths(top, decision):
-            file_commit, file_dirty = last_change(top, rel)
-            spec = decision["in"]
-            if (top / spec).is_file():
-                spec_commit, spec_dirty = last_change(top, spec)
-                drifted = (file_dirty and not spec_dirty) or (not spec_dirty and changed_after(top, spec_commit, file_commit))
-            else:
-                if vault is None:
-                    vault = {e["ref"]: e["path"] for e in trellis_entries("specs", top) or []}
-                if spec not in vault or not file_commit:
-                    continue
-                file_time = int(state.git(["log", "-1", "--format=%ct", file_commit], top) or 0)
-                drifted = file_dirty or file_time > pathlib.Path(vault[spec]).stat().st_mtime
-            if drifted:
-                out.append(problem("drift", "note", f"{did} governs {rel}, which changed after its spec; "
-                                   "check the decision still holds"))
     return out
 
 
@@ -288,7 +253,6 @@ def verify(cwd):
     problems += spec_problems
     problems += probe_approved_tests(top, cases, approved)
     problems += probe_red(top, root, cases, approved, config)
-    problems += probe_drift(top, decisions)
     problems += probe_debug_tags(top)
     problems += probe_migrations(top, config)
     record(root, problems)

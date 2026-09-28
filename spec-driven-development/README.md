@@ -12,7 +12,7 @@ claude plugin install sdd@trellis
 ## Flow
 
 ```
-writing-spec → writing-cases → (approve cases, pick solo or team)
+writing-spec → (cases approved, solo or team picked)
                                   ├─ solo-building-from-cases ─┐
                                   └─ team-workflow (Trellis) ──┴→ verifying-before-done
 systematic-debugging ───────────────────────────────────────────→ verifying-before-done
@@ -22,8 +22,7 @@ draft migrations → releasing-migrations (user only), before tagging
 
 | Skill | Started by | Does |
 |---|---|---|
-| `/sdd:writing-spec` | user or agent | Batched question rounds with recommended answers; one spec per story |
-| `/sdd:writing-cases` | handoff | Expected and unexpected cases per decision; the one approval, with the solo or team choice |
+| `/sdd:writing-spec` | user or agent | Question rounds with recommended answers, one spec per story, expected and unexpected cases per decision, and the one approval with the solo or team choice |
 | `/sdd:solo-building-from-cases` | handoff | Test-first per case; approved tests stay fixed |
 | `/sdd:team-workflow` | the user's choice | Cases as Trellis cards; workers run only their tests |
 | `/sdd:systematic-debugging` | user or agent | A registered red loop first; three failed fixes stop |

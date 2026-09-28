@@ -32,7 +32,9 @@ Every claim needs its probe, run now, not remembered:
 | The migration is safe | the `migration_checks` of `release.py apply`; before release, only a draft |
 | No debug leftovers | verify's `debug-tags` probe |
 
-A claim with no probe is not a fact: say it is unverified. Report the verify
+A claim with no probe is not a fact: say it is unverified. If you say the
+work is done or the tests pass with no passing verify for this tree, the Stop
+hook sends you back to run it. Report the verify
 command and its result as it printed it.
 
 If there is no `.sdd/config.json` with a `"test"` command, verify says so as a
