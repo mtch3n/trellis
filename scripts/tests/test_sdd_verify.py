@@ -84,6 +84,8 @@ class VerifyTest(unittest.TestCase):
         self.repo.write("specs/pins.md", SPEC.format(status=f"Status: cases approved 2026-09-28 at {approval}"))
         self.repo.write("tests/test_pins.py", TESTS)
         self.repo.commit("tests")
+        for case in ("PIN-C1", "PIN-C2"):  # SDD-D53: each approved case was seen red
+            self.repo.write(f".sdd/red/{case}.json", json.dumps({"case": case}))
 
 
 class VerifyTests(VerifyTest):
@@ -92,7 +94,7 @@ class VerifyTests(VerifyTest):
         self.approved_story()
         result = self.verify()
         self.assertEqual((result["exit"], self.blockers(result)), (0, []))
-        self.assertTrue((self.root / ".sdd/verify" / f"{result['tree']}.json").is_file())
+        self.assertTrue((self.root / ".sdd/verify" / f"{result['key']}.json").is_file())
         self.assertEqual(self.calls.read_text(encoding="utf-8").count("call"), 1)
 
     def test_SDD_C26_a_cached_tree_does_not_rerun_the_suite(self):
@@ -137,7 +139,8 @@ class VerifyTests(VerifyTest):
         self.repo.write("specs/pins.md", spec + "| PIN-C3 | PIN-D1 | expected | pin twice |\n")
         self.repo.write("tests/test_pins.py", TESTS + "\n\ndef test_PIN_C3_new():\n    assert True\n")
         result = self.verify()
-        self.assertEqual(self.blockers(result), [])
+        # The locked-test probe is silent; SDD-D53's red record is a separate probe.
+        self.assertEqual([p for p in result["problems"] if p["probe"] == "approved-tests"], [])
 
     def test_SDD_C31_a_leftover_debug_tag_is_a_blocker(self):
         self.config(test="true")
@@ -176,7 +179,7 @@ class VerifyTests(VerifyTest):
         self.assertEqual(result["exit"], 0)
         self.assertFalse((linked / ".sdd/.gitignore").exists())
         self.assertFalse((linked / ".sdd/verify").exists())
-        self.assertTrue((self.root / ".sdd/verify" / f"{result['tree']}.json").is_file())
+        self.assertTrue((self.root / ".sdd/verify" / f"{result['key']}.json").is_file())
 
     def test_SDD_C73_an_uncovered_decision_in_an_approved_story_is_a_blocker(self):
         self.config(test="true")
@@ -185,6 +188,31 @@ class VerifyTests(VerifyTest):
         self.repo.write("specs/pins.md", spec.replace("## Cases", "- **PIN-D2** Pins expire. Why: x. Governs: pin.ttl.\n\n## Cases"))
         result = self.verify()
         self.assertTrue(any("PIN-D2" in b for b in self.blockers(result)))
+
+    def test_SDD_C91_state_outside_the_tree_is_part_of_the_cache_key(self):
+        self.config(test="true")
+        self.approved_story()
+        (self.root / ".sdd/red/PIN-C2.json").unlink()
+        self.assertTrue(any("PIN-C2" in b for b in self.blockers(self.verify())))
+        self.repo.write(".sdd/red/PIN-C2.json", json.dumps({"case": "PIN-C2"}))
+        second = self.verify()
+        self.assertFalse(second["cached"])
+        self.assertEqual(self.blockers(second), [])
+
+    def test_SDD_C92_a_spec_only_commit_does_not_hide_the_test_it_names(self):
+        self.config(test="true")
+        self.repo.write("specs/pins.md", SPEC.format(status="Status: cases pending approval"))
+        self.repo.commit("spec")
+        approval = self.repo.git("rev-parse", "--short", "HEAD").strip()
+        self.repo.write("specs/pins.md", SPEC.format(status=f"Status: cases approved 2026-09-28 at {approval}")
+                        + "\nNote on PIN-C2 and PIN_C1.\n")
+        self.repo.commit("spec mentions the cases first")
+        self.repo.write("tests/test_pins.py", TESTS)
+        self.repo.commit("tests")
+        for case in ("PIN-C1", "PIN-C2"):
+            self.repo.write(f".sdd/red/{case}.json", json.dumps({"case": case}))
+        self.repo.write("tests/test_pins.py", TESTS.replace('pin(None) is None', 'True'))
+        self.assertTrue(any("PIN-C2" in b and "tests/test_pins.py" in b for b in self.blockers(self.verify())))
 
 
 if __name__ == "__main__":

@@ -13,7 +13,9 @@ Reports, exit 1 if any:
   bad_ref      a decision supersedes, or a case covers, an ID that does not exist
   uncovered    an active decision no case covers
   bad_kind     a case whose kind is not expected or unexpected
-  no_unexpected  a segment with cases but no unexpected-behaviour case
+  no_unexpected  an active decision with no unexpected case and no
+               "Unexpected: n/a — <reason>" in its bullet
+  crowded      a story with more than four cases per active decision (a note)
 
 Spec format (see the skill):
   | PIN-C3 | PIN-D1, PIN-D2 | unexpected | Given ... when ... then ... |
@@ -43,6 +45,8 @@ TEST_FILES = ("*_test.go", "test_*.py", "*_test.py", "*.test.*", "*.spec.*",
 HEADING = re.compile(r"^#+\s*(.*?)\s*$")
 APPROVED = re.compile(r"^Status: cases approved \S+ at ([0-9a-f]{7,40})\b", re.MULTILINE)
 KINDS = {"expected", "unexpected"}
+NOT_APPLICABLE = re.compile(r"(?i)unexpected:\s*n/a\s*[—–-]+\s*\S")
+CROWDED_AT = 4
 DECISION_ID = re.compile(r"[A-Z][A-Z0-9]*-D\d+")
 
 
@@ -65,9 +69,7 @@ def segments_from_trellis(directory, cwd):
 
 def parse(segments):
     cases, decisions, problems = {}, {}, []
-    per_segment = {}
     for name, text in segments:
-        kinds = []
         lines = text.splitlines()
         section = ""
         for i, line in enumerate(lines):
@@ -81,7 +83,6 @@ def parse(segments):
                 if cid in cases:
                     problems.append(("duplicate", f"case {cid} is defined in {cases[cid]['in']} and {name}"))
                 cases[cid] = {"in": name, "kind": kind, "covers": set(DECISION_ID.findall(row.group(2)))}
-                kinds.append(kind)
                 if kind not in KINDS:
                     problems.append(("bad_kind", f"{cid} has kind '{kind}'; use expected or unexpected"))
                 continue
@@ -104,11 +105,8 @@ def parse(segments):
                     "in": name,
                     "governs": {g.strip().lower() for g in gov.group(1).split(",") if g.strip()} if gov else set(),
                     "supersedes": {s.strip() for s in re.split(r"[,\s]+", sup.group(1)) if s.strip()} if sup else set(),
+                    "not_applicable": bool(NOT_APPLICABLE.search(body)),
                 }
-        per_segment[name] = kinds
-    for name, kinds in per_segment.items():
-        if kinds and "unexpected" not in kinds:
-            problems.append(("no_unexpected", f"{name} has {len(kinds)} case(s) and no unexpected-behaviour case"))
     return cases, decisions, problems
 
 
@@ -128,6 +126,18 @@ def check_decisions(decisions, cases):
             superseded.add(old)
     active = sorted(did for did in decisions if did not in superseded)
     problems += [("uncovered", f"{did} is covered by no case") for did in active if did not in covered]
+    unexpected = {did for case in cases.values() if case["kind"] == "unexpected" for did in case["covers"]}
+    problems += [("no_unexpected", f"{did} has no unexpected case and no `Unexpected: n/a — <reason>`")
+                 for did in active if did not in unexpected and not decisions[did]["not_applicable"]]
+    per_story = {}
+    for did in active:
+        per_story.setdefault(story_of(decisions[did]["in"]), [0, 0])[0] += 1
+    for case in cases.values():
+        per_story.setdefault(story_of(case["in"]), [0, 0])[1] += 1
+    for story, (count, total) in sorted(per_story.items()):
+        if count and total > CROWDED_AT * count:
+            problems.append(("crowded", f"{story} has {total} cases for {count} active decisions; "
+                             "merge or cut cases before review"))
     for i, a in enumerate(active):
         for b in active[i + 1:]:
             shared = decisions[a]["governs"] & decisions[b]["governs"]

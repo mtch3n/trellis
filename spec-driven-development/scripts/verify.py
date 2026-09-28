@@ -4,13 +4,15 @@
     verify.py [--json]
 
 Probes, in order: the configured test command, spec_check, approved-test
-drift, leftover [DEBUG-xxxx] tags, and draft migrations awaiting release. Each problem is a blocker, decide or note
+drift, a recorded red run per approved case, decisions whose governed file
+changed after their spec, leftover [DEBUG-xxxx] tags, and draft migrations. Each problem is a blocker, decide or note
 and is written to the open-items queue; any blocker exits 1. A result is cached
 by the hash of the working tree, so a second call on the same tree, from any
 agent, reruns nothing. With no blocker, an observe-only shadow is started.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import pathlib
@@ -25,12 +27,13 @@ import open_items  # noqa: E402
 import spec_check  # noqa: E402
 import state  # noqa: E402
 from migrations import drafts  # noqa: E402
-from specs import all_segments  # noqa: E402
+from specs import all_segments, trellis_entries  # noqa: E402
 
-PROBES = ("test", "spec", "approved-tests", "debug-tags", "migrations")
+PROBES = ("test", "spec", "approved-tests", "red", "drift", "debug-tags", "migrations")
 TAIL_LINES = 30
 DEBUG_TAG = r"\[DEBUG-[0-9a-f]{4,}\]"
-SEVERITY = {"collision": "decide", "uncovered": "decide", "no_unexpected": "note", "untested": "note"}
+SEVERITY = {"collision": "decide", "uncovered": "decide", "no_unexpected": "note", "untested": "note",
+            "crowded": "note"}
 
 
 def worktree_top(cwd):
@@ -72,12 +75,12 @@ def probe_spec(top, segments, approved):
         subject = detail.split()[0]
         home = {"untested": cases.get(subject, {}).get("in", ""),
                 "uncovered": decisions.get(subject, {}).get("in", ""),
-                "no_unexpected": subject}.get(kind)
+                "no_unexpected": decisions.get(subject, {}).get("in", "")}.get(kind)
         # Once the user approved a story's cases, a gap in them stops the work.
         if home is not None and spec_check.story_of(home) in approved:
             severity = "blocker"
         out.append(problem("spec", severity, f"{kind}: {detail}"))
-    return out, cases
+    return out, cases, decisions
 
 
 def case_regex(cid):
@@ -113,11 +116,13 @@ def probe_approved_tests(top, cases, approved):
         if not since:
             continue
         regex = case_regex(cid).replace("(?<![A-Za-z0-9])", "").replace("(?![0-9])", "")
-        first = state.git(["log", "--reverse", "--format=%H", "-G", regex, f"{since}..HEAD"], top)
-        if first is None:
+        log = state.git(["log", "--reverse", "--format=%x00%H", "--name-only", "-G", regex, f"{since}..HEAD"], top)
+        if log is None:
             out.append(problem("approved-tests", "decide", f"approval commit {since} is not in this history"))
             continue
-        first = first.split()
+        # The first commit that touched a test file naming the case, not a spec that mentions it.
+        first = [block.split()[0] for block in log.split("\0") if block.strip()
+                 if any(spec_check.is_test_file(f) for f in block.split()[1:])][:1]
         if not first:
             continue
         listed = state.git(["grep", "-l", "-P", case_regex(cid), first[0]], top) or ""
@@ -133,6 +138,68 @@ def probe_approved_tests(top, cases, approved):
                 out.append(problem("approved-tests", "blocker",
                                    f"the test for approved case {cid} in {rel} {change} after it landed in "
                                    f"{first[0][:7]}; an approved case changes only with the user"))
+    return out
+
+
+def probe_red(top, root, cases, approved, config):
+    """An approved case whose test landed after `red_since` needs a recorded red run."""
+    since = config.get("red_since")
+    exempt = set()
+    if since:
+        found = state.git(["grep", "-h", "-o", "-P", r"[A-Z][A-Z0-9]*[-_]C\d+(?![0-9])", since], top) or ""
+        exempt = {m.replace("_", "-") for m in found.split()}
+    out = []
+    for cid, case in sorted(cases.items()):
+        if spec_check.story_of(case["in"]) not in approved or cid in exempt:
+            continue
+        if not (state.folder(root) / "red" / f"{cid}.json").is_file():
+            out.append(problem("red", "blocker", f"{cid} has no recorded red run: "
+                               f"red.py {cid} \"<the command that runs its test>\""))
+    return out
+
+
+def governed_paths(top, decision):
+    for entry in decision["governs"]:
+        if (top / entry).is_file():
+            yield entry
+
+
+def last_change(top, rel):
+    """(commit, dirty) for a repository file."""
+    commit = (state.git(["log", "-1", "--format=%H", "--", rel], top) or "").strip() or None
+    dirty = state.git(["diff", "--quiet", "HEAD", "--", rel], top) is None
+    return commit, dirty
+
+
+def changed_after(top, earlier, later):
+    return bool(later and later != earlier and
+                (earlier is None or state.git(["merge-base", "--is-ancestor", earlier, later], top) is not None))
+
+
+def probe_drift(top, decisions):
+    """A decision whose governed file changed after the decision's spec did."""
+    superseded = {old for d in decisions.values() for old in d["supersedes"]}
+    vault = None
+    out = []
+    for did, decision in sorted(decisions.items()):
+        if did in superseded:
+            continue
+        for rel in governed_paths(top, decision):
+            file_commit, file_dirty = last_change(top, rel)
+            spec = decision["in"]
+            if (top / spec).is_file():
+                spec_commit, spec_dirty = last_change(top, spec)
+                drifted = (file_dirty and not spec_dirty) or (not spec_dirty and changed_after(top, spec_commit, file_commit))
+            else:
+                if vault is None:
+                    vault = {e["ref"]: e["path"] for e in trellis_entries("specs", top) or []}
+                if spec not in vault or not file_commit:
+                    continue
+                file_time = int(state.git(["log", "-1", "--format=%ct", file_commit], top) or 0)
+                drifted = file_dirty or file_time > pathlib.Path(vault[spec]).stat().st_mtime
+            if drifted:
+                out.append(problem("drift", "note", f"{did} governs {rel}, which changed after its spec; "
+                                   "check the decision still holds"))
     return out
 
 
@@ -183,23 +250,32 @@ def verify(cwd):
     root = state.repo_root(cwd)
     state.ensure(root)
     tree = state.tree_hash(top)
-    cache = state.folder(root) / "verify" / f"{tree}.json"
+    segments = all_segments(top)
+    # Specs in a Trellis vault and red records live outside the tree, so they
+    # are part of the key too: a new red run must not return a stale verdict.
+    key = hashlib.sha1(tree.encode())
+    for name, text in sorted(segments):
+        key.update(f"\0{name}\0{text}".encode("utf-8"))
+    for red in sorted((state.folder(root) / "red").glob("*.json")):
+        key.update(f"\0{red.name}\0".encode() + red.read_bytes())
+    cache = state.folder(root) / "verify" / f"{key.hexdigest()}.json"
     if cache.is_file():
         return {**json.loads(cache.read_text(encoding="utf-8")), "cached": True}
 
     config = state.load_config(top)
-    segments = all_segments(top)
     approved = spec_check.approvals(segments)
     problems = probe_test(top, config)
-    spec_problems, cases = probe_spec(top, segments, approved)
+    spec_problems, cases, decisions = probe_spec(top, segments, approved)
     problems += spec_problems
     problems += probe_approved_tests(top, cases, approved)
+    problems += probe_red(top, root, cases, approved, config)
+    problems += probe_drift(top, decisions)
     problems += probe_debug_tags(top)
     problems += probe_migrations(top, config)
     record(root, problems)
 
     blocked = any(p["severity"] == "blocker" for p in problems)
-    result = {"tree": tree, "at": state.now_iso(), "exit": 1 if blocked else 0, "problems": problems,
+    result = {"tree": tree, "key": key.hexdigest(), "at": state.now_iso(), "exit": 1 if blocked else 0, "problems": problems,
               "shadow": "not started: a blocker stands" if blocked else start_shadow(root, top, tree)}
     cache.parent.mkdir(exist_ok=True)
     cache.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")

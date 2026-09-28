@@ -23,6 +23,11 @@ For every active decision, ask:
   - for a schema change: upgrade from the current schema, rerun, old data
 
   Each item becomes a case, or you say in one line why it does not apply.
+  A decision with no unexpected case at all ends its bullet with
+  `Unexpected: n/a — <reason>`.
+
+Pick the key examples, not every combination. More than four cases per
+decision is a sign to merge them: spec_check reports it as `crowded`.
 
 ## 2. Write the cases
 
@@ -57,7 +62,7 @@ whether migrations are involved, whether the store is Trellis. Team needs
 Trellis: without it, do not offer team and say that it needs Trellis.
 
 ```
-Cases (N: a expected, b unexpected)
+Cases (N: a expected, b unexpected; per decision: PIN-D1 3, PIN-D2 2)
   PIN-C1 PIN-D1 expected    <one line>
   ...
 Approve these cases?

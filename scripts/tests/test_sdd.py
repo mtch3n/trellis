@@ -150,15 +150,16 @@ class SpecCheckTests(unittest.TestCase):
     def test_SDD_C61_an_active_decision_no_case_covers_is_uncovered(self):
         spec = SPEC.replace(", pin.storage.", ".").replace("PIN-D2, PIN-D3", "PIN-D2")
         _, report = self.run_check(spec, {"pin_test.go": "PIN_C1 PIN-C2"})
-        self.assertEqual(self.kinds(report), ["uncovered"])
-        self.assertIn("PIN-D3", report["problems"][0]["detail"])
+        # Under SDD-D55 the uncovered decision also lacks an unexpected case.
+        self.assertEqual(self.kinds(report), ["no_unexpected", "uncovered"])
+        self.assertTrue(all(p["detail"].startswith("PIN-D3") for p in report["problems"]))
 
     def test_SDD_C62_covering_an_unknown_decision_is_a_bad_ref(self):
         spec = ("- **X-D1** a. Governs: a. Supersedes: X-D9.\n"
                 "| X-C1 | X-D1 | expected | ok |\n"
                 "| X-C2 | X-D7 | unexpected | bad input |\n")
         _, report = self.run_check(spec, {"x_test.py": "X_C1 X_C2"})
-        self.assertEqual(self.kinds(report), ["bad_ref", "bad_ref"])
+        self.assertEqual(self.kinds(report), ["bad_ref", "bad_ref", "no_unexpected"])
 
     def test_SDD_C63_a_segment_without_an_unexpected_case_and_an_unknown_kind(self):
         spec = ("- **X-D1** a. Governs: a.\n"

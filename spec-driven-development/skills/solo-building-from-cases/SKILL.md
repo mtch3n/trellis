@@ -5,13 +5,18 @@ description: Use when a story's cases are approved and one agent builds them - t
 
 # Building from the cases, solo
 
-Scripts live in `<this skill's directory>/../../scripts/`.
+Scripts live in `<this skill's directory>/../../scripts/` (`<scripts>` below).
 
 ## For each case, in order
 
 1. Write its test, with the case ID in the test's name (`PIN_C2` or `PIN-C2`).
-2. Run it and watch it fail. Quote the failing line. A test never seen failing
-   has not proved it can catch anything.
+2. Record it failing: `python3 <scripts>/red.py PIN-C2 "<command that runs this test>"`.
+   The command must name the case ID, and it is refused if the test passes. A
+   test never seen failing has not proved it can catch anything; verify blocks
+   an approved case with no red record. A guard case, whose test passes before
+   any code exists (something must stay silent or must not happen), is
+   recorded after its code: break the code it guards for a moment, record the
+   red run, and put the code back.
 3. Write the smallest code that passes it.
 4. Run the tests you touched. The whole suite runs once, in verify.
 5. Commit. From its first commit after approval, a case's test is locked:

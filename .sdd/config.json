@@ -4,5 +4,6 @@
   "migrations": [
     "internal/store/migrations/*",
     "internal/store/migrate_[0-9][0-9][0-9][0-9].go"
-  ]
+  ],
+  "red_since": "a10b355"
 }

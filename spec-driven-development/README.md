@@ -43,6 +43,7 @@ never from a model.
 | `verify.py` | Suite, spec, approved tests, debug logs, drafts; cached by tree hash |
 | `open_items.py` | The queue: `list`, `resolve`, `compact` |
 | `repro.py` | Debugging loops: `record`, `run`, `bisect` |
+| `red.py` | Records a case's test failing before its code; verify requires one per approved case |
 | `follow_through.py` | Placeholder patterns, asking-to-continue, and the work probes say is left |
 | `release.py`, `release_check.py` | Merge drafts at release; fail while drafts remain |
 | `shadow.py` | The observe-only model run; its lines reach only the user |
@@ -73,6 +74,8 @@ every worktree. `.sdd/.gitignore` keeps it all out of git except `config.json`:
 ```
 
 - `test`: the suite verify runs. `test_timeout`: seconds, default 600.
+- `red_since`: a commit. Cases whose test already existed there need no red
+  record, for a repository that adopts sdd with tests already written.
 - `migrations`: globs that share one version sequence. Without it, any
   `migrations/` or `migrate/` directory is its own sequence, and only an entry
   whose name starts with a standalone number (`0013_x.sql`, not Alembic's
@@ -83,7 +86,7 @@ every worktree. `.sdd/.gitignore` keeps it all out of git except `config.json`:
 
 State files: `queue.jsonl` (events, append-only), `archive.jsonl` (the newest
 200 resolved items plus every dismissed or accepted one), `verify/<tree>.json`,
-`repro/<id>.json`, `shadow.jsonl`, and `release.json` while a release runs.
+`repro/<id>.json`, `red/<case>.json`, `shadow.jsonl`, and `release.json` while a release runs.
 
 ## Tests
 
