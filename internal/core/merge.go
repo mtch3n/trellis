@@ -509,8 +509,8 @@ func (m *merger) foldNames(table, column string, out *NameMoves, junctions [][2]
 // cards moves SRC's cards after DST's highest seq. Their refs are stored and
 // do not change; seq is only DST's allocator.
 func (m *merger) cards() error {
-	if err := m.tx.Get(&m.plan.Cards.FirstSeq,
-		`SELECT COALESCE(MAX(seq), 0) + 1 FROM card WHERE project_id = ?`, m.dst.ID); err != nil {
+	var err error
+	if m.plan.Cards.FirstSeq, err = nextCardSeq(m.tx, m.dst.ID); err != nil {
 		return err
 	}
 	var ids []string

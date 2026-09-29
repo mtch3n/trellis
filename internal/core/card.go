@@ -232,9 +232,8 @@ func (c *Core) createCard(ctx context.Context, tx *sqlx.Tx, projectID, boardID s
 
 		// Safe under concurrency: the transaction is IMMEDIATE, so the write
 		// lock is already held when MAX(seq) is read.
-		var seq int64
-		if err := tx.Get(&seq,
-			`SELECT COALESCE(MAX(seq), 0) + 1 FROM card WHERE project_id = ?`, projectID); err != nil {
+		seq, err := nextCardSeq(tx, projectID)
+		if err != nil {
 			return err
 		}
 

@@ -298,6 +298,15 @@ func (c *Core) trashRows(tx *sqlx.Tx, item trashItem) error {
 	if err := captureLinks(tx, snap); err != nil {
 		return err
 	}
+	if item.seq == nil {
+		// A board or a project carries its cards: remember the highest number
+		// among them, for nextCardSeq.
+		for _, r := range snap.Rows {
+			if n, ok := r.Row["seq"].(int64); ok && r.Table == "card" && (item.seq == nil || n > *item.seq) {
+				item.seq = &n
+			}
+		}
+	}
 	rows, err := json.Marshal(snap)
 	if err != nil {
 		return err

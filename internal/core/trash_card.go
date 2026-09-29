@@ -114,3 +114,14 @@ func (c *Core) TrashedCards(ctx context.Context, projectID, boardID string) ([]C
 	})
 	return out, err
 }
+
+// nextCardSeq is the number a new card in projectID gets: above every live
+// card and every card in the trash, so a ref never names two cards while the
+// first can still come back.
+func nextCardSeq(tx *sqlx.Tx, projectID string) (int64, error) {
+	var seq int64
+	err := tx.Get(&seq, `SELECT max(
+		(SELECT COALESCE(MAX(seq), 0) FROM card WHERE project_id = ?),
+		(SELECT COALESCE(MAX(seq), 0) FROM trash WHERE project_id = ?)) + 1`, projectID, projectID)
+	return seq, err
+}
