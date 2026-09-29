@@ -62,3 +62,29 @@ func TestTrash_TRASH_C4_a_trashed_entry_moves_to_trash_and_comes_back_whole(t *t
 		t.Errorf("history = %d revisions, want 2", len(history))
 	}
 }
+
+func TestTrash_TRASH_C5_a_failed_trash_puts_the_file_back(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	ctx := t.Context()
+	entry, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Kept", Body: "v1\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.db.Exec(`CREATE TRIGGER refuse BEFORE DELETE ON entry BEGIN SELECT RAISE(ABORT, 'refused'); END`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.DeleteEntry(ctx, p.ID, entry.Slug); err == nil {
+		t.Fatal("DeleteEntry succeeded past the trigger")
+	}
+
+	if !onDisk(entry.Path) || !onDisk(revisionDir(entry.Path)) {
+		t.Errorf("the file or its revisions did not come back")
+	}
+	var rows, trashed int
+	c.db.Get(&rows, `SELECT count(*) FROM entry WHERE id = ?`, entry.ID)
+	c.db.Get(&trashed, `SELECT count(*) FROM trash`)
+	if rows != 1 || trashed != 0 {
+		t.Errorf("entry rows = %d, trash rows = %d; want 1 and 0", rows, trashed)
+	}
+}
