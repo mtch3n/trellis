@@ -72,7 +72,7 @@ func TestTrash_TRASH_C2_ui_delete_routes_trash_and_restore_brings_back(t *testin
 	}
 }
 
-func TestTrashRoutesListAndRestore(t *testing.T) {
+func TestTrash_TRASH_C33_the_web_api_lists_the_trash_and_restores_from_it(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "trellis.db"))
 	if err != nil {

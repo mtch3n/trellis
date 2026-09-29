@@ -561,8 +561,8 @@ func TestAPanicAfterTheEditWritePutsTheFileBack(t *testing.T) {
 }
 
 // TestAPanicAfterTheDeleteWritePutsTheFileBack is Fix 2 for DeleteEntry:
-// a panic after stageRemoval has already moved the file aside must still
-// restore it.
+// a panic after the file has already moved into the trash must still
+// move it back.
 func TestAPanicAfterTheDeleteWritePutsTheFileBack(t *testing.T) {
 	c, p, _ := vaultCore(t)
 	entry, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Deploy", Body: "v1\n"})
@@ -575,8 +575,8 @@ func TestAPanicAfterTheDeleteWritePutsTheFileBack(t *testing.T) {
 	}
 
 	// Nothing in DeleteEntry spends a clock call before recordEvent,
-	// which runs last -- after stageRemoval has already moved the file
-	// aside -- so the very first call is the one to panic on.
+	// which runs after the file has already moved into the trash -- so
+	// the very first call is the one to panic on.
 	pc := New(c.db, &panicClock{calls: 0}, c.actor, c.root)
 	mustPanic(t, func() {
 		pc.DeleteEntry(t.Context(), p.ID, entry.Slug)
