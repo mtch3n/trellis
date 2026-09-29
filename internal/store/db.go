@@ -14,7 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-//go:embed migrations/*.sql
+//go:embed migrations
 var migrationFS embed.FS
 
 // goose keeps its base filesystem, logger and dialect as package-level state
@@ -127,7 +127,10 @@ func connect(path string) (*sqlx.DB, error) {
 	gooseSetup.Do(func() {
 		goose.SetBaseFS(migrationFS)
 		goose.SetLogger(goose.NopLogger())
-		setupErr = goose.SetDialect("sqlite3")
+		if setupErr = goose.SetDialect("sqlite3"); setupErr != nil {
+			return
+		}
+		setupErr = registerDrafts()
 	})
 	if setupErr != nil {
 		db.Close()
