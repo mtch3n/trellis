@@ -14,7 +14,8 @@ func newBoardCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "board", Short: "Work with boards"}
 
 	// board ls
-	cmd.AddCommand(&cobra.Command{
+	var trashed bool
+	ls := &cobra.Command{
 		Use:   "ls",
 		Short: "List this project's boards",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -39,6 +40,7 @@ func newBoardCmd() *cobra.Command {
 				Slug      string `json:"slug"`
 				IsDefault bool   `json:"is_default"`
 				CardCount int    `json:"card_count"`
+				TrashedAt *int64 `json:"trashed_at,omitzero"`
 			}
 
 			infos := make([]boardInfo, len(boards))
@@ -50,6 +52,15 @@ func newBoardCmd() *cobra.Command {
 					CardCount: counts[b.ID],
 				}
 			}
+			if trashed {
+				gone, err := app.Core.TrashedBoards(cmd.Context(), app.Project.ID)
+				if err != nil {
+					return err
+				}
+				for _, b := range gone {
+					infos = append(infos, boardInfo{Name: b.Name, Slug: b.Slug, TrashedAt: b.TrashedAt})
+				}
+			}
 
 			return Emit(cmd, map[string]any{"boards": infos}, func() string {
 				var b strings.Builder
@@ -59,13 +70,18 @@ func newBoardCmd() *cobra.Command {
 					if info.IsDefault {
 						defaultMark = "*"
 					}
+					if info.TrashedAt != nil {
+						defaultMark = "(trashed)"
+					}
 					fmt.Fprintf(w, "%s\t%s\t%s\t%d\n", info.Name, info.Slug, defaultMark, info.CardCount)
 				}
 				w.Flush()
 				return strings.TrimRight(b.String(), "\n")
 			})
 		},
-	})
+	}
+	ls.Flags().BoolVar(&trashed, "trashed", false, "include boards in the trash")
+	cmd.AddCommand(ls)
 
 	// board new
 	newCmd := &cobra.Command{
@@ -123,7 +139,7 @@ func newBoardCmd() *cobra.Command {
 
 	// board show
 	cmd.AddCommand(newBoardShowCmd())
-	cmd.AddCommand(newBoardRenameCmd(), newBoardRmCmd())
+	cmd.AddCommand(newBoardRenameCmd(), newBoardRmCmd(), newBoardRestoreCmd())
 
 	return cmd
 }
@@ -142,14 +158,28 @@ func newBoardRenameCmd() *cobra.Command {
 
 func newBoardRmCmd() *cobra.Command {
 	var force bool
-	cmd := &cobra.Command{Use: "rm <board>", Short: "Delete a board", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "rm <board>", Short: "Move a board and its cards to the trash", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		return withTarget(refArg{Collection: address.CollectionBoards, Value: args[0]}, func(app *appCtx, name string) error {
 			if err := app.Core.DeleteBoard(cmd.Context(), app.Project.ID, name, force); err != nil {
 				return err
 			}
-			return Emit(cmd, map[string]string{"deleted": args[0]}, func() string { return "deleted " + args[0] })
+			return Emit(cmd, map[string]string{"trashed": args[0]}, func() string {
+				return args[0] + " moved to the trash (trellis board restore " + args[0] + " brings it back)"
+			})
 		})
 	}}
-	cmd.Flags().BoolVar(&force, "force", false, "delete cards on this board")
+	cmd.Flags().BoolVar(&force, "force", false, "trash the cards on this board too")
 	return cmd
+}
+
+func newBoardRestoreCmd() *cobra.Command {
+	return &cobra.Command{Use: "restore <board>", Short: "Put a trashed board back with its cards", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		return withTarget(refArg{Collection: address.CollectionBoards, Value: args[0]}, func(app *appCtx, name string) error {
+			b, err := app.Core.RestoreBoard(cmd.Context(), app.Project.ID, name)
+			if err != nil {
+				return err
+			}
+			return Emit(cmd, b, func() string { return "restored " + b.Name })
+		})
+	}}
 }

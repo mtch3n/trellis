@@ -27,7 +27,7 @@ func newVaultCmd() *cobra.Command {
 	}
 	cmd.AddCommand(
 		newVaultNewCmd(), newVaultShowCmd(), newVaultLsCmd(), newVaultEditCmd(),
-		newVaultRmCmd(), newVaultMvCmd(), newVaultPinCmd(), newVaultPinsCmd(), newVaultLintCmd(),
+		newVaultRmCmd(), newVaultRestoreCmd(), newVaultMvCmd(), newVaultPinCmd(), newVaultPinsCmd(), newVaultLintCmd(),
 		newVaultNominateCmd(), newVaultNominationsCmd(), newVaultPromoteCmd(),
 		newVaultDemoteCmd(), newVaultVerifyCmd(), newVaultHealthCmd(),
 		newVaultUptakeCmd(),
@@ -93,13 +93,22 @@ func newVaultNewCmd() *cobra.Command {
 }
 
 func newVaultShowCmd() *cobra.Command {
-	return &cobra.Command{
+	var trashed bool
+	cmd := &cobra.Command{
 		Use:   "show <entry>",
 		Short: "Show one entry with its backlinks",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0], NoProject: true}, func(app *appCtx, ref string) error {
 				entry, err := app.Core.ReadEntry(cmd.Context(), app.Project.ID, ref)
+				if trashed && isNotFound(err) {
+					if entry, err = app.Core.TrashedEntry(cmd.Context(), app.Project.ID, ref); err != nil {
+						return err
+					}
+					return Emit(cmd, entry, func() string {
+						return entry.Ref + "  (trashed)\n" + entry.Title + "\n\n" + strings.TrimRight(entry.BodyMD, "\n")
+					})
+				}
 				if err != nil {
 					return err
 				}
@@ -130,6 +139,8 @@ func newVaultShowCmd() *cobra.Command {
 			})
 		},
 	}
+	cmd.Flags().BoolVar(&trashed, "trashed", false, "also look in the trash")
+	return cmd
 }
 
 // withholdContent strips what a listing must not carry. Listing is not
@@ -227,7 +238,9 @@ func renderEntryList(entries []core.Entry) string {
 			indent = "  "
 		}
 		mark := ""
-		if e.Missing {
+		if e.TrashedAt != nil {
+			mark = "trashed"
+		} else if e.Missing {
 			mark = "missing"
 		} else if e.Private {
 			mark = "private"
@@ -239,7 +252,7 @@ func renderEntryList(entries []core.Entry) string {
 }
 
 func newVaultLsCmd() *cobra.Command {
-	var thisBoard, cold bool
+	var thisBoard, cold, trashed bool
 	var templates, provenances, tags []string
 	cmd := &cobra.Command{
 		Use:   "ls [directory]",
@@ -268,6 +281,13 @@ func newVaultLsCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if trashed {
+					more, err := app.Core.TrashedEntries(cmd.Context(), app.Project.ID)
+					if err != nil {
+						return err
+					}
+					entries = append(entries, more...)
+				}
 				withholdContent(entries)
 				return Emit(cmd, map[string]any{"entries": entries}, func() string {
 					return renderEntryList(entries)
@@ -277,6 +297,7 @@ func newVaultLsCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&thisBoard, "board-only", false, "this board's entries plus the unscoped ones")
 	cmd.Flags().BoolVar(&cold, "cold", false, "entries nothing has read in 30 days")
+	cmd.Flags().BoolVar(&trashed, "trashed", false, "include entries in the trash")
 	cmd.Flags().StringSliceVar(&templates, "template", nil, "only these templates: "+strings.Join(core.Templates(), "|"))
 	cmd.Flags().StringSliceVar(&provenances, "provenance", nil, "only entries with these provenances: "+strings.Join(core.Provenances(), "|"))
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "only entries with every one of these tags")
@@ -430,15 +451,34 @@ func newVaultEditCmd() *cobra.Command {
 func newVaultRmCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "rm <entry>",
-		Short: "Delete an entry and its file",
+		Short: "Move an entry and its file to the trash",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0]}, func(app *appCtx, ref string) error {
 				if err := app.Core.DeleteEntry(cmd.Context(), app.Project.ID, ref); err != nil {
 					return err
 				}
-				return Emit(cmd, map[string]string{"deleted": args[0]},
-					func() string { return "deleted " + args[0] })
+				return Emit(cmd, map[string]string{"trashed": args[0]},
+					func() string {
+						return args[0] + " moved to the trash (trellis vault restore " + args[0] + " brings it back)"
+					})
+			})
+		},
+	}
+}
+
+func newVaultRestoreCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "restore <entry>",
+		Short: "Put a trashed entry back",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withTarget(refArg{Collection: address.CollectionVault, Value: args[0]}, func(app *appCtx, ref string) error {
+				entry, err := app.Core.RestoreEntry(cmd.Context(), app.Project.ID, ref)
+				if err != nil {
+					return err
+				}
+				return Emit(cmd, entry, func() string { return "restored " + entry.Ref })
 			})
 		},
 	}

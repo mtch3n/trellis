@@ -18,7 +18,7 @@ func newArtifactCmd() *cobra.Command {
 			"entry adds its name to the entry's `artifacts` frontmatter.",
 	}
 	cmd.AddCommand(newArtifactAddCmd(), newArtifactLsCmd(), newArtifactLinkCmd(),
-		newArtifactUnlinkCmd(), newArtifactRmCmd())
+		newArtifactUnlinkCmd(), newArtifactRmCmd(), newArtifactRestoreCmd())
 	return cmd
 }
 
@@ -182,6 +182,7 @@ func newArtifactUnlinkCmd() *cobra.Command {
 
 func newArtifactLsCmd() *cobra.Command {
 	var card, entry string
+	var trashed bool
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List stored artifacts",
@@ -212,9 +213,20 @@ func newArtifactLsCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if trashed && cardIDValue == "" && entryIDValue == "" {
+					more, err := app.Core.TrashedArtifacts(cmd.Context(), app.Project.ID)
+					if err != nil {
+						return err
+					}
+					items = append(items, more...)
+				}
 				return Emit(cmd, map[string]any{"artifacts": items}, func() string {
 					var b strings.Builder
 					for _, item := range items {
+						if item.TrashedAt != nil {
+							fmt.Fprintf(&b, "%s  %s  (trashed)\n", item.Ref, item.Kind)
+							continue
+						}
 						fmt.Fprintf(&b, "%s  %s  %s\n", item.Ref, item.Kind, item.Path)
 					}
 					return strings.TrimRight(b.String(), "\n")
@@ -223,13 +235,14 @@ func newArtifactLsCmd() *cobra.Command {
 		},
 	}
 	addTargetFlags(cmd, &card, &entry, "only artifacts linked to")
+	cmd.Flags().BoolVar(&trashed, "trashed", false, "include artifacts in the trash")
 	return cmd
 }
 
 func newArtifactRmCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "rm <artifact>",
-		Short: "Delete an artifact; entries that name it keep the name, and lint reports it",
+		Short: "Move an artifact to the trash; entries that name it keep the name, and lint reports it",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionArtifacts, Value: args[0]}, func(app *appCtx, ref string) error {
@@ -240,7 +253,26 @@ func newArtifactRmCmd() *cobra.Command {
 				if err := app.Core.DeleteArtifact(cmd.Context(), app.Project.ID, a.ID); err != nil {
 					return err
 				}
-				return Emit(cmd, map[string]string{"deleted": a.Ref}, func() string { return "deleted " + a.Ref })
+				return Emit(cmd, map[string]string{"trashed": a.Ref}, func() string {
+					return a.Ref + " moved to the trash (trellis artifact restore " + a.Name + " brings it back)"
+				})
+			})
+		},
+	}
+}
+
+func newArtifactRestoreCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "restore <artifact>",
+		Short: "Put a trashed artifact back",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withTarget(refArg{Collection: address.CollectionArtifacts, Value: args[0]}, func(app *appCtx, ref string) error {
+				a, err := app.Core.RestoreArtifact(cmd.Context(), app.Project.ID, ref)
+				if err != nil {
+					return err
+				}
+				return Emit(cmd, a, func() string { return "restored " + a.Ref })
 			})
 		},
 	}

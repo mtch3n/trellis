@@ -64,6 +64,7 @@ type Entry struct {
 	Sources   []string       `db:"-" json:"sources,omitempty"`
 	Fields    map[string]any `db:"-" json:"fields"`
 	Missing   bool           `db:"-" json:"missing,omitzero"` // file is missing; content withheld
+	TrashedAt *int64         `db:"-" json:"trashed_at,omitzero"`
 	// Warnings is set only by CreateEntry, when creating from a
 	// template under enforce: warn found a problem: a missing required
 	// field, a value outside its choices, or a missing section. It is

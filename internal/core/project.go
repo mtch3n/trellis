@@ -1,6 +1,7 @@
 package core
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -24,6 +25,7 @@ type Project struct {
 	// Description says what the project is, in at most MaxDescriptionWords.
 	Description string `db:"description" json:"description"`
 	CreatedAt   int64  `db:"created_at" json:"created_at"`
+	TrashedAt   *int64 `db:"-" json:"trashed_at,omitzero"`
 }
 
 // MaxDescriptionWords bounds a project description: enough to tell projects
@@ -86,6 +88,10 @@ func (c *Core) ProjectByKey(ctx context.Context, key string) (Project, error) {
 			if into != "" {
 				return errProjectMerged(strings.ToUpper(key), into)
 			}
+			if trashed, err := projectInTrash(tx, strings.ToUpper(key)); err != nil || trashed {
+				return cmp.Or(err, ErrNotFound("project_trashed", "project "+strings.ToUpper(key)+" is in the trash",
+					"trellis project restore "+strings.ToUpper(key)))
+			}
 			var keys []string
 			if err := tx.Select(&keys, `SELECT key FROM project ORDER BY key`); err != nil {
 				return err
@@ -104,31 +110,29 @@ const ownedEntities = `SELECT id FROM card WHERE project_id = ?
 	UNION ALL SELECT id FROM entry WHERE project_id = ?
 	UNION ALL SELECT id FROM artifact WHERE project_id = ?`
 
-// DeleteProject removes a project and everything it owns: boards, cards,
-// comments, labels, entry rows, and the project's directory under the
-// Trellis home, which holds its entry files, artifacts and vectors. The
+// DeleteProject moves a project and everything it owns to the trash:
+// boards, cards, comments, labels and entry rows. Its directory under the
+// Trellis home, which holds its entry files, artifacts and vectors, stays
+// where it is until the purge, and its key stays reserved until then. The
 // event log is kept: it records every change.
 //
 // Two things refuse rather than proceed. A card an agent holds right now,
-// because deleting work out from under a running session is not a cleanup.
+// because trashing work out from under a running session is not a cleanup.
 // And an entry this project promoted to the global vault: the vault row still
-// names its origin project, so it would be deleted with it.
+// names its origin project, so it would go with it.
 //
-// The directory is staged before the transaction and restored if it fails, so
-// a failed delete never leaves rows without their files. A marker that still
-// names the deleted key then fails with project_not_found; trellis init in
-// that directory creates a fresh, empty project.
+// A marker that still names the trashed key fails with project_trashed,
+// whose fix is trellis project restore.
 func (c *Core) DeleteProject(ctx context.Context, key string) error {
 	key = strings.ToUpper(strings.TrimSpace(key))
 	// Dropped first, while the vector file is still where the tables point.
 	// A refused or failed delete loses nothing: the tables come back on use.
 	_ = c.dropDerived(ctx, key)
-	var staged *stagedRemoval
-	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+	return c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var p Project
 		err := tx.Get(&p, `SELECT * FROM project WHERE key = ?`, key)
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound("project_not_found", "no project "+key, "trellis ui   # the Projects page lists every project")
+			return ErrNotFound("project_not_found", "no project "+key, "trellis project ls")
 		}
 		if err != nil {
 			return err
@@ -152,18 +156,21 @@ func (c *Core) DeleteProject(ctx context.Context, key string) error {
 		}
 		if vault > 0 {
 			return ErrConflict("project_has_global_entries",
-				fmt.Sprintf("%d global vault %s came from %s and would be deleted with it",
+				fmt.Sprintf("%d global vault %s came from %s and would be trashed with it",
 					vault, plural(vault, "entry", "entries"), p.Key),
-				"trellis vault demote <entry>   # to delete them too; otherwise keep the project")
+				"trellis vault demote <entry>   # to trash them too; otherwise keep the project")
 		}
 
-		if staged, err = stageRemoval(filepath.Join(c.root, "projects", p.Key)); err != nil {
+		if err := c.recordEvent(tx, "project", p.ID, "trashed", "key", p.Key, ""); err != nil {
+			return err
+		}
+		if err := c.trashRows(tx, trashItem{id: NewID(), kind: TrashProject, table: "project", itemID: p.ID,
+			name: p.Key, title: p.Name, projectID: p.ID, projectKey: p.Key}); err != nil {
 			return err
 		}
 
 		// A link from outside into this project survives as a stub, the same
-		// way deleting one entry leaves its inbound links (§10.4). Links from
-		// inside go with their source.
+		// way trashing one entry leaves its inbound links (§10.4).
 		ids := []any{p.ID, p.ID, p.ID}
 		if _, err := tx.Exec(
 			`UPDATE link SET to_id = NULL
@@ -171,28 +178,72 @@ func (c *Core) DeleteProject(ctx context.Context, key string) error {
 			append(ids, ids...)...); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`DELETE FROM link WHERE from_id IN (`+ownedEntities+`)`, ids...); err != nil {
-			return err
-		}
-
-		if err := c.recordEvent(tx, "project", p.ID, "deleted", "key", p.Key, ""); err != nil {
-			return err
-		}
 		if _, err := tx.Exec(`DELETE FROM project WHERE id = ?`, p.ID); err != nil {
 			return err
 		}
-		if err := c.rebuildEntryFTS(tx); err != nil {
+		return c.rebuildEntryFTS(tx)
+	})
+}
+
+// RestoreProject puts a trashed project back with everything that was in it.
+func (c *Core) RestoreProject(ctx context.Context, key string) (Project, error) {
+	key = normalizeKey(key)
+	var trashID string
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		it, err := findTrash(tx, "", TrashProject, key)
+		trashID = it.ID
+		return err
+	})
+	if err != nil {
+		return Project{}, err
+	}
+	it, err := c.restoreTrash(ctx, trashID, func(tx *sqlx.Tx, it TrashItem) error {
+		var n int
+		if err := tx.Get(&n, `SELECT count(*) FROM project WHERE key = ?`, it.Name); err != nil {
 			return err
+		}
+		if n > 0 {
+			return ErrConflict("key_collision", fmt.Sprintf("project %s already exists", it.Name), "trellis project ls")
 		}
 		return nil
 	})
 	if err != nil {
-		if restoreErr := staged.restore(); restoreErr != nil {
-			err = errors.Join(err, restoreErr)
-		}
-		return err
+		return Project{}, err
 	}
-	return staged.finalize()
+	return c.ProjectByKey(ctx, it.Name)
+}
+
+// TrashedProjects lists the projects in the trash, newest first.
+func (c *Core) TrashedProjects(ctx context.Context) ([]Project, error) {
+	var out []Project
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		var items []TrashItem
+		if err := tx.Select(&items, `SELECT * FROM trash WHERE kind = 'project' ORDER BY trashed_at DESC, id DESC`); err != nil {
+			return err
+		}
+		for _, it := range items {
+			snap, err := decodeSnapshot(it.Rows)
+			if err != nil {
+				return err
+			}
+			var p Project
+			if err := scanRow(tx.Unsafe(), &p, it.rootRow(snap)); err != nil {
+				return err
+			}
+			p.TrashedAt = &it.TrashedAt
+			out = append(out, p)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// projectInTrash reports whether key names a trashed project, whose key is
+// reserved until the purge.
+func projectInTrash(tx *sqlx.Tx, key string) (bool, error) {
+	var n int
+	err := tx.Get(&n, `SELECT count(*) FROM trash WHERE kind = 'project' AND name = ?`, key)
+	return n > 0, err
 }
 
 func plural(n int, one, many string) string {
@@ -250,6 +301,11 @@ func (c *Core) createProject(tx *sqlx.Tx, key string) (Project, error) {
 		return Project{}, ErrConflict("key_reserved",
 			fmt.Sprintf("%s was merged into %s, and its key stays reserved while cards still carry it", key, into),
 			"trellis init --key "+into)
+	}
+	if trashed, err := projectInTrash(tx, key); err != nil || trashed {
+		return Project{}, cmp.Or(err, ErrConflict("project_trashed",
+			fmt.Sprintf("project %s is in the trash, and its key stays reserved until it is purged", key),
+			"trellis project restore "+key))
 	}
 	var taken int
 	if err := tx.Get(&taken, `SELECT count(*) FROM project WHERE key = ?`, key); err != nil {

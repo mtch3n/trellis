@@ -16,7 +16,8 @@ import (
 
 func newProjectCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "project", Short: "Create, list and describe projects"}
-	cmd.AddCommand(newProjectNewCmd(), newProjectLsCmd(), newProjectEditCmd(), newProjectMergeCmd())
+	cmd.AddCommand(newProjectNewCmd(), newProjectLsCmd(), newProjectEditCmd(), newProjectMergeCmd(),
+		newProjectRmCmd(), newProjectRestoreCmd())
 	return cmd
 }
 
@@ -46,7 +47,8 @@ func newProjectNewCmd() *cobra.Command {
 }
 
 func newProjectLsCmd() *cobra.Command {
-	return &cobra.Command{
+	var trashed bool
+	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List every project",
 		Args:  cobra.NoArgs,
@@ -67,6 +69,7 @@ func newProjectLsCmd() *cobra.Command {
 				Description string `json:"description"`
 				Boards      int    `json:"boards"`
 				CreatedAt   int64  `json:"created_at"`
+				TrashedAt   *int64 `json:"trashed_at,omitzero"`
 			}
 			rows := make([]row, len(projects))
 			for i, p := range projects {
@@ -76,16 +79,73 @@ func newProjectLsCmd() *cobra.Command {
 				}
 				rows[i] = row{Key: p.Key, Name: p.Name, Description: p.Description, Boards: len(boards), CreatedAt: p.CreatedAt}
 			}
+			if trashed {
+				gone, err := c.TrashedProjects(ctx)
+				if err != nil {
+					return err
+				}
+				for _, p := range gone {
+					rows = append(rows, row{Key: p.Key, Name: p.Name, Description: p.Description, CreatedAt: p.CreatedAt, TrashedAt: p.TrashedAt})
+				}
+			}
 			return Emit(cmd, map[string]any{"projects": rows}, func() string {
 				var b strings.Builder
 				w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 				for _, r := range rows {
-					fmt.Fprintf(w, "%s\t%d boards\t%s\t%s\n", r.Key, r.Boards,
+					boards := fmt.Sprintf("%d boards", r.Boards)
+					if r.TrashedAt != nil {
+						boards = "(trashed)"
+					}
+					fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", r.Key, boards,
 						time.UnixMilli(r.CreatedAt).UTC().Format(time.DateOnly), r.Description)
 				}
 				w.Flush()
 				return strings.TrimRight(b.String(), "\n")
 			})
+		},
+	}
+	cmd.Flags().BoolVar(&trashed, "trashed", false, "include projects in the trash")
+	return cmd
+}
+
+func newProjectRmCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "rm <KEY>",
+		Short: "Move a project and everything in it to the trash",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, db, err := openCore()
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			key := strings.ToUpper(args[0])
+			if err := c.DeleteProject(cmd.Context(), key); err != nil {
+				return err
+			}
+			return Emit(cmd, map[string]string{"trashed": key}, func() string {
+				return key + " moved to the trash (trellis project restore " + key + " brings it back)"
+			})
+		},
+	}
+}
+
+func newProjectRestoreCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "restore <KEY>",
+		Short: "Put a trashed project back with everything in it",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, db, err := openCore()
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			p, err := c.RestoreProject(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return Emit(cmd, p, func() string { return "restored " + p.Key })
 		},
 	}
 }

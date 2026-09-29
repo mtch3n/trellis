@@ -34,6 +34,7 @@ type Artifact struct {
 	CreatedAt   int64  `db:"created_at" json:"created_at"`
 	UpdatedAt   int64  `db:"updated_at" json:"updated_at"`
 	Ref         string `db:"-" json:"ref"` // /KEY/artifacts/<name>
+	TrashedAt   *int64 `db:"-" json:"trashed_at,omitzero"`
 }
 
 // artifactDirPath is where a project's artifacts live. It does not create the
@@ -429,42 +430,116 @@ func (c *Core) ListArtifacts(ctx context.Context, projectID, cardID, entryID str
 	return out, err
 }
 
-// DeleteArtifact removes metadata, graph links, and the stored file.
+// DeleteArtifact moves an artifact's file to the trash, with its metadata
+// and the links cards hold to it. An entry names its artifacts in its own
+// file, so its link survives as a stub, the same as a wikilink to a trashed
+// entry, and resolves again when the artifact is restored.
 func (c *Core) DeleteArtifact(ctx context.Context, projectID, artifactID string) error {
 	var deleted Artifact
 	var key string
-	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+	trashID := NewID()
+	return c.withMoves(ctx, func(tx *sqlx.Tx) ([]trashFile, bool, error) {
 		if err := tx.Get(&deleted, `SELECT * FROM artifact WHERE id = ? AND project_id = ?`, artifactID, projectID); err != nil {
-			return ErrNotFound("artifact_not_found", "artifact not found", "trellis artifact ls")
+			return nil, false, ErrNotFound("artifact_not_found", "artifact not found", "trellis artifact ls")
 		}
 		var err error
 		if key, err = projectKeyOf(tx, projectID); err != nil {
+			return nil, false, err
+		}
+		return c.artifactTrashFiles(key, deleted.Name, trashID), false, nil
+	}, func(tx *sqlx.Tx) error {
+		if err := c.trashRows(tx, trashItem{id: trashID, kind: TrashArtifact, table: "artifact", itemID: artifactID,
+			name: deleted.Name, title: deleted.Name, projectID: projectID, projectKey: key,
+			files: c.artifactTrashFiles(key, deleted.Name, trashID)}); err != nil {
 			return err
 		}
-		// An entry names its artifacts in its own file, so its link survives as
-		// a stub, the same as a wikilink to a deleted entry. Clearing to_id
-		// first keeps the DELETE below, and the artifact_links_ad trigger, from
-		// matching it. A card's link lives only in the database and goes.
+		// Clearing to_id first keeps the DELETE below, and the
+		// artifact_links_ad trigger, from matching an entry's link.
 		if _, err := tx.Exec(
 			`UPDATE link SET to_id = NULL
 			 WHERE to_type = 'artifact' AND to_id = ? AND from_type = 'entry'`, artifactID); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`DELETE FROM link WHERE (to_type = 'artifact' AND to_id = ?) OR (from_type = 'artifact' AND from_id = ?)`, artifactID, artifactID); err != nil {
+		if err := c.recordEvent(tx, "artifact", artifactID, "trashed", "", deleted.Name, ""); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`DELETE FROM artifact WHERE id = ? AND project_id = ?`, artifactID, projectID); err != nil {
+		_, err := tx.Exec(`DELETE FROM artifact WHERE id = ? AND project_id = ?`, artifactID, projectID)
+		return err
+	}, func() (bool, error) {
+		var n int
+		err := c.db.Get(&n, `SELECT count(*) FROM artifact WHERE id = ?`, artifactID)
+		return n == 0, err
+	})
+}
+
+func (c *Core) artifactTrashFiles(key, name, trashID string) []trashFile {
+	from, _ := filepath.Rel(c.root, c.artifactPath(key, name))
+	to, _ := filepath.Rel(c.root, filepath.Join(c.trashDir(key, false, trashID), "artifacts", name))
+	return []trashFile{{From: from, To: to}}
+}
+
+// RestoreArtifact puts a trashed artifact back, refusing when its name has
+// been taken since.
+func (c *Core) RestoreArtifact(ctx context.Context, projectID, name string) (Artifact, error) {
+	var trashID string
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		it, err := findTrash(tx, projectID, TrashArtifact, name)
+		trashID = it.ID
+		return err
+	})
+	if err != nil {
+		return Artifact{}, err
+	}
+	it, err := c.restoreTrash(ctx, trashID, func(tx *sqlx.Tx, it TrashItem) error {
+		var n int
+		if err := tx.Get(&n, `SELECT count(*) FROM artifact WHERE project_id = ? AND name = ?`, projectID, it.Name); err != nil {
 			return err
+		}
+		if n > 0 {
+			return ErrConflict("artifact_name_taken", "another artifact is now named "+it.Name, "trellis artifact ls")
 		}
 		return nil
 	})
 	if err != nil {
-		return err
+		return Artifact{}, err
 	}
-	if err := os.Remove(c.artifactPath(key, deleted.Name)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
+	var out Artifact
+	err = c.Tx(ctx, func(tx *sqlx.Tx) error {
+		if err := tx.Get(&out, `SELECT * FROM artifact WHERE id = ?`, it.ItemID); err != nil {
+			return err
+		}
+		out.Ref = ArtifactAddress(it.ProjectKey, out.Name)
+		out.Path = c.artifactPath(it.ProjectKey, out.Name)
+		return nil
+	})
+	return out, err
+}
+
+// TrashedArtifacts lists the artifacts in a project's trash, newest first.
+func (c *Core) TrashedArtifacts(ctx context.Context, projectID string) ([]Artifact, error) {
+	var out []Artifact
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		var items []TrashItem
+		if err := tx.Select(&items, `SELECT * FROM trash WHERE kind = 'artifact' AND project_id = ?
+			ORDER BY trashed_at DESC, id DESC`, projectID); err != nil {
+			return err
+		}
+		for _, it := range items {
+			snap, err := decodeSnapshot(it.Rows)
+			if err != nil {
+				return err
+			}
+			var a Artifact
+			if err := scanRow(tx.Unsafe(), &a, it.rootRow(snap)); err != nil {
+				return err
+			}
+			a.Ref = ArtifactAddress(it.ProjectKey, a.Name)
+			a.TrashedAt = &it.TrashedAt
+			out = append(out, a)
+		}
+		return nil
+	})
+	return out, err
 }
 
 func artifactKind(mimeType string) string {

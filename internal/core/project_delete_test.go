@@ -16,7 +16,7 @@ func count(t *testing.T, c *Core, query string, args ...any) int {
 	return n
 }
 
-func TestDeleteProjectRemovesEverythingItOwns(t *testing.T) {
+func TestDeleteProjectTrashesEverythingItOwns(t *testing.T) {
 	c, p, b := vaultCore(t)
 	ctx := t.Context()
 	card, err := c.CreateCard(ctx, p.ID, b.ID, NewCard{Title: "doomed"})
@@ -60,19 +60,23 @@ func TestDeleteProjectRemovesEverythingItOwns(t *testing.T) {
 			t.Errorf("%s = %d, want 0", check.query, n)
 		}
 	}
-	if _, err := os.Stat(entry.Path); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("the entry's file should be gone, stat = %v", err)
+	// The directory waits in place until the trash is purged.
+	if _, err := os.Stat(entry.Path); err != nil {
+		t.Errorf("the entry's file should stay until the purge, stat = %v", err)
+	}
+	if _, err := c.PurgeTrash(ctx, c.clock.NowMS()+1); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(c.root, "projects", p.Key)); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("the project's directory should be gone, stat = %v", err)
+		t.Errorf("the project's directory should be gone after the purge, stat = %v", err)
 	}
 
 	if _, err := c.GetCard(ctx, other.ID, CardRef{UUID: kept.ID}); err != nil {
 		t.Errorf("another project's card must survive: %v", err)
 	}
 	if n := count(t, c,
-		`SELECT COUNT(*) FROM event WHERE entity_type = 'project' AND entity_id = ? AND action = 'deleted'`, p.ID); n != 1 {
-		t.Errorf("deleted events = %d, want 1: the event log records every change", n)
+		`SELECT COUNT(*) FROM event WHERE entity_type = 'project' AND entity_id = ? AND action = 'trashed'`, p.ID); n != 1 {
+		t.Errorf("trashed events = %d, want 1: the event log records every change", n)
 	}
 }
 

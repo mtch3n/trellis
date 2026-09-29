@@ -20,6 +20,7 @@ type Board struct {
 	Slug      string `db:"slug" json:"slug"`
 	IsDefault bool   `db:"is_default" json:"is_default"`
 	CreatedAt int64  `db:"created_at" json:"created_at"`
+	TrashedAt *int64 `db:"-" json:"trashed_at,omitzero"`
 }
 
 // slugify lowercases name, collapses every run of non-letter-non-digit
@@ -264,8 +265,9 @@ func (c *Core) RenameBoard(ctx context.Context, projectID, from, to string) (Boa
 	return board, err
 }
 
-// DeleteBoard removes a board. Non-empty boards require force; a project must
-// retain one board. Deleting the default promotes the oldest remaining board.
+// DeleteBoard moves a board and its cards to the trash. Non-empty boards
+// require force; a project must retain one board. Deleting the default
+// promotes the oldest remaining board.
 func (c *Core) DeleteBoard(ctx context.Context, projectID, name string, force bool) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
 		board, err := c.boardByName(tx, projectID, name)
@@ -285,12 +287,15 @@ func (c *Core) DeleteBoard(ctx context.Context, projectID, name string, force bo
 		if boards <= 1 {
 			return ErrConflict("last_board", "a project must retain one board", "trellis board new --name <name>")
 		}
-		if force {
-			if _, err := tx.Exec(`DELETE FROM link WHERE (from_type = 'card' AND from_id IN (SELECT id FROM card WHERE board_id = ?)) OR (to_type = 'card' AND to_id IN (SELECT id FROM card WHERE board_id = ?))`, board.ID, board.ID); err != nil {
-				return err
-			}
+		key, err := projectKeyOf(tx, projectID)
+		if err != nil {
+			return err
 		}
-		if err := c.recordEvent(tx, "board", board.ID, "deleted", "", board.Name, ""); err != nil {
+		if err := c.recordEvent(tx, "board", board.ID, "trashed", "", board.Name, ""); err != nil {
+			return err
+		}
+		if err := c.trashRows(tx, trashItem{id: NewID(), kind: TrashBoard, table: "board", itemID: board.ID,
+			name: board.Name, title: board.Name, projectID: projectID, projectKey: key}); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM board WHERE id = ?`, board.ID); err != nil {
@@ -353,4 +358,66 @@ func boardBySlug(ctx context.Context, q sqlx.QueryerContext, projectID, slug str
 	return b, ErrNotFound("board_not_found",
 		fmt.Sprintf("no board with slug %q (have: %s)", slug, strings.Join(slugs, ", ")),
 		"trellis board new --name <name>")
+}
+
+// RestoreBoard puts a trashed board back with the cards that were on it when it was
+// trashed, refusing when its name or slug has been taken since.
+func (c *Core) RestoreBoard(ctx context.Context, projectID, name string) (Board, error) {
+	var trashID string
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		it, err := findTrash(tx, projectID, TrashBoard, name)
+		trashID = it.ID
+		return err
+	})
+	if err != nil {
+		return Board{}, err
+	}
+	it, err := c.restoreTrash(ctx, trashID, func(tx *sqlx.Tx, it TrashItem) error {
+		snap, err := decodeSnapshot(it.Rows)
+		if err != nil {
+			return err
+		}
+		var n int
+		if err := tx.Get(&n, `SELECT count(*) FROM board WHERE project_id = ? AND (name = ? OR slug = ?)`,
+			projectID, it.Name, it.rootRow(snap)["slug"]); err != nil {
+			return err
+		}
+		if n > 0 {
+			return ErrConflict("board_name_taken", "another board is now named "+it.Name,
+				"trellis board rename "+it.Name+" <new-name>   # then restore again")
+		}
+		return nil
+	})
+	if err != nil {
+		return Board{}, err
+	}
+	var b Board
+	err = c.db.GetContext(ctx, &b, `SELECT * FROM board WHERE id = ?`, it.ItemID)
+	return b, err
+}
+
+// TrashedBoards lists the boards in a project's trash, newest first.
+func (c *Core) TrashedBoards(ctx context.Context, projectID string) ([]Board, error) {
+	var out []Board
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		var items []TrashItem
+		if err := tx.Select(&items, `SELECT * FROM trash WHERE kind = 'board' AND project_id = ?
+			ORDER BY trashed_at DESC, id DESC`, projectID); err != nil {
+			return err
+		}
+		for _, it := range items {
+			snap, err := decodeSnapshot(it.Rows)
+			if err != nil {
+				return err
+			}
+			var b Board
+			if err := scanRow(tx.Unsafe(), &b, it.rootRow(snap)); err != nil {
+				return err
+			}
+			b.TrashedAt = &it.TrashedAt
+			out = append(out, b)
+		}
+		return nil
+	})
+	return out, err
 }

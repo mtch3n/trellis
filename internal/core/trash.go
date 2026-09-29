@@ -445,13 +445,6 @@ func (c *Core) Trash(ctx context.Context, projectID, kind string) ([]TrashItem, 
 	return out, err
 }
 
-// trashedProjects lists trashed projects, newest first.
-func (c *Core) trashedProjects(ctx context.Context) ([]TrashItem, error) {
-	var out []TrashItem
-	err := c.db.SelectContext(ctx, &out, `SELECT * FROM trash WHERE kind = 'project' ORDER BY trashed_at DESC`)
-	return out, err
-}
-
 // findTrash returns the newest trashed item of kind named name.
 func findTrash(tx *sqlx.Tx, projectID, kind, name string) (TrashItem, error) {
 	var it TrashItem
