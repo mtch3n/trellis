@@ -864,3 +864,22 @@ func (c *Core) SweepTrash(ctx context.Context, retention time.Duration) (bool, e
 	_, err = c.PurgeTrash(ctx, now-retention.Milliseconds())
 	return true, err
 }
+
+// RunTrashSweeper sweeps the trash on every tick until ctx ends or tick
+// closes. retention is read on each tick, so a changed setting applies
+// without a restart. report, when not nil, receives each sweep's error.
+func RunTrashSweeper(ctx context.Context, c *Core, retention func() time.Duration, tick <-chan time.Time, report func(error)) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case _, ok := <-tick:
+			if !ok {
+				return
+			}
+			if _, err := c.SweepTrash(ctx, retention()); err != nil && report != nil {
+				report(err)
+			}
+		}
+	}
+}
