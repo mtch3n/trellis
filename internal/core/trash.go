@@ -352,20 +352,20 @@ func (c *Core) stageMoves(files []trashFile, reverse bool) (*stagedMoves, error)
 		if _, err := os.Lstat(from); errors.Is(err, os.ErrNotExist) {
 			continue
 		} else if err != nil {
-			return st, errors.Join(err, st.undo())
+			return st, withUndo(err, st.undo())
 		}
 		if _, err := os.Lstat(to); err == nil {
-			return st, errors.Join(fmt.Errorf("%s already exists", to), st.undo())
+			return st, withUndo(fmt.Errorf("%s already exists", to), st.undo())
 		}
 		if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
-			return st, errors.Join(err, st.undo())
+			return st, withUndo(err, st.undo())
 		}
 		if err := os.Rename(from, to); err != nil {
-			return st, errors.Join(err, st.undo())
+			return st, withUndo(err, st.undo())
 		}
 		st.done = append(st.done, trashFile{From: from, To: to})
 		if err := syncDirs(from, to); err != nil {
-			return st, errors.Join(err, st.undo())
+			return st, withUndo(err, st.undo())
 		}
 	}
 	return st, nil
@@ -378,6 +378,15 @@ func syncDirs(paths ...string) error {
 		}
 	}
 	return nil
+}
+
+// withUndo returns err, joined with the undo's own failure only when there
+// is one, so a caller still sees err's type.
+func withUndo(err, undoErr error) error {
+	if undoErr == nil {
+		return err
+	}
+	return errors.Join(err, undoErr)
 }
 
 func (st *stagedMoves) undo() error {
@@ -412,7 +421,7 @@ func (c *Core) withMoves(ctx context.Context, files func(tx *sqlx.Tx) ([]trashFi
 		}
 		defer func() {
 			if !done {
-				err = errors.Join(err, st.undo())
+				err = withUndo(err, st.undo())
 			}
 		}()
 		if err := fn(tx); err != nil {
@@ -426,7 +435,7 @@ func (c *Core) withMoves(ctx context.Context, files func(tx *sqlx.Tx) ([]trashFi
 		if writeLanded(ok, qerr) {
 			return nil
 		}
-		return errors.Join(err, st.undo())
+		return withUndo(err, st.undo())
 	}
 	return err
 }
@@ -540,11 +549,11 @@ func scanRow(q sqlx.Queryer, dest any, row map[string]any) error {
 	return sqlx.Get(q, dest, `SELECT `+strings.Join(parts, ", "), args...)
 }
 
-// errRestoreParent reports that a restore cannot proceed because the thing
-// the item lived in is gone.
-type errRestoreParent struct{ table, id string }
+// errRestoreParent reports that a restore cannot proceed because what the
+// item lived in is gone: every missing parent, as table and id.
+type errRestoreParent struct{ missing [][2]string }
 
-func (e errRestoreParent) Error() string { return "missing " + e.table + " " + e.id }
+func (e errRestoreParent) Error() string { return fmt.Sprint("missing ", e.missing) }
 
 // insertSnapshot puts snap's rows back, parents first. A dependent row whose
 // parent no longer exists -- a label deleted since -- is skipped, and so is
@@ -557,6 +566,7 @@ func insertSnapshot(tx *sqlx.Tx, s *schema, snap snapshot, rootTable string, roo
 	for _, r := range rows {
 		isRoot := r.Table == rootTable && r.Row["id"] == rootID
 		skip := false
+		var missing [][2]string
 		for _, p := range s.parents[r.Table] {
 			v := r.Row[p.col]
 			if v == nil {
@@ -577,10 +587,14 @@ func insertSnapshot(tx *sqlx.Tx, s *schema, snap snapshot, rootTable string, roo
 				}
 			}
 			if isRoot {
-				return errRestoreParent{table: p.child, id: fmt.Sprint(v)}
+				missing = append(missing, [2]string{p.child, fmt.Sprint(v)})
+				continue
 			}
 			skip = true
 			break
+		}
+		if len(missing) > 0 {
+			return errRestoreParent{missing: missing}
 		}
 		if skip {
 			continue
@@ -746,18 +760,22 @@ func (c *Core) restoreTrash(ctx context.Context, trashID string, check func(tx *
 // parentConflict explains a restore whose container is gone: restore the
 // container first when it is in the trash too.
 func (c *Core) parentConflict(tx *sqlx.Tx, it TrashItem, pe errRestoreParent) error {
-	var parent TrashItem
-	err := tx.Get(&parent, `SELECT * FROM trash WHERE item_id = ? ORDER BY trashed_at DESC LIMIT 1`, pe.id)
-	if err == nil {
+	for _, m := range pe.missing {
+		var parent TrashItem
+		err := tx.Get(&parent, `SELECT * FROM trash WHERE item_id = ? ORDER BY trashed_at DESC LIMIT 1`, m[1])
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
 		return ErrConflict(parent.Kind+"_trashed",
 			fmt.Sprintf("%s %s was on %s %s, which is in the trash", it.Kind, it.Name, parent.Kind, parent.Name),
 			fmt.Sprintf("trellis %s restore %s", cliNoun(parent.Kind), parent.Name))
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
 	return ErrConflict("restore_parent_gone",
-		fmt.Sprintf("%s %s cannot come back: its %s no longer exists", it.Kind, it.Name, strings.TrimSuffix(pe.table, "_")), "")
+		fmt.Sprintf("%s %s cannot come back: its %s no longer exists", it.Kind, it.Name,
+			strings.TrimSuffix(pe.missing[0][0], "_")), "")
 }
 
 // purgeDir is the directory a trashed item's files live under.
