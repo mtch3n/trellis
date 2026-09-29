@@ -7,27 +7,35 @@ import (
 )
 
 func newCardArchiveCmd() *cobra.Command {
-	var restore bool
-	// Archiving and restoring are one command with a flag, not two: the pair
-	// reads as one idea.
-	cmd := &cobra.Command{
-		Use:   "archive <card> [--restore]",
+	return &cobra.Command{
+		Use:   "archive <card>",
 		Short: "Archive a card, releasing any claim",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
-				action, fn := "archived", app.Core.ArchiveCard
-				if restore {
-					action, fn = "restored", app.Core.RestoreCard
-				}
-				card, err := fn(cmd.Context(), app.Project.ID, core.ParseCardRef(ref))
+				card, err := app.Core.ArchiveCard(cmd.Context(), app.Project.ID, core.ParseCardRef(ref))
 				if err != nil {
 					return err
 				}
-				return Emit(cmd, card, func() string { return action + " " + card.Ref + "  " + card.Title })
+				return Emit(cmd, card, func() string { return "archived " + card.Ref + "  " + card.Title })
 			})
 		},
 	}
-	cmd.Flags().BoolVar(&restore, "restore", false, "restore an archived card to its board")
-	return cmd
+}
+
+func newCardRestoreCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "restore <card>",
+		Short: "Put an archived or trashed card back on its board",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
+				card, err := app.Core.RestoreCard(cmd.Context(), app.Project.ID, core.ParseCardRef(ref))
+				if err != nil {
+					return err
+				}
+				return Emit(cmd, card, func() string { return "restored " + card.Ref + "  " + card.Title })
+			})
+		},
+	}
 }

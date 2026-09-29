@@ -28,6 +28,7 @@ type Card struct {
 	UpdatedAt  int64    `db:"updated_at" json:"updated_at"`
 	ArchivedAt *int64   `db:"archived_at" json:"archived_at,omitzero"`
 	Ref        string   `db:"ref" json:"ref"` // stored: a merged card keeps its original prefix
+	TrashedAt  *int64   `db:"-" json:"trashed_at,omitzero"`
 
 	// Computed for display; never read from the database.
 	ColumnName   string   `db:"-" json:"column"`
@@ -624,9 +625,9 @@ func (c *Core) EditCard(ctx context.Context, projectID string, ref CardRef, e Ca
 	return card, err
 }
 
-// DeleteCard removes a card outright. Archiving (P1) is for finished work;
-// this is for the duplicates an agent creates by mistake. The event log is
-// never touched: it records every change, this one included.
+// DeleteCard moves a card to the trash. Archiving is for finished work; this
+// is for the duplicates an agent creates by mistake. The event log is never
+// touched: it records every change, this one included.
 func (c *Core) DeleteCard(ctx context.Context, projectID string, ref CardRef) error {
 	return c.Tx(ctx, func(tx *sqlx.Tx) error {
 		var card Card
@@ -636,7 +637,15 @@ func (c *Core) DeleteCard(ctx context.Context, projectID string, ref CardRef) er
 		if err := c.checkCardClaim(card); err != nil {
 			return err
 		}
-		if err := c.recordEvent(tx, "card", card.ID, "deleted", "", card.Title, ""); err != nil {
+		key, err := projectKeyOf(tx, projectID)
+		if err != nil {
+			return err
+		}
+		if err := c.recordEvent(tx, "card", card.ID, "trashed", "", card.Title, ""); err != nil {
+			return err
+		}
+		if err := c.trashRows(tx, trashItem{id: NewID(), kind: TrashCard, table: "card", itemID: card.ID,
+			name: card.Ref, title: card.Title, seq: &card.Seq, projectID: projectID, projectKey: key}); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM card WHERE id = ?`, card.ID); err != nil {

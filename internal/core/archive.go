@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -35,11 +36,20 @@ func (c *Core) ArchiveCard(ctx context.Context, projectID string, ref CardRef) (
 	return card, err
 }
 
-// RestoreCard returns an archived card to the board.
+// RestoreCard returns an archived or trashed card to the board.
 func (c *Core) RestoreCard(ctx context.Context, projectID string, ref CardRef) (Card, error) {
 	var card Card
+	var trashID string
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
 		if err := c.loadCard(tx, projectID, ref, &card); err != nil {
+			if e, ok := errors.AsType[*Error](err); ok && e.Code == "card_not_found" {
+				it, terr := c.findTrashedCard(tx, projectID, ref)
+				if terr != nil {
+					return err
+				}
+				trashID = it.ID
+				return nil
+			}
 			return err
 		}
 		if err := c.checkCardClaim(card); err != nil {
@@ -58,5 +68,11 @@ func (c *Core) RestoreCard(ctx context.Context, projectID string, ref CardRef) (
 		}
 		return c.loadCard(tx, projectID, ref, &card)
 	})
-	return card, err
+	if err != nil || trashID == "" {
+		return card, err
+	}
+	if _, err := c.restoreTrash(ctx, trashID, func(*sqlx.Tx, TrashItem) error { return nil }); err != nil {
+		return Card{}, err
+	}
+	return c.GetCard(ctx, projectID, ref)
 }

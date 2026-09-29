@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestDeleteCardRemovesRowAndKeepsHistory(t *testing.T) {
+func TestDeleteCardTrashesRowAndKeepsHistory(t *testing.T) {
 	c := testCore(t)
 	p := seededProject(t, c)
 	b := seededBoard(t, c, p)
@@ -23,13 +23,13 @@ func TestDeleteCardRemovesRowAndKeepsHistory(t *testing.T) {
 		t.Errorf("card row count = %d, want 0", n)
 	}
 
-	// The event log records every change; deleting a card must not erase it.
+	// The event log records every change; trashing a card must not erase it.
 	if err := c.db.Get(&n,
-		`SELECT count(*) FROM event WHERE entity_id = ? AND action = 'deleted'`, card.ID); err != nil {
+		`SELECT count(*) FROM event WHERE entity_id = ? AND action = 'trashed'`, card.ID); err != nil {
 		t.Fatal(err)
 	}
 	if n != 1 {
-		t.Errorf("deleted events = %d, want 1", n)
+		t.Errorf("trashed events = %d, want 1", n)
 	}
 }
 

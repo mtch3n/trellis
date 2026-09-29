@@ -40,7 +40,7 @@ func newCardCmd() *cobra.Command {
 	cmd.AddCommand(
 		newCardNewCmd(), newCardShowCmd(), newCardLsCmd(), newCardMoveCmd(), newCardEditCmd(), newCardRmCmd(),
 		newCardClaimCmd(), newCardReleaseCmd(), newCardRenewCmd(), newCardNextCmd(), newCardCommentCmd(),
-		newCardArchiveCmd(), newCardBlockCmd(), newCardRelateCmd(), newCardImportCmd(), newCardHistoryCmd(), newCardDiffCmd())
+		newCardArchiveCmd(), newCardRestoreCmd(), newCardBlockCmd(), newCardRelateCmd(), newCardImportCmd(), newCardHistoryCmd(), newCardDiffCmd())
 	return cmd
 }
 
@@ -89,13 +89,22 @@ func newCardNewCmd() *cobra.Command {
 }
 
 func newCardShowCmd() *cobra.Command {
-	return &cobra.Command{
+	var trashed bool
+	cmd := &cobra.Command{
 		Use:   "show <card>",
 		Short: "Show one card",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				card, err := app.Core.GetCard(cmd.Context(), app.Project.ID, core.ParseCardRef(ref))
+				if trashed && isNotFound(err) {
+					if card, err = app.Core.TrashedCard(cmd.Context(), app.Project.ID, core.ParseCardRef(ref)); err != nil {
+						return err
+					}
+					return Emit(cmd, card, func() string {
+						return card.Ref + "  [trashed]  " + card.Title + "\n\n" + card.BodyMD
+					})
+				}
 				if err != nil {
 					return err
 				}
@@ -127,6 +136,8 @@ func newCardShowCmd() *cobra.Command {
 			})
 		},
 	}
+	cmd.Flags().BoolVar(&trashed, "trashed", false, "also look in the trash")
+	return cmd
 }
 
 func newCardHistoryCmd() *cobra.Command {
@@ -177,7 +188,7 @@ func newCardDiffCmd() *cobra.Command {
 
 func newCardLsCmd() *cobra.Command {
 	var column, priority, label string
-	var archived, all, allProjects bool
+	var archived, all, allProjects, trashed bool
 	var limit int
 
 	cmd := &cobra.Command{
@@ -222,6 +233,14 @@ func newCardLsCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if trashed {
+					cards, err := app.Core.TrashedCards(cmd.Context(), app.Project.ID, app.Board.ID)
+					if err != nil {
+						return err
+					}
+					page.Cards = append(page.Cards, cards...)
+					page.Total += len(cards)
+				}
 				return emitCardPage(cmd, page)
 			})
 		},
@@ -230,6 +249,7 @@ func newCardLsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&priority, "priority", "", "only cards at this priority")
 	cmd.Flags().StringVar(&label, "label", "", "only cards with this label")
 	cmd.Flags().BoolVar(&archived, "archived", false, "include archived cards")
+	cmd.Flags().BoolVar(&trashed, "trashed", false, "include cards in the trash")
 	cmd.Flags().BoolVar(&allProjects, "all-projects", false, "every project, not just this one")
 	cmd.Flags().IntVar(&limit, "limit", 0, "row cap (default 50)")
 	cmd.Flags().BoolVar(&all, "all", false, "no row cap")
@@ -244,7 +264,11 @@ func emitCardPage(cmd *cobra.Command, page core.CardPage) error {
 		var b strings.Builder
 		w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 		for _, c := range page.Cards {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", c.Ref, c.ColumnName, c.PriorityName, c.Title)
+			title := c.Title
+			if c.TrashedAt != nil {
+				title += "  (trashed)"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", c.Ref, c.ColumnName, c.PriorityName, title)
 		}
 		w.Flush()
 		out := strings.TrimRight(b.String(), "\n")
@@ -352,15 +376,15 @@ func newCardEditCmd() *cobra.Command {
 func newCardRmCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "rm <card>",
-		Short: "Delete a card",
+		Short: "Move a card to the trash",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withTarget(refArg{Collection: address.CollectionCards, Value: args[0]}, func(app *appCtx, ref string) error {
 				if err := app.Core.DeleteCard(cmd.Context(), app.Project.ID, core.ParseCardRef(ref)); err != nil {
 					return err
 				}
-				return Emit(cmd, map[string]any{"deleted": args[0]}, func() string {
-					return args[0] + " deleted"
+				return Emit(cmd, map[string]any{"trashed": args[0]}, func() string {
+					return args[0] + " moved to the trash (trellis card restore " + args[0] + " brings it back)"
 				})
 			})
 		},
