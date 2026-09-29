@@ -3,6 +3,8 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -191,4 +193,39 @@ func coreErrExit(err error) int {
 		return e.Exit
 	}
 	return 0
+}
+
+func TestTrash_TRASH_C21_project_rm_trashes_everything_and_restore_returns_it(t *testing.T) {
+	dir := markerEnv(t, "repo")
+	seedProject(t, "SHIP", "side")
+	writeMarker(t, dir, "/SHIP")
+	ref := newCardRef(t, "a card")
+	runCmd(t, "vault", "new", "--title", "An entry", "--body", "kept\n")
+	runCmd(t, "artifact", "add", writeFile(t, "a.txt", "a"))
+	root := os.Getenv("TRELLIS_HOME")
+
+	runCmd(t, "project", "rm", "SHIP")
+
+	if _, err := os.Stat(filepath.Join(root, "projects", "SHIP", "vault", "an-entry.md")); err != nil {
+		t.Errorf("the project's directory should stay until the purge: %v", err)
+	}
+	_, err := runCmdErr(t, "card", "ls", "--json")
+	if ce := coreErr(t, err); ce.Fix != "trellis project restore SHIP" {
+		t.Errorf("a marker naming the trashed project: %+v", ce)
+	}
+
+	runCmd(t, "project", "restore", "SHIP")
+
+	if out := runCmd(t, "card", "show", ref, "--json"); !strings.Contains(out, `"title":"a card"`) {
+		t.Errorf("card after restore: %s", out)
+	}
+	if out := runCmd(t, "vault", "show", "an-entry", "--json"); !strings.Contains(out, "kept") {
+		t.Errorf("entry after restore: %s", out)
+	}
+	if out := runCmd(t, "artifact", "ls", "--json"); !strings.Contains(out, "a.txt") {
+		t.Errorf("artifact after restore: %s", out)
+	}
+	if out := runCmd(t, "board", "ls", "--json"); !strings.Contains(out, `"side"`) {
+		t.Errorf("boards after restore: %s", out)
+	}
 }
