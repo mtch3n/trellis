@@ -331,8 +331,8 @@ func TestEventsScopedToProjectIncludesDeletedLabelAndCommentEvents(t *testing.T)
 		t.Fatalf("scoped events status = %d, body = %s", scoped.Code, scoped.Body)
 	}
 	body := scoped.Body.Bytes()
-	if !bytes.Contains(body, []byte(`"action":"deleted"`)) {
-		t.Errorf("scoped events is missing the deleted card event: %s", body)
+	if !bytes.Contains(body, []byte(`"action":"trashed"`)) {
+		t.Errorf("scoped events is missing the trashed card event: %s", body)
 	}
 	if !bytes.Contains(body, []byte(`"entity":"label"`)) {
 		t.Errorf("scoped events is missing the label merge event: %s", body)

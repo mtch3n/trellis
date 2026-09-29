@@ -1098,23 +1098,23 @@ func (c *Core) EditEntryFields(ctx context.Context, projectID, slug string, in E
 	return entry, err
 }
 
-// DeleteEntry removes the row and the file.
+// DeleteEntry moves an entry and its revisions to the trash.
 func (c *Core) DeleteEntry(ctx context.Context, projectID, slug string) error {
-	var staged, revStaged *stagedRemoval
 	var entry Entry
-	var done bool
-	err := c.Tx(ctx, func(tx *sqlx.Tx) (err error) {
-		key, err := projectKeyOf(tx, projectID)
-		if err != nil {
-			return err
+	var key string
+	trashID := NewID()
+	err := c.withMoves(ctx, func(tx *sqlx.Tx) ([]trashFile, bool, error) {
+		var err error
+		if key, err = projectKeyOf(tx, projectID); err != nil {
+			return nil, false, err
 		}
 		d, err := readEntryArg(slug, key)
 		if err != nil {
-			return err
+			return nil, false, err
 		}
-		exactSlug, rerr := c.resolveSlug(tx, projectID, d.slug, d.scope == entryVault)
-		if rerr != nil {
-			return rerr
+		exactSlug, err := c.resolveSlug(tx, projectID, d.slug, d.scope == entryVault)
+		if err != nil {
+			return nil, false, err
 		}
 		q := `SELECT * FROM entry WHERE project_id = ? AND slug = ?`
 		switch d.scope {
@@ -1124,41 +1124,20 @@ func (c *Core) DeleteEntry(ctx context.Context, projectID, slug string) error {
 			q += ` AND global = 1`
 		}
 		if err := tx.Get(&entry, q, projectID, exactSlug); err != nil {
-			if err.Error() == "sql: no rows in result set" {
-				return ErrNotFound("entry_not_found", "no entry "+slug+" owned by this project", "trellis vault ls")
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, false, ErrNotFound("entry_not_found", "no entry "+slug+" owned by this project", "trellis vault ls")
 			}
-			return err
+			return nil, false, err
 		}
 		entry.Path = c.entryPath(key, entry.Global, entry.Slug)
-		var serr error
-		staged, serr = stageRemoval(entry.Path)
-		if serr != nil {
-			return serr
+		return c.entryTrashFiles(key, entry, trashID), false, nil
+	}, func(tx *sqlx.Tx) error {
+		if err := c.recordEvent(tx, "entry", entry.ID, "trashed", "", entry.Title, ""); err != nil {
+			return err
 		}
-		revStaged, serr = stageRemoval(revisionDir(entry.Path))
-		if serr != nil {
-			if rerr := staged.restore(); rerr != nil {
-				return errors.Join(serr, rerr)
-			}
-			return serr
-		}
-		// A failure, or a panic, below undoes the stage before this closure
-		// returns, while Core.Tx still holds SQLite's write lock. done, not
-		// err, is what the restore is keyed on: a panic unwinds through this
-		// defer without ever reaching the closure's own return statement, so
-		// a named result would still read nil and the restore would be
-		// skipped.
-		defer func() {
-			if !done {
-				if rerr := staged.restore(); rerr != nil {
-					err = errors.Join(err, rerr)
-				}
-				if rerr := revStaged.restore(); rerr != nil {
-					err = errors.Join(err, rerr)
-				}
-			}
-		}()
-		if err := c.recordEvent(tx, "entry", entry.ID, "deleted", "", entry.Title, ""); err != nil {
+		if err := c.trashRows(tx, trashItem{id: trashID, kind: TrashEntry, table: "entry", itemID: entry.ID,
+			name: entry.Slug, title: entry.Title, projectID: projectID, projectKey: key,
+			files: c.entryTrashFiles(key, entry, trashID)}); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM entry WHERE id = ?`, entry.ID); err != nil {
@@ -1168,45 +1147,73 @@ func (c *Core) DeleteEntry(ctx context.Context, projectID, slug string) error {
 			return err
 		}
 		// Inbound links survive as stubs rather than vanishing: a reference to
-		// something deleted is a diagnostic, not a silent no-op (§10.4).
-		if _, err := tx.Exec(
-			`UPDATE link SET to_id = NULL WHERE to_type = 'entry' AND to_id = ?`, entry.ID); err != nil {
-			return err
-		}
-		done = true
-		return nil
+		// something trashed is a diagnostic, not a silent no-op (§10.4).
+		// Restoring the entry resolves them again.
+		_, err := tx.Exec(`UPDATE link SET to_id = NULL WHERE to_type = 'entry' AND to_id = ?`, entry.ID)
+		return err
+	}, func() (bool, error) {
+		var n int
+		err := c.db.Get(&n, `SELECT COUNT(*) FROM entry WHERE id = ?`, entry.ID)
+		return n == 0, err
 	})
-	if err != nil && done {
-		// done means the closure completed and it was tx.Commit that
-		// failed: an ambiguous outcome only durable state can resolve, and
-		// when it shows the delete landed, the delete is a success no
-		// matter what Commit reported. When done is false, the closure's
-		// own defer already restored -- there is nothing here to resolve,
-		// including the "not found" case where entry.ID is not a real row.
-		var gone int
-		qerr := c.db.Get(&gone, `SELECT COUNT(*) FROM entry WHERE id = ?`, entry.ID)
-		if writeLanded(gone == 0, qerr) {
-			err = nil
-		} else {
-			if rerr := staged.restore(); rerr != nil {
-				err = errors.Join(err, rerr)
-			}
-			if rerr := revStaged.restore(); rerr != nil {
-				err = errors.Join(err, rerr)
-			}
-		}
-	}
 	if err != nil {
-		return err
-	}
-	if err := staged.finalize(); err != nil {
-		return err
-	}
-	if err := revStaged.finalize(); err != nil {
 		return err
 	}
 	c.notifyEntryChanged(ctx, projectID)
 	return nil
+}
+
+// entryTrashFiles is where an entry's file and revisions go in the trash:
+// the same place under .trash/<id>/ that they had under the vault's parent.
+func (c *Core) entryTrashFiles(key string, entry Entry, trashID string) []trashFile {
+	path := c.entryPath(key, entry.Global, entry.Slug)
+	base := filepath.Dir(c.vaultDir(key, entry.Global))
+	dir := c.trashDir(key, entry.Global, trashID)
+	var out []trashFile
+	for _, p := range []string{path, revisionDir(path)} {
+		inBase, _ := filepath.Rel(base, p)
+		from, _ := filepath.Rel(c.root, p)
+		to, _ := filepath.Rel(c.root, filepath.Join(dir, inBase))
+		out = append(out, trashFile{From: from, To: to})
+	}
+	return out
+}
+
+// RestoreEntry puts a trashed entry back, refusing when its slug has been
+// taken since.
+func (c *Core) RestoreEntry(ctx context.Context, projectID, slug string) (Entry, error) {
+	var trashID string
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		key, err := projectKeyOf(tx, projectID)
+		if err != nil {
+			return err
+		}
+		d, err := readEntryArg(slug, key)
+		if err != nil {
+			return err
+		}
+		it, err := findTrash(tx, projectID, TrashEntry, d.slug)
+		trashID = it.ID
+		return err
+	})
+	if err != nil {
+		return Entry{}, err
+	}
+	it, err := c.restoreTrash(ctx, trashID, func(tx *sqlx.Tx, it TrashItem) error {
+		var n int
+		if err := tx.Get(&n, `SELECT count(*) FROM entry WHERE project_id = ? AND slug = ?`, projectID, it.Name); err != nil {
+			return err
+		}
+		if n > 0 {
+			return ErrConflict("slug_taken", fmt.Sprintf("another entry now uses %s", it.Name),
+				"trellis vault mv "+it.Name+" <new-slug>   # then restore again")
+		}
+		return nil
+	})
+	if err != nil {
+		return Entry{}, err
+	}
+	return c.ReadEntry(ctx, projectID, it.Name)
 }
 
 // RebuildEntrySearch refreshes the derived FTS index from the Markdown

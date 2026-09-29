@@ -352,7 +352,7 @@ func TestEventLogDeletedEntryHasEmptyRefAndTitleExceptItsOwnDeletedEvent(t *test
 		if ev.Ref != "" {
 			t.Errorf("%+v: ref must be empty once the entry is gone", ev)
 		}
-		if ev.Action == "deleted" {
+		if ev.Action == "trashed" {
 			sawDeleted = true
 			if ev.Title != "Temporary" {
 				t.Errorf("%+v: deleted event must carry the recorded title", ev)
@@ -458,7 +458,7 @@ func TestEventLogTemplateFilterKeepsDeletions(t *testing.T) {
 	for _, e := range events {
 		actions = append(actions, e.Action)
 	}
-	if !slices.Contains(actions, "deleted") {
+	if !slices.Contains(actions, "trashed") {
 		t.Errorf("actions = %v, want the deletion", actions)
 	}
 }

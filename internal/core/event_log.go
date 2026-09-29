@@ -110,12 +110,16 @@ func (r logRow) toLogEvent() LogEvent {
 			ev.Title = r.CommentTitle
 		}
 	}
-	if r.Action == "deleted" {
+	if goneActions[r.Action] {
 		ev.Ref = ""
 		ev.Title = r.OldValue
 	}
 	return ev
 }
+
+// goneActions take an entity off its board: its row is gone, so the event
+// carries the title recorded at the time instead of the current one.
+var goneActions = map[string]bool{"deleted": true, "trashed": true, "purged": true}
 
 // EventLog is the one query behind the CLI, the web endpoint and any future
 // extension. See toLogEvent for the disclosure policy and the Global
@@ -145,12 +149,12 @@ func (c *Core) EventLog(ctx context.Context, q EventQuery) ([]LogEvent, *int64, 
 	} else {
 		actionClause, actionArgs = inClause("e.action", q.Actions)
 	}
-	// A deleted entry's row is gone, and its template with it, so its
-	// deleted event passes a template filter rather than vanish from it.
+	// A deleted or trashed entry's row is gone, and its template with it, so
+	// that event passes a template filter rather than vanish from it.
 	templateClause, templateArgs := inClause("k.template", q.Templates)
 	if templateClause != "" {
 		templateClause = " AND (" + strings.TrimPrefix(templateClause, " AND ") +
-			" OR (e.entity_type = 'entry' AND e.action = 'deleted'))"
+			" OR (e.entity_type = 'entry' AND e.action IN ('deleted', 'trashed', 'purged')))"
 	}
 	var actorClause string
 	var actorArgs []any
