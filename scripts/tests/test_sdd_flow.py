@@ -1,6 +1,6 @@
-"""Plugin shape and flow: specs/sdd (SDD-C1 to SDD-C5) and specs/sdd/flow (SDD-C6 to SDD-C11).
+"""Plugin shape and flow: specs/sdd (SDD-C1 to SDD-C5) and specs/sdd/flow (SDD-C6 to SDD-C11, SDD-C131 to SDD-C135).
 
-SDD-C9 to SDD-C11 run a real Haiku session and cost money, so they run only
+SDD-C9 to SDD-C11, SDD-C134 and SDD-C135 run a real Haiku session and cost money, so they run only
 with SDD_EVAL=1.
 """
 
@@ -188,6 +188,41 @@ class SkillTests(unittest.TestCase):
                      "upgrade from the current schema", "| ID | Covers | Kind | Case |"):
             self.assertIn(item, text)
 
+    def test_SDD_C131_writing_spec_asks_only_key_decisions(self):
+        text = self.skill_text("writing-spec")
+        rounds = text[text.index("## 3. Question rounds"):text.index("## 4.")]
+        for reason in ("intent or scope", "external contract", "hard to reverse", "weak"):
+            self.assertIn(reason, rounds)
+        self.assertIn("`Assumed.`", rounds)
+        self.assertIn("Assumed (say if not)", rounds)
+        approval = text[text.index("## 8."):text.index("## Next")]
+        self.assertIn("Assumed", approval)
+
+    def test_SDD_C136_the_approval_message_groups_cases_into_stories(self):
+        text = self.skill_text("writing-spec")
+        approval = text[text.index("## 8."):text.index("## Next")]
+        self.assertIn("### 1.", approval)
+        self.assertIn("*As a ", approval)
+        self.assertIn("plain sentence", approval)
+        self.assertIn("[expected]", approval)
+        self.assertIn("[unexpected]", approval)
+        self.assertIn("per decision", approval)
+
+    def test_SDD_C132_writing_spec_asks_through_the_question_tool(self):
+        text = self.skill_text("writing-spec")
+        rounds = text[text.index("## 3. Question rounds"):text.index("## 4.")]
+        self.assertIn("AskUserQuestion", rounds)
+        self.assertIn("at most four", rounds)
+        self.assertIn("(Recommended)", rounds)
+        self.assertIn("Q1. <question> — recommended:", rounds)
+
+    def test_SDD_C133_writing_spec_caps_rounds_and_honours_delegation(self):
+        text = self.skill_text("writing-spec")
+        self.assertRegex(text, r"Big\*\*[^-]*At most\s+two rounds")
+        self.assertRegex(text.lower(), r"split")
+        self.assertIn("use your recommendations", text.lower())
+        self.assertIn("Not in this story", text)
+
     def test_SDD_C69_verifying_maps_claims_to_probes(self):
         text = self.skill_text("verifying-before-done")
         for claim in ("| Tests pass |", "| The bug is fixed |", "| The migration is safe |"):
@@ -217,15 +252,46 @@ Intent: pin a card to the top of its column.
 """
 
 
+CART_CODE = """# A cart holds lines; each line is a claim sent to the payer.
+CARTS = {}
+
+
+def create_cart(lines):
+    cart_id = len(CARTS) + 1
+    CARTS[cart_id] = [dict(line, status=submit(line)) for line in lines]
+    return cart_id
+
+
+def reverse_cart(cart_id):
+    for line in CARTS[cart_id]:
+        reverse(line)
+
+
+def submit(line):
+    return "A"
+
+
+def reverse(line):
+    line["status"] = "reversed"
+"""
+
+CART_PROMPT = ("/sdd:writing-spec Let a client add or remove one line on an existing cart, keeping the "
+               "cart id, and reverse claims correctly. Big mode. Ask your first round.")
+
+
 @unittest.skipUnless(os.environ.get("SDD_EVAL") == "1" and shutil.which("claude"), "a paid Haiku run; set SDD_EVAL=1")
 class HaikuEvals(unittest.TestCase):
     def session(self, root, prompt, resume=None):
+        # User settings are skipped so the user's own plugins, trellis among them,
+        # stay out of the session; TRELLIS_HOME keeps any trellis call off the real vault.
         args = ["claude", "-p", prompt, "--model", "haiku", "--output-format", "json",
                 "--plugin-dir", str(PLUGIN), "--permission-mode", "acceptEdits",
+                "--setting-sources", "project,local", "--strict-mcp-config",
                 "--allowedTools", "Bash,Read,Write,Edit,Skill,Glob,Grep"]
         if resume:
             args += ["--resume", resume]
-        env = {k: v for k, v in os.environ.items() if k != "SDD_CLAUDE"}
+        env = {k: v for k, v in os.environ.items() if k not in ("SDD_CLAUDE", "TRELLIS_PROJECT")}
+        env["TRELLIS_HOME"] = str(pathlib.Path(root).parent / "trellis-home")
         result = subprocess.run(args, cwd=root, capture_output=True, text=True, timeout=900, check=False, env=env)
         data = json.loads(result.stdout)
         return data["result"], data["session_id"]
@@ -261,6 +327,28 @@ class HaikuEvals(unittest.TestCase):
         self.assertRegex(reply, r"PIN-C\d")
         self.assertIn("trellis", reply.lower())
         self.assertNotRegex(reply.lower(), r"team:\s|choose team|or team")
+
+    def big_story(self, tmp):
+        repo = Repo(tmp)
+        repo.write("cart.py", CART_CODE)
+        repo.commit("cart")
+        return repo
+
+    def test_SDD_C134_a_big_round_asks_at_most_four(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.big_story(tmp)
+            reply, _ = self.session(repo.root, CART_PROMPT)
+        self.assertLessEqual(len(re.findall(r"(?m)^\s*\**Q\d+[.)]", reply)), 4, reply)
+        self.assertIn("assumed", reply.lower())
+
+    def test_SDD_C135_use_your_recommendations_ends_the_rounds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self.big_story(tmp)
+            _, session = self.session(repo.root, CART_PROMPT)
+            reply, _ = self.session(repo.root, "Use your recommendations.", resume=session)
+            specs = "".join(p.read_text(encoding="utf-8") for p in (repo.root / "specs").rglob("*.md"))
+        self.assertNotRegex(reply, r"(?m)^\s*\**Q\d+[.)]")
+        self.assertIn("Assumed.", specs, reply)
 
     def test_SDD_C11_all_as_recommended_writes_every_decision(self):
         with tempfile.TemporaryDirectory() as tmp:

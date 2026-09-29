@@ -1,6 +1,6 @@
 ---
 name: writing-spec
-description: Use before building a feature, story or change that needs agreement first - the user asks to plan, spec, design, scope or "grill" something, or asks for cases, acceptance criteria or a test plan, or the work touches data, schema, an API, or several parts at once. Grows one spec per story through batched question rounds with recommended answers, drills each decision down to expected and unexpected cases, and asks in one message for the only approval, with the choice of building solo or as a team. Uses Trellis as the store when it is installed. Not for a one-line fix or a spike.
+description: Use before building a feature, story or change that needs agreement first - the user asks to plan, spec, design, scope or "grill" something, or asks for cases, acceptance criteria or a test plan, or the work touches data, schema, an API, or several parts at once. Grows one spec per story, asking the user only the key decisions and listing the ones it assumed, drills each decision down to expected and unexpected cases, and asks in one message for the only approval, with the choice of building solo or as a team. Uses Trellis as the store when it is installed. Not for a one-line fix or a spike.
 ---
 
 # Writing the spec
@@ -44,16 +44,38 @@ for the same story. History is in git or in Trellis revisions, not in the text.
 
 Say which, in one line, so the user can override it.
 
-- **Small**: one behaviour, or an addition to an existing story. One question
-  round at most.
-- **Big**: a new story, several parts, or data, schema or API changes. Work
-  the rounds below until nothing is open.
+- **Small**: one behaviour, or an addition to an existing story. At most one
+  question round.
+- **Big**: a new story, several parts, or data, schema or API changes. At most
+  two rounds. Key questions still open after two rounds mean the story is too
+  big: split it.
 
 ## 3. Question rounds
 
+Work like a senior engineer: settle what you can, and bring the user only the
+decisions that are theirs.
+
 Map the work as a tree of decisions. The **frontier** is every decision whose
-prerequisites are settled. Each round, ask the whole frontier in one message,
-in exactly this form (a hook reads it, so unanswered questions are not lost):
+prerequisites are settled. Each round, sort the frontier:
+
+- **Ask** a decision only when at least one holds:
+  - it sets **intent or scope**: what this story does and does not do, or a
+    trade-off the user would have a view on;
+  - it changes an **external contract**: what a client, payer or user sees,
+    such as an API shape, a state or an error;
+  - it is **hard to reverse**: a schema, data, money, a call to an outside system;
+  - your recommendation is **weak**: the options are close, or the code does
+    not settle it.
+- **Decide** every other decision yourself. Write it into the spec ending
+  `Assumed.`, and list it in the same message under **Assumed (say if not)**,
+  one line each, so the user can veto any of them in a word.
+- Work the user did not ask for, such as a nearby bug, is asked or left out,
+  never assumed in.
+
+Ask through `AskUserQuestion`, at most four per call, your recommended option
+first and labelled `(Recommended)`. Put the assumed list in the text before
+the call. Without the tool (under `claude -p`, for instance), write the asked
+ones in exactly this form, which a hook reads so unanswered questions are not lost:
 
 ```
 Q1. <question> — recommended: <your answer, one line why>
@@ -64,11 +86,17 @@ Q2. ...
   hold a whole round for one fact; ask what does not depend on it.
 - Facts are yours to find: read the code, run a command, send a sub-agent.
   Never ask the user something you can look up.
-- Decisions are the user's. Recommend, then wait. "All as recommended" is a
+- For an asked decision, recommend, then wait. "All as recommended" is a
   complete answer: write every recommendation as a decision.
-- Stop when the frontier is empty.
+- "Use your recommendations", "your call" and the like hand the rest of the
+  story to you: ask no more rounds, write the remaining decisions ending
+  `Assumed.` and list them, and put work the user did not ask for under
+  **Not in this story**. The case approval still happens.
+- Stop when the frontier is empty or the round budget is spent.
 
 After each round, write what was settled into the spec before the next round.
+A decision you made, not the user, ends with `Assumed.` in the spec itself, not
+only in your message: the next session must tell it from one the user made.
 If the answered question is in the open-items queue
 (`python3 <scripts>/open_items.py list`), end the decision with `Answers: <id>`.
 
@@ -88,6 +116,7 @@ Intent: <two to four lines: what it is for, and what it is not for>
 
 ## Decisions
 - **PIN-D1** <the decision>. Why: <one line>. Governs: <what it constrains, comma-separated>.
+- **PIN-D3** <a decision you made>. Why: <...>. Governs: <...>. Assumed.
 - **PIN-D4** <new decision>. Why: <...>. Governs: <...>. Supersedes: PIN-D2.
 
 ## Cases
@@ -155,14 +184,36 @@ Before approval, `untested` is expected. Fix every `uncovered`, `collision`,
 
 ## 8. One message: approve, and solo or team
 
-Recommend solo or team from facts: how many case groups are independent,
-whether migrations are involved, whether the store is Trellis. Team needs
+List every decision that ends `Assumed.` above the cases; leave the list out
+when nothing was assumed. Recommend solo or team from facts: how many case
+groups are independent, whether migrations are involved, whether the store is
+Trellis. Team needs
 Trellis: without it, do not offer team and say that it needs Trellis.
 
+Group the cases into user stories, the way the user would read them: what
+someone can do, and what they get. Each story is a heading with one
+"As a <who>, <outcome>" line, and each case under it is one plain sentence led
+by its ID and its kind in brackets, `[expected]` or `[unexpected]`. A case
+keeps its Given/when/then meaning but drops the decision IDs, arrows and exit
+codes a reader has to decode; those stay in the spec's table.
+Put the order of stories where one builds on another, and the unexpected cases
+beside the expected ones they guard.
+
 ```
-Cases (N: a expected, b unexpected; per decision: PIN-D1 3, PIN-D2 2)
-  PIN-C1 PIN-D1 expected    <one line>
+Assumed (say if not)
+  PIN-D3 <one line>
   ...
+Cases (N: a expected, b unexpected; per decision: PIN-D1 3, PIN-D2 2)
+
+### 1. <Story: what the user can do>
+*As a <who>, <outcome>.*
+- **PIN-C1** [expected] <one plain sentence: when I do this, that happens>.
+- **PIN-C2** [unexpected] <one plain sentence: when this goes wrong, that happens>.
+
+### 2. <Story>
+*As a <who>, <outcome>.*
+- **PIN-C3** [expected] <one plain sentence>.
+
 Approve these cases?
 Build — recommended: solo (<reason from the facts>)
   solo: I build them in order, test-first
