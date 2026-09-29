@@ -105,7 +105,7 @@ export function CardMenu({ cardRef, href, archived = false, disabledReason, onDe
             disabled={Boolean(disabledReason)}
             onClick={() => setConfirming(true)}
           >
-            Delete card
+            Move to the trash
           </DropdownMenuItem>
           {disabledReason && (
             <p className="px-2 pb-1.5 text-xs text-muted-foreground">
@@ -118,9 +118,9 @@ export function CardMenu({ cardRef, href, archived = false, disabledReason, onDe
       <ConfirmDialog
         open={confirming}
         busy={busy}
-        title={`Delete ${cardRef}?`}
-        description="The card and its comments are removed for good. The event log keeps a record."
-        confirm="Delete card"
+        title={`Move ${cardRef} to the trash?`}
+        description="The card and its comments leave the board. The project's trash can restore them until trash.retention passes; then they are purged."
+        confirm="Move to the trash"
         onOpenChange={setConfirming}
         onConfirm={() => void confirm()}
       />

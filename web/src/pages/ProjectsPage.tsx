@@ -19,8 +19,10 @@ import { DeleteProjectDialog } from '@/components/wrappers/DeleteProjectDialog'
 import { Lamp } from '@/components/wrappers/Lamp'
 import { PageHeader } from '@/components/wrappers/PageHeader'
 import { Paged } from '@/components/wrappers/Paged'
+import { TrashTable } from '@/components/wrappers/TrashTable'
 import { readError } from '@/lib/api'
 import { defaultBoard } from '@/lib/boards'
+import { readTrash, type TrashItem } from '@/lib/trash'
 
 function cards(project: ProjectSummary) {
   return project.columns.reduce((total, column) => total + column.card_count, 0)
@@ -31,20 +33,22 @@ function column(project: ProjectSummary, name: string) {
 }
 
 /**
- * Every project on this machine, and the one place a project is deleted.
- * Deleting is kept off the switcher on purpose: it is a management act, not
- * something to reach while moving between projects.
+ * Every project on this machine, and the one place a project is trashed or
+ * restored. Trashing is kept off the switcher on purpose: it is a management
+ * act, not something to reach while moving between projects.
  */
 export function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<ProjectSummary | null>(null)
+  const [trashed, setTrashed] = useState<TrashItem[]>([])
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
       const response = await fetch('/api/projects', { signal })
       if (!response.ok) throw new Error(await readError(response))
       setProjects(await response.json())
+      setTrashed(await readTrash('/api/trash/projects', signal))
       setError(null)
     } catch (err) {
       if (signal?.aborted) return
@@ -96,13 +100,23 @@ export function ProjectsPage() {
       <Group title="Live" projects={live} empty="No project has a card yet." onDelete={setDeleting} />
       <Group title="Initialised, never used" projects={untouched} empty="Every project has been written to." onDelete={setDeleting} />
 
+      {trashed.length > 0 && (
+        <section className="mt-10">
+          <h2 className="flex items-baseline gap-3 text-heading">
+            In the trash
+            <span className="text-xs font-normal text-muted-foreground">{trashed.length}</span>
+          </h2>
+          <TrashTable items={trashed} projectKey={null} label="Trashed project pages" onRestored={() => void load()} />
+        </section>
+      )}
+
       <DeleteProjectDialog
         projectKey={deleting?.key ?? null}
         cards={deleting ? cards(deleting) : 0}
         onOpenChange={(open) => { if (!open) setDeleting(null) }}
         onDeleted={(key) => {
           setDeleting(null)
-          toast.add({ title: `Deleted ${key}`, type: 'success' })
+          toast.add({ title: `Moved ${key} to the trash`, type: 'success' })
           void load()
         }}
       />
@@ -219,7 +233,7 @@ function ProjectActions({ project, onDelete }: { project: ProjectSummary; onDele
         )}
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onClick={onDelete}>
-          Delete project
+          Move to the trash
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

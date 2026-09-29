@@ -94,10 +94,10 @@ export function DeleteProjectDialog({
       <DialogContent className="gap-5 p-6 sm:max-w-md">
         <form onSubmit={submit} className="flex flex-col gap-5">
           <DialogHeader>
-            <DialogTitle>Delete {projectKey}?</DialogTitle>
+            <DialogTitle>Move {projectKey} to the trash?</DialogTitle>
             <DialogDescription className="text-pretty">
-              This removes its boards, {what}, and their files from this machine. The event log keeps a
-              record. Running trellis in the repository again starts a new, empty project.
+              Its boards, {what} leave with it. The projects page can restore it until trash.retention
+              passes; then it and its files are purged. Its key stays reserved until then.
             </DialogDescription>
           </DialogHeader>
 
@@ -125,7 +125,7 @@ export function DeleteProjectDialog({
             </Button>
             <Button type="submit" variant="destructive" disabled={!confirmed || deleting}>
               {deleting && <Spinner data-icon="inline-start" />}
-              Delete project
+              Move to the trash
             </Button>
           </DialogFooter>
         </form>

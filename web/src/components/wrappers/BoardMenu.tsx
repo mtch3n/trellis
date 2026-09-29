@@ -94,7 +94,7 @@ export function BoardMenu({ board, cards, isDefault, onCreate, onRename, onSetDe
           <DropdownMenuItem onClick={onLabels}>Labels…</DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onClick={() => { setRefusal(null); setConfirming(true) }}>
-            Delete this board
+            Move this board to the trash
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -143,13 +143,13 @@ export function BoardMenu({ board, cards, isDefault, onCreate, onRename, onSetDe
       <ConfirmDialog
         open={confirming}
         busy={busy}
-        title={`Delete ${board}?`}
+        title={`Move ${board} to the trash?`}
         description={
           cards > 0
-            ? `The board goes with its ${cards} ${cards === 1 ? 'card' : 'cards'}. The event log keeps a record; nothing else does.`
-            : 'The board is empty, so nothing on it is lost. A project always keeps one board.'
+            ? `The board goes with its ${cards} ${cards === 1 ? 'card' : 'cards'}. The project's trash can restore them together until trash.retention passes.`
+            : 'The board is empty. The project\'s trash can restore it until trash.retention passes. A project always keeps one board.'
         }
-        confirm="Delete board"
+        confirm="Move to the trash"
         onOpenChange={(next) => { if (!next) setConfirming(false) }}
         onConfirm={() => void remove()}
       />

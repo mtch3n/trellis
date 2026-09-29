@@ -94,7 +94,7 @@ export function EntryMenu({ slug, href, global = false, pinned = false, onDelete
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onClick={() => setConfirming(true)}>
-            Delete entry
+            Move to the trash
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -102,9 +102,9 @@ export function EntryMenu({ slug, href, global = false, pinned = false, onDelete
       <ConfirmDialog
         open={confirming}
         busy={busy}
-        title={`Delete ${slug}?`}
-        description="The markdown file is removed with the row. Links to it become stubs, and the event log keeps a record."
-        confirm="Delete entry"
+        title={`Move ${slug} to the trash?`}
+        description="The markdown file and its revisions move to the project's trash, which can restore them until trash.retention passes. Links to it are stubs meanwhile."
+        confirm="Move to the trash"
         onOpenChange={setConfirming}
         onConfirm={() => void confirm()}
       />

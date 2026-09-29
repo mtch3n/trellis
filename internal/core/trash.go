@@ -883,3 +883,29 @@ func RunTrashSweeper(ctx context.Context, c *Core, retention func() time.Duratio
 		}
 	}
 }
+
+// RestoreTrashItem restores one trashed item of a project by its trash id,
+// through the same checks as the noun's own restore.
+func (c *Core) RestoreTrashItem(ctx context.Context, projectID, trashID string) (TrashItem, error) {
+	var it TrashItem
+	err := c.db.GetContext(ctx, &it, `SELECT * FROM trash WHERE id = ? AND project_id = ?`, trashID, projectID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return it, ErrNotFound("not_trashed", "nothing in this project's trash with id "+trashID, "")
+	}
+	if err != nil {
+		return it, err
+	}
+	switch it.Kind {
+	case TrashCard:
+		_, err = c.RestoreCard(ctx, projectID, CardRef{UUID: it.ItemID})
+	case TrashEntry:
+		_, err = c.RestoreEntry(ctx, projectID, it.Name)
+	case TrashArtifact:
+		_, err = c.RestoreArtifact(ctx, projectID, it.Name)
+	case TrashBoard:
+		_, err = c.RestoreBoard(ctx, projectID, it.Name)
+	default:
+		err = ErrUsage("not_restorable_here", it.Kind+" "+it.Name+" is restored from the project list", "trellis project restore "+it.Name)
+	}
+	return it, err
+}

@@ -189,7 +189,7 @@ export function cardActions({ base, refresh }: {
       try {
         const response = await fetch(card(ref), { method: 'DELETE', headers: json, body: '{}' })
         if (!response.ok) throw new Error(await readError(response))
-        toast.add({ title: `Deleted ${ref}`, type: 'success' })
+        toast.add({ title: `Moved ${ref} to the trash`, type: 'success' })
         return true
       } catch (err) {
         toast.add({ title: `Could not delete ${ref}`, description: message(err), type: 'error' })

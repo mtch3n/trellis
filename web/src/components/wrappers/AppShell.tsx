@@ -28,7 +28,7 @@ const CHAT_OPEN_KEY = 'trellis.chat.open'
 // The chat and the AI SDK behind it load the first time it opens.
 const ChatPanel = lazy(() => import('@/components/wrappers/ChatPanel').then((module) => ({ default: module.ChatPanel })))
 
-export type Section = 'overview' | 'board' | 'vault' | 'settings'
+export type Section = 'overview' | 'board' | 'vault' | 'trash' | 'settings'
 
 export interface ProjectSummary {
   key: string
@@ -155,6 +155,7 @@ export function AppShell({
     // boards or vaults is one step each.
     guard(() => {
       if (section === 'vault') navigate(`/p/${key}/vault`)
+      else if (section === 'trash') navigate(`/p/${key}/trash`)
       else if (section === 'board' && board) navigate(`/p/${key}/b/${board.slug}`)
       else navigate(`/p/${key}`)
     })
@@ -227,6 +228,13 @@ export function AppShell({
             className={tab}
           >
             Vault
+          </GuardedLink>
+          <GuardedLink
+            to={projectKey ? `/p/${projectKey}/trash` : '/'}
+            aria-current={section === 'trash' ? 'page' : undefined}
+            className={tab}
+          >
+            Trash
           </GuardedLink>
         </nav>
 

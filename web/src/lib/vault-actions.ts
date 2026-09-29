@@ -103,7 +103,7 @@ export function vaultActions({ projectKey, board, refresh }: {
       try {
         const response = await fetch(entry(slug), { method: 'DELETE', headers: json, body: '{}' })
         if (!response.ok) throw new Error(refusalText(await readRefusal(response)))
-        toast.add({ title: `Deleted ${slug}`, type: 'success' })
+        toast.add({ title: `Moved ${slug} to the trash`, type: 'success' })
         await refresh()
         return true
       } catch (err) {

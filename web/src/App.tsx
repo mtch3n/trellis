@@ -11,6 +11,7 @@ import { CardPage } from './pages/CardPage'
 import { SearchPage } from './pages/SearchPage'
 import { EventLogPage } from './pages/EventLogPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { TrashPage } from './pages/TrashPage'
 import { Toaster } from '@/components/ui/toast'
 import { AppShell, type Section } from '@/components/wrappers/AppShell'
 import { NavigationGuardProvider } from '@/components/wrappers/NavigationGuard'
@@ -71,6 +72,10 @@ function App() {
         <Route
           path="/p/:projectKey/health"
           element={<Shelled section="vault"><HealthPage /></Shelled>}
+        />
+        <Route
+          path="/p/:projectKey/trash"
+          element={<Shelled section="trash"><TrashPage /></Shelled>}
         />
 
         <Route path="/search" element={<AppShell><SearchPage /></AppShell>} />
