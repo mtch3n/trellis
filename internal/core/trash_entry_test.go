@@ -138,3 +138,115 @@ func TestTrash_TRASH_C6_lint_health_and_walks_ignore_the_trash(t *testing.T) {
 		}
 	}
 }
+
+func TestTrash_TRASH_C11_restoring_into_a_reused_slug_is_a_conflict(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	ctx := t.Context()
+	old, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Runbook", Body: "old\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.DeleteEntry(ctx, p.ID, old.Slug); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Runbook", Body: "new\n"})
+	if err != nil || fresh.Slug != old.Slug {
+		t.Fatalf("new entry = %q, %v; want slug %q", fresh.Slug, err, old.Slug)
+	}
+	before, _ := c.ReadEntry(ctx, p.ID, fresh.Slug)
+
+	_, err = c.RestoreEntry(ctx, p.ID, old.Slug)
+
+	if exitOf(err) != 4 || !strings.Contains(err.Error(), old.Slug) {
+		t.Fatalf("restore = %v, want exit 4 naming %s", err, old.Slug)
+	}
+	after, _ := c.ReadEntry(ctx, p.ID, fresh.Slug)
+	if after.ID != fresh.ID || after.BodyMD != before.BodyMD {
+		t.Errorf("the live entry changed: %+v", after)
+	}
+	var trashed int
+	c.db.Get(&trashed, `SELECT count(*) FROM trash WHERE item_id = ?`, old.ID)
+	if trashed != 1 {
+		t.Errorf("the trashed entry left the trash")
+	}
+}
+
+func stubsFrom(t *testing.T, c *Core, projectID, slug string) int {
+	t.Helper()
+	diags, err := c.Lint(t.Context(), projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, d := range diags {
+		if d.Kind == "stub" && strings.HasSuffix(d.Entry, "/"+slug) {
+			n++
+		}
+	}
+	return n
+}
+
+func TestTrash_TRASH_C23_links_into_a_trashed_entry_are_stubs_until_restore(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	ctx := t.Context()
+	b, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Target", Body: "target\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Source", Body: "see [[" + b.Slug + "]]\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := stubsFrom(t, c, p.ID, a.Slug); n != 0 {
+		t.Fatalf("stubs before trash = %d", n)
+	}
+
+	if err := c.DeleteEntry(ctx, p.ID, b.Slug); err != nil {
+		t.Fatal(err)
+	}
+	if n := stubsFrom(t, c, p.ID, a.Slug); n != 1 {
+		t.Errorf("stubs while trashed = %d, want 1", n)
+	}
+	if _, err := c.RestoreEntry(ctx, p.ID, b.Slug); err != nil {
+		t.Fatal(err)
+	}
+	if n := stubsFrom(t, c, p.ID, a.Slug); n != 0 {
+		t.Errorf("stubs after restore = %d, want 0", n)
+	}
+
+	if err := c.DeleteEntry(ctx, p.ID, b.Slug); err != nil {
+		t.Fatal(err)
+	}
+	var at int64
+	c.db.Get(&at, `SELECT trashed_at FROM trash WHERE item_id = ?`, b.ID)
+	if _, err := c.PurgeTrash(ctx, at+1); err != nil {
+		t.Fatal(err)
+	}
+	if n := stubsFrom(t, c, p.ID, a.Slug); n != 1 {
+		t.Errorf("stubs after purge = %d, want 1", n)
+	}
+}
+
+func TestTrash_TRASH_C29_a_new_entry_takes_a_trashed_slugs_links(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	ctx := t.Context()
+	b, _ := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Target", Body: "old\n"})
+	a, _ := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Source", Body: "see [[" + b.Slug + "]]\n"})
+	if err := c.DeleteEntry(ctx, p.ID, b.Slug); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: "Target", Body: "new\n"})
+	if err != nil || fresh.Slug != b.Slug {
+		t.Fatalf("new entry = %q, %v", fresh.Slug, err)
+	}
+
+	var toIDs []string
+	c.db.Select(&toIDs, `SELECT COALESCE(to_id, '') FROM link WHERE from_type = 'entry' AND from_id = ? AND to_type = 'entry'`, a.ID)
+	if len(toIDs) != 1 || toIDs[0] != fresh.ID {
+		t.Errorf("links from the source = %v, want exactly one to %s", toIDs, fresh.ID)
+	}
+	if n := stubsFrom(t, c, p.ID, a.Slug); n != 0 {
+		t.Errorf("stubs = %d, want 0", n)
+	}
+}
