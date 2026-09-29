@@ -229,3 +229,30 @@ func TestTrash_TRASH_C21_project_rm_trashes_everything_and_restore_returns_it(t 
 		t.Errorf("boards after restore: %s", out)
 	}
 }
+
+func TestTrash_TRASH_C17_a_fresh_root_gets_the_default_written(t *testing.T) {
+	projectEnv(t)
+	runCmd(t, "card", "ls")
+
+	raw, err := os.ReadFile(filepath.Join(os.Getenv("TRELLIS_HOME"), "config.yaml"))
+	if err != nil || !strings.Contains(string(raw), "retention: 30d") && !strings.Contains(string(raw), `retention: "30d"`) {
+		t.Errorf("config.yaml = %q, %v; want trash.retention 30d", raw, err)
+	}
+	if out := runCmd(t, "config", "get", "trash.retention", "--json"); !strings.Contains(out, `"value":"30d"`) {
+		t.Errorf("config get trash.retention = %s", out)
+	}
+}
+
+func TestTrash_TRASH_C27_retention_has_no_project_override(t *testing.T) {
+	projectEnv(t)
+
+	_, err := runCmdErr(t, "config", "set", "trash.retention", "7d")
+
+	ce := coreErr(t, err)
+	if ce.Exit != 2 || !strings.Contains(ce.Fix, "config.yaml") {
+		t.Errorf("config set trash.retention = %+v, want exit 2 naming config.yaml", ce)
+	}
+	if out := runCmd(t, "config", "get", "trash.retention", "--json"); !strings.Contains(out, `"value":"30d"`) {
+		t.Errorf("a project override was stored: %s", out)
+	}
+}

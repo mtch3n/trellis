@@ -29,6 +29,7 @@ type Config struct {
 	Card    CardConfig    `yaml:"card"`
 	Search  SearchConfig  `yaml:"search"`
 	History HistoryConfig `yaml:"history"`
+	Trash   TrashConfig   `yaml:"trash"`
 	AI      AIConfig      `yaml:"ai"`
 }
 
@@ -89,6 +90,49 @@ func (h HistoryConfig) EffectiveKeep() int {
 	return *h.Keep
 }
 
+// TrashConfig controls how long trashed things wait before the purge.
+type TrashConfig struct {
+	Retention string `yaml:"retention"` // e.g. "30d"; at least a day
+}
+
+// RetentionDuration is Retention parsed. Load has already refused a value
+// that does not parse, so an error here means a Config built by hand; it
+// falls back to the default rather than purging early.
+func (t TrashConfig) RetentionDuration() time.Duration {
+	d, err := ParseRetention(t.Retention)
+	if err != nil {
+		d, _ = ParseRetention(Defaults().Trash.Retention)
+	}
+	return d
+}
+
+// ParseRetention reads a retention: a whole number of days ("30d") or weeks
+// ("12w"), or a Go duration ("720h"). Anything under a day is refused: a
+// shorter retention would purge what someone could still want back.
+func ParseRetention(raw string) (time.Duration, error) {
+	var d time.Duration
+	var err error
+	switch {
+	case strings.HasSuffix(raw, "d") || strings.HasSuffix(raw, "w"):
+		n, perr := strconv.Atoi(raw[:len(raw)-1])
+		if perr != nil {
+			return 0, fmt.Errorf("trash.retention: must be like 30d, 12w or 720h, got %q", raw)
+		}
+		d = time.Duration(n) * 24 * time.Hour
+		if strings.HasSuffix(raw, "w") {
+			d *= 7
+		}
+	default:
+		if d, err = time.ParseDuration(raw); err != nil {
+			return 0, fmt.Errorf("trash.retention: must be like 30d, 12w or 720h, got %q", raw)
+		}
+	}
+	if d < 24*time.Hour {
+		return 0, fmt.Errorf("trash.retention: must be at least 1d, got %q", raw)
+	}
+	return d, nil
+}
+
 // VectorSearchConfig controls the optional semantic entry index. The
 // embedding executable receives UTF-8 text on stdin and must print either a
 // JSON float array or {"embedding":[...]} on stdout.
@@ -132,6 +176,7 @@ func Defaults() Config {
 			Vector: VectorSearchConfig{Limit: 10, ChunkSize: 1200, ChunkOverlap: 200},
 		},
 		History: HistoryConfig{Keep: ptr(100)},
+		Trash:   TrashConfig{Retention: "30d"},
 	}
 }
 
@@ -186,6 +231,9 @@ func parseConfigBytes(data []byte) (Config, error) {
 	if *cfg.History.Keep < 0 {
 		return cfg, fmt.Errorf("history.keep must not be negative, got %d", *cfg.History.Keep)
 	}
+	if _, err := ParseRetention(cfg.Trash.Retention); err != nil {
+		return cfg, err
+	}
 
 	return cfg, nil
 }
@@ -227,6 +275,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.History.Keep == nil {
 		cfg.History.Keep = defaults.History.Keep
+	}
+	if cfg.Trash.Retention == "" {
+		cfg.Trash.Retention = defaults.Trash.Retention
 	}
 }
 
@@ -274,6 +325,8 @@ func GetValue(cfg Config, key string) (string, bool) {
 		return fmt.Sprintf("%d", cfg.Search.Vector.ChunkOverlap), true
 	case "history.keep":
 		return fmt.Sprintf("%d", cfg.History.EffectiveKeep()), true
+	case "trash.retention":
+		return cfg.Trash.Retention, true
 	default:
 		return "", false
 	}
@@ -299,6 +352,9 @@ func ValidateValue(key, value string) error {
 		return validatePositiveDuration(key, value)
 	case "search.method":
 		return validateChoice(key, value, searchMethods)
+	case "trash.retention":
+		_, err := ParseRetention(value)
+		return err
 	default:
 		return nil
 	}
@@ -609,6 +665,7 @@ func AllKeys() []string {
 		"search.vector.enabled", "search.vector.provider", "search.vector.embed_command", "search.vector.endpoint",
 		"search.vector.model", "search.vector.dimension", "search.vector.limit",
 		"history.keep",
+		"trash.retention",
 	}
 }
 
@@ -692,6 +749,8 @@ func Describe() []KeyInfo {
 			Description: "The default number of vector search results."},
 		{Key: "history.keep", Type: TypeInt, Min: ptr(0), Editable: true, Restart: false,
 			Description: "How many revisions each vault entry and card retains."},
+		{Key: "trash.retention", Type: TypeString, Editable: true, Restart: false,
+			Description: "How long a trashed card, entry, artifact, board or project can be restored before it is purged: 30d, 12w or 720h, at least 1d."},
 	}
 }
 
@@ -745,6 +804,8 @@ func TypedValue(cfg Config, key string) (value any, ok bool) {
 		return cfg.Search.Vector.Limit, true
 	case "history.keep":
 		return cfg.History.EffectiveKeep(), true
+	case "trash.retention":
+		return cfg.Trash.Retention, true
 	default:
 		return nil, false
 	}
@@ -891,6 +952,9 @@ func settingNode(info KeyInfo, value any) (*yaml.Node, string) {
 		s, ok := value.(string)
 		if !ok {
 			return nil, fmt.Sprintf("%s: must be a string", info.Key)
+		}
+		if err := ValidateValue(info.Key, s); err != nil {
+			return nil, err.Error()
 		}
 		return quotedScalar(s), ""
 	case TypeList:
@@ -1310,4 +1374,21 @@ func writeFileAtomic(path string, data []byte) error {
 		return err
 	}
 	return nil
+}
+
+// GlobalOnly reports a key that only the global config.yaml sets: no project
+// override, because what it governs spans every project.
+func GlobalOnly(key string) bool { return key == "trash.retention" }
+
+// EnsureTrashRetention writes the default trash.retention into config.yaml
+// when the file does not set one, so how long trash is kept is always
+// written down. Every other line stays as it was. A file that does not parse
+// is left alone: the error is reported where it is today.
+func EnsureTrashRetention(root string) error {
+	_, present, err := LoadWithPresence(root)
+	if err != nil || present["trash.retention"] {
+		return nil
+	}
+	_, err = SetGlobalValues(root, map[string]any{"trash.retention": Defaults().Trash.Retention}, nil)
+	return err
 }

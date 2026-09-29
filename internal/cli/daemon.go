@@ -106,6 +106,9 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	// built-in 30-minute claim TTL and web card creation skips
 	// labels.require_on_card / tags.require_on_card, whatever the config
 	// file or a project override says.
+	if err := config.EnsureTrashRetention(root); err != nil {
+		return fmt.Errorf("write trash.retention to config.yaml: %w", err)
+	}
 	c.ApplyConfig(cfg)
 	search := retrieval.NewService(c, db, dbPath, cfg, root)
 	c.SetEntryChanged(search.ReconcileProject)
@@ -125,6 +128,11 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	defer cancel()
 	errorsCh := make(chan error, 2)
 	var workers sync.WaitGroup
+	workers.Go(func() {
+		core.RunTrashSweeper(ctx, c, c.TrashRetention, time.Tick(time.Hour), func(err error) {
+			fmt.Fprintln(os.Stderr, "trellis daemon: purging the trash:", err)
+		})
+	})
 	if listener != nil {
 		workers.Go(func() { errorsCh <- server.ServeContext(ctx, listener) })
 	}

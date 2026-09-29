@@ -63,7 +63,16 @@ func openCore() (*core.Core, *sqlx.DB, error) {
 	if cfgErr != nil {
 		cfg = config.Defaults()
 	}
+	if err := config.EnsureTrashRetention(root); err != nil {
+		db.Close()
+		return nil, nil, fmt.Errorf("write trash.retention to config.yaml: %w", err)
+	}
 	c.ApplyConfig(cfg)
+	// A failed purge must not stop the command it rode in on; the next
+	// command, or the daemon, tries again.
+	if _, err := c.SweepTrash(context.Background(), c.TrashRetention()); err != nil {
+		fmt.Fprintln(os.Stderr, "trellis: purging the trash:", err)
+	}
 	search := retrieval.NewService(c, db, path, cfg, root)
 	c.SetEntryChanged(search.ReconcileProject)
 	c.SetDropDerived(search.DropProject)

@@ -25,6 +25,9 @@ type Core struct {
 	// ever reach here — see config.ValidateValue and config.Load.
 	historyKeep int
 
+	// trashRetention is how long a trashed item waits before the purge.
+	trashRetention time.Duration
+
 	// policies is empty by default; see policy.go and §14.
 	policies []Policy
 
@@ -60,7 +63,8 @@ func New(db *sqlx.DB, clock Clock, actor, root string) *Core {
 	if root == "" {
 		panic("core.New: root must not be empty")
 	}
-	return &Core{db: db, clock: clock, actor: actor, root: root, claimTTL: 30 * 60 * 1000, historyKeep: 100}
+	return &Core{db: db, clock: clock, actor: actor, root: root, claimTTL: 30 * 60 * 1000, historyKeep: 100,
+		trashRetention: config.Defaults().Trash.RetentionDuration()}
 }
 
 // SetClaimTTL configures the default claim duration in milliseconds.
@@ -104,7 +108,11 @@ func (c *Core) ApplyConfig(cfg config.Config) {
 	c.SetDefaultColumns(cfg.Board.DefaultColumns)
 	c.SetCardRequirements(cfg.Labels.RequireOnCard, cfg.Tags.RequireOnCard)
 	c.SetHistoryKeep(cfg.History.EffectiveKeep())
+	c.trashRetention = cfg.Trash.RetentionDuration()
 }
+
+// TrashRetention is how long a trashed item waits before the purge.
+func (c *Core) TrashRetention() time.Duration { return c.trashRetention }
 
 func (c *Core) SetEntryChanged(fn func(context.Context, string) error) {
 	c.entryChanged = fn

@@ -252,6 +252,14 @@ func newConfigSetCmd() *cobra.Command {
 			if err := config.ValidateValue(key, value); err != nil {
 				return core.ErrUsage("invalid_value", err.Error(), "trellis config set history.keep 100")
 			}
+			if config.GlobalOnly(key) {
+				root, err := home.Root()
+				if err != nil {
+					return err
+				}
+				return core.ErrUsage("global_only", fmt.Sprintf("%s applies to every project and has no project override", key),
+					fmt.Sprintf("set %s in %s, or on the web UI's settings page", key, config.Path(root)))
+			}
 
 			pctx, err := currentProject()
 			if err != nil {
