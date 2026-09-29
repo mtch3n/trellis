@@ -122,6 +122,7 @@ type SearchHit struct {
 	Project    string `db:"project" json:"project"`
 	Detail     string `db:"detail" json:"detail,omitempty"` // column for cards, template for entries
 	Unverified bool   `db:"unverified" json:"unverified,omitzero"`
+	TrashedAt  *int64 `db:"-" json:"trashed_at,omitzero"`
 }
 
 // SearchOpts narrows or widens a search.

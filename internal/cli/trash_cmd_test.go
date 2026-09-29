@@ -63,3 +63,43 @@ func TestTrash_TRASH_C1_card_rm_trashes_and_ls_trashed_shows_it(t *testing.T) {
 		t.Errorf("restored card: %s", out)
 	}
 }
+
+func TestTrash_TRASH_C9_a_trashed_pinned_entry_leaves_search_recall_and_the_brief(t *testing.T) {
+	projectEnv(t)
+	runCmd(t, "vault", "new", "--title", "Zanzibar rollout", "--body", "zanzibar steps\n")
+	runCmd(t, "vault", "pin", "zanzibar-rollout")
+	runCmd(t, "vault", "rm", "zanzibar-rollout")
+
+	for _, args := range [][]string{
+		{"search", "zanzibar", "--json"},
+		{"recall", "zanzibar rollout", "--json"},
+		{"vault", "pins", "--json"},
+	} {
+		if out := runCmd(t, args...); strings.Contains(out, "zanzibar-rollout") {
+			t.Errorf("%v still finds the trashed entry: %s", args, out)
+		}
+	}
+	c, db, err := openCore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	p, err := c.ProjectByKey(t.Context(), "TEST")
+	if err != nil {
+		t.Fatal(err)
+	}
+	corpus, err := c.ListSearchEntries(t.Context(), p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range corpus {
+		if e.Slug == "zanzibar-rollout" {
+			t.Errorf("the vector corpus still holds the trashed entry")
+		}
+	}
+
+	out := runCmd(t, "search", "zanzibar", "--trashed", "--json")
+	if !strings.Contains(out, "zanzibar-rollout") || !strings.Contains(out, "trashed_at") {
+		t.Errorf("search --trashed: %s", out)
+	}
+}

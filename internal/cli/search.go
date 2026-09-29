@@ -19,6 +19,7 @@ func newSearchCmd() *cobra.Command {
 	var label string
 	var method string
 	var useDaemon bool
+	var trashed bool
 
 	cmd := &cobra.Command{
 		Use:   "search <query>",
@@ -64,6 +65,13 @@ func newSearchCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if trashed {
+					more, err := app.Core.SearchTrash(cmd.Context(), app.Project.ID, args[0], limit)
+					if err != nil {
+						return err
+					}
+					hits = append(hits, more...)
+				}
 				return emitHits(cmd, hits, false)
 			})
 		},
@@ -73,6 +81,7 @@ func newSearchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&label, "label", "", "only results carrying this label")
 	cmd.Flags().StringVar(&method, "method", "", "search method: fts, vector, or hybrid")
 	cmd.Flags().BoolVar(&useDaemon, "daemon", false, "send this search through the running daemon")
+	cmd.Flags().BoolVar(&trashed, "trashed", false, "also search this project's trash")
 	return cmd
 }
 
@@ -99,6 +108,9 @@ func emitHits(cmd *cobra.Command, hits []core.SearchHit, showProject bool) error
 			title := h.Title
 			if h.Unverified {
 				title += "  (unverified)"
+			}
+			if h.TrashedAt != nil {
+				title += "  (trashed)"
 			}
 			if showProject {
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", h.Project, h.Ref, h.Detail, title)
