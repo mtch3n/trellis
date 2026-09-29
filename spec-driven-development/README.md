@@ -22,7 +22,7 @@ draft migrations → releasing-migrations (user only), before tagging
 
 | Skill | Started by | Does |
 |---|---|---|
-| `/sdd:writing-spec` | user or agent | Question rounds with recommended answers, one spec per story, expected and unexpected cases per decision, and the one approval with the solo or team choice |
+| `/sdd:writing-spec` | user or agent | Asks only the key decisions (at most two rounds, through `AskUserQuestion`), assumes and lists the rest, one spec per story, expected and unexpected cases per decision, and the one approval with the solo or team choice |
 | `/sdd:solo-building-from-cases` | handoff | Test-first per case; approved tests stay fixed |
 | `/sdd:team-workflow` | the user's choice | Cases as Trellis cards; workers run only their tests |
 | `/sdd:systematic-debugging` | user or agent | A registered red loop first; three failed fixes stop |
