@@ -44,6 +44,10 @@ var actorSuffix string
 // session would otherwise have to cd before every call.
 var projectFlagKey string
 
+// ensureTrashRetention is config.EnsureTrashRetention; a test swaps it to make
+// the write fail.
+var ensureTrashRetention = config.EnsureTrashRetention
+
 func openCore() (*core.Core, *sqlx.DB, error) {
 	root, err := home.Root()
 	if err != nil {
@@ -63,13 +67,12 @@ func openCore() (*core.Core, *sqlx.DB, error) {
 	if cfgErr != nil {
 		cfg = config.Defaults()
 	}
-	if err := config.EnsureTrashRetention(root); err != nil {
-		db.Close()
-		return nil, nil, fmt.Errorf("write trash.retention to config.yaml: %w", err)
-	}
 	c.ApplyConfig(cfg)
-	// A failed purge must not stop the command it rode in on; the next
-	// command, or the daemon, tries again.
+	// A failed config write or purge must not stop the command it rode in
+	// on; the next command, or the daemon, tries again.
+	if err := ensureTrashRetention(root); err != nil {
+		fmt.Fprintln(os.Stderr, "trellis: writing trash.retention to config.yaml:", err)
+	}
 	if _, err := c.SweepTrash(context.Background(), c.TrashRetention()); err != nil {
 		fmt.Fprintln(os.Stderr, "trellis: purging the trash:", err)
 	}

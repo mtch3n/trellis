@@ -106,8 +106,8 @@ func runApplicationServerContext(parent context.Context, bind string, port int) 
 	// built-in 30-minute claim TTL and web card creation skips
 	// labels.require_on_card / tags.require_on_card, whatever the config
 	// file or a project override says.
-	if err := config.EnsureTrashRetention(root); err != nil {
-		return fmt.Errorf("write trash.retention to config.yaml: %w", err)
+	if err := ensureTrashRetention(root); err != nil {
+		fmt.Fprintln(os.Stderr, "trellis daemon: writing trash.retention to config.yaml:", err)
 	}
 	c.ApplyConfig(cfg)
 	search := retrieval.NewService(c, db, dbPath, cfg, root)

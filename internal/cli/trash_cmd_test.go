@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mtch3n/trellis/internal/config"
 	"github.com/mtch3n/trellis/internal/core"
 )
 
@@ -254,5 +255,37 @@ func TestTrash_TRASH_C27_retention_has_no_project_override(t *testing.T) {
 	}
 	if out := runCmd(t, "config", "get", "trash.retention", "--json"); !strings.Contains(out, `"value":"30d"`) {
 		t.Errorf("a project override was stored: %s", out)
+	}
+}
+
+func TestTrash_card_ls_trashed_keeps_the_row_cap(t *testing.T) {
+	projectEnv(t)
+	newCardRef(t, "live one")
+	newCardRef(t, "live two")
+	gone := newCardRef(t, "gone")
+	runCmd(t, "card", "rm", gone)
+
+	var page struct {
+		Cards     []json.RawMessage `json:"cards"`
+		Total     int               `json:"total"`
+		Truncated bool              `json:"truncated"`
+	}
+	out := runCmd(t, "card", "ls", "--trashed", "--limit", "2", "--json")
+	if err := json.Unmarshal([]byte(out), &page); err != nil {
+		t.Fatalf("card ls: %q, %v", out, err)
+	}
+	if len(page.Cards) != 2 || page.Total != 3 || !page.Truncated {
+		t.Errorf("card ls --trashed --limit 2 = %d cards, total %d, truncated %v; want 2, 3, true",
+			len(page.Cards), page.Total, page.Truncated)
+	}
+}
+
+func TestTrash_a_failed_trash_retention_write_does_not_stop_the_command(t *testing.T) {
+	projectEnv(t)
+	t.Cleanup(func() { ensureTrashRetention = config.EnsureTrashRetention })
+	ensureTrashRetention = func(string) error { return errors.New("read-only file system") }
+
+	if out, err := execCmd("card", "ls"); err != nil {
+		t.Fatalf("card ls failed because config.yaml could not be written: %v\n%s", err, out)
 	}
 }

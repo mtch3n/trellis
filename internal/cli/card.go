@@ -238,8 +238,13 @@ func newCardLsCmd() *cobra.Command {
 					if err != nil {
 						return err
 					}
-					page.Cards = append(page.Cards, cards...)
+					// Trashed cards follow the live ones and share the row cap.
 					page.Total += len(cards)
+					if f.Limit >= 0 {
+						cards = cards[:min(len(cards), max(f.Limit-len(page.Cards), 0))]
+					}
+					page.Cards = append(page.Cards, cards...)
+					page.Truncated = len(page.Cards) < page.Total
 				}
 				return emitCardPage(cmd, page)
 			})
