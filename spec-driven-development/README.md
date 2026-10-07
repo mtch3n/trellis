@@ -45,7 +45,7 @@ never from a model.
 | `red.py` | Records a case's test failing before its code; verify requires one per approved case |
 | `follow_through.py` | Placeholder patterns, asking-to-continue, and the work probes say is left |
 | `release.py`, `release_check.py` | Merge drafts at release; fail while drafts remain |
-| `shadow.py` | The observe-only model run; its lines reach only the user |
+| `shadow.py` | The two-pass model review; confirmed findings go to the agent, `score` counts how they ended |
 
 ## Hooks
 

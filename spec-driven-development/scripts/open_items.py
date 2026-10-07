@@ -23,7 +23,7 @@ import state  # noqa: E402
 from specs import all_segments  # noqa: E402
 
 KINDS = ("question", "finding")
-HOWS = ("fix", "card", "decision", "accept", "dismiss", "gone")
+HOWS = ("fix", "card", "decision", "accept", "dismiss", "gone", "replied")
 TOMBSTONE_HOWS = ("accept", "dismiss")
 AGED_AFTER = timedelta(days=14)
 ARCHIVE_CAP = 200
@@ -120,11 +120,23 @@ def resolve(root, iid, how, note="", now=None):
         items = fold(state.read_jsonl(queue_path(root))[0])
         if iid not in items or items[iid]["resolved"]:
             return False
+        if how == "dismiss" and items[iid].get("probe") == "shadow" and not note.strip():
+            raise ValueError("a shadow finding is dismissed with --note saying why it is not a problem")
         event = {"at": state.now_iso(now), "event": "resolved", "id": iid, "how": how}
         if note:
             event["note"] = note
         state.append_jsonl(queue_path(root), [event])
     return True
+
+
+def shadow_items(root):
+    """Every shadow finding, open or resolved, archived ones included, oldest first."""
+    items = [{"text": i["text"], "at": i["at"], "how": (i["resolved"] or {}).get("how")}
+             for i in fold(state.read_jsonl(queue_path(root))[0]).values() if i.get("probe") == "shadow"]
+    archived, _ = state.read_jsonl(archive_path(root))
+    items += [{"text": a.get("text", ""), "at": a.get("opened_at", ""), "how": a.get("how")}
+              for a in archived if a.get("probe") == "shadow"]
+    return sorted(items, key=lambda i: i["at"])
 
 
 def answered_ids(segments):
@@ -186,6 +198,7 @@ def compact(root):
                 continue
             archived.append({"id": item["id"], "kind": item["kind"], "text": item["text"],
                              "opened_at": item["at"], "resolved_at": done.get("at"), "how": done.get("how"),
+                             **({"probe": item["probe"]} if item.get("probe") else {}),
                              **({"tombstone": True} if done.get("how") in TOMBSTONE_HOWS else {})})
         stones = [a for a in archived if a.get("tombstone")]
         rest = [a for a in archived if not a.get("tombstone")][-ARCHIVE_CAP:]
@@ -208,7 +221,12 @@ def main():
 
     root = state.repo_root(pathlib.Path.cwd())
     if args.command == "resolve":
-        if not resolve(root, args.id, args.how, args.note):
+        try:
+            done = resolve(root, args.id, args.how, args.note)
+        except ValueError as error:
+            print(f"refused: {error}", file=sys.stderr)
+            return 1
+        if not done:
             print(f"{args.id} is not open", file=sys.stderr)
             return 1
         return 0

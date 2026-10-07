@@ -1,5 +1,5 @@
 {
-  "description": "sdd hooks. PostToolUse checks a written migration against every branch and queues unanswered AskUserQuestion questions; Stop and SessionEnd queue the Qn. questions of the last reply and any declined AskUserQuestion found in the transcript; SessionStart prints one line when open items wait. None runs the test suite.",
+  "description": "sdd hooks. PostToolUse checks a written migration against every branch and queues unanswered AskUserQuestion questions; Stop and SessionEnd queue the Qn. questions of the last reply and any declined AskUserQuestion found in the transcript; SessionStart prints one line when open items wait; UserPromptSubmit resolves the questions the session queued. None runs the test suite.",
   "hooks": {
     "SessionStart": [
       {
@@ -42,6 +42,17 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/sdd_hook.py\" session-end",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/sdd_hook.py\" user-prompt",
             "timeout": 15
           }
         ]

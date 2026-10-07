@@ -1,32 +1,41 @@
 #!/usr/bin/env python3
-"""The observe-only shadow: a separate model run whose lines only the user sees.
+"""The shadow: a second look at a change, whose confirmed findings the agent must answer.
 
     shadow.py run <root> <top> <tree> <claude>   (started by verify.py, detached)
-    shadow.py mark <n> useful|not                 record whether line n helped
+    shadow.py score                               fixed, dismissed and open shadow findings
 
-It never writes to the queue, never blocks, and never reaches the working
-agent's context. Its lines wait in .sdd/shadow.jsonl until a hook shows them.
+A finder proposes at most five problems a script could not catch. A second,
+separate run reads the code and confirms or rejects each one. A confirmed one
+is queued as a `decide` finding with probe `shadow`; the Stop hook asks the
+agent to fix or dismiss it, and how it was resolved is its rating. Both passes
+are logged in .sdd/shadow.jsonl. A shadow finding never changes verify's verdict.
 """
 
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+import open_items  # noqa: E402
 import state  # noqa: E402
 from specs import StoreError, all_segments  # noqa: E402
 
-MAX_LINES = 20
+MAX_CANDIDATES = 5
+EARLIER = 40
 DIFF_CHARS = 60_000
 SPEC_CHARS = 30_000
-PROMPT = """You are observing a change. You are not reviewing it and nobody will act on
-your words automatically. List at most five possible problems that a script
-could not catch: a contradiction with a spec decision, an unexpected case the
-change ignores, a risky schema or data change. One line each, in the form
+TIMEOUT = 600
+FIND = """You are looking at a change for problems that a script could not catch: a
+contradiction with a spec decision, an unexpected case the change ignores, a
+risky schema or data change. List at most five, one line each, in the form
 `<problem> — evidence: <exact quote from the diff or spec>`. A line without an
 exact quote is worthless. Output nothing else; if you see nothing, output nothing.
+
+## Already raised (do not repeat these, or anything that says the same)
+{earlier}
 
 ## Spec
 {spec}
@@ -34,62 +43,96 @@ exact quote is worthless. Output nothing else; if you see nothing, output nothin
 ## Diff against {base}
 {diff}
 """
+CHECK = """You are checking claims about a code change against the code itself. The
+repository is your working directory: read whatever you need, and change nothing.
+
+For each numbered claim, answer on a line of its own, exactly one of:
+CONFIRMED <n>: <what goes wrong, and with which input or state>
+REJECTED <n>: <why the claim does not hold>
+Confirm a claim only when the code shows it happening. Output nothing else.
+
+## Claims
+{claims}
+
+## Diff against {base}
+{diff}
+"""
+ANSWER = re.compile(r"^\s*(CONFIRMED|REJECTED)\s+(\d+)\s*:\s*(.*)$")
 
 
 def path(root):
     return state.folder(root) / "shadow.jsonl"
 
 
-def run(root, top, tree, claude):
-    base = state.diff_base(top)
-    diff = state.diff(top)
+def ask(claude, prompt, top, *options):
+    """The model's stdout, or raises RuntimeError saying why there is none."""
     try:
-        spec = "\n\n".join(text for _, text in all_segments(top))
-    except StoreError:
-        spec = ""
-    prompt = PROMPT.format(spec=spec[:SPEC_CHARS], base=base, diff=diff[:DIFF_CHARS])
-    rows = []
-    try:
-        result = subprocess.run([claude, "-p", prompt, "--model", "sonnet"], cwd=top, capture_output=True,
-                                text=True, timeout=600, check=False, env={**os.environ, "SDD_SHADOW": "1"})
-        if result.returncode:
-            rows.append({"skipped": f"claude exited {result.returncode}: {result.stderr.strip()[:200]}"})
-        else:
-            rows += [{"text": line.strip()} for line in result.stdout.splitlines() if line.strip()][:MAX_LINES]
+        result = subprocess.run([claude, "-p", prompt, "--model", "sonnet", *options], cwd=top,
+                                capture_output=True, text=True, timeout=TIMEOUT, check=False,
+                                env={**os.environ, "SDD_SHADOW": "1"})
     except (OSError, subprocess.TimeoutExpired) as error:
-        rows.append({"skipped": str(error)})
-    if not rows:
-        rows.append({"text": ""})
-    at = state.now_iso()
-    state.append_jsonl(path(root), [{"at": at, "tree": tree, **row} for row in rows])
+        raise RuntimeError(str(error)) from error
+    if result.returncode:
+        raise RuntimeError(f"claude exited {result.returncode}: {result.stderr.strip()[:200]}")
+    return result.stdout
 
 
-def unshown(root):
-    """Shadow lines the user has not seen yet; marks them seen."""
-    rows, _ = state.read_jsonl(path(root))
-    marker = state.folder(root) / "shadow.shown"
-    seen = int(marker.read_text(encoding="utf-8") or 0) if marker.is_file() else 0
-    fresh = [r["text"] for r in rows[seen:] if r.get("text")]
-    if len(rows) > seen:
-        marker.write_text(str(len(rows)), encoding="utf-8")
-    return fresh
+def run(root, top, tree, claude):
+    rows = []
+
+    def log(**row):
+        rows.append({"at": state.now_iso(), "tree": tree, **row})
+
+    try:
+        base = state.diff_base(top)
+        diff = state.diff(top)[:DIFF_CHARS]
+        try:
+            spec = "\n\n".join(text for _, text in all_segments(top))[:SPEC_CHARS]
+        except StoreError:
+            spec = ""
+        earlier = [i["text"] for i in open_items.shadow_items(root)][-EARLIER:]
+        found = ask(claude, FIND.format(earlier="\n".join(f"- {t}" for t in earlier) or "(none)",
+                                        spec=spec, base=base, diff=diff), top)
+        candidates = [line.strip().removeprefix("- ").strip() for line in found.splitlines()
+                      if line.strip()][:MAX_CANDIDATES]
+        for text in candidates:
+            log(**{"pass": "find", "text": text})
+        if not candidates:
+            log(text="")
+        else:
+            claims = "\n".join(f"{n}. {text}" for n, text in enumerate(candidates, 1))
+            answers = ask(claude, CHECK.format(claims=claims, base=base, diff=diff), top,
+                          "--allowedTools", "Read,Grep,Glob")
+            confirmed = {}
+            for line in answers.splitlines():
+                match = ANSWER.match(line)
+                if match:
+                    log(**{"pass": "check", "text": line.strip()})
+                    n = int(match.group(2))
+                    if match.group(1) == "CONFIRMED" and 1 <= n <= len(candidates):
+                        confirmed[n] = match.group(3).strip()
+            branch = state.branch(top)
+            for n, scenario in sorted(confirmed.items()):
+                open_items.capture(root, "finding", candidates[n - 1], severity="decide", probe="shadow",
+                                   scenario=scenario, branch=branch, tree=tree)
+    except (ValueError, RuntimeError) as error:
+        log(skipped=str(error))
+    state.append_jsonl(path(root), rows)
 
 
-def mark(root, n, verdict):
-    rows, _ = state.read_jsonl(path(root))
-    lines = [r for r in rows if r.get("text")]
-    if not 1 <= n <= len(lines):
-        raise SystemExit(f"no shadow line {n}; there are {len(lines)}")
-    state.append_jsonl(state.folder(root) / "shadow-marks.jsonl",
-                       [{"at": state.now_iso(), "line": lines[n - 1]["text"], "useful": verdict == "useful"}])
+def score(root):
+    items = open_items.shadow_items(root)
+    fixed = sum(1 for i in items if i["how"] == "fix")
+    dismissed = sum(1 for i in items if i["how"] == "dismiss")
+    print(f"fixed {fixed}\ndismissed {dismissed}\nopen {sum(1 for i in items if not i['how'])}")
 
 
 def main():
     if len(sys.argv) == 6 and sys.argv[1] == "run":
         run(pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3]), sys.argv[4], sys.argv[5])
         return 0
-    if len(sys.argv) == 4 and sys.argv[1] == "mark" and sys.argv[3] in ("useful", "not"):
-        mark(state.repo_root(pathlib.Path.cwd()), int(sys.argv[2]), sys.argv[3])
+    if len(sys.argv) == 2 and sys.argv[1] == "score":
+        score(state.repo_root(pathlib.Path.cwd()))
         return 0
     print(__doc__, file=sys.stderr)
     return 2

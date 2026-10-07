@@ -1,4 +1,4 @@
-"""verify.py: specs/sdd/verify, cases SDD-C25 to SDD-C34."""
+"""verify.py: specs/sdd/verify, cases SDD-C25 to SDD-C34, less SDD-C33."""
 
 import json
 import os
@@ -49,7 +49,9 @@ class VerifyTest(unittest.TestCase):
         self.root = self.repo.root
         self.calls = self.root.parent / (self.root.name + ".shadow-calls")
         fake = self.root.parent / (self.root.name + ".claude")
-        fake.write_text(f"#!/bin/sh\necho call >> {self.calls}\necho 'Q: is PIN-D1 still true? evidence: x'\n",
+        # One call per shadow run: the finder's. The second pass (SDS-D1) is not counted.
+        fake.write_text(f"#!/bin/sh\ncase \"$2\" in *'CONFIRMED <n>'*) exit 0;; esac\n"
+                        f"echo call >> {self.calls}\necho 'Q: is PIN-D1 still true? evidence: x'\n",
                         encoding="utf-8")
         fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
         patcher = mock.patch.dict(os.environ, {"SDD_CLAUDE": str(fake)})
@@ -153,15 +155,6 @@ class VerifyTests(VerifyTest):
         self.config(test="sleep 5", test_timeout=1)
         result = self.verify()
         self.assertTrue(any("did not finish in 1s" in b for b in self.blockers(result)))
-
-    def test_SDD_C33_shadow_lines_reach_the_user_not_the_queue(self):
-        self.config(test="true")
-        self.verify()
-        out = HOOK.stop({"cwd": str(self.root), "last_assistant_message": "Done."})
-        self.assertIn("is PIN-D1 still true?", out["systemMessage"])
-        self.assertNotIn("decision", out)
-        self.assertEqual(ITEMS.open_items(self.root), [])
-        self.assertIsNone(HOOK.stop({"cwd": str(self.root), "last_assistant_message": "Done."}))
 
     def test_SDD_C34_no_claude_skips_the_shadow_and_keeps_the_result(self):
         self.config(test="true")

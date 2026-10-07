@@ -21,7 +21,6 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 
 import follow_through  # noqa: E402
 import open_items  # noqa: E402
-import shadow  # noqa: E402
 from migrations import check_draft, check_migration  # noqa: E402
 import state  # noqa: E402
 from state import git, load_config  # noqa: E402
@@ -227,14 +226,58 @@ def stop(event):
             if event.get("stop_hook_active"):
                 return {"systemMessage": f"sdd: the agent claimed done with no passing verify for this tree; {ask}"}
             return {"decision": "block", "reason": f"sdd: no passing verify result for this tree. Please {ask}"}
-    if not (state.folder(root) / "shadow.jsonl").is_file():
+    return shadow_turn(root, top, event.get("stop_hook_active"))
+
+
+def shadow_turn(root, top, held):
+    """Ask the agent about new shadow findings of this branch, and tell the user how earlier ones ended.
+
+    The agent is asked once per finding, never while a stop hook already holds the turn.
+    """
+    if not open_items.queue_path(root).is_file():
         return None
-    lines = shadow.unshown(root)
-    if not lines:
+    seen_path = state.folder(root) / "shadow-hook.json"
+    seen = json.loads(seen_path.read_text(encoding="utf-8")) if seen_path.is_file() else {}
+    asked, reported = set(seen.get("asked", [])), set(seen.get("reported", []))
+    items = [i for i in open_items.fold(state.read_jsonl(open_items.queue_path(root))[0]).values()
+             if i.get("probe") == "shadow"]
+    ended = [i for i in items if i["resolved"] and i["id"] not in reported]
+    branch = state.branch(top)
+    new = [] if held else [i for i in items if not i["resolved"] and i["id"] not in asked
+                           and i.get("branch") == branch]
+    out = {}
+    if ended:
+        lines = [f"- {'fixed' if i['resolved'].get('how') == 'fix' else i['resolved'].get('how') + 'ed'}: "
+                 f"{i['text']}" + (f" (why: {i['resolved']['note']})" if i["resolved"].get("note") else "")
+                 for i in ended]
+        out["systemMessage"] = "sdd shadow, how its findings ended:\n" + "\n".join(lines)
+    if new:
+        resolve = f"python3 {pathlib.Path(open_items.__file__).resolve()} resolve"
+        listing = "\n".join(f"- {i['id']}: {i['text']}" + (f" (when: {i['scenario']})" if i.get("scenario") else "")
+                            for i in new)
+        out["decision"] = "block"
+        out["reason"] = ("sdd shadow: a second look at your change confirmed these. Check each against the code, "
+                         f"then either fix it and run `{resolve} <id> --how fix`, or run "
+                         f"`{resolve} <id> --how dismiss --note \"<why it is not a problem>\"`.\n{listing}")
+    if ended or new:
+        seen_path.write_text(json.dumps({"asked": sorted(asked | {i["id"] for i in new}),
+                                         "reported": sorted(reported | {i["id"] for i in ended})}),
+                             encoding="utf-8")
+    return out or None
+
+
+def user_prompt(event):
+    """The user's next message in a session answers the questions that session queued."""
+    cwd, session = event.get("cwd"), event.get("session_id")
+    if not isinstance(cwd, str) or not session:
         return None
-    # systemMessage goes to the user; the shadow never speaks to the agent.
-    return {"systemMessage": "sdd shadow (observe-only; mark with shadow.py mark <n> useful|not):\n"
-            + "\n".join(f"{n}. {line}" for n, line in enumerate(lines, 1))}
+    root = state.repo_root(cwd)
+    if not open_items.queue_path(root).is_file():
+        return None
+    for item in open_items.fold(state.read_jsonl(open_items.queue_path(root))[0]).values():
+        if item["kind"] == "question" and not item["resolved"] and item.get("session") == session:
+            open_items.resolve(root, item["id"], "replied", note="the user sent their next message")
+    return None
 
 
 def session_end(event):
@@ -260,7 +303,8 @@ def session_start(event):
     return f"sdd: {len(items)} open item(s) waiting for the user ({detail}). The user resumes them with /sdd:triaging-open-items."
 
 
-HANDLERS = {"post-tool": post_tool, "stop": stop, "session-end": session_end, "session-start": session_start}
+HANDLERS = {"post-tool": post_tool, "stop": stop, "session-end": session_end, "session-start": session_start,
+            "user-prompt": user_prompt}
 
 
 def main():

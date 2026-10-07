@@ -8,7 +8,7 @@ drift, a recorded red run per approved case, leftover [DEBUG-xxxx] tags, and
 draft migrations. Each problem is a blocker, decide or note
 and is written to the open-items queue; any blocker exits 1. A result is cached
 by the hash of the working tree, so a second call on the same tree, from any
-agent, reruns nothing. With no blocker, an observe-only shadow is started.
+agent, reruns nothing. With no blocker and a change, the shadow is started.
 """
 
 import argparse
@@ -257,6 +257,14 @@ def claude_command():
     return os.environ.get("SDD_CLAUDE") or shutil.which("claude")
 
 
+def unchanged(top):
+    """True when nothing changed since diff_base; a failure to tell is not "nothing"."""
+    try:
+        return not state.changed_files(top)
+    except ValueError:
+        return False
+
+
 def start_shadow(root, top, tree):
     claude = claude_command()
     if not claude:
@@ -337,7 +345,8 @@ def verify(cwd):
         blocked = any(p["severity"] == "blocker" for p in problems)
         result = {"tree": tree, "key": key.hexdigest(), "at": state.now_iso(), "exit": 1 if blocked else 0,
                   "problems": problems,
-                  "shadow": "not started: a blocker stands" if blocked else start_shadow(root, top, tree)}
+                  "shadow": "not started: a blocker stands" if blocked
+                  else "nothing changed" if unchanged(top) else start_shadow(root, top, tree)}
         publish(root, top, cache, result)
     return {**result, "cached": False}
 

@@ -18,8 +18,13 @@ python3 <this skill's directory>/../../scripts/verify.py
     Do not say done while one stands.
   - **decide**: a choice for the user. Leave it in the queue.
   - **note**: worth knowing. Leave it in the queue.
-- With no blocker, an observe-only shadow model runs in the background. Its
-  lines go to the user, not to you; do not wait for it.
+- With no blocker and a change, the shadow runs in the background: one model
+  run proposes problems a script could not catch, a second checks each against
+  the code. Do not wait for it. When the Stop hook lists a confirmed shadow
+  finding, check it against the code yourself, then either fix it and run
+  `python3 <this skill's directory>/../../scripts/open_items.py resolve <id> --how fix`,
+  or run `... resolve <id> --how dismiss --note "<why it is not a problem>"`.
+  The user sees how each one ended.
 
 Every claim needs its probe, run now, not remembered:
 

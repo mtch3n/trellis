@@ -73,12 +73,28 @@ def diff_base(top):
         upstream = git(["rev-parse", "--verify", "--quiet", "@{upstream}"], top)
         if upstream:
             return upstream.strip()
+    if git(["rev-parse", "--verify", "--quiet", "HEAD"], top) is None:
+        return empty_tree(top)
     return "HEAD"
 
 
+def empty_tree(top):
+    result = subprocess.run(["git", "mktree"], cwd=top, input="", capture_output=True, text=True,
+                            timeout=10, check=False)
+    if result.returncode:
+        raise ValueError(f"git mktree failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
 def diff(top, *options):
-    """git diff from diff_base to the working tree as it would be committed, untracked files included."""
-    return git(["diff", *options, diff_base(top), tree_hash(top)], top, timeout=60) or ""
+    """git diff from diff_base to the working tree as it would be committed, untracked files included.
+
+    Raises ValueError when git fails, so a failure never reads as no change.
+    """
+    out = git(["diff", *options, diff_base(top), tree_hash(top)], top, timeout=60)
+    if out is None:
+        raise ValueError("git diff failed while measuring the change")
+    return out
 
 
 def changed_files(top):
