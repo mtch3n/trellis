@@ -16,6 +16,12 @@ func TestRedactArgvKeepsShapeNotContent(t *testing.T) {
 		{[]string{"card", "comment", "12", "-"}, "card comment"},
 		{[]string{"card", "ls", "--json", "--limit=5"}, "card ls --json --limit"},
 		{[]string{"agent", "ls"}, "agent ls"},
+		// A positional that starts with a dash is content, not a flag name.
+		{[]string{"recall", "--write <task>\nsecret plan", "--json"}, "recall --json"},
+		{[]string{"recall", "--json", "--", "--limit is in the prompt"}, "recall --json"},
+		{[]string{"card", "new", "--title", "x", "--bogus"}, "card new --title"},
+		{[]string{"card", "ls", "-h"}, "card ls -h"},
+		{[]string{"card", "ls", "--project=KEY"}, "card ls --project"},
 	} {
 		if got := redactArgv(tc.in); got != tc.want {
 			t.Errorf("redactArgv(%q) = %q, want %q", tc.in, got, tc.want)

@@ -39,21 +39,38 @@ func logInvocation(args []string, exit int, started time.Time) {
 		time.Since(started).Milliseconds())
 }
 
-// redactArgv keeps the resolved command path and the flag names. Positional
-// arguments are dropped wholesale: they are card refs, file paths and bodies,
-// and the command path is what the metric groups by. An unresolvable command
-// is recorded as the raw first token, which is the whole point of measuring
-// typos.
+// redactArgv keeps the resolved command path and the names of the flags that
+// command defines. Positional arguments are dropped wholesale: they are card
+// refs, file paths and bodies, and the command path is what the metric groups
+// by. A token is recorded as a flag only when the command knows it, so a
+// prompt or body that happens to start with "-" is still a positional and is
+// never stored. Everything after "--" is positional. An unresolvable command is
+// recorded as the raw first token, which is the whole point of measuring typos.
 func redactArgv(args []string) string {
-	parts := []string{}
-	if cmd, _, err := newRootCmd().Find(args); err == nil {
-		parts = append(parts, strings.Fields(cmd.CommandPath())[1:]...)
-	} else if len(args) > 0 {
-		parts = append(parts, args[0])
+	cmd, _, err := newRootCmd().Find(args)
+	if err != nil {
+		if len(args) > 0 && !strings.ContainsAny(args[0], " \t\n") {
+			return args[0]
+		}
+		return ""
 	}
+	cmd.InitDefaultHelpFlag() // cobra adds --help only when a command runs
+	parts := strings.Fields(cmd.CommandPath())[1:]
 	for _, a := range args {
-		if strings.HasPrefix(a, "-") && a != "-" {
-			name, _, _ := strings.Cut(a, "=")
+		if a == "--" {
+			break
+		}
+		name, _, _ := strings.Cut(a, "=")
+		var known bool
+		switch {
+		case strings.HasPrefix(name, "--"):
+			n := strings.TrimPrefix(name, "--")
+			known = cmd.Flags().Lookup(n) != nil || cmd.InheritedFlags().Lookup(n) != nil
+		case strings.HasPrefix(name, "-") && len(name) == 2:
+			n := name[1:]
+			known = cmd.Flags().ShorthandLookup(n) != nil || cmd.InheritedFlags().ShorthandLookup(n) != nil
+		}
+		if known {
 			parts = append(parts, name)
 		}
 	}
