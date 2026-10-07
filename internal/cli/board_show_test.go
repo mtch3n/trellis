@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -71,22 +72,22 @@ func TestFormatBriefCollapsesEmptyBoard(t *testing.T) {
 	}
 }
 
-// Cards untouched for a week are counted, not listed, and alone do not bring
-// the command cheatsheet: most of a board's open cards sit like that for weeks.
-func TestFormatBriefCountsStaleCardsWithoutListingThem(t *testing.T) {
+// Cards the brief does not name are counted, and a board of only old cards
+// still gets the cheatsheet: that is when `card next --claim` is wanted.
+func TestFormatBriefCountsUnlistedCardsAndKeepsTheCheatsheet(t *testing.T) {
 	brief := &boardBrief{
 		yours:  []cardInfo{},
 		others: []cardInfo{},
-		stale:  52,
+		more:   52,
 		counts: map[string]int{"backlog": 52},
 		pins:   []core.Pin{},
 	}
 	text := formatBrief(brief)
-	if !strings.Contains(text, "+52 untouched for 7+ days: trellis card ls") {
-		t.Errorf("brief should count stale cards:\n%s", text)
+	if !strings.Contains(text, "+52 more: trellis card ls") {
+		t.Errorf("brief should count unlisted cards:\n%s", text)
 	}
-	if strings.Contains(text, "card new --title") || strings.Contains(text, "board is empty") {
-		t.Errorf("stale cards alone should bring neither the cheatsheet nor 'board is empty':\n%s", text)
+	if !strings.Contains(text, "card next --claim") || strings.Contains(text, "board is empty") {
+		t.Errorf("a board of old cards should keep the cheatsheet:\n%s", text)
 	}
 }
 
@@ -113,7 +114,16 @@ func TestBoardBriefListsRecentCardsAndCountsOldOnes(t *testing.T) {
 	if !strings.Contains(brief, "Fresh work") || strings.Contains(brief, "Forgotten work") {
 		t.Errorf("brief should list the recent card and not the old one:\n%s", brief)
 	}
-	if !strings.Contains(brief, "+1 untouched for 7+ days") {
+	if !strings.Contains(brief, "+1 more: trellis card ls") {
 		t.Errorf("brief should count the old card:\n%s", brief)
+	}
+
+	// Past the listing limit, recent cards are counted too.
+	for i := range 5 {
+		runCmd(t, "card", "new", "--title", fmt.Sprintf("Recent %d", i))
+	}
+	brief = runCmd(t, "board", "show", "--brief")
+	if !strings.Contains(brief, "+2 more: trellis card ls") {
+		t.Errorf("brief should count the old card and the sixth recent one:\n%s", brief)
 	}
 }

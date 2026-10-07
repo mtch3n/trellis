@@ -17,7 +17,7 @@ import (
 type boardBrief struct {
 	yours  []cardInfo
 	others []cardInfo
-	stale  int            // unclaimed open cards older than briefRecent, listed only as a count
+	more   int            // unclaimed open cards the brief does not list, by age or by the limit
 	counts map[string]int // column name -> count
 	pins   []core.Pin
 }
@@ -199,15 +199,16 @@ func queryBrief(ctx context.Context, app *appCtx) (*boardBrief, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = app.db.GetContext(ctx, &brief.stale,
+	var unclaimed int
+	err = app.db.GetContext(ctx, &unclaimed,
 		`SELECT COUNT(*) FROM card c
 		 JOIN column_ col ON col.id = c.column_id
-		 WHERE c.project_id = ? AND c.claimed_by IS NULL AND c.archived_at IS NULL AND col.is_done = 0
-		   AND c.updated_at < ?`,
-		app.Project.ID, recent)
+		 WHERE c.project_id = ? AND c.claimed_by IS NULL AND c.archived_at IS NULL AND col.is_done = 0`,
+		app.Project.ID)
 	if err != nil {
 		return nil, err
 	}
+	brief.more = unclaimed - len(otherCards)
 	for _, o := range otherCards {
 		brief.others = append(brief.others, cardInfo{
 			Ref:     o.Ref,
@@ -270,7 +271,7 @@ func formatBrief(brief *boardBrief) string {
 	}
 
 	// OTHERS section: unclaimed cards left by earlier sessions
-	if len(brief.others) > 0 || brief.stale > 0 {
+	if len(brief.others) > 0 || brief.more > 0 {
 		result.WriteString("### others\n")
 		for i, card := range brief.others {
 			if i >= 5 {
@@ -285,8 +286,8 @@ func formatBrief(brief *boardBrief) string {
 				fmt.Fprintf(&result, "    %s\n", comment)
 			}
 		}
-		if brief.stale > 0 {
-			fmt.Fprintf(&result, "  +%d untouched for %d+ days: trellis card ls\n", brief.stale, int(briefRecent.Hours()/24))
+		if brief.more > 0 {
+			fmt.Fprintf(&result, "  +%d more: trellis card ls\n", brief.more)
 		}
 		result.WriteString("\n")
 	}
@@ -328,10 +329,9 @@ func formatBrief(brief *boardBrief) string {
 	}
 
 	// TRELLIS-2: empty board collapses to one line.
-	// DO THIS section (commands cheatsheet): only shown when there is a card to
-	// act on now. Counts, stale cards and pins alone do not call for it.
-	hasContent := len(brief.yours) > 0 || len(brief.others) > 0 || brief.stale > 0 || len(brief.counts) > 0 || len(brief.pins) > 0
-	if len(brief.yours) > 0 || len(brief.others) > 0 {
+	// DO THIS section (commands cheatsheet): only shown if there is other content.
+	hasContent := len(brief.yours) > 0 || len(brief.others) > 0 || brief.more > 0 || len(brief.counts) > 0 || len(brief.pins) > 0
+	if hasContent {
 		result.WriteString("### do this\n")
 		result.WriteString("  `card new --title \"...\"`      create work\n")
 		result.WriteString("  `card next --claim`           claim next unblocked card\n")
@@ -339,7 +339,7 @@ func formatBrief(brief *boardBrief) string {
 		result.WriteString("  `card renew <id>`             keep your claim alive\n")
 		result.WriteString("  `card move <id> <column>`     move to column\n")
 		result.WriteString("  `vault new --title ...`       write down what you learned\n")
-	} else if !hasContent {
+	} else {
 		result.WriteString("board is empty\n")
 	}
 
