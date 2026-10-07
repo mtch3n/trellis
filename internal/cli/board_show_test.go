@@ -94,13 +94,19 @@ func TestFormatBriefCountsUnlistedCardsAndKeepsTheCheatsheet(t *testing.T) {
 // Done counts or a pin alone leave nothing to pick up: no cheatsheet, and the
 // board is not called empty either.
 func TestFormatBriefDoneCountsAloneBringNoCheatsheet(t *testing.T) {
-	for name, brief := range map[string]*boardBrief{
-		"done counts": {yours: []cardInfo{}, others: []cardInfo{}, counts: map[string]int{"done": 47}, pins: []core.Pin{}},
-		"a pin":       {yours: []cardInfo{}, others: []cardInfo{}, counts: map[string]int{}, pins: []core.Pin{{Slug: "glossary", Title: "Glossary"}}},
+	for _, tc := range []struct {
+		name, shown string
+		brief       *boardBrief
+	}{
+		{"done counts", "done: 47", &boardBrief{yours: []cardInfo{}, others: []cardInfo{}, counts: map[string]int{"done": 47}, pins: []core.Pin{}}},
+		{"a pin", "glossary", &boardBrief{yours: []cardInfo{}, others: []cardInfo{}, counts: map[string]int{}, pins: []core.Pin{{Slug: "glossary", Title: "Glossary"}}}},
 	} {
-		text := formatBrief(brief)
+		text := formatBrief(tc.brief)
+		if !strings.Contains(text, tc.shown) {
+			t.Errorf("%s alone should still be shown (%q):\n%s", tc.name, tc.shown, text)
+		}
 		if strings.Contains(text, "### do this") || strings.Contains(text, "board is empty") {
-			t.Errorf("%s alone should bring neither the cheatsheet nor 'board is empty':\n%s", name, text)
+			t.Errorf("%s alone should bring neither the cheatsheet nor 'board is empty':\n%s", tc.name, text)
 		}
 	}
 }
