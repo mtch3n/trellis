@@ -61,10 +61,14 @@ def diff_base(top):
     """
     default = default_branch(top)
     if default and branch(top) != default:
-        for ref in (default, f"origin/{default}"):
-            base = git(["merge-base", ref, "HEAD"], top)
-            if base:
-                return base.strip()
+        bases = [base.strip() for ref in (default, f"origin/{default}")
+                 if (base := git(["merge-base", ref, "HEAD"], top))]
+        # The local default branch and its remote copy can differ; the base
+        # nearer HEAD is where this branch left it.
+        if len(bases) == 2 and git(["merge-base", "--is-ancestor", bases[0], bases[1]], top) is not None:
+            return bases[1]
+        if bases:
+            return bases[0]
     elif default:
         upstream = git(["rev-parse", "--verify", "--quiet", "@{upstream}"], top)
         if upstream:
@@ -72,11 +76,14 @@ def diff_base(top):
     return "HEAD"
 
 
+def diff(top, *options):
+    """git diff from diff_base to the working tree as it would be committed, untracked files included."""
+    return git(["diff", *options, diff_base(top), tree_hash(top)], top, timeout=60) or ""
+
+
 def changed_files(top):
-    """Files that differ from diff_base, untracked ones included, as POSIX paths."""
-    tracked = git(["diff", "--name-only", diff_base(top)], top) or ""
-    untracked = git(["ls-files", "--others", "--exclude-standard"], top) or ""
-    return sorted(set(tracked.splitlines()) | set(untracked.splitlines()))
+    """Files that differ from diff_base, as POSIX paths."""
+    return sorted(diff(top, "--name-only").splitlines())
 
 
 def head(root):

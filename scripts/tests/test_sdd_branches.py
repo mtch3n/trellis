@@ -79,6 +79,21 @@ class BranchTest(unittest.TestCase):
               for severity in ("blocker", "note")}
         return by["blocker"], by["note"]
 
+    def shadow_prompt(self):
+        """The prompt a shadow run would send, with no model started."""
+        STATE.ensure(self.root)
+        real, prompts = subprocess.run, []
+
+        def run(args, **kwargs):
+            if args[0] != "claude":
+                return real(args, **kwargs)
+            prompts.append(args[2])
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        with mock.patch.object(SHADOW.subprocess, "run", run):
+            SHADOW.run(self.root, self.root, "tree", "claude")
+        return prompts[0]
+
     def upstream(self):
         remote = self.tmp / "remote.git"
         subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
@@ -135,6 +150,22 @@ class ChangedTests(BranchTest):
         with mock.patch.object(SHADOW.subprocess, "run", run):
             SHADOW.run(self.root, self.root, "tree", "claude")
         self.assertIn("pinned-on-main", prompts[0])
+
+    def test_SDB_C21_the_shadow_sees_a_new_file_that_is_not_committed(self):
+        self.repo.git("checkout", "-q", "-b", "feat/pin")
+        self.repo.write("pin.py", "def pin():\n    return 'new-and-untracked'\n")
+        self.assertIn("new-and-untracked", self.shadow_prompt())
+
+    def test_a_stale_local_default_branch_does_not_widen_the_change(self):
+        self.upstream()
+        self.repo.write("pushed.txt")
+        self.repo.commit("on main, pushed")
+        self.repo.git("push", "-q")
+        self.repo.git("checkout", "-q", "-b", "feat/pin")
+        self.repo.git("branch", "-f", "main", "HEAD~1")
+        self.repo.write("work.txt")
+        self.repo.commit("work")
+        self.assertEqual(STATE.changed_files(self.root), ["work.txt"])
 
 
 class StartTests(BranchTest):
@@ -238,6 +269,15 @@ class VerifyTests(BranchTest):
         self.repo.commit("the story, merged")
         self.repo.write("tests/test_pins.py", TEST_C1)
         blockers, _ = self.verify(self.root)
+        self.assertTrue(any("PIN-C2" in b for b in blockers), blockers)
+
+    def test_SDB_C20_deleting_every_test_of_a_merged_story_still_blocks(self):
+        self.approved()
+        self.repo.write("tests/test_pins.py", TEST_C1 + TEST_C2)
+        self.repo.commit("the story, merged")
+        (self.root / "tests/test_pins.py").unlink()
+        blockers, _ = self.verify(self.root)
+        self.assertTrue(any("PIN-C1" in b for b in blockers), blockers)
         self.assertTrue(any("PIN-C2" in b for b in blockers), blockers)
 
     def test_SDB_C17_a_story_never_started_adds_a_note_and_no_blocker(self):

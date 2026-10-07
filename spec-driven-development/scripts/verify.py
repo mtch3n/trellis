@@ -85,14 +85,27 @@ def probe_spec(top, segments, approved):
     return out, cases, decisions
 
 
+def ids_at(top, commit):
+    """Case IDs that test definitions named at commit."""
+    ids = r"[A-Z][A-Z0-9]*[-_]C\d+(?![0-9])"
+    found = set()
+    for entry in (state.git(["grep", "-l", "-P", ids, commit], top) or "").splitlines():
+        rel = entry.split(":", 1)[1]
+        if spec_check.is_test_file(rel):
+            found |= spec_check.defined_ids(state.git(["show", f"{commit}:{rel}"], top) or "")
+    return found
+
+
 def stories_away(top, root, segments, approved):
     """(approved stories not built in this tree, unreadable build-record lines).
 
-    A story is built here when this branch started it, or when the tree's tests
-    already name one of its cases, as they do once it is merged.
+    A story is built here when this branch started it, or when tests name one
+    of its cases, as they do once it is merged. Tests count in the tree and at
+    the commit the changes are measured from, so deleting them all still
+    answers for the story.
     """
     cases, _, _ = spec_check.parse(segments)
-    named = spec_check.named_ids(top)
+    named = set(spec_check.named_ids(top)) | ids_at(top, state.diff_base(top))
     started, unread = build.started(root)
     branch = state.branch(top)
     here = {spec_check.story_of(case["in"]) for cid, case in cases.items()
@@ -204,14 +217,7 @@ def probe_approved_tests(top, cases, approved):
 def probe_red(top, root, cases, approved, config):
     """An approved case whose test landed after `red_since` needs a recorded red run."""
     since = config.get("red_since")
-    exempt = set()
-    if since:
-        ids = r"[A-Z][A-Z0-9]*[-_]C\d+(?![0-9])"
-        listed = (state.git(["grep", "-l", "-P", ids, since], top) or "").splitlines()
-        for entry in listed:
-            rel = entry.split(":", 1)[1]
-            if spec_check.is_test_file(rel):
-                exempt |= spec_check.defined_ids(state.git(["show", f"{since}:{rel}"], top) or "")
+    exempt = ids_at(top, since) if since else set()
     out = []
     for cid, case in sorted(cases.items()):
         if spec_check.story_of(case["in"]) not in approved or cid in exempt:

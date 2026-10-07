@@ -42,7 +42,7 @@ def path(root):
 
 def run(root, top, tree, claude):
     base = state.diff_base(top)
-    diff = state.git(["diff", base], top, timeout=60) or ""
+    diff = state.diff(top)
     try:
         spec = "\n\n".join(text for _, text in all_segments(top))
     except StoreError:
