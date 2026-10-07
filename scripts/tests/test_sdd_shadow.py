@@ -267,6 +267,24 @@ class AskTests(ShadowTest):
         self.repo.git("checkout", "-q", "-b", "feat/other")
         self.assertEqual(self.stop().get("decision"), "block")
 
+    def test_SDS_C28_a_deleted_branchs_finding_is_asked_on_the_default_branch(self):
+        self.raise_finding("pin crashes on None", branch="feat/gone")
+        self.repo.git("checkout", "-q", "main")
+        self.assertEqual(self.stop().get("decision"), "block")
+
+    def test_SDS_C29_a_merged_branchs_finding_is_asked_on_the_default_branch(self):
+        self.repo.commit("pin")
+        self.raise_finding("pin crashes on None", branch="feat/x")
+        self.repo.git("checkout", "-q", "main")
+        self.repo.git("merge", "-q", "--ff-only", "feat/x")
+        self.assertEqual(self.stop().get("decision"), "block")
+
+    def test_SDS_C30_an_unmerged_branchs_finding_still_waits(self):
+        self.repo.commit("pin")
+        self.raise_finding("pin crashes on None", branch="feat/x")
+        self.repo.git("checkout", "-q", "main")
+        self.assertNotIn("decision", self.stop())
+
     def test_SDS_C12_a_stop_already_held_is_not_asked_and_the_next_one_is(self):
         self.raise_finding("pin crashes on None")
         self.assertNotIn("decision", self.stop(active=True))
@@ -323,6 +341,22 @@ class RepeatAndEmptyTests(ShadowTest):
         self.assertIn("do not repeat", prompt.lower())
         self.assertIn("pin is slow", prompt)
         self.assertIn("pin crashes on None", prompt)
+
+    def test_SDS_C31_an_earlier_finding_carries_how_it_ended(self):
+        ITEMS.resolve(self.root, self.raise_finding("pin is slow"), "dismiss", note="one read")
+        ITEMS.resolve(self.root, self.raise_finding("release points at claim"), "fix", note="points at show")
+        self.raise_finding("pin crashes on None")
+        self.shadow(find="")
+        prompt = self.prompts[0]
+        self.assertIn("- [dismissed: one read] pin is slow", prompt)
+        self.assertIn("- [fixed: points at show] release points at claim", prompt)
+        self.assertIn("- [open] pin crashes on None", prompt)
+        self.assertIn("do not\nraise the opposite", prompt)
+
+    def test_SDS_C32_a_fix_with_no_note_is_listed_with_its_outcome_alone(self):
+        ITEMS.resolve(self.root, self.raise_finding("pin is slow"), "fix")
+        self.shadow(find="")
+        self.assertIn("- [fixed] pin is slow", self.prompts[0])
 
     def test_SDS_C19_only_the_newest_40_earlier_findings_are_listed(self):
         start = datetime(2026, 10, 1, tzinfo=timezone.utc)

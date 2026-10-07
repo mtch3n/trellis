@@ -134,10 +134,11 @@ def resolve(root, iid, how, note="", now=None):
 
 def shadow_items(root):
     """Every shadow finding, open or resolved, archived ones included, oldest first."""
-    items = [{"text": i["text"], "at": i["at"], "how": (i["resolved"] or {}).get("how")}
+    items = [{"text": i["text"], "at": i["at"], "how": (i["resolved"] or {}).get("how"),
+              "note": (i["resolved"] or {}).get("note")}
              for i in fold(state.read_jsonl(queue_path(root))[0]).values() if i.get("probe") == "shadow"]
     archived, _ = state.read_jsonl(archive_path(root))
-    items += [{"text": a.get("text", ""), "at": a.get("opened_at", ""), "how": a.get("how")}
+    items += [{"text": a.get("text", ""), "at": a.get("opened_at", ""), "how": a.get("how"), "note": a.get("note")}
               for a in archived if a.get("probe") == "shadow"]
     return sorted(items, key=lambda i: i["at"])
 

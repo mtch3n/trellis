@@ -241,6 +241,18 @@ def shadow_turn(root, top, held):
         return shadow_turn_locked(root, top, held)
 
 
+def adopted(root, branch, raised_on):
+    """Whether the default branch, checked out here, answers for a finding raised
+    on another branch: one merged into it or deleted. Without this such a
+    finding was never asked about again and stayed open for good."""
+    default = state.default_branch(root)
+    if not raised_on or not default or branch != default or raised_on == default:
+        return False
+    if state.git(["rev-parse", "--verify", "--quiet", f"refs/heads/{raised_on}"], root) is None:
+        return True  # deleted
+    return state.git(["merge-base", "--is-ancestor", f"refs/heads/{raised_on}", default], root) is not None
+
+
 def shadow_turn_locked(root, top, held):
     seen_path = state.folder(root) / "shadow-hook.json"
     try:
@@ -262,7 +274,7 @@ def shadow_turn_locked(root, top, held):
     ended = [i for i in items + archived if i["resolved"] and i["id"] not in reported]
     branch = state.branch(top)
     new = [] if held else [i for i in items if not i["resolved"] and i["id"] not in asked
-                           and i.get("branch") == branch]
+                           and (i.get("branch") == branch or adopted(root, branch, i.get("branch")))]
     out = {}
     if ended:
         verbs = {"fix": "fixed", "dismiss": "dismissed"}
@@ -275,7 +287,7 @@ def shadow_turn_locked(root, top, held):
                             for i in new)
         out["decision"] = "block"
         out["reason"] = ("sdd shadow: a second look at your change confirmed these. Check each against the code, "
-                         f"then either fix it and run `{resolve} <id> --how fix`, or run "
+                         f"then either fix it and run `{resolve} <id> --how fix --note \"<what the fix changed>\"`, or run "
                          f"`{resolve} <id> --how dismiss --note \"<why it is not a problem>\"`.\n{listing}")
     if ended or new:
         # Written beside the record and renamed over it, so a stop killed

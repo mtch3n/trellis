@@ -35,6 +35,9 @@ risky schema or data change. List at most five, one line each, in the form
 exact quote is worthless. Output nothing else; if you see nothing, output nothing.
 
 ## Already raised (do not repeat these, or anything that says the same)
+Each is marked with how it ended. A fixed or dismissed one is settled: do not
+raise the opposite of it, such as asking to undo its fix, unless the diff shows
+that the settled form breaks something concrete.
 {earlier}
 
 ## Spec
@@ -77,6 +80,14 @@ def ask(claude, prompt, top, *options):
     return result.stdout
 
 
+def earlier_line(item):
+    """An earlier finding with how it ended, so the finder neither repeats it nor
+    asks to undo its fix: without the outcome it flipped a fix back the next round."""
+    how = {"fix": "fixed", "dismiss": "dismissed"}.get(item.get("how"), item.get("how") or "open")
+    note = f": {item['note']}" if item.get("note") else ""
+    return f"- [{how}{note}] {item['text']}"
+
+
 def run(root, top, tree, claude):
     rows = []
 
@@ -90,8 +101,8 @@ def run(root, top, tree, claude):
             spec = "\n\n".join(text for _, text in all_segments(top))[:SPEC_CHARS]
         except StoreError:
             spec = ""
-        earlier = [i["text"] for i in open_items.shadow_items(root)][-EARLIER:]
-        found = ask(claude, FIND.format(earlier="\n".join(f"- {t}" for t in earlier) or "(none)",
+        earlier = [earlier_line(i) for i in open_items.shadow_items(root)][-EARLIER:]
+        found = ask(claude, FIND.format(earlier="\n".join(earlier) or "(none)",
                                         spec=spec, base=base, diff=diff), top)
         # Only a line in the asked-for form is a candidate: a preamble or "No
         # problems found." must not take a slot or start the second pass.

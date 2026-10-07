@@ -22,7 +22,7 @@ python3 <this skill's directory>/../../scripts/verify.py
   run proposes problems a script could not catch, a second checks each against
   the code. Do not wait for it. When the Stop hook lists a confirmed shadow
   finding, check it against the code yourself, then either fix it and run
-  `python3 <this skill's directory>/../../scripts/open_items.py resolve <id> --how fix`,
+  `python3 <this skill's directory>/../../scripts/open_items.py resolve <id> --how fix --note "<what the fix changed>"`,
   or run `... resolve <id> --how dismiss --note "<why it is not a problem>"`.
   The user sees how each one ended.
 
