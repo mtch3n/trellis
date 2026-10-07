@@ -5,12 +5,17 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 PLUGIN = ROOT / "spec-driven-development"
 
 # No test may start a real, billed shadow run.
 os.environ["SDD_CLAUDE"] = shutil.which("true") or "true"
+# No test may read or write the real Trellis store: sdd probes Trellis, and a
+# test run once logged two thousand calls into the user's live database.
+os.environ["TRELLIS_HOME"] = tempfile.mkdtemp(prefix="sdd-tests-trellis-")
+os.environ.pop("TRELLIS_PROJECT", None)
 
 
 def load(name, rel):
