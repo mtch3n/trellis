@@ -79,8 +79,11 @@ def diff_base(top):
 
 
 def empty_tree(top):
-    result = subprocess.run(["git", "mktree"], cwd=top, input="", capture_output=True, text=True,
-                            timeout=10, check=False)
+    try:
+        result = subprocess.run(["git", "mktree"], cwd=top, input="", capture_output=True, text=True,
+                                timeout=10, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise ValueError(f"git mktree failed: {error}") from error
     if result.returncode:
         raise ValueError(f"git mktree failed: {result.stderr.strip()}")
     return result.stdout.strip()

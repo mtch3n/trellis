@@ -202,11 +202,13 @@ def compact(root):
             archived.append({"id": item["id"], "kind": item["kind"], "text": item["text"],
                              "opened_at": item["at"], "resolved_at": done.get("at"), "how": done.get("how"),
                              **({"probe": item["probe"]} if item.get("probe") else {}),
+                             **({"note": done["note"]} if done.get("note") else {}),
                              **({"tombstone": True} if done.get("how") in TOMBSTONE_HOWS else {})})
-        stones = [a for a in archived if a.get("tombstone")]
-        rest = [a for a in archived if not a.get("tombstone")][-ARCHIVE_CAP:]
+        # Shadow findings are the shadow's score, so the cap never drops one.
+        kept = [a for a in archived if a.get("tombstone") or a.get("probe") == "shadow"]
+        rest = [a for a in archived if not (a.get("tombstone") or a.get("probe") == "shadow")][-ARCHIVE_CAP:]
         keep = {iid for iid, item in items.items() if not item["resolved"]}
-        state.replace_jsonl(archive_path(root), stones + rest)
+        state.replace_jsonl(archive_path(root), kept + rest)
         state.replace_jsonl(queue_path(root), [e for e in events if e.get("id") in keep])
 
 

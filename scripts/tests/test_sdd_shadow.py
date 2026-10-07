@@ -160,6 +160,34 @@ class LogTests(ShadowTest):
         self.assertEqual([r["text"] for r in self.log() if r.get("pass") == "find"], ["one — evidence: `a`"])
 
 
+class ArchiveTests(ShadowTest):
+    """Shadow findings raised by the shadow on its own build, at tree 5cb2820."""
+
+    def test_the_archive_cap_never_drops_a_shadow_finding(self):
+        ITEMS.resolve(self.root, self.raise_finding("pin crashes on None"), "fix")
+        ITEMS.compact(self.root)
+        for n in range(ITEMS.ARCHIVE_CAP + 5):
+            ITEMS.resolve(self.root, ITEMS.capture(self.root, "question", f"question {n}?"), "replied")
+        ITEMS.compact(self.root)
+        self.assertEqual(self.cli("shadow.py", "score").stdout.split()[:2], ["fixed", "1"])
+
+    def test_no_git_is_a_skipped_shadow_not_a_crash(self):
+        empty = self.root.parent / "nocommit"
+        empty.mkdir()
+        Repo(empty).write("first.txt")
+        with mock.patch.object(STATE.subprocess, "run", side_effect=OSError("git not found")):
+            with self.assertRaises(ValueError):
+                STATE.empty_tree(empty)
+
+    def test_a_finding_compacted_before_the_next_stop_is_still_reported(self):
+        ITEMS.resolve(self.root, self.raise_finding("pin crashes on None"), "dismiss", note="never None")
+        ITEMS.compact(self.root)
+        message = self.stop().get("systemMessage", "")
+        self.assertIn("pin crashes on None", message)
+        self.assertIn("never None", message)
+        self.assertNotIn("systemMessage", self.stop())
+
+
 class QueueTests(ShadowTest):
     CONFIRM = {"find": "- pin crashes on None — evidence: `card.id`\n",
                "check": "CONFIRMED 1: pin(None) raises AttributeError\n"}

@@ -234,7 +234,7 @@ def shadow_turn(root, top, held):
 
     The agent is asked once per finding, never while a stop hook already holds the turn.
     """
-    if not open_items.queue_path(root).is_file():
+    if not (open_items.queue_path(root).is_file() or open_items.archive_path(root).is_file()):
         return None
     # Two sessions may stop at once; the lock keeps "asked once" true for both.
     with state.Lock(root, "shadow-hook.lock"):
@@ -247,7 +247,11 @@ def shadow_turn_locked(root, top, held):
     asked, reported = set(seen.get("asked", [])), set(seen.get("reported", []))
     items = [i for i in open_items.fold(state.read_jsonl(open_items.queue_path(root))[0]).values()
              if i.get("probe") == "shadow"]
-    ended = [i for i in items if i["resolved"] and i["id"] not in reported]
+    # A finding compacted into the archive since the last stop is reported from there.
+    archived = [{"id": a["id"], "text": a.get("text", ""), "resolved": {"how": a.get("how"), "note": a.get("note")}}
+                for a in state.read_jsonl(open_items.archive_path(root))[0]
+                if a.get("probe") == "shadow" and isinstance(a.get("id"), str)]
+    ended = [i for i in items + archived if i["resolved"] and i["id"] not in reported]
     branch = state.branch(top)
     new = [] if held else [i for i in items if not i["resolved"] and i["id"] not in asked
                            and i.get("branch") == branch]
