@@ -243,7 +243,12 @@ def shadow_turn(root, top, held):
 
 def shadow_turn_locked(root, top, held):
     seen_path = state.folder(root) / "shadow-hook.json"
-    seen = json.loads(seen_path.read_text(encoding="utf-8")) if seen_path.is_file() else {}
+    try:
+        seen = json.loads(seen_path.read_text(encoding="utf-8")) if seen_path.is_file() else {}
+    except ValueError:
+        seen = {}  # a torn record asks again at worst; it must not break every stop
+    if not isinstance(seen, dict):
+        seen = {}
     asked, reported = set(seen.get("asked", [])), set(seen.get("reported", []))
     items = [i for i in open_items.fold(state.read_jsonl(open_items.queue_path(root))[0]).values()
              if i.get("probe") == "shadow"]
@@ -270,9 +275,13 @@ def shadow_turn_locked(root, top, held):
                          f"then either fix it and run `{resolve} <id> --how fix`, or run "
                          f"`{resolve} <id> --how dismiss --note \"<why it is not a problem>\"`.\n{listing}")
     if ended or new:
-        seen_path.write_text(json.dumps({"asked": sorted(asked | {i["id"] for i in new}),
-                                         "reported": sorted(reported | {i["id"] for i in ended})}),
-                             encoding="utf-8")
+        # Written beside the record and renamed over it, so a stop killed
+        # mid-write leaves the old record, never a torn one.
+        tmp = seen_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps({"asked": sorted(asked | {i["id"] for i in new}),
+                                   "reported": sorted(reported | {i["id"] for i in ended})}),
+                       encoding="utf-8")
+        os.replace(tmp, seen_path)
     return out or None
 
 

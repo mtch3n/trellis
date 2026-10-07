@@ -93,8 +93,10 @@ def run(root, top, tree, claude):
         earlier = [i["text"] for i in open_items.shadow_items(root)][-EARLIER:]
         found = ask(claude, FIND.format(earlier="\n".join(f"- {t}" for t in earlier) or "(none)",
                                         spec=spec, base=base, diff=diff), top)
+        # Only a line in the asked-for form is a candidate: a preamble or "No
+        # problems found." must not take a slot or start the second pass.
         candidates = [line.strip().removeprefix("- ").strip() for line in found.splitlines()
-                      if line.strip()][:MAX_CANDIDATES]
+                      if "evidence:" in line][:MAX_CANDIDATES]
         for text in candidates:
             log(**{"pass": "find", "text": text})
         if not candidates:

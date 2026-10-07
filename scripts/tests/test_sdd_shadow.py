@@ -100,6 +100,17 @@ class SecondPassTests(ShadowTest):
         self.assertEqual(self.findings(), [])
 
 
+class FinderOutputTests(ShadowTest):
+    """Shadow finding f-ea0e92c9, raised by the shadow on its own build."""
+
+    def test_a_line_without_evidence_is_not_a_candidate(self):
+        self.shadow(find="No problems found.\n")
+        self.assertEqual(len(self.prompts), 1)
+        self.shadow(find="Here is what I found:\n- one — evidence: `a`\n", check="CONFIRMED 1: it breaks\n")
+        self.assertEqual([f["text"] for f in self.findings()], ["one — evidence: `a`"])
+        self.assertNotIn("Here is what I found", self.prompts[-1])
+
+
 class CheckPassTests(ShadowTest):
     """Shadow findings f-152765dd and f-5f22fa23, raised by the shadow on its own build."""
 
@@ -143,6 +154,18 @@ class AnswerTests(ShadowTest):
             for t in threads:
                 t.join()
         self.assertEqual(sum(1 for o in outs if o.get("decision") == "block"), 1, outs)
+
+
+class HookRecordTests(ShadowTest):
+    """Shadow finding f-4fc17474, raised by the shadow on its own build."""
+
+    def test_a_torn_hook_record_does_not_break_the_stop(self):
+        self.raise_finding("pin crashes on None")
+        (self.root / ".sdd/shadow-hook.json").write_text('{"asked": ["f-', encoding="utf-8")
+        self.assertEqual(self.stop().get("decision"), "block")
+        record = json.loads((self.root / ".sdd/shadow-hook.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(record["asked"]), 1)
+        self.assertEqual(list((self.root / ".sdd").glob("*.tmp")), [])
 
 
 class LogTests(ShadowTest):
