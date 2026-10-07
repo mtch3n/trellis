@@ -95,10 +95,13 @@ def run(root, top, tree, claude):
                                         spec=spec, base=base, diff=diff), top)
         # Only a line in the asked-for form is a candidate: a preamble or "No
         # problems found." must not take a slot or start the second pass.
-        candidates = [line.strip().removeprefix("- ").strip() for line in found.splitlines()
-                      if "evidence:" in line][:MAX_CANDIDATES]
+        lines = [line.strip() for line in found.splitlines() if line.strip()]
+        kept = [line for line in lines if "evidence:" in line.lower()]
+        candidates = [line.removeprefix("- ").strip() for line in kept][:MAX_CANDIDATES]
         for text in candidates:
             log(**{"pass": "find", "text": text})
+        if len(kept) < len(lines):
+            log(**{"pass": "find", "discarded": len(lines) - len(kept)})
         if not candidates:
             log(text="")
         else:

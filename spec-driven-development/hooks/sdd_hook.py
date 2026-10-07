@@ -246,7 +246,10 @@ def shadow_turn_locked(root, top, held):
     try:
         seen = json.loads(seen_path.read_text(encoding="utf-8")) if seen_path.is_file() else {}
     except ValueError:
-        seen = {}  # a torn record asks again at worst; it must not break every stop
+        # Writes are atomic, so only something outside sdd can tear the record.
+        # Read as empty, it asks about open findings and reports resolutions one
+        # more time each, which beats a hook that fails on every stop.
+        seen = {}
     if not isinstance(seen, dict):
         seen = {}
     asked, reported = set(seen.get("asked", [])), set(seen.get("reported", []))

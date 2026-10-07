@@ -109,6 +109,12 @@ class FinderOutputTests(ShadowTest):
         self.shadow(find="Here is what I found:\n- one — evidence: `a`\n", check="CONFIRMED 1: it breaks\n")
         self.assertEqual([f["text"] for f in self.findings()], ["one — evidence: `a`"])
         self.assertNotIn("Here is what I found", self.prompts[-1])
+        self.assertIn({"pass": "find", "discarded": 1},
+                      [{k: r[k] for k in ("pass", "discarded") if k in r} for r in self.log()])
+
+    def test_evidence_is_matched_in_any_case(self):
+        self.shadow(find="- one — Evidence: `a`\n", check="CONFIRMED 1: it breaks\n")
+        self.assertEqual([f["text"] for f in self.findings()], ["one — Evidence: `a`"])
 
 
 class CheckPassTests(ShadowTest):

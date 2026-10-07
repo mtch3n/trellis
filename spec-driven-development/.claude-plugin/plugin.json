@@ -1,6 +1,6 @@
 {
   "name": "sdd",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Spec-first work that stands on tests: one spec per story grown in question rounds, cases approved before code, and hooks that check the agent's claims against git and the test suite.",
   "author": {
     "name": "mtchen"
