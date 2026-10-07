@@ -18,10 +18,15 @@ os.environ["TRELLIS_HOME"] = tempfile.mkdtemp(prefix="sdd-tests-trellis-")
 os.environ.pop("TRELLIS_PROJECT", None)
 
 
-def load(name, rel):
+def load(name, rel, real_shadow=False):
+    """Load a plugin script as a module. A loaded verify starts no background
+    shadow unless asked: a detached shadow outliving its test wrote into the
+    test's directory while it was being removed, failing the cleanup."""
     spec = importlib.util.spec_from_file_location(name, ROOT / rel)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    if name == "verify" and not real_shadow:
+        module.start_shadow = lambda root, top, tree: "started"
     return module
 
 

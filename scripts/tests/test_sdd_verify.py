@@ -13,7 +13,7 @@ from unittest import mock
 from sdd_helpers import Repo, load
 
 HOOK = load("sdd_hook", "spec-driven-development/hooks/sdd_hook.py")
-VERIFY = load("verify", "spec-driven-development/scripts/verify.py")
+VERIFY = load("verify", "spec-driven-development/scripts/verify.py", real_shadow=True)
 ITEMS = load("open_items", "spec-driven-development/scripts/open_items.py")
 
 TAG = "[DEBUG-" + "a4f2]"  # split so this file does not trip the probe it tests
