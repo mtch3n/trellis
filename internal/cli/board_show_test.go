@@ -94,15 +94,14 @@ func TestFormatBriefCountsUnlistedCardsAndKeepsTheCheatsheet(t *testing.T) {
 // Done counts or a pin alone leave nothing to pick up: no cheatsheet, and the
 // board is not called empty either.
 func TestFormatBriefDoneCountsAloneBringNoCheatsheet(t *testing.T) {
-	brief := &boardBrief{
-		yours:  []cardInfo{},
-		others: []cardInfo{},
-		counts: map[string]int{"done": 47},
-		pins:   []core.Pin{},
-	}
-	text := formatBrief(brief)
-	if strings.Contains(text, "### do this") || strings.Contains(text, "board is empty") {
-		t.Errorf("done counts alone should bring neither the cheatsheet nor 'board is empty':\n%s", text)
+	for name, brief := range map[string]*boardBrief{
+		"done counts": {yours: []cardInfo{}, others: []cardInfo{}, counts: map[string]int{"done": 47}, pins: []core.Pin{}},
+		"a pin":       {yours: []cardInfo{}, others: []cardInfo{}, counts: map[string]int{}, pins: []core.Pin{{Slug: "glossary", Title: "Glossary"}}},
+	} {
+		text := formatBrief(brief)
+		if strings.Contains(text, "### do this") || strings.Contains(text, "board is empty") {
+			t.Errorf("%s alone should bring neither the cheatsheet nor 'board is empty':\n%s", name, text)
+		}
 	}
 }
 
