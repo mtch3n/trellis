@@ -105,10 +105,10 @@ def run(root, top, tree, claude):
             answers = ask(claude, CHECK.format(claims=claims, base=base, diff=diff), top,
                           "--tools", "Read,Grep,Glob", "--strict-mcp-config")
             confirmed, rejected = {}, set()
-            for line in answers.splitlines():
+            for line in filter(str.strip, answers.splitlines()):
+                log(**{"pass": "check", "text": line.strip()})
                 match = ANSWER.match(line)
                 if match:
-                    log(**{"pass": "check", "text": line.strip()})
                     n = int(match.group(2))
                     if match.group(1) == "REJECTED":
                         rejected.add(n)
@@ -119,9 +119,10 @@ def run(root, top, tree, claude):
             for n, scenario in sorted(confirmed.items()):
                 open_items.capture(root, "finding", candidates[n - 1], severity="decide", probe="shadow",
                                    scenario=scenario, branch=branch, tree=tree)
-    except (ValueError, RuntimeError) as error:
+    except (ValueError, RuntimeError, OSError) as error:
         log(skipped=str(error))
-    state.append_jsonl(path(root), rows)
+    finally:
+        state.append_jsonl(path(root), rows)
 
 
 def score(root):

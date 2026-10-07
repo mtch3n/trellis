@@ -145,6 +145,21 @@ class AnswerTests(ShadowTest):
         self.assertEqual(sum(1 for o in outs if o.get("decision") == "block"), 1, outs)
 
 
+class LogTests(ShadowTest):
+    """Shadow findings raised by the shadow on its own build, at tree 3dd876f."""
+
+    def test_every_line_of_the_second_pass_is_logged(self):
+        self.shadow(find="- one — evidence: `a`\n", check="CONFIRMED 1: it breaks\nI think 2 is real too\n")
+        self.assertEqual([r["text"] for r in self.log() if r.get("pass") == "check"],
+                         ["CONFIRMED 1: it breaks", "I think 2 is real too"])
+
+    def test_a_failed_queue_write_still_leaves_the_log(self):
+        with mock.patch.object(SHADOW.open_items, "capture", side_effect=OSError("disk full")):
+            self.shadow(find="- one — evidence: `a`\n", check="CONFIRMED 1: it breaks\n")
+        self.assertIn("disk full", self.log()[-1].get("skipped", ""), self.log())
+        self.assertEqual([r["text"] for r in self.log() if r.get("pass") == "find"], ["one — evidence: `a`"])
+
+
 class QueueTests(ShadowTest):
     CONFIRM = {"find": "- pin crashes on None — evidence: `card.id`\n",
                "check": "CONFIRMED 1: pin(None) raises AttributeError\n"}
