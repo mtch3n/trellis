@@ -101,16 +101,20 @@ def run(root, top, tree, claude):
             log(text="")
         else:
             claims = "\n".join(f"{n}. {text}" for n, text in enumerate(candidates, 1))
+            # Only these tools exist for the check, and no MCP server: it reads, it never writes.
             answers = ask(claude, CHECK.format(claims=claims, base=base, diff=diff), top,
-                          "--allowedTools", "Read,Grep,Glob")
-            confirmed = {}
+                          "--tools", "Read,Grep,Glob", "--strict-mcp-config")
+            confirmed, rejected = {}, set()
             for line in answers.splitlines():
                 match = ANSWER.match(line)
                 if match:
                     log(**{"pass": "check", "text": line.strip()})
                     n = int(match.group(2))
-                    if match.group(1) == "CONFIRMED" and 1 <= n <= len(candidates):
+                    if match.group(1) == "REJECTED":
+                        rejected.add(n)
+                    elif 1 <= n <= len(candidates):
                         confirmed[n] = match.group(3).strip()
+            confirmed = {n: scenario for n, scenario in confirmed.items() if n not in rejected}
             branch = state.branch(top)
             for n, scenario in sorted(confirmed.items()):
                 open_items.capture(root, "finding", candidates[n - 1], severity="decide", probe="shadow",

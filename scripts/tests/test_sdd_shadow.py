@@ -34,7 +34,7 @@ class ShadowTest(unittest.TestCase):
         STATE.ensure(self.root)
         self.repo.git("checkout", "-q", "-b", "feat/x")
         self.repo.write("pin.py", CHANGE)
-        self.prompts = []
+        self.prompts, self.commands = [], []
 
     def shadow(self, find="", check="", check_code=0, check_raises=None):
         """Run the shadow; the finder prints find, the second pass prints check."""
@@ -45,6 +45,7 @@ class ShadowTest(unittest.TestCase):
                 return real(args, **kwargs)
             prompt = args[2]
             self.prompts.append(prompt)
+            self.commands.append(args)
             if "CONFIRMED <n>" not in prompt:
                 return subprocess.CompletedProcess(args, 0, stdout=find, stderr="")
             if check_raises:
@@ -96,6 +97,21 @@ class SecondPassTests(ShadowTest):
     def test_SDS_C4_no_candidate_starts_no_second_pass(self):
         self.shadow(find="")
         self.assertEqual(len(self.prompts), 1)
+        self.assertEqual(self.findings(), [])
+
+
+class CheckPassTests(ShadowTest):
+    """Shadow findings f-152765dd and f-5f22fa23, raised by the shadow on its own build."""
+
+    def test_the_second_pass_can_only_read(self):
+        self.shadow(find="- one — evidence: `a`\n", check="REJECTED 1: no\n")
+        command = self.commands[1]
+        self.assertEqual(command[command.index("--tools") + 1], "Read,Grep,Glob")
+        self.assertIn("--strict-mcp-config", command)
+        self.assertNotIn("--allowedTools", command)
+
+    def test_a_claim_both_confirmed_and_rejected_is_not_confirmed(self):
+        self.shadow(find="- one — evidence: `a`\n", check="CONFIRMED 1: it breaks\nREJECTED 1: it does not\n")
         self.assertEqual(self.findings(), [])
 
 
