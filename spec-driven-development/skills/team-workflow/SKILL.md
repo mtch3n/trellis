@@ -17,13 +17,16 @@ as the `trellis` skill says, and handle contested claims as
    with the case IDs, the files the group may touch, and `blocked_by` for any
    group it waits on.
 2. Give every migration draft to one card. No other worker writes a migration.
-3. Dispatch one worker per unblocked card, each with the card ref and this
-   skill's worker section.
+3. Dispatch one worker per unblocked card, each in a worktree of its own, with
+   the card ref and this skill's worker section.
 4. When every card is done, integrate, then continue with
    `/sdd:verifying-before-done`. Blockers go back to the card whose files they name.
 
 ## Worker
 
+- Work in a worktree on a branch of your own, and start the build there:
+  `python3 <this skill's directory>/../../scripts/build.py start <KEY>`, with
+  the story's key. It refuses in the main checkout.
 - Claim the card: `trellis card claim <ref>`, and keep it with `trellis card renew`.
 - Build its cases as `/sdd:solo-building-from-cases` says, touching only the
   card's files.

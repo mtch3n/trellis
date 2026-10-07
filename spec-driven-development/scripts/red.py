@@ -4,8 +4,9 @@
     red.py <case> "<command>"
 
 The command must name the case ID (PIN_C2 or PIN-C2), so it runs that test, and
-must fail now. The record lands in .sdd/red/<case>.json; verify requires one
-for every approved case whose test landed after `red_since` in .sdd/config.json.
+must fail now, on a branch where `build.py start` started the case's story. The
+record lands in .sdd/red/<case>.json; verify requires one for every approved
+case whose test landed after `red_since` in .sdd/config.json.
 """
 
 import json
@@ -16,6 +17,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+import build  # noqa: E402
 import state  # noqa: E402
 
 TAIL_LINES = 20
@@ -72,6 +74,11 @@ def record(cwd, case, command):
         print(f"refused: {case} did not fail; the output names it only beside a pass or without a failure.\n{tail}")
         return 1
     root = state.repo_root(cwd)
+    key, branch = case.split("-C")[0], state.branch(top)
+    if not branch or branch not in build.started(root)[0].get(key, ()):
+        print(f"refused: {key} is not being built on this branch. Enter a worktree and run "
+              f"`build.py start {key}` there first.")
+        return 1
     state.ensure(root)
     path = record_path(root, case)
     path.parent.mkdir(exist_ok=True)

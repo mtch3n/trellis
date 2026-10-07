@@ -24,6 +24,7 @@ import threading
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+import build  # noqa: E402
 import open_items  # noqa: E402
 import spec_check  # noqa: E402
 import state  # noqa: E402
@@ -82,6 +83,21 @@ def probe_spec(top, segments, approved):
             severity = "blocker"
         out.append(problem("spec", severity, f"{kind}: {detail}"))
     return out, cases, decisions
+
+
+def stories_away(top, root, segments, approved):
+    """(approved stories not built in this tree, unreadable build-record lines).
+
+    A story is built here when this branch started it, or when the tree's tests
+    already name one of its cases, as they do once it is merged.
+    """
+    cases, _, _ = spec_check.parse(segments)
+    named = spec_check.named_ids(top)
+    started, unread = build.started(root)
+    branch = state.branch(top)
+    here = {spec_check.story_of(case["in"]) for cid, case in cases.items()
+            if cid in named or (branch and branch in started.get(cid.split("-C")[0], ()))}
+    return sorted(set(approved) - here), unread
 
 
 def case_regex(cid):
@@ -282,6 +298,9 @@ def verify(cwd):
     for red in sorted((state.folder(root) / "red").glob("*.json")):
         key.update(f"\0{red.name}\0".encode() + red.read_bytes())
     key.update(json.dumps(store_problems).encode())
+    # Which stories this tree answers for depends on the branch and the build record.
+    builds = build.path(root)
+    key.update(f"\0{state.branch(top)}\0".encode() + (builds.read_bytes() if builds.is_file() else b""))
     cache = state.folder(root) / "verify" / f"{key.hexdigest()}.json"
     config = state.load_config(top)
     wait = config.get("test_timeout", 600) + 120
@@ -293,7 +312,15 @@ def verify(cwd):
             publish(root, top, cache, result)
             return {**result, "cached": True}
         approved = spec_check.approvals(segments)
+        away, unread = stories_away(top, root, segments, approved)
+        segments = [(name, text) for name, text in segments if spec_check.story_of(name) not in away]
+        approved = {story: commits for story, commits in approved.items() if story not in away}
         problems = store_problems + probe_test(top, config)
+        problems += [problem("spec", "note", f"{story} is approved but not built on this branch, so its cases "
+                             "are not checked here") for story in away]
+        if unread:
+            problems.append(problem("spec", "note", f".sdd/builds.jsonl holds {unread} line(s) that could not be "
+                                    "read; stories are placed by their tests alone"))
         spec_problems, cases, decisions = probe_spec(top, segments, approved)
         problems += spec_problems
         problems += probe_approved_tests(top, cases, approved)

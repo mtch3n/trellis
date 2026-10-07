@@ -7,6 +7,15 @@ description: Use when a story's cases are approved and one agent builds them - t
 
 Scripts live in `<this skill's directory>/../../scripts/` (`<scripts>` below).
 
+## Before the first case
+
+1. Work in a worktree on a branch of its own: `EnterWorktree`, or
+   `git worktree add <path> -b <branch>` and work there. The main checkout stays
+   free for other sessions.
+2. Start the build there: `python3 <scripts>/build.py start <KEY>`, with the
+   story's key (`PIN`). It refuses outside a worktree, and `red.py` refuses a
+   case whose story was not started on the branch it runs on.
+
 ## For each case, in order
 
 1. Write its test, with the case ID on the line that defines it (`def test_PIN_C2`,

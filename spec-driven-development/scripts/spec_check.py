@@ -200,7 +200,8 @@ def defined_ids(text):
             for prefix, number in CASE_IN_CODE.findall(line)}
 
 
-def check_tests(cases, root):
+def named_ids(root):
+    """{case ID: the first test file whose definitions name it}."""
     named = {}
     for path in test_files(root):
         try:
@@ -209,6 +210,11 @@ def check_tests(cases, root):
             continue
         for cid in sorted(defined_ids(text)):
             named.setdefault(cid, str(path.relative_to(root)))
+    return named
+
+
+def check_tests(cases, root):
+    named = named_ids(root)
     prefixes = {cid.split("-C")[0] for cid in cases}
     problems = [("untested", f"{cid} has no test naming it") for cid in sorted(cases) if cid not in named]
     problems += [("unknown", f"{where} names {cid}, which the spec does not define")

@@ -35,6 +35,8 @@ class StrengthTest(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.repo = Repo(tmp.name)
         self.root = self.repo.root
+        # red.py records a case only where its story's build was started (SDB-D4).
+        self.repo.write(".sdd/builds.jsonl", json.dumps({"story": "PIN", "branch": "main"}) + "\n")
 
     def run_script(self, script, *args):
         return subprocess.run([sys.executable, str(script), *args], cwd=self.root,
