@@ -120,8 +120,11 @@ def resolve(root, iid, how, note="", now=None):
         items = fold(state.read_jsonl(queue_path(root))[0])
         if iid not in items or items[iid]["resolved"]:
             return False
-        if how == "dismiss" and items[iid].get("probe") == "shadow" and not note.strip():
-            raise ValueError("a shadow finding is dismissed with --note saying why it is not a problem")
+        if items[iid].get("probe") == "shadow":
+            if how not in ("fix", "dismiss"):
+                raise ValueError("a shadow finding is answered with --how fix or --how dismiss")
+            if how == "dismiss" and not note.strip():
+                raise ValueError("a shadow finding is dismissed with --note saying why it is not a problem")
         event = {"at": state.now_iso(now), "event": "resolved", "id": iid, "how": how}
         if note:
             event["note"] = note

@@ -115,6 +115,36 @@ class CheckPassTests(ShadowTest):
         self.assertEqual(self.findings(), [])
 
 
+class AnswerTests(ShadowTest):
+    """Shadow findings f-a9eb61a5, f-bf1f3211 and f-ce000c3a, raised by the shadow on its own build."""
+
+    def test_a_shadow_finding_is_answered_only_by_fix_or_dismiss(self):
+        iid = self.raise_finding("pin crashes on None")
+        for how in ("card", "accept", "decision", "gone", "replied"):
+            with self.assertRaises(ValueError):
+                ITEMS.resolve(self.root, iid, how, note="x")
+        self.assertEqual(len(self.findings()), 1)
+
+    def test_two_stops_at_once_ask_about_a_finding_once(self):
+        import threading
+        self.raise_finding("pin crashes on None")
+        real, outs = Path.read_text, []
+
+        def slow(path, *args, **kwargs):
+            if path.name == "shadow-hook.json":
+                threading.Event().wait(0.3)
+            return real(path, *args, **kwargs)
+
+        (self.root / ".sdd/shadow-hook.json").write_text("{}", encoding="utf-8")
+        with mock.patch.object(Path, "read_text", slow):
+            threads = [threading.Thread(target=lambda: outs.append(self.stop())) for _ in range(2)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        self.assertEqual(sum(1 for o in outs if o.get("decision") == "block"), 1, outs)
+
+
 class QueueTests(ShadowTest):
     CONFIRM = {"find": "- pin crashes on None — evidence: `card.id`\n",
                "check": "CONFIRMED 1: pin(None) raises AttributeError\n"}

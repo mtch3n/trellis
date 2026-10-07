@@ -236,6 +236,12 @@ def shadow_turn(root, top, held):
     """
     if not open_items.queue_path(root).is_file():
         return None
+    # Two sessions may stop at once; the lock keeps "asked once" true for both.
+    with state.Lock(root, "shadow-hook.lock"):
+        return shadow_turn_locked(root, top, held)
+
+
+def shadow_turn_locked(root, top, held):
     seen_path = state.folder(root) / "shadow-hook.json"
     seen = json.loads(seen_path.read_text(encoding="utf-8")) if seen_path.is_file() else {}
     asked, reported = set(seen.get("asked", [])), set(seen.get("reported", []))
@@ -247,9 +253,9 @@ def shadow_turn(root, top, held):
                            and i.get("branch") == branch]
     out = {}
     if ended:
-        lines = [f"- {'fixed' if i['resolved'].get('how') == 'fix' else i['resolved'].get('how') + 'ed'}: "
-                 f"{i['text']}" + (f" (why: {i['resolved']['note']})" if i["resolved"].get("note") else "")
-                 for i in ended]
+        verbs = {"fix": "fixed", "dismiss": "dismissed"}
+        lines = [f"- {verbs.get(i['resolved'].get('how'), i['resolved'].get('how'))}: {i['text']}"
+                 + (f" (why: {i['resolved']['note']})" if i["resolved"].get("note") else "") for i in ended]
         out["systemMessage"] = "sdd shadow, how its findings ended:\n" + "\n".join(lines)
     if new:
         resolve = f"python3 {pathlib.Path(open_items.__file__).resolve()} resolve"
