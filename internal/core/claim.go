@@ -238,9 +238,10 @@ func (c *Core) loadMyClaim(tx *sqlx.Tx, cardID string) (Card, error) {
 	// card here is either unclaimed or its claim has expired.
 	if card.ClaimedBy == nil {
 		// Most releases refused here follow a move to done, which already
-		// released the claim.
+		// released the claim, so the fix shows the card rather than claiming
+		// the one the caller just finished.
 		return card, ErrConflict("not_yours", card.Ref+" is not claimed (moving a card to done releases its claim)",
-			"trellis card claim "+card.Ref)
+			"trellis card show "+card.Ref)
 	}
 	if *card.ClaimedBy != c.actor {
 		return card, ErrConflict("not_yours", "the claim on "+card.Ref+" has expired",

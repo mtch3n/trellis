@@ -329,9 +329,10 @@ func formatBrief(brief *boardBrief) string {
 	}
 
 	// TRELLIS-2: empty board collapses to one line.
-	// DO THIS section (commands cheatsheet): only shown if there is other content.
+	// DO THIS section (commands cheatsheet): only shown when there is a card to
+	// pick up, listed or counted. Done counts or pins alone do not call for it.
 	hasContent := len(brief.yours) > 0 || len(brief.others) > 0 || brief.more > 0 || len(brief.counts) > 0 || len(brief.pins) > 0
-	if hasContent {
+	if len(brief.yours) > 0 || len(brief.others) > 0 || brief.more > 0 {
 		result.WriteString("### do this\n")
 		result.WriteString("  `card new --title \"...\"`      create work\n")
 		result.WriteString("  `card next --claim`           claim next unblocked card\n")
@@ -339,7 +340,7 @@ func formatBrief(brief *boardBrief) string {
 		result.WriteString("  `card renew <id>`             keep your claim alive\n")
 		result.WriteString("  `card move <id> <column>`     move to column\n")
 		result.WriteString("  `vault new --title ...`       write down what you learned\n")
-	} else {
+	} else if !hasContent {
 		result.WriteString("board is empty\n")
 	}
 
