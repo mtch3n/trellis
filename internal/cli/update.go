@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 type release struct {
@@ -40,21 +41,8 @@ func newUpdateCmd() *cobra.Command {
 }
 
 func checkForUpdate(ctx context.Context, install, prompt, force bool) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/repos/"+version.Repository+"/releases/latest", nil)
+	r, err := latestRelease(ctx)
 	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("check latest release: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GitHub latest release returned %s", resp.Status)
-	}
-	var r release
-	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
 		return err
 	}
 	switch {
@@ -91,6 +79,30 @@ func checkForUpdate(ctx context.Context, install, prompt, force bool) error {
 	}
 	return fmt.Errorf("release %s has no asset %s", r.TagName, name)
 }
+
+// latestRelease asks GitHub for the newest release, giving up after
+// releaseTimeout so a stalled network never hangs the command.
+func latestRelease(ctx context.Context) (release, error) {
+	ctx, cancel := context.WithTimeout(ctx, releaseTimeout)
+	defer cancel()
+	var r release
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/repos/"+version.Repository+"/releases/latest", nil)
+	if err != nil {
+		return r, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return r, fmt.Errorf("check latest release: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return r, fmt.Errorf("GitHub latest release returned %s", resp.Status)
+	}
+	return r, json.NewDecoder(resp.Body).Decode(&r)
+}
+
+const releaseTimeout = 10 * time.Second
 
 func installAsset(ctx context.Context, url string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
