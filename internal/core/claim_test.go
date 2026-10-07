@@ -553,3 +553,22 @@ func TestClaimedCardRejectsOtherWritesButAllowsNotes(t *testing.T) {
 		t.Fatalf("note exception: %v", err)
 	}
 }
+
+// Releasing a card with no live claim usually follows a move to done, which
+// already released it. The answer says so and does not point at `card claim`.
+func TestReleasingAnUnclaimedCardSaysDoneAlreadyReleased(t *testing.T) {
+	c := testCore(t)
+	p := seededProject(t, c)
+	b := seededBoard(t, c, p)
+	card, err := c.CreateCard(t.Context(), p.ID, b.ID, NewCard{Title: "finished"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ce, ok := errors.AsType[*Error](c.ReleaseCard(t.Context(), card.ID))
+	if !ok || ce.Code != "not_yours" {
+		t.Fatalf("release of an unclaimed card = %v, want not_yours", ce)
+	}
+	if !strings.Contains(ce.Msg, "moving a card to done releases its claim") || strings.Contains(ce.Fix, "card claim") {
+		t.Errorf("release refusal = %q (fix %q)", ce.Msg, ce.Fix)
+	}
+}

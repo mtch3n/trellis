@@ -235,8 +235,11 @@ func (c *Core) loadMyClaim(tx *sqlx.Tx, cardID string) (Card, error) {
 		return card, err
 	}
 	if card.ClaimedBy == nil || *card.ClaimedBy != c.actor {
-		return card, ErrConflict("not_yours", "you do not claim "+card.Ref,
-			"trellis card claim "+card.Ref)
+		// Most releases refused here follow a move to done, which already
+		// released the claim; saying only "you do not claim it" sent callers
+		// to claim the card they were finishing.
+		return card, ErrConflict("not_yours", card.Ref+" has no live claim of yours (moving a card to done releases its claim)",
+			"trellis card show "+card.Ref)
 	}
 	return card, nil
 }
