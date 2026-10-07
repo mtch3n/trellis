@@ -16,7 +16,6 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import state  # noqa: E402
-from migrations import default_branch  # noqa: E402
 from specs import StoreError, all_segments  # noqa: E402
 
 MAX_LINES = 20
@@ -42,7 +41,7 @@ def path(root):
 
 
 def run(root, top, tree, claude):
-    base = default_branch(top) or "HEAD"
+    base = state.diff_base(top)
     diff = state.git(["diff", base], top, timeout=60) or ""
     try:
         spec = "\n\n".join(text for _, text in all_segments(top))

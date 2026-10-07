@@ -38,6 +38,47 @@ def repo_root(cwd):
     return pathlib.Path(top.strip()) if top else pathlib.Path(cwd)
 
 
+def branch(top):
+    """The branch checked out in this worktree, or "" with a detached HEAD."""
+    return (git(["symbolic-ref", "--quiet", "--short", "HEAD"], top) or "").strip()
+
+
+def default_branch(root):
+    head = git(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], root)
+    if head:
+        return head.strip().split("/", 1)[-1]
+    for name in ("main", "master"):
+        if git(["rev-parse", "--verify", "--quiet", f"refs/heads/{name}"], root):
+            return name
+    return None
+
+
+def diff_base(top):
+    """The commit this worktree's changes are measured from.
+
+    Off the default branch: where the branch left it. On it: its upstream.
+    With neither to compare with, HEAD, which leaves uncommitted work only.
+    """
+    default = default_branch(top)
+    if default and branch(top) != default:
+        for ref in (default, f"origin/{default}"):
+            base = git(["merge-base", ref, "HEAD"], top)
+            if base:
+                return base.strip()
+    elif default:
+        upstream = git(["rev-parse", "--verify", "--quiet", "@{upstream}"], top)
+        if upstream:
+            return upstream.strip()
+    return "HEAD"
+
+
+def changed_files(top):
+    """Files that differ from diff_base, untracked ones included, as POSIX paths."""
+    tracked = git(["diff", "--name-only", diff_base(top)], top) or ""
+    untracked = git(["ls-files", "--others", "--exclude-standard"], top) or ""
+    return sorted(set(tracked.splitlines()) | set(untracked.splitlines()))
+
+
 def head(root):
     out = git(["rev-parse", "HEAD"], root)
     return out.strip() if out else ""

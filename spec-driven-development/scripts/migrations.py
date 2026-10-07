@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from state import git  # noqa: E402
+from state import default_branch, git  # noqa: E402
 
 # A migrations directory holds one file (0013_x.sql) or one directory
 # (prisma: 20250101_x/migration.sql) per version. Only a leading number that
@@ -49,16 +49,6 @@ def units_on(ref, root, patterns):
         if hit and version(hit[1]) is not None:
             found.setdefault((hit[0], version(hit[1])), {})[hit[1]] = rel
     return found
-
-
-def default_branch(root):
-    head = git(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], root)
-    if head:
-        return head.strip().split("/", 1)[-1]
-    for name in ("main", "master"):
-        if git(["rev-parse", "--verify", "--quiet", f"refs/heads/{name}"], root):
-            return name
-    return None
 
 
 def draft_of(rel, patterns):
