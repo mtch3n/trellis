@@ -1,4 +1,4 @@
-"""A story belongs to a branch: specs/sdd-branches, cases SDB-C1 to SDB-C19."""
+"""A story belongs to a branch: specs/sdd-branches, cases SDB-C1 to SDB-C21."""
 
 import json
 import subprocess
