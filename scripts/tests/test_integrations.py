@@ -15,6 +15,10 @@ SPEC = importlib.util.spec_from_file_location(
     "claude_recall", ROOT / "plugin/integrations/claude_code/recall.py")
 RECALL = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(RECALL)
+HOOK_SPEC = importlib.util.spec_from_file_location(
+    "trellis_hook", ROOT / "plugin/hooks/trellis_hook.py")
+HOOK = importlib.util.module_from_spec(HOOK_SPEC)
+HOOK_SPEC.loader.exec_module(HOOK)
 
 
 class ClaudeRecallTests(unittest.TestCase):
@@ -22,6 +26,7 @@ class ClaudeRecallTests(unittest.TestCase):
         self.which = patch.object(RECALL.shutil, "which", return_value="/bin/trellis")
         self.which.start()
         self.calls = []
+        self.envs = []
         self.results = [{
             "kind": "entry", "ref": "/TRELLIS/vault/certificate-rotation",
             "title": "Certificate rotation", "recap": "Nightly rotation replaces the TLS certificate.",
@@ -31,19 +36,27 @@ class ClaudeRecallTests(unittest.TestCase):
         # Patch the module's own seam, not subprocess.run: the module shares the
         # subprocess object with this test file, so a global patch would capture
         # the test's own calls too.
-        def run(args, cwd):
+        def run(args, cwd, env):
             self.calls.append(args)
+            self.envs.append(env)
             body = json.dumps({"results": self.results})
             return subprocess.CompletedProcess(args, self.code, body, "")
 
         patch.object(RECALL, "run_cli", side_effect=run).start()
-        self.scratch = tempfile.TemporaryDirectory()
-        self.addCleanup(self.scratch.cleanup)
+        state = tempfile.TemporaryDirectory()
+        self.addCleanup(state.cleanup)
+        patch.object(RECALL, "STATE_DIR", state.name).start()
+        patch.dict(os.environ, {"TRELLIS_PROJECT": ""}).start()
+        project = tempfile.TemporaryDirectory()
+        self.addCleanup(project.cleanup)
+        self.project = Path(project.name) / "project with spaces"
+        (self.project / "src").mkdir(parents=True)
+        (self.project / ".trellis").write_text("/TRELLIS\n")
         self.addCleanup(patch.stopall)
 
     def invoke(self, prompt="why did the certificate rotation fail", **fields):
-        event = dict(prompt=prompt, cwd="/project with spaces",
-                     scratchpad_dir=self.scratch.name, **fields)
+        event = dict(prompt=prompt, cwd=str(self.project / "src"), session_id="s-1")
+        event.update(fields)
         return RECALL.handle(event)
 
     def context(self, result):
@@ -61,7 +74,8 @@ class ClaudeRecallTests(unittest.TestCase):
         self.invoke(prompt="why did the certificate rotation fail")
         # The prompt is handed over whole: term lifting belongs to the CLI, so
         # two harnesses cannot drift into recalling different things.
-        self.assertEqual(self.calls[0][:2], ["recall", "why did the certificate rotation fail"])
+        self.assertEqual(self.calls[0][0], "recall")
+        self.assertEqual(self.calls[0][-2:], ["--", "why did the certificate rotation fail"])
         self.assertIn("--json", self.calls[0])
         # Only this caller knows an injection actually reached a model, so only
         # it may enter the measurement.
@@ -74,9 +88,42 @@ class ClaudeRecallTests(unittest.TestCase):
         self.assertEqual(self.calls[1][self.calls[1].index("--exclude") + 1],
                          "/TRELLIS/vault/certificate-rotation")
 
-    def test_without_a_scratchpad_it_still_answers(self):
-        event = {"prompt": "rotation", "cwd": "/tmp"}
-        self.assertIsNotNone(RECALL.handle(event))
+    def test_another_session_is_shown_the_ref_again(self):
+        self.invoke()
+        self.invoke(session_id="s-2")
+        self.assertNotIn("--exclude", self.calls[1])
+
+    def test_a_prompt_starting_with_a_dash_stays_the_prompt(self):
+        self.invoke(prompt="--write <task> plan")
+        self.assertEqual(self.calls[0][-2:], ["--", "--write <task> plan"])
+
+    def test_the_injection_is_recorded_under_the_session_identity(self):
+        self.invoke()
+        actor = self.envs[0]["TRELLIS_AGENT"]
+        # The same identity the SessionStart hook gives this session, so the read
+        # an injection prompts is paired with it by `trellis vault uptake`.
+        self.assertEqual(actor, HOOK.session_actor("s-1"))
+        for session in ("s-2", "a5f0-ü", "x" * 200):
+            self.assertEqual(RECALL.session_actor(session), HOOK.session_actor(session))
+
+    def test_a_directory_without_a_marker_never_calls_the_cli(self):
+        with tempfile.TemporaryDirectory() as bare:
+            self.assertIsNone(self.invoke(cwd=bare))
+        self.assertEqual(self.calls, [])
+
+    def test_trellis_project_overrides_a_missing_marker(self):
+        with tempfile.TemporaryDirectory() as bare, patch.dict(os.environ, {"TRELLIS_PROJECT": "KEY"}):
+            self.assertIsNotNone(self.invoke(cwd=bare))
+
+    def test_no_session_is_silence(self):
+        self.assertIsNone(self.invoke(session_id=None))
+        self.assertEqual(self.calls, [])
+
+    def test_a_torn_seen_record_is_treated_as_empty(self):
+        path = RECALL.seen_path(RECALL.session_actor("s-1"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        Path(path).write_text("[\"/TRELLIS/vault/cert")
+        self.assertIsNotNone(self.invoke())
         self.assertNotIn("--exclude", self.calls[0])
 
     def test_no_hits_is_silence(self):

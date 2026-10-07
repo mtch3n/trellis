@@ -9,12 +9,14 @@ own copy of this file and nothing else.
 See ../README.md for the contract every integration implements.
 """
 
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 LIMIT = 5
 MAX_BYTES = 600
@@ -22,16 +24,19 @@ MAX_BYTES = 600
 DELIMITER = re.compile(r"</?\s*trellis_board_data\s*>?", re.IGNORECASE)
 
 
-def seen_path(event):
-    """Where this session records what it has already been shown.
+# What each session has already been shown, one small file per session. Claude
+# Code's UserPromptSubmit event carries no scratchpad, so the hook keeps its own.
+STATE_DIR = os.path.join(tempfile.gettempdir(), "trellis-recall")
 
-    Claude Code gives each session a scratchpad. Without one the hook still
-    works; it just repeats itself.
-    """
-    scratchpad = event.get("scratchpad_dir")
-    if not isinstance(scratchpad, str) or not scratchpad:
-        return None
-    return os.path.join(scratchpad, "trellis_recall.json")
+
+def session_actor(session):
+    """The session's Trellis identity, derived exactly as hooks/trellis_hook.py
+    derives it, so an injection and the read it prompts share one actor."""
+    return "agent:" + hashlib.sha256(session.encode()).hexdigest()[:32]
+
+
+def seen_path(actor):
+    return os.path.join(STATE_DIR, actor.removeprefix("agent:") + ".json")
 
 
 def load_seen(path):
@@ -46,33 +51,59 @@ def load_seen(path):
 
 
 def save_seen(path, refs):
+    # Written beside the target and renamed over it, so a hook killed mid-write
+    # leaves the old record, never a torn one.
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as stream:
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump(sorted(set(refs)), stream)
+        os.replace(tmp, path)
     except OSError:
         # Losing the record costs a repeated injection, never correctness.
         pass
 
 
-def run_cli(args, cwd):
+def may_have_project(cwd):
+    """False only when no directory from cwd up holds a `.trellis` marker.
+
+    This is a pre-filter, not resolution: the CLI still decides which project,
+    if any, the directory belongs to. It skips $HOME and the filesystem root,
+    as the CLI does, because `$HOME/.trellis` is the storage root."""
+    if os.environ.get("TRELLIS_PROJECT"):
+        return True
+    home = os.path.realpath(os.path.expanduser("~"))
+    current = os.path.realpath(cwd)
+    while True:
+        parent = os.path.dirname(current)
+        if current not in (home, parent) and os.path.isfile(os.path.join(current, ".trellis")):
+            return True
+        if parent == current:
+            return False
+        current = parent
+
+
+def run_cli(args, cwd, env):
     return subprocess.run(
-        ["trellis", *args], cwd=cwd, stdin=subprocess.DEVNULL,
+        ["trellis", *args], cwd=cwd, env=env, stdin=subprocess.DEVNULL,
         capture_output=True, text=True, timeout=5, check=False,
     )
 
 
-def recall(prompt, cwd, seen):
+def recall(prompt, cwd, seen, actor):
     # The prompt is handed over whole. Lifting terms out of it is the CLI's
     # job, so no two harnesses can drift into recalling different things.
+    # It goes after "--", so a prompt that starts with a dash stays a prompt.
     #
-    # --record records each hit as injected. This is the only caller that knows
-    # an injection actually reached a model, which is what makes
-    # `trellis vault uptake` able to say whether it was worth sending.
-    args = ["recall", prompt, "--json", "--limit", str(LIMIT), "--record"]
+    # --record records each hit as injected, under the session's identity.
+    # This is the only caller that knows an injection actually reached a model,
+    # which is what makes `trellis vault uptake` able to say whether it was
+    # worth sending.
+    args = ["recall", "--json", "--limit", str(LIMIT), "--record"]
     if seen:
         args += ["--exclude", ",".join(seen)]
-    done = run_cli(args, cwd)
+    args += ["--", prompt]
+    done = run_cli(args, cwd, dict(os.environ, TRELLIS_AGENT=actor))
     if done.returncode:
         return []
     payload = json.loads(done.stdout or "{}")
@@ -111,18 +142,21 @@ def handle(event):
         return None
     prompt = event.get("prompt")
     cwd = event.get("cwd")
+    session = event.get("session_id")
     if not isinstance(prompt, str) or not prompt.strip() or not isinstance(cwd, str):
         return None
-    if not shutil.which("trellis"):
+    if not isinstance(session, str) or not session:
+        return None
+    if not may_have_project(cwd) or not shutil.which("trellis"):
         return None
 
-    path = seen_path(event)
-    seen = load_seen(path) if path else []
-    lines, refs = render(recall(prompt, cwd, seen))
+    actor = session_actor(session)
+    path = seen_path(actor)
+    seen = load_seen(path)
+    lines, refs = render(recall(prompt, cwd, seen, actor))
     if not lines:
         return None
-    if path:
-        save_seen(path, seen + refs)
+    save_seen(path, seen + refs)
 
     return {"hookSpecificOutput": {
         "hookEventName": "UserPromptSubmit",

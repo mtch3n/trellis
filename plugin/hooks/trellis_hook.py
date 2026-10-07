@@ -21,6 +21,12 @@ def run_cli(args, cwd, env):
     )
 
 
+def session_actor(session):
+    """The session's Trellis identity. integrations/claude_code/recall.py derives
+    it the same way, so its injections and this session's reads share one actor."""
+    return "agent:" + hashlib.sha256(session.encode()).hexdigest()[:32]
+
+
 def context_output(text):
     return {"hookSpecificOutput": {
         "hookEventName": "SessionStart", "additionalContext": text,
@@ -39,7 +45,7 @@ def handle(event, mode):
 
     # Resume and compaction retain identity; separate sessions do not inherit
     # a parent process's identity. Neither timestamps nor process IDs are used.
-    actor = "agent:" + hashlib.sha256(session.encode()).hexdigest()[:32]
+    actor = session_actor(session)
     env = dict(os.environ, TRELLIS_AGENT=actor)
     assignment = "TRELLIS_AGENT=" + shlex.quote(actor)
     suffix = env.get("TRELLIS_ACTOR")

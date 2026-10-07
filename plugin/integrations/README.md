@@ -11,7 +11,7 @@ only how a harness announces a turn and how it accepts injected context:
 
 | Harness | Event | Input | Output |
 |---|---|---|---|
-| Claude Code | `UserPromptSubmit` | `prompt`, `cwd`, `scratchpad_dir` on stdin | `hookSpecificOutput.additionalContext` |
+| Claude Code | `UserPromptSubmit` | `prompt`, `cwd`, `session_id` on stdin | `hookSpecificOutput.additionalContext` |
 | Codex | see `codex/` | | |
 
 That table is the whole adapter. An integration translates it and calls the
@@ -22,8 +22,12 @@ CLI; it never decides what to search for, how to rank, or what to show.
 An integration must:
 
 1. Read the harness's event from stdin and pull out the free text.
-2. Call one Trellis command. All judgement lives in the CLI, so two harnesses
-   cannot drift into recalling different things.
+2. Call one Trellis command, as the session's agent (`TRELLIS_AGENT`, derived
+   from the session id the way the SessionStart hook derives it), with the
+   free text after `--`. All judgement lives in the CLI, so two harnesses
+   cannot drift into recalling different things. The one check before the
+   call is cheap: skip it when no `.trellis` marker sits in the directory or
+   above it, and `TRELLIS_PROJECT` is unset.
 3. Inject **refs, never bodies**. Opening an entry costs a turn and is
    the agent's call; not knowing it exists is not.
 4. Bound what it injects, and not resend what this session already saw. A
