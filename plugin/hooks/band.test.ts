@@ -22,6 +22,10 @@ type World = {
   cli: 'present' | 'missing' | 'failing'
 }
 
+function exited(exitCode: number, stdout: string, stderr: string) {
+  return { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false }
+}
+
 // Stands for the engine beneath the plugin: the session and turn events, and
 // $.process.run answered as the trellis CLI would, every argv recorded.
 function fakeTrellis(on: On, world: World): string[][] {
@@ -35,10 +39,10 @@ function fakeTrellis(on: On, world: World): string[][] {
       return { deny: `spawn ${e.argv[0]} ENOENT` }
     }
     if (world.cli === 'failing') {
-      return { value: { exitCode: 1, stdout: '', stderr: 'error: database is locked' } }
+      return { value: exited(1, '', 'error: database is locked') }
     }
     const args = e.argv.slice(1).join(' ')
-    const out = (reply: unknown) => ({ value: { exitCode: 0, stdout: JSON.stringify(reply), stderr: '' } })
+    const out = (reply: unknown) => ({ value: exited(0, JSON.stringify(reply), '') })
     if (args === 'vault nominations --json') {
       return out({ nominations: Array.from({ length: world.nominations }, (_, i) => ({ slug: `n${i}` })) })
     }
@@ -51,7 +55,7 @@ function fakeTrellis(on: On, world: World): string[][] {
     if (args === 'board show --json') {
       return out({ project: 'TRELLIS', board: 'trellis', columns: [] })
     }
-    return { value: { exitCode: 2, stdout: '', stderr: `unknown command: ${args}` } }
+    return { value: exited(2, '', `unknown command: ${args}`) }
   })
   return ran
 }
