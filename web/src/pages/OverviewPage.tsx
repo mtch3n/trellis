@@ -377,6 +377,12 @@ function ObservedActivity({ activity, className }: { activity: Activity; classNa
               <dd className="shrink-0 text-xs text-muted-foreground">{view.sessions}</dd>
             </div>
           )}
+          {view.unattributed && (
+            <div className="flex items-baseline justify-between gap-4">
+              <dt className="text-sm">Unattributed processes</dt>
+              <dd className="shrink-0 text-xs text-muted-foreground">{view.unattributed}</dd>
+            </div>
+          )}
         </dl>
       )}
     </MetaGroup>

@@ -59,3 +59,28 @@ func TestActivity_PPL_C2_old_and_other_project_events_are_not_counted(t *testing
 		t.Errorf("sessions = %d, events = %d, want none", got.Sessions, got.SessionEvents)
 	}
 }
+
+func TestActivity_PPL_C8_processes_are_unattributed_not_people(t *testing.T) {
+	c := testCore(t)
+	p := seededProject(t, c)
+	now := c.clock.NowMS()
+	insertEvents(t, c, p.ID, "human:a", now-day, 1)
+	insertEvents(t, c, p.ID, "cli:4242", now-day, 2)
+	insertEvents(t, c, p.ID, "cli:4243", now-day, 1)
+	insertEvents(t, c, p.ID, "daemon:7", now-day, 1)
+	insertEvents(t, c, p.ID, "agent:x", now-day, 1)
+
+	got, err := c.Activity(t.Context(), p.Key)
+	if err != nil {
+		t.Fatalf("Activity: %v", err)
+	}
+	if len(got.Actors) != 1 || got.Actors[0].Actor != "human:a" {
+		t.Errorf("actors = %+v, want only human:a", got.Actors)
+	}
+	if got.Unattributed != 3 || got.UnattributedEvents != 4 {
+		t.Errorf("unattributed = %d, events = %d, want 3 processes, 4 events", got.Unattributed, got.UnattributedEvents)
+	}
+	if got.Sessions != 1 {
+		t.Errorf("sessions = %d, want 1", got.Sessions)
+	}
+}

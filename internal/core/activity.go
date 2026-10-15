@@ -15,13 +15,16 @@ type ActorActivity struct {
 	LastSeen int64  `json:"last_seen" db:"last_seen"`
 }
 
-// Activity is who acted on a project in the last ActivityWindow. Agents are
-// counted as sessions rather than listed, since each session is its own
-// actor.
+// Activity is who acted on a project in the last ActivityWindow. Only a
+// human: actor names a person and is listed. Agents are counted as sessions,
+// since each session is its own actor; any other actor is a process writing
+// without an identity (cli:<pid>, daemon:<pid>) and is counted, not listed.
 type Activity struct {
-	Actors        []ActorActivity `json:"actors"`
-	Sessions      int             `json:"sessions"`
-	SessionEvents int             `json:"session_events"`
+	Actors             []ActorActivity `json:"actors"`
+	Sessions           int             `json:"sessions"`
+	SessionEvents      int             `json:"session_events"`
+	Unattributed       int             `json:"unattributed"`
+	UnattributedEvents int             `json:"unattributed_events"`
 }
 
 // Activity reads who acted on the project named by key in the last
@@ -45,12 +48,16 @@ func (c *Core) Activity(ctx context.Context, key string) (Activity, error) {
 	}
 	a := Activity{Actors: []ActorActivity{}}
 	for _, row := range rows {
-		if strings.HasPrefix(row.Actor, "agent:") {
+		switch {
+		case strings.HasPrefix(row.Actor, "human:"):
+			a.Actors = append(a.Actors, row)
+		case strings.HasPrefix(row.Actor, "agent:"):
 			a.Sessions++
 			a.SessionEvents += row.Events
-			continue
+		default:
+			a.Unattributed++
+			a.UnattributedEvents += row.Events
 		}
-		a.Actors = append(a.Actors, row)
 	}
 	return a, nil
 }
