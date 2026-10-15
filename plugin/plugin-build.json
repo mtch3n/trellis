@@ -34,7 +34,10 @@
   },
   "harnesses": {
     "claude": {
-      "path": "plugin/.claude-plugin/plugin.json"
+      "path": "plugin/.claude-plugin/plugin.json",
+      "extra": {
+        "types": "./types/index.d.ts"
+      }
     },
     "codex": {
       "path": "plugin/.codex-plugin/plugin.json",

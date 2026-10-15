@@ -12,5 +12,6 @@
     "vault",
     "agent",
     "work"
-  ]
+  ],
+  "types": "./types/index.d.ts"
 }
