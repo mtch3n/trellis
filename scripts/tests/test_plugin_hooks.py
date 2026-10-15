@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -180,6 +181,14 @@ class HookTests(unittest.TestCase):
         self.entries = [self.entry("alpha-note")]
         self.assertIsNone(self.invoke("stop"))
         self.assertEqual(self.invoke("stop", session="other-session")["decision"], "block")
+
+    @unittest.skipUnless(hasattr(os, "getuid"), "POSIX permissions")
+    def test_a_nudge_record_others_can_write_is_not_trusted(self):
+        os.chmod(HOOK.STATE_DIR, 0o777)
+        path = HOOK.nudged_path(HOOK.session_actor("test-session"))
+        Path(path).write_text('["alpha-note"]')
+        self.entries = [self.entry("alpha-note")]
+        self.assertEqual(self.invoke("stop")["decision"], "block")
 
     def test_GATE_C6_stop_hook_active_or_failing_remind_never_blocks(self):
         self.entries = [self.entry("alpha-note")]

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -119,6 +120,21 @@ class ClaudeRecallTests(unittest.TestCase):
     def test_no_session_is_silence(self):
         self.assertIsNone(self.invoke(session_id=None))
         self.assertEqual(self.calls, [])
+
+    @unittest.skipUnless(hasattr(os, "getuid"), "POSIX permissions")
+    def test_a_seen_record_others_can_write_is_not_trusted(self):
+        os.chmod(RECALL.STATE_DIR, 0o777)
+        Path(RECALL.seen_path(RECALL.session_actor("s-1"))).write_text('["/TRELLIS/vault/certificate-rotation"]')
+        self.assertIsNotNone(self.invoke())
+        self.assertNotIn("--exclude", self.calls[0])
+
+    def test_a_week_old_seen_record_is_pruned(self):
+        old = Path(RECALL.STATE_DIR) / "stale.json"
+        old.write_text("[]")
+        week = time.time() - 8 * 86400
+        os.utime(old, (week, week))
+        self.invoke()
+        self.assertFalse(old.exists())
 
     def test_a_torn_seen_record_is_treated_as_empty(self):
         path = RECALL.seen_path(RECALL.session_actor("s-1"))

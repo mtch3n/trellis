@@ -14,9 +14,11 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
+import time
 
 LIMIT = 5
 MAX_BYTES = 600
@@ -26,8 +28,36 @@ DELIMITER = re.compile(r"</?\s*trellis_board_data\s*>?", re.IGNORECASE)
 
 # What each session has already been shown, one small file per session. Claude
 # Code's UserPromptSubmit event carries no scratchpad, so the hook keeps its own.
-STATE_DIR = os.path.join(tempfile.gettempdir(), "trellis-recall")
+STATE_DIR = os.path.join(tempfile.gettempdir(),
+                         "trellis-recall-" + str(os.getuid()) if hasattr(os, "getuid") else "trellis-recall")
+STATE_DAYS = 7
 
+
+
+def private_dir(path):
+    """True when path is a directory this user owns and nobody else can write.
+    State in a shared temp directory is otherwise anyone's to plant or edit."""
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return False
+    if not stat.S_ISDIR(info.st_mode):
+        return False
+    if hasattr(os, "getuid"):
+        return info.st_uid == os.getuid() and not info.st_mode & 0o022
+    return True  # Windows: the temp directory is already per user
+
+
+def prune(directory, keep_days=STATE_DAYS):
+    """Drops state files no session has touched in keep_days."""
+    cutoff = time.time() - keep_days * 86400
+    try:
+        for name in os.listdir(directory):
+            path = os.path.join(directory, name)
+            if os.path.getmtime(path) < cutoff:
+                os.remove(path)
+    except OSError:
+        pass
 
 def session_actor(session):
     """The session's Trellis identity, derived exactly as hooks/trellis_hook.py
@@ -40,6 +70,8 @@ def seen_path(actor):
 
 
 def load_seen(path):
+    if not private_dir(os.path.dirname(path)):
+        return []
     try:
         with open(path, encoding="utf-8") as stream:
             stored = json.load(stream)
@@ -54,8 +86,12 @@ def save_seen(path, refs):
     # Written beside the target and renamed over it, so a hook killed mid-write
     # leaves the old record, never a torn one.
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
+        directory = os.path.dirname(path)
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        if not private_dir(directory):
+            return
+        prune(directory)
+        fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump(sorted(set(refs)), stream)
         os.replace(tmp, path)

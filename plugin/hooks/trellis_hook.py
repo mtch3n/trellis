@@ -6,9 +6,11 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
+import time
 
 
 # Any spelling of the data delimiter, so project text cannot break out of it.
@@ -16,9 +18,37 @@ DELIMITER = re.compile(r"</?\s*trellis_board_data\s*>?", re.IGNORECASE)
 
 # The entries each session has already been nudged about, one small file per
 # session. Claude Code's Stop event carries no scratchpad, so the hook keeps its own.
-STATE_DIR = os.path.join(tempfile.gettempdir(), "trellis-nudge")
+STATE_DIR = os.path.join(tempfile.gettempdir(),
+                         "trellis-nudge-" + str(os.getuid()) if hasattr(os, "getuid") else "trellis-nudge")
+STATE_DAYS = 7
 NUDGE_LISTED = 5
 
+
+
+def private_dir(path):
+    """True when path is a directory this user owns and nobody else can write.
+    State in a shared temp directory is otherwise anyone's to plant or edit."""
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return False
+    if not stat.S_ISDIR(info.st_mode):
+        return False
+    if hasattr(os, "getuid"):
+        return info.st_uid == os.getuid() and not info.st_mode & 0o022
+    return True  # Windows: the temp directory is already per user
+
+
+def prune(directory, keep_days=STATE_DAYS):
+    """Drops state files no session has touched in keep_days."""
+    cutoff = time.time() - keep_days * 86400
+    try:
+        for name in os.listdir(directory):
+            path = os.path.join(directory, name)
+            if os.path.getmtime(path) < cutoff:
+                os.remove(path)
+    except OSError:
+        pass
 
 def run_cli(args, cwd, env):
     return subprocess.run(
@@ -38,6 +68,8 @@ def nudged_path(actor):
 
 
 def load_nudged(path):
+    if not private_dir(os.path.dirname(path)):
+        return []
     try:
         with open(path, encoding="utf-8") as stream:
             stored = json.load(stream)
@@ -52,8 +84,12 @@ def save_nudged(path, refs):
     # Written beside the target and renamed over it, so a hook killed mid-write
     # leaves the old record, never a torn one.
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
+        directory = os.path.dirname(path)
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        if not private_dir(directory):
+            return
+        prune(directory)
+        fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump(sorted(set(refs)), stream)
         os.replace(tmp, path)
