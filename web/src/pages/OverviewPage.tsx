@@ -7,6 +7,7 @@ import type { ProjectSummary } from '@/components/wrappers/AppShell'
 import { shortActor } from '@/lib/cards'
 import { type CardInfo } from '@/components/wrappers/CardView'
 import { Lamp } from '@/components/wrappers/Lamp'
+import { MarkdownContent } from '@/components/wrappers/MarkdownContent'
 import { MetaGroup } from '@/components/wrappers/MetaPanel'
 import { ProjectTimeline } from '@/components/wrappers/ProjectTimeline'
 import { PageHeader } from '@/components/wrappers/PageHeader'
@@ -17,6 +18,9 @@ import { buildMarks, type ProjectEvent } from '@/lib/timeline-marks'
 import { cn } from '@/lib/utils'
 import { readError } from '@/lib/api'
 import { defaultBoard } from '@/lib/boards'
+import { splitTitleHeading } from '@/lib/title-heading'
+import { activityView, declaredView, descriptionLine, OVERVIEW_SLUG, type Activity } from '@/lib/overview'
+import type { WikilinkTargets } from '@/lib/wikilinks'
 
 interface ColumnCards { name: string; cards: CardInfo[] }
 interface Event {
@@ -34,6 +38,8 @@ interface Snapshot {
   events: Event[]
   entries: Entry[]
   log: ProjectEvent[]
+  activity: Activity
+  overview: Entry | null
   loadedAt: number
 }
 
@@ -80,13 +86,23 @@ export function OverviewPage() {
           after = page.next
         }
       }
-      const [columns, events, entries, log] = await Promise.all([
+      // No overview entry is an answer, not a failure: the page offers the
+      // command that writes one.
+      const readOverview = async () => {
+        const response = await fetch(`/api/p/${projectKey}/vault/${OVERVIEW_SLUG}`, { signal })
+        if (response.status === 404) return null
+        if (!response.ok) throw new Error(await readError(response))
+        return response.json() as Promise<Entry>
+      }
+      const [columns, events, entries, log, activity, overview] = await Promise.all([
         board ? read<ColumnCards[]>(`/api/p/${projectKey}/b/${board}/cards`) : Promise.resolve([]),
         read<Event[]>(`/api/events?project=${encodeURIComponent(projectKey)}&limit=20`),
         read<Entry[]>(`/api/p/${projectKey}/vault`),
         readLog(),
+        read<Activity>(`/api/p/${projectKey}/activity`),
+        readOverview(),
       ])
-      setData({ summary, columns, events, entries: entries ?? [], log, loadedAt: Date.now() })
+      setData({ summary, columns, events, entries: entries ?? [], log, activity, overview, loadedAt: Date.now() })
       setError(null)
     })().catch((err: unknown) => {
       if (signal.aborted) return
@@ -142,17 +158,35 @@ export function OverviewPage() {
 
   const base = `/p/${projectKey}`
   const stale = data.summary?.expired_claims ?? 0
+  const description = descriptionLine(data.summary?.description ?? '')
+  const declared = (
+    <Declared
+      view={declaredView(
+        projectKey ?? '',
+        data.overview && {
+          slug: data.overview.slug,
+          body: splitTitleHeading(data.overview.body ?? '', data.overview.title).rest,
+        },
+      )}
+      wikilinks={{
+        slugs: new Set(data.entries.filter((entry) => !entry.global).map((entry) => entry.slug)),
+        pathOf: (slug) => `${base}/vault/${encodeURIComponent(slug)}`,
+      }}
+    />
+  )
 
   if (view.total === 0 && data.entries.length === 0) {
     return (
       <main className="mx-auto max-w-overview px-6 pb-24 lg:px-8">
-        <PageHeader title={projectKey} />
+        <PageHeader title={projectKey} description={description} />
+        {declared}
         <Empty className="mt-16">
           <EmptyHeader>
             <EmptyTitle>Nothing here yet</EmptyTitle>
             <EmptyDescription>Agents create cards and write entries as they work. They show up here.</EmptyDescription>
           </EmptyHeader>
         </Empty>
+        <ObservedActivity activity={data.activity} className="mt-12 max-w-sm" />
       </main>
     )
   }
@@ -161,12 +195,14 @@ export function OverviewPage() {
     <main className="mx-auto max-w-overview animate-enter px-6 pb-24 lg:px-8">
       <PageHeader
         title={projectKey}
+        description={description}
         facts={[
           { label: 'Claimed', value: view.claimed, tone: 'claimed' },
           { label: 'Expired claims', value: stale, tone: 'claimed' },
           { label: 'Entries', value: data.entries.length },
         ]}
       />
+      {declared}
 
       {view.marks.created.length + view.marks.written.length > 0 && (
         <div className="mt-6">
@@ -237,6 +273,8 @@ export function OverviewPage() {
             )}
           </MetaGroup>
 
+          <ObservedActivity activity={data.activity} />
+
           {view.pinned.length > 0 && (
             <MetaGroup label="Pinned" count={view.pinned.length}>
               <ul className="flex flex-col gap-4">
@@ -277,6 +315,71 @@ export function OverviewPage() {
         </aside>
       </div>
     </main>
+  )
+}
+
+/**
+ * What the project's people wrote about its purpose and who works on it, from
+ * the overview entry, or the command that writes that entry.
+ */
+function Declared({
+  view,
+  wikilinks,
+}: {
+  view: ReturnType<typeof declaredView>
+  wikilinks: WikilinkTargets
+}) {
+  if ('command' in view) {
+    return (
+      <p className="mt-2 text-sm text-muted-foreground">
+        Say what this project is for and who works on it: <code className="text-meta">{view.command}</code>
+      </p>
+    )
+  }
+  return (
+    <section className="mt-2">
+      <MarkdownContent content={view.body} wikilinks={wikilinks} />
+      <Link
+        to={view.href}
+        className="mt-2 inline-flex text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        Open the overview entry
+      </Link>
+    </section>
+  )
+}
+
+/**
+ * Who acted here in the last 30 days, measured from the event log. Having
+ * acted on a project is not being responsible for it, so the label says
+ * activity and the declared people stay in the overview entry.
+ */
+function ObservedActivity({ activity, className }: { activity: Activity; className?: string }) {
+  const view = activityView(activity)
+  return (
+    <MetaGroup label="Observed activity" className={className}>
+      <p className="text-xs text-pretty text-muted-foreground">Events in the last 30 days, not who is responsible.</p>
+      {'empty' in view ? (
+        <p className="mt-2 text-sm text-muted-foreground">{view.empty}</p>
+      ) : (
+        <dl className="mt-2 flex flex-col gap-2">
+          {view.actors.map((row) => (
+            <div key={row.actor} className="flex items-baseline justify-between gap-4">
+              <dt className="min-w-0 truncate text-meta">{row.actor}</dt>
+              <dd className="shrink-0 text-xs text-muted-foreground">
+                {row.events}, {ago(row.lastSeen)}
+              </dd>
+            </div>
+          ))}
+          {view.sessions && (
+            <div className="flex items-baseline justify-between gap-4">
+              <dt className="text-sm">Agent sessions</dt>
+              <dd className="shrink-0 text-xs text-muted-foreground">{view.sessions}</dd>
+            </div>
+          )}
+        </dl>
+      )}
+    </MetaGroup>
   )
 }
 
