@@ -182,6 +182,16 @@ class HookTests(unittest.TestCase):
         self.assertIsNone(self.invoke("stop"))
         self.assertEqual(self.invoke("stop", session="other-session")["decision"], "block")
 
+    def test_refs_past_the_listed_five_are_named_at_a_later_stop(self):
+        self.entries = [self.entry(f"note-{n}") for n in range(7)]
+        first = self.invoke("stop")["reason"]
+        self.assertIn("+2 more", first)
+        second = self.invoke("stop")
+        self.assertEqual(second["decision"], "block")
+        self.assertIn("note-5", second["reason"])
+        self.assertIn("note-6", second["reason"])
+        self.assertNotIn("note-0", second["reason"])
+
     @unittest.skipUnless(hasattr(os, "getuid"), "POSIX permissions")
     def test_a_nudge_record_others_can_write_is_not_trusted(self):
         os.chmod(HOOK.STATE_DIR, 0o777)

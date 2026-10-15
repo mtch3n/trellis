@@ -209,7 +209,9 @@ def handle(event, mode):
              if isinstance(entry, dict) and isinstance(entry.get("ref"), str)
              and entry["ref"] not in nudged]
     if fresh:
-        save_nudged(path, nudged + fresh)
+        # Only the refs the reason names count as nudged; the rest are named
+        # at a later stop instead of being marked without ever being shown.
+        save_nudged(path, nudged + fresh[:NUDGE_LISTED])
         output["decision"] = "block"
         output["reason"] = nudge_reason(fresh, assignment)
     return output or None
