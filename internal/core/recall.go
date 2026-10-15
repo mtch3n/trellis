@@ -58,8 +58,11 @@ type RecallOpts struct {
 // recallLine renders a hit as the line an integration injects. The ref is
 // never shortened: a truncated ref cannot be opened, which is the one thing the
 // line exists to make possible. The recap beside it is a preview and can be cut.
+// Whitespace runs collapse to one space, so a recap holding a newline cannot
+// break the line in two or pass for a hit of its own.
 func recallLine(h RecallHit) string {
-	line := fmt.Sprintf("%-9.9s  %-34s  %.96s", h.Kind, h.Ref, cmp.Or(h.Recap, h.Title))
+	text := strings.Join(strings.Fields(cmp.Or(h.Recap, h.Title)), " ")
+	line := fmt.Sprintf("%-9.9s  %-34s  %.96s", h.Kind, h.Ref, text)
 	return strings.TrimRightFunc(line, unicode.IsSpace)
 }
 
