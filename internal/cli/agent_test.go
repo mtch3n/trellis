@@ -99,3 +99,15 @@ func TestRemindTextListsUnnominatedEntriesWithNoClaimedCard(t *testing.T) {
 		t.Errorf("remind text mentions claimed work with none claimed: %q", out)
 	}
 }
+
+// A private entry is never offered for the global vault, even one this actor wrote.
+func TestRemindNeverListsAPrivateEntry(t *testing.T) {
+	projectEnv(t)
+	t.Setenv("TRELLIS_AGENT", "agent:me")
+	runCmd(t, "vault", "new", "--title", "Open notes", "--body", "mine\n")
+	runCmd(t, "vault", "new", "--title", "Staging credentials", "--private", "--body", "secret\n")
+	got := remindUnnominated(t)
+	if !slices.Equal(got, []string{"/TEST/vault/open-notes"}) {
+		t.Fatalf("unnominated_entries = %v, want only the open entry", got)
+	}
+}

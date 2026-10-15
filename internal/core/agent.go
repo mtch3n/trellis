@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"slices"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -130,6 +131,7 @@ func (c *Core) ClaimedWithoutComment(ctx context.Context) ([]Card, error) {
 
 // UnnominatedEntry is an entry the Stop hook may ask its author to nominate.
 type UnnominatedEntry struct {
+	ID    string `db:"id" json:"-"`
 	Ref   string `db:"ref" json:"ref"`
 	Title string `db:"title" json:"title"`
 }
@@ -139,15 +141,29 @@ type UnnominatedEntry struct {
 func (c *Core) UnnominatedEntries(ctx context.Context, projectID string) ([]UnnominatedEntry, error) {
 	entries := []UnnominatedEntry{}
 	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
-		return tx.Select(&entries,
-			`SELECT `+entryAddressSQL+` AS ref, k.title
+		if err := tx.Select(&entries,
+			`SELECT k.id, `+entryAddressSQL+` AS ref, k.title
 			 FROM entry k JOIN project p ON p.id = k.project_id
 			 WHERE k.project_id = ? AND k.global = 0
 			   AND EXISTS (SELECT 1 FROM event e WHERE e.entity_type = 'entry' AND e.entity_id = k.id
 			               AND e.action IN ('created', 'edited') AND e.actor = ?)
 			   AND NOT EXISTS (SELECT 1 FROM nomination n WHERE n.entry_id = k.id AND n.actor = ?)
 			 ORDER BY k.updated_at`,
-			projectID, c.actor, c.actor)
+			projectID, c.actor, c.actor); err != nil {
+			return err
+		}
+		// A private entry is never offered for the global vault. Private comes
+		// from the file, as in UnverifiedEntries; a missing file counts as private.
+		ids := make([]string, len(entries))
+		for i, e := range entries {
+			ids[i] = e.ID
+		}
+		private, _, err := c.privateAfterRefresh(tx, ids)
+		if err != nil {
+			return err
+		}
+		entries = slices.DeleteFunc(entries, func(e UnnominatedEntry) bool { return private[e.ID] })
+		return nil
 	})
 	return entries, err
 }
