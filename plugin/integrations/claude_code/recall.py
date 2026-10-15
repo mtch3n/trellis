@@ -98,8 +98,9 @@ def recall(prompt, cwd, seen, actor):
     # --record records each hit as injected, under the session's identity.
     # This is the only caller that knows an injection actually reached a model,
     # which is what makes `trellis vault uptake` able to say whether it was
-    # worth sending.
-    args = ["recall", "--json", "--limit", str(LIMIT), "--record"]
+    # worth sending. --max-bytes makes the CLI drop what will not fit before it
+    # records, so a hit cut for size is never counted as sent.
+    args = ["recall", "--json", "--limit", str(LIMIT), "--record", "--max-bytes", str(MAX_BYTES)]
     if seen:
         args += ["--exclude", ",".join(seen)]
     args += ["--", prompt]
@@ -114,26 +115,15 @@ def recall(prompt, cwd, seen, actor):
 
 
 def render(hits):
-    """One bounded line per hit. Returns the lines kept and the refs they name."""
-    lines, refs, used = [], [], 0
+    """The CLI's lines, already within MAX_BYTES. Returns them and the refs they name."""
+    lines, refs = [], []
     for hit in hits:
-        if not isinstance(hit, dict):
+        if not isinstance(hit, dict) or not isinstance(hit.get("line"), str):
             continue
-        # The ref is never shortened. A truncated ref cannot be opened,
-        # which is the one thing this line exists to make possible; the recap
-        # beside it is a preview and can be cut.
-        line = "{:<9}  {:<34}  {}".format(
-            str(hit.get("kind") or "?")[:9],
-            str(hit.get("ref") or ""),
-            str(hit.get("recap") or hit.get("title") or "")[:96],
-        )
-        line = DELIMITER.sub("(redacted)", line).rstrip()
-        size = len(line.encode("utf-8")) + 1
-        if used + size > MAX_BYTES:
-            break
-        lines.append(line)
+        # "(redacted)" is shorter than any spelling of the delimiter, so the
+        # CLI's byte budget still holds.
+        lines.append(DELIMITER.sub("(redacted)", hit["line"]))
         refs.append(hit.get("ref"))
-        used += size
     return lines, refs
 
 

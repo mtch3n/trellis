@@ -32,7 +32,9 @@ An integration must:
    the agent's call; not knowing it exists is not.
 4. Bound what it injects, and not resend what this session already saw. A
    prompt hook runs every turn, and an injected token is paid for once on cache
-   write and again on every later read.
+   write and again on every later read. Pass the budget as `--max-bytes` with
+   `--record` and inject each hit's `line` as given: the CLI cuts before it
+   records, so a hit dropped for size never counts as sent.
 5. Fail silently. A notice repeated once per prompt is worse than the miss it
    reports.
 

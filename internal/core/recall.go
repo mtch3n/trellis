@@ -3,6 +3,7 @@ package core
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -20,6 +21,10 @@ type RecallHit struct {
 	Project string `db:"project" json:"project"`
 	Detail  string `db:"detail" json:"detail,omitempty"` // column for cards, template for entries
 	Recap   string `db:"recap" json:"recap,omitempty"`
+
+	// Line is the hit as one bounded line of text, the form an integration
+	// injects. MaxBytes is measured against it.
+	Line string `db:"-" json:"line"`
 
 	// ID joins against the link graph. Callers get refs, not internal ids.
 	ID string `db:"id" json:"-"`
@@ -42,6 +47,20 @@ type RecallOpts struct {
 	// integration turns it on, being the only caller that knows an injection
 	// actually reached a model.
 	Record bool
+
+	// MaxBytes caps the hits' lines, one newline each, in rank order: the
+	// first hit that would pass it is dropped with everything after it. The
+	// cut runs before Record, so the measurement counts only what was sent.
+	// Zero keeps every hit.
+	MaxBytes int
+}
+
+// recallLine renders a hit as the line an integration injects. The ref is
+// never shortened: a truncated ref cannot be opened, which is the one thing the
+// line exists to make possible. The recap beside it is a preview and can be cut.
+func recallLine(h RecallHit) string {
+	line := fmt.Sprintf("%-9.9s  %-34s  %.96s", h.Kind, h.Ref, cmp.Or(h.Recap, h.Title))
+	return strings.TrimRightFunc(line, unicode.IsSpace)
 }
 
 func inClause(column string, values []string) (string, []any) {
@@ -237,6 +256,17 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 				// this refresh purged it, or a rolled-back purge left it
 				// in the column for the next successful read to clear.
 				hits[i].Recap = ""
+			}
+		}
+
+		// After redaction, so a line never carries a recap the hit lost.
+		used := 0
+		for i := range hits {
+			hits[i].Line = recallLine(hits[i])
+			used += len(hits[i].Line) + 1
+			if o.MaxBytes > 0 && used > o.MaxBytes {
+				hits = hits[:i]
+				break
 			}
 		}
 

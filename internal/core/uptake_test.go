@@ -1,6 +1,9 @@
 package core
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // inject runs a recording recall and returns how many hits it marked.
 func inject(t *testing.T, c *Core, projectID, text string) int {
@@ -161,5 +164,53 @@ func TestUptakeRecordsEvenWhenTheLimitIsReached(t *testing.T) {
 	}
 	if got := uptakeFor(t, c, p.ID, "authored"); got.Injected != 2 {
 		t.Errorf("%+v, want 2 injected: a full result set must still be recorded", got)
+	}
+}
+
+// An integration injects only the lines that fit its budget, so a hit cut by the
+// budget never reached a model and must not count as injected.
+func TestRecallRecordsOnlyTheHitsWithinMaxBytes(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	ctx := t.Context()
+	for _, title := range []string{"Retry budget", "Retry jitter", "Retry ceiling"} {
+		if _, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: title, Summary: "retry " + title}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, err := c.Recall(ctx, p.ID, "retry", RecallOpts{})
+	if err != nil {
+		t.Fatalf("Recall: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("Recall returned %d hits, want 3", len(all))
+	}
+	// One byte short of the third line.
+	budget := len(all[0].Line) + len(all[1].Line) + len(all[2].Line) + 2
+
+	hits, err := c.Recall(ctx, p.ID, "retry", RecallOpts{Record: true, MaxBytes: budget})
+	if err != nil {
+		t.Fatalf("Recall: %v", err)
+	}
+	if len(hits) != 2 || hits[0].Ref != all[0].Ref || hits[1].Ref != all[1].Ref {
+		t.Fatalf("hits = %+v, want the first two in rank order", hits)
+	}
+	if got := uptakeFor(t, c, p.ID, "authored"); got.Injected != 2 {
+		t.Errorf("injected = %d, want 2: a hit past the budget was recorded", got.Injected)
+	}
+}
+
+// The line is what an agent sees: the ref whole, the recap cut, and a private
+// entry's line carries no recap.
+func TestRecallLineKeepsTheRefWholeAndCutsTheRecap(t *testing.T) {
+	long := RecallHit{Kind: "entry", Ref: "/KEY/vault/" + strings.Repeat("r", 60), Recap: strings.Repeat("é", 120)}
+	line := recallLine(long)
+	if !strings.Contains(line, long.Ref) {
+		t.Errorf("line %q lost part of the ref", line)
+	}
+	if got := strings.Count(line, "é"); got != 96 {
+		t.Errorf("recap kept %d runes, want 96", got)
+	}
+	if got := recallLine(RecallHit{Kind: "card", Ref: "KEY-1", Title: "Fix it"}); got != "card       KEY-1                               Fix it" {
+		t.Errorf("card line = %q", got)
 	}
 }

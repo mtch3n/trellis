@@ -11,7 +11,7 @@ import (
 )
 
 func newRecallCmd() *cobra.Command {
-	var limit, terms int
+	var limit, terms, maxBytes int
 	var exclude, templates, provenances []string
 	var record bool
 
@@ -33,6 +33,7 @@ stops when it is empty. Pass --exclude the refs it already holds.`,
 				hits, err := app.Core.Recall(cmd.Context(), app.Project.ID, args[0], core.RecallOpts{
 					Limit: limit, Terms: terms, Exclude: exclude,
 					Templates: templates, Provenances: provenances, Record: record,
+					MaxBytes: maxBytes,
 				})
 				if err != nil {
 					return err
@@ -47,6 +48,7 @@ stops when it is empty. Pass --exclude the refs it already holds.`,
 	cmd.Flags().StringSliceVar(&templates, "template", nil, "only these templates; drops cards from the result")
 	cmd.Flags().StringSliceVar(&provenances, "provenance", nil, "only entries with these provenances; drops cards from the result")
 	cmd.Flags().BoolVar(&record, "record", false, "record each hit as injected, so `vault uptake` can tell whether it was opened")
+	cmd.Flags().IntVar(&maxBytes, "max-bytes", 0, "drop hits once their lines, one newline each, pass this many bytes; 0 keeps every hit")
 	return cmd
 }
 
