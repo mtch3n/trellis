@@ -218,3 +218,37 @@ func TestRecallLineKeepsTheRefWholeAndCutsTheRecap(t *testing.T) {
 		t.Errorf("a recap broke the line: %q", forged)
 	}
 }
+
+// The ref is never shortened, so a hit with a very long ref can pass the
+// budget alone. It is skipped; the hits ranked below it still go out.
+func TestRecallSkipsAHitWhoseLineAlonePassesMaxBytes(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	ctx := t.Context()
+	long := "Retry " + strings.Repeat("x", 300)
+	for _, title := range []string{long, "Retry jitter"} {
+		if _, err := c.CreateEntry(ctx, p.ID, NewEntry{Title: title, Summary: "retry retry"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, err := c.Recall(ctx, p.ID, "retry", RecallOpts{})
+	if err != nil || len(all) != 2 {
+		t.Fatalf("Recall = %d hits, %v; want 2", len(all), err)
+	}
+	var short RecallHit
+	budget := 0
+	for _, h := range all {
+		if !strings.Contains(h.Ref, "xxx") {
+			short, budget = h, len(h.Line)+1
+		}
+	}
+	hits, err := c.Recall(ctx, p.ID, "retry", RecallOpts{Record: true, MaxBytes: budget})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].Ref != short.Ref {
+		t.Fatalf("hits = %+v, want only %s", hits, short.Ref)
+	}
+	if got := uptakeFor(t, c, p.ID, "authored"); got.Injected != 1 {
+		t.Errorf("injected = %d, want 1", got.Injected)
+	}
+}

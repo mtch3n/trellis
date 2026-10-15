@@ -49,8 +49,9 @@ type RecallOpts struct {
 	Record bool
 
 	// MaxBytes caps the hits' lines, one newline each, in rank order: the
-	// first hit that would pass it is dropped with everything after it. The
-	// cut runs before Record, so the measurement counts only what was sent.
+	// first hit that would pass it is dropped with everything after it, and a
+	// hit whose line alone passes it is skipped. The cut runs before Record,
+	// so the measurement counts only what was sent.
 	// Zero keeps every hit.
 	MaxBytes int
 }
@@ -268,15 +269,23 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 		}
 
 		// After redaction, so a line never carries a recap the hit lost.
-		used := 0
-		for i := range hits {
-			hits[i].Line = recallLine(hits[i])
-			used += len(hits[i].Line) + 1
-			if o.MaxBytes > 0 && used > o.MaxBytes {
-				hits = hits[:i]
+		// A line that alone passes the budget is skipped, not taken as the
+		// cut: the ref is never shortened, so one long ref must not silence
+		// every hit ranked below it.
+		used, kept := 0, hits[:0]
+		for _, h := range hits {
+			h.Line = recallLine(h)
+			size := len(h.Line) + 1
+			if o.MaxBytes > 0 && size > o.MaxBytes {
+				continue
+			}
+			if o.MaxBytes > 0 && used+size > o.MaxBytes {
 				break
 			}
+			used += size
+			kept = append(kept, h)
 		}
+		hits = kept
 
 		if o.Record {
 			for _, h := range hits {
