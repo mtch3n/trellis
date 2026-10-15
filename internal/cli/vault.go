@@ -252,7 +252,7 @@ func renderEntryList(entries []core.Entry) string {
 }
 
 func newVaultLsCmd() *cobra.Command {
-	var thisBoard, cold, trashed bool
+	var thisBoard, cold, unverified, trashed bool
 	var templates, provenances, tags []string
 	cmd := &cobra.Command{
 		Use:   "ls [directory]",
@@ -273,9 +273,12 @@ func newVaultLsCmd() *cobra.Command {
 				}
 				var entries []core.Entry
 				var err error
-				if cold {
+				switch {
+				case cold:
 					entries, err = app.Core.ColdEntries(cmd.Context(), app.Project.ID)
-				} else {
+				case unverified:
+					entries, err = app.Core.UnverifiedEntries(cmd.Context())
+				default:
 					entries, err = app.Core.ListEntries(cmd.Context(), app.Project.ID, filter)
 				}
 				if err != nil {
@@ -297,6 +300,8 @@ func newVaultLsCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&thisBoard, "board-only", false, "this board's entries plus the unscoped ones")
 	cmd.Flags().BoolVar(&cold, "cold", false, "entries nothing has read in 30 days")
+	cmd.Flags().BoolVar(&unverified, "unverified", false, "global entries past their verify date")
+	cmd.MarkFlagsMutuallyExclusive("cold", "unverified")
 	cmd.Flags().BoolVar(&trashed, "trashed", false, "include entries in the trash")
 	cmd.Flags().StringSliceVar(&templates, "template", nil, "only these templates: "+strings.Join(core.Templates(), "|"))
 	cmd.Flags().StringSliceVar(&provenances, "provenance", nil, "only entries with these provenances: "+strings.Join(core.Provenances(), "|"))

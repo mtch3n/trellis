@@ -765,6 +765,35 @@ func (c *Core) ListGlobalEntries(ctx context.Context) ([]Entry, error) {
 	return entries, err
 }
 
+// UnverifiedEntries lists the global entries past their verify date, oldest
+// due first. Private and missing come from the files, as in ColdEntries.
+func (c *Core) UnverifiedEntries(ctx context.Context) ([]Entry, error) {
+	entries := []Entry{}
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		if err := tx.Select(&entries, `SELECT k.* FROM entry k WHERE `+overdueGlobalSQL+` ORDER BY k.verify_by`,
+			c.clock.NowMS()); err != nil {
+			return err
+		}
+		ids := make([]string, 0, len(entries))
+		for _, e := range entries {
+			ids = append(ids, e.ID)
+		}
+		private, missing, err := c.privateAfterRefresh(tx, ids)
+		if err != nil {
+			return err
+		}
+		for i := range entries {
+			entries[i].Private = private[entries[i].ID]
+			entries[i].Missing = missing[entries[i].ID]
+			if err := c.entryView(tx, &entries[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return entries, err
+}
+
 // EditEntry replaces the body. The file is rewritten and the row follows.
 func (c *Core) EditEntry(ctx context.Context, projectID, slug, body string, ifVersion *int64) (Entry, error) {
 	return c.EditEntryFields(ctx, projectID, slug, EntryEdit{Body: &body, IfVersion: ifVersion})
