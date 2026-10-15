@@ -8,10 +8,16 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 
 
 # Any spelling of the data delimiter, so project text cannot break out of it.
 DELIMITER = re.compile(r"</?\s*trellis_board_data\s*>?", re.IGNORECASE)
+
+# The entries each session has already been nudged about, one small file per
+# session. Claude Code's Stop event carries no scratchpad, so the hook keeps its own.
+STATE_DIR = os.path.join(tempfile.gettempdir(), "trellis-nudge")
+NUDGE_LISTED = 5
 
 
 def run_cli(args, cwd, env):
@@ -25,6 +31,47 @@ def session_actor(session):
     """The session's Trellis identity. integrations/claude_code/recall.py derives
     it the same way, so its injections and this session's reads share one actor."""
     return "agent:" + hashlib.sha256(session.encode()).hexdigest()[:32]
+
+
+def nudged_path(actor):
+    return os.path.join(STATE_DIR, actor.removeprefix("agent:") + ".json")
+
+
+def load_nudged(path):
+    try:
+        with open(path, encoding="utf-8") as stream:
+            stored = json.load(stream)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(stored, list):
+        return []
+    return [ref for ref in stored if isinstance(ref, str)]
+
+
+def save_nudged(path, refs):
+    # Written beside the target and renamed over it, so a hook killed mid-write
+    # leaves the old record, never a torn one.
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(sorted(set(refs)), stream)
+        os.replace(tmp, path)
+    except OSError:
+        # Losing the record costs a repeated nudge, never correctness.
+        pass
+
+
+def nudge_reason(refs, assignment):
+    listed = ", ".join(refs[:NUDGE_LISTED])
+    if len(refs) > NUDGE_LISTED:
+        listed += f", +{len(refs) - NUDGE_LISTED} more"
+    return (
+        f"Trellis: you wrote vault entries not nominated for the global vault: {listed}. "
+        "Nominate only those that would hold in another repository, each with a reason: "
+        f"`{assignment} trellis vault nominate <entry> --reason \"...\"`. "
+        "If none would, say so in one line."
+    )
 
 
 def context_output(text):
@@ -108,16 +155,28 @@ def handle(event, mode):
     if not isinstance(payload, dict):
         raise ValueError("invalid reminder response")
     cards = payload.get("claimed_without_comment") or []
-    if not isinstance(cards, list):
-        raise ValueError("invalid reminder cards")
-    if not cards:
-        return None
-    # A notice does not manufacture another user turn or require a mutation.
-    return {"systemMessage": (
-        f"Trellis: {len(cards)} claimed card(s) have no comment from this actor. "
-        f"Use `{assignment} trellis agent remind --json` to inspect them. "
-        "Record a handoff when within the user's task scope."
-    )}
+    entries = payload.get("unnominated_entries") or []
+    if not isinstance(cards, list) or not isinstance(entries, list):
+        raise ValueError("invalid reminder response")
+    output = {}
+    if cards:
+        # A notice does not manufacture another user turn or require a mutation.
+        output["systemMessage"] = (
+            f"Trellis: {len(cards)} claimed card(s) have no comment from this actor. "
+            f"Use `{assignment} trellis agent remind --json` to inspect them. "
+            "Record a handoff when within the user's task scope."
+        )
+    path = nudged_path(actor)
+    nudged = load_nudged(path)
+    # Only the refs reach the model; entry titles are project text.
+    fresh = [entry["ref"] for entry in entries
+             if isinstance(entry, dict) and isinstance(entry.get("ref"), str)
+             and entry["ref"] not in nudged]
+    if fresh:
+        save_nudged(path, nudged + fresh)
+        output["decision"] = "block"
+        output["reason"] = nudge_reason(fresh, assignment)
+    return output or None
 
 
 def main():

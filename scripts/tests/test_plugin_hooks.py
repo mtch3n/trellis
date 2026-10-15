@@ -28,17 +28,26 @@ class HookTests(unittest.TestCase):
         self.brief = "Board: TEST\nYours: TEST-1\n"
         self.code = 0
         self.cards = []
+        self.entries = []
+        self.remind_code = 0
 
         def cli(args, cwd, env):
             self.calls.append((args, cwd, env))
             if args[0] == "board":
                 return subprocess.CompletedProcess(args, self.code, self.brief, "")
-            output = json.dumps({"claimed_without_comment": self.cards})
-            return subprocess.CompletedProcess(args, 0, output, "")
+            output = json.dumps({"claimed_without_comment": self.cards,
+                                 "unnominated_entries": self.entries})
+            return subprocess.CompletedProcess(args, self.remind_code, output, "")
 
         self.cli = patch.object(HOOK, "run_cli", side_effect=cli)
         self.cli.start()
+        state = tempfile.TemporaryDirectory()
+        self.addCleanup(state.cleanup)
+        patch.object(HOOK, "STATE_DIR", state.name).start()
         self.addCleanup(patch.stopall)
+
+    def entry(self, ref):
+        return {"ref": ref, "title": "Title of " + ref}
 
     def invoke(self, mode="session-start", session="test-session", **fields):
         return HOOK.handle(dict(session_id=session, cwd="/project with spaces", **fields), mode)
@@ -129,14 +138,67 @@ class HookTests(unittest.TestCase):
     def test_stop_without_cards_is_silent(self):
         self.assertIsNone(self.invoke("stop"))
 
-    def test_stop_reads_the_key_agent_remind_emits(self):
-        # The fake above answers with whatever key it is given, so a rename on
+    def test_stop_reads_the_keys_agent_remind_emits(self):
+        # The fake above answers with whatever keys it is given, so a rename on
         # one side alone would pass every other test here.
         source = (ROOT / "internal/cli/agent.go").read_text(encoding="utf-8")
-        emitted = re.findall(r'Emit\(cmd, map\[string\]any\{"(\w+)": cards\}', source)
-        self.assertEqual(len(emitted), 1, "agent remind's Emit call not found in agent.go")
+        remind = re.search(r"func newAgentRemindCmd\(\).*?\n}\n", source, re.DOTALL)
+        self.assertIsNotNone(remind, "newAgentRemindCmd not found in agent.go")
+        emitted = set(re.findall(r'"(\w+)":', remind.group(0)))
         hook = (ROOT / "plugin/hooks/trellis_hook.py").read_text(encoding="utf-8")
-        self.assertEqual(re.findall(r'payload\.get\("(\w+)"\)', hook), emitted)
+        read = set(re.findall(r'payload\.get\("(\w+)"\)', hook))
+        self.assertTrue(read)
+        self.assertLessEqual(read, emitted)
+
+    def test_GATE_C4_stop_blocks_naming_unnominated_refs_and_the_way_out(self):
+        self.entries = [self.entry("alpha-note"), self.entry("beta-note")]
+        result = self.invoke("stop")
+        self.assertEqual(result["decision"], "block")
+        self.assertIn("alpha-note", result["reason"])
+        self.assertIn("beta-note", result["reason"])
+        self.assertIn("trellis vault nominate", result["reason"])
+        self.assertIn("--reason", result["reason"])
+        self.assertIn("none", result["reason"])
+        self.assertNotIn("Title of", result["reason"])
+        self.assertLessEqual(set(result), {"decision", "reason", "systemMessage"})
+
+    def test_GATE_C4_block_keeps_the_claimed_card_notice_beside_it(self):
+        self.entries = [self.entry("alpha-note")]
+        self.cards = [{"ref": "TEST-1", "title": "Some card"}]
+        result = self.invoke("stop")
+        self.assertEqual(result["decision"], "block")
+        self.assertIn("1 claimed card", result["systemMessage"])
+
+    def test_GATE_C5_stop_nudges_each_ref_once_per_session(self):
+        self.entries = [self.entry("alpha-note")]
+        self.assertEqual(self.invoke("stop")["decision"], "block")
+        self.entries = [self.entry("alpha-note"), self.entry("gamma-note")]
+        result = self.invoke("stop")
+        self.assertEqual(result["decision"], "block")
+        self.assertIn("gamma-note", result["reason"])
+        self.assertNotIn("alpha-note", result["reason"])
+        self.entries = [self.entry("alpha-note")]
+        self.assertIsNone(self.invoke("stop"))
+        self.assertEqual(self.invoke("stop", session="other-session")["decision"], "block")
+
+    def test_GATE_C6_stop_hook_active_or_failing_remind_never_blocks(self):
+        self.entries = [self.entry("alpha-note")]
+        self.assertIsNone(self.invoke("stop", stop_hook_active=True))
+        self.remind_code = 1
+        result = self.invoke("stop")
+        self.assertNotIn("decision", result)
+        self.remind_code = 0
+        self.assertEqual(self.invoke("stop")["decision"], "block")
+
+    def test_GATE_C7_reason_lists_five_refs_then_the_rest_as_a_count(self):
+        refs = [f"note-{index}" for index in range(1, 9)]
+        self.entries = [self.entry(ref) for ref in refs]
+        reason = self.invoke("stop")["reason"]
+        for ref in refs[:5]:
+            self.assertIn(ref, reason)
+        for ref in refs[5:]:
+            self.assertNotIn(ref, reason)
+        self.assertIn("+3 more", reason)
 
     def test_already_continued_stop_does_not_run_cli(self):
         self.assertIsNone(self.invoke("stop", stop_hook_active=True))
