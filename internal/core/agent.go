@@ -127,3 +127,27 @@ func (c *Core) ClaimedWithoutComment(ctx context.Context) ([]Card, error) {
 	})
 	return cards, err
 }
+
+// UnnominatedEntry is an entry the Stop hook may ask its author to nominate.
+type UnnominatedEntry struct {
+	Ref   string `db:"ref" json:"ref"`
+	Title string `db:"title" json:"title"`
+}
+
+// UnnominatedEntries lists the project's entries this actor created or edited,
+// by the event log, that are not global and that it has not nominated.
+func (c *Core) UnnominatedEntries(ctx context.Context, projectID string) ([]UnnominatedEntry, error) {
+	entries := []UnnominatedEntry{}
+	err := c.Tx(ctx, func(tx *sqlx.Tx) error {
+		return tx.Select(&entries,
+			`SELECT `+entryAddressSQL+` AS ref, k.title
+			 FROM entry k JOIN project p ON p.id = k.project_id
+			 WHERE k.project_id = ? AND k.global = 0
+			   AND EXISTS (SELECT 1 FROM event e WHERE e.entity_type = 'entry' AND e.entity_id = k.id
+			               AND e.action IN ('created', 'edited') AND e.actor = ?)
+			   AND NOT EXISTS (SELECT 1 FROM nomination n WHERE n.entry_id = k.id AND n.actor = ?)
+			 ORDER BY k.updated_at`,
+			projectID, c.actor, c.actor)
+	})
+	return entries, err
+}

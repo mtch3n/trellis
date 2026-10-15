@@ -143,7 +143,7 @@ func newBackupPruneCmd() *cobra.Command {
 func newAgentRemindCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "remind",
-		Short: "Report claimed cards with no comment",
+		Short: "Report claimed cards with no comment and entries not nominated",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, db, err := openCore()
 			if err != nil {
@@ -154,10 +154,21 @@ func newAgentRemindCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			unnominated := []core.UnnominatedEntry{}
+			r, err := resolveProject(cmd.Context(), c)
+			switch {
+			case err == nil:
+				if unnominated, err = c.UnnominatedEntries(cmd.Context(), r.Project.ID); err != nil {
+					return err
+				}
+			case !isUnresolved(err):
+				return err
+			}
 			if len(cards) == 0 && !forceJSON {
 				return nil
 			}
-			return Emit(cmd, map[string]any{"claimed_without_comment": cards}, func() string {
+			payload := map[string]any{"claimed_without_comment": cards, "unnominated_entries": unnominated}
+			return Emit(cmd, payload, func() string {
 				var b strings.Builder
 				b.WriteString("You still claim work with nothing written down:\n")
 				for _, c := range cards {
