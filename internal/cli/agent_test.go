@@ -3,7 +3,10 @@ package cli
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/mtch3n/trellis/internal/core"
 )
 
 // remindUnnominated runs `agent remind --json` and returns the refs it lists
@@ -82,5 +85,17 @@ func TestGate_GATE_C3_remind_outside_a_project_lists_nothing(t *testing.T) {
 	}
 	if got.Unnominated == nil || len(got.Unnominated) != 0 {
 		t.Fatalf("unnominated_entries = %s, want an empty list", out)
+	}
+}
+
+// A person running remind without --json sees waiting entries too, even with
+// no claimed card.
+func TestRemindTextListsUnnominatedEntriesWithNoClaimedCard(t *testing.T) {
+	out := formatRemind(nil, []core.UnnominatedEntry{{Ref: "/TEST/vault/entry-a", Title: "Entry A"}})
+	if !strings.Contains(out, "/TEST/vault/entry-a") || !strings.Contains(out, "vault nominate") {
+		t.Fatalf("remind text = %q, want the entry and how to nominate it", out)
+	}
+	if strings.Contains(out, "claim work") {
+		t.Errorf("remind text mentions claimed work with none claimed: %q", out)
 	}
 }

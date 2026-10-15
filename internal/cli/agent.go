@@ -164,19 +164,37 @@ func newAgentRemindCmd() *cobra.Command {
 			case !isUnresolved(err):
 				return err
 			}
-			if len(cards) == 0 && !forceJSON {
+			if len(cards) == 0 && len(unnominated) == 0 && !forceJSON {
 				return nil
 			}
 			payload := map[string]any{"claimed_without_comment": cards, "unnominated_entries": unnominated}
-			return Emit(cmd, payload, func() string {
-				var b strings.Builder
-				b.WriteString("You still claim work with nothing written down:\n")
-				for _, c := range cards {
-					fmt.Fprintf(&b, "  %s  %s\n", c.Ref, c.Title)
-				}
-				b.WriteString("  trellis card comment <ref> --body \"...\"   # what you learned, then release")
-				return b.String()
-			})
+			return Emit(cmd, payload, func() string { return formatRemind(cards, unnominated) })
 		},
 	}
+}
+
+// formatRemind is remind's text: claimed cards with nothing written down, then
+// entries this actor wrote and has not nominated, each section only when it
+// has something in it.
+func formatRemind(cards []core.Card, unnominated []core.UnnominatedEntry) string {
+	var parts []string
+	if len(cards) > 0 {
+		var b strings.Builder
+		b.WriteString("You still claim work with nothing written down:\n")
+		for _, c := range cards {
+			fmt.Fprintf(&b, "  %s  %s\n", c.Ref, c.Title)
+		}
+		b.WriteString("  trellis card comment <ref> --body \"...\"   # what you learned, then release")
+		parts = append(parts, b.String())
+	}
+	if len(unnominated) > 0 {
+		var b strings.Builder
+		b.WriteString("You wrote entries not nominated for the global vault:\n")
+		for _, e := range unnominated {
+			fmt.Fprintf(&b, "  %s  %s\n", e.Ref, e.Title)
+		}
+		b.WriteString("  trellis vault nominate <entry> --reason \"...\"   # when another project would need it")
+		parts = append(parts, b.String())
+	}
+	return strings.Join(parts, "\n\n")
 }
