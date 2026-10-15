@@ -143,6 +143,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/p/{key}/trash/{id}/restore", s.handleRestoreTrash)
 	s.mux.HandleFunc("GET /api/p/{key}/boards", s.handleBoards)
 	s.mux.HandleFunc("GET /api/p/{key}/events", s.handleProjectEvents)
+	s.mux.HandleFunc("GET /api/p/{key}/activity", s.handleActivity)
 	s.mux.HandleFunc("POST /api/p/{key}/boards", s.handleCreateBoard)
 	s.mux.HandleFunc("PATCH /api/p/{key}/b/{board}", s.handleUpdateBoard)
 	s.mux.HandleFunc("DELETE /api/p/{key}/b/{board}", s.handleDeleteBoard)
