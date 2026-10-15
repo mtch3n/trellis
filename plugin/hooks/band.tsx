@@ -68,6 +68,12 @@ export const register: Register = on => {
     return started
   })
 
+  on('turn.complete', async ($, e, next) => {
+    const completed = await next(e)
+    await refresh($)
+    return completed
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const waiting = await read($, gate)
     if (e.props.hasSurvey || waiting === null) {

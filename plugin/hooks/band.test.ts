@@ -84,3 +84,35 @@ test('GATE-C15 one nomination reads "1 nomination" with a Review link; no daemon
   expect((await unserved.find({ type: 'Text' }))?.text).toBe('Trellis: 1 nomination')
   expect(await unserved.find({ type: 'Link' })).toBeUndefined()
 })
+
+test('GATE-C16 nothing waiting, a missing CLI or a failing CLI draws nothing and toasts nothing', async ($, on) => {
+  const world: World = { nominations: 0, unverified: 0, isServing: true, cli: 'present' }
+  fakeTrellis(on, world)
+  const toasts: string[] = []
+  on('ui.toast', (_$, e) => {
+    toasts.push(e.text)
+  })
+  const worlds: Partial<World>[] = [{ cli: 'present' }, { cli: 'missing' }, { cli: 'failing' }]
+  for (const variant of worlds) {
+    Object.assign(world, variant)
+    for (const surface of SURFACES) {
+      await startSession($, surface)
+      const drawn = await band($, surface)
+      expect(await drawn.find({ key: 'engine' })).toBeDefined()
+      expect(await drawn.find({ type: 'Text' })).toBeUndefined()
+    }
+  }
+  expect(toasts).toEqual([])
+})
+
+test('GATE-C17 a nomination added during a turn shows once the turn completes', async ($, on) => {
+  const world: World = { nominations: 1, unverified: 2, isServing: false, cli: 'present' }
+  fakeTrellis(on, world)
+  await startSession($, 'terminal')
+  const drawn = await band($, 'terminal')
+  expect((await drawn.find({ type: 'Text' }))?.text).toBe('Trellis: 1 nomination · 2 unverified')
+
+  world.nominations = 2
+  await $.turn.complete({ answer: 'done', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
+  expect((await drawn.find({ type: 'Text' }))?.text).toBe('Trellis: 2 nominations · 2 unverified')
+})
