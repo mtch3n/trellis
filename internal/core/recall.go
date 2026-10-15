@@ -77,6 +77,11 @@ func inClause(column string, values []string) (string, []any) {
 	return " AND " + column + " IN (?" + strings.Repeat(", ?", len(values)-1) + ")", args
 }
 
+// overdueGlobalSQL is true for a global entry past its verify date, given the
+// current time as its one argument. Recall and the brief leave such an entry
+// out: being retrieved must not count as still holding.
+const overdueGlobalSQL = `(k.global = 1 AND k.verify_by IS NOT NULL AND k.verify_by < ?)`
+
 const (
 	// Rank positions are fused, not scores, matching ReciprocalRankFusion: a
 	// BM25 score and a link count have no common unit, but their orderings do.
@@ -177,7 +182,7 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 		provClause, provArgs := inClause("k.provenance", o.Provenances)
 		narrowed := typeClause != "" || provClause != ""
 
-		entryArgs := append([]any{projectID}, typeArgs...)
+		entryArgs := append([]any{projectID, c.clock.NowMS()}, typeArgs...)
 		entryArgs = append(entryArgs, provArgs...)
 		entryArgs = append(entryArgs, match, fetch)
 
@@ -192,7 +197,7 @@ func (c *Core) Recall(ctx context.Context, projectID, text string, o RecallOpts)
 			FROM entry k
 			JOIN entry_fts ON entry_fts.rowid = k.rowid
 			JOIN project p ON p.id = k.project_id
-			WHERE (k.project_id = ? OR k.global = 1)`+typeClause+provClause+`
+			WHERE (k.project_id = ? OR k.global = 1) AND NOT `+overdueGlobalSQL+typeClause+provClause+`
 			  AND entry_fts MATCH ?
 			ORDER BY entry_fts.rank LIMIT ?`, entryArgs...); err != nil {
 			return err

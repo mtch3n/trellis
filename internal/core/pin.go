@@ -129,7 +129,8 @@ func (c *Core) UnpinEntry(ctx context.Context, projectID, slug, board string) er
 	})
 }
 
-// Pins lists what would be injected, most recently pinned first. Staleness is
+// Pins lists what would be injected, most recently pinned first, leaving out
+// a global entry past its verify date. Staleness is
 // detected rather than guessed: recap_hash is the content hash at the moment the
 // recap was written, so a mismatch means the entry moved on and the recap may
 // now be confidently wrong. Limit controls how many pins are returned; 0 means
@@ -151,8 +152,8 @@ func (c *Core) pins(tx *sqlx.Tx, projectID, boardID string, limit int) ([]Pin, e
 	             (k.recap_hash IS NOT k.content_hash) AS stale, p.created_at
 	      FROM pin p JOIN entry k ON k.id = p.entry_id
 	      LEFT JOIN board b ON b.id = p.board_id
-	      WHERE k.project_id = ?`
-	args := []any{projectID}
+	      WHERE k.project_id = ? AND NOT ` + overdueGlobalSQL
+	args := []any{projectID, c.clock.NowMS()}
 	if boardID != "" {
 		q += " AND (p.board_id IS NULL OR p.board_id = ?)"
 		args = append(args, boardID)

@@ -341,3 +341,62 @@ func TestRecallHoldsOutAnIngestionPath(t *testing.T) {
 		t.Errorf("hits = %+v, want only the authored entry", hits)
 	}
 }
+
+// promotedGlobal creates an entry and promotes it; overdue moves its verify_by
+// into the past by the core clock.
+func promotedGlobal(t *testing.T, c *Core, projectID, title, body string, overdue bool) Entry {
+	t.Helper()
+	e, err := c.CreateEntry(t.Context(), projectID, NewEntry{Title: title, Body: body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err = c.PromoteEntry(t.Context(), projectID, e.Slug, "shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overdue {
+		if _, err := c.db.Exec(`UPDATE entry SET verify_by = ? WHERE id = ?`, c.clock.NowMS()-1, e.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return e
+}
+
+func recallRefs(t *testing.T, c *Core, projectID, text string) []string {
+	t.Helper()
+	hits, err := c.Recall(t.Context(), projectID, text, RecallOpts{})
+	if err != nil {
+		t.Fatalf("Recall: %v", err)
+	}
+	refs := []string{}
+	for _, h := range hits {
+		refs = append(refs, h.Ref)
+	}
+	return refs
+}
+
+func TestGate_GATE_C10_recall_leaves_out_an_overdue_global_entry(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	overdue := promotedGlobal(t, c, p.ID, "Zanzibar rollout overdue", "zanzibar rollout steps\n", true)
+	fresh := promotedGlobal(t, c, p.ID, "Zanzibar rollout fresh", "zanzibar rollout steps\n", false)
+
+	got := recallRefs(t, c, p.ID, "how does the zanzibar rollout go")
+	if !slices.Equal(got, []string{fresh.Ref}) {
+		t.Fatalf("recall = %v, want only %s and not %s", got, fresh.Ref, overdue.Ref)
+	}
+}
+
+func TestGate_GATE_C12_verifying_an_overdue_entry_returns_it_to_recall(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	overdue := promotedGlobal(t, c, p.ID, "Zanzibar rollout", "zanzibar rollout steps\n", true)
+	if got := recallRefs(t, c, p.ID, "zanzibar rollout"); slices.Contains(got, overdue.Ref) {
+		t.Fatalf("recall = %v, want the overdue entry left out", got)
+	}
+
+	if err := c.VerifyEntry(t.Context(), overdue.Ref); err != nil {
+		t.Fatalf("VerifyEntry: %v", err)
+	}
+	if got := recallRefs(t, c, p.ID, "zanzibar rollout"); !slices.Contains(got, overdue.Ref) {
+		t.Fatalf("recall after verify = %v, want %s back", got, overdue.Ref)
+	}
+}

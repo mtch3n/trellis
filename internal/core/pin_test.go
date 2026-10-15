@@ -1,6 +1,9 @@
 package core
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestPinFallsBackToSummaryAndGoesStale(t *testing.T) {
 	c, p, _ := vaultCore(t)
@@ -156,5 +159,41 @@ func TestPinCreatedWhilePrivateThenUnprivateShowsStale(t *testing.T) {
 	}
 	if staleCount == 0 {
 		t.Error("health count 0 stale recaps, want 1: pin with no recap on non-private entry")
+	}
+}
+
+func TestGate_GATE_C11_an_overdue_global_pin_leaves_the_brief_but_not_show_or_search(t *testing.T) {
+	c, p, _ := vaultCore(t)
+	e, err := c.CreateEntry(t.Context(), p.ID, NewEntry{Title: "Zanzibar rollout", Summary: "Roll out by region"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.PinEntry(t.Context(), p.ID, e.Slug, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	e, err = c.PromoteEntry(t.Context(), p.ID, e.Slug, "shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.db.Exec(`UPDATE entry SET verify_by = ? WHERE id = ?`, c.clock.NowMS()-1, e.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	pins, err := c.Pins(t.Context(), p.ID, "", MaxInjectedPins+1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pins) != 0 {
+		t.Errorf("brief pins = %+v, want the overdue pin left out", pins)
+	}
+	if shown, err := c.LoadEntry(t.Context(), p.ID, e.Ref); err != nil || shown.ID != e.ID {
+		t.Errorf("show %s: %+v, %v", e.Ref, shown, err)
+	}
+	hits, err := c.Search(t.Context(), p.ID, "zanzibar", SearchOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(hits, func(h SearchHit) bool { return h.Ref == e.Ref }) {
+		t.Errorf("search = %+v, want %s", hits, e.Ref)
 	}
 }
