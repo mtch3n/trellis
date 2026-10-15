@@ -116,3 +116,19 @@ test('GATE-C17 a nomination added during a turn shows once the turn completes', 
   await $.turn.complete({ answer: 'done', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
   expect((await drawn.find({ type: 'Text' }))?.text).toBe('Trellis: 2 nominations · 2 unverified')
 })
+
+test('GATE-C18 no button or link of the band runs promote, demote or verify', async ($, on) => {
+  const world: World = { nominations: 3, unverified: 1, isServing: true, cli: 'present' }
+  const ran = fakeTrellis(on, world)
+  await startSession($, 'terminal')
+  const drawn = await band($, 'terminal')
+  for (const button of await drawn.findAll({ type: 'Button' })) {
+    await drawn.press({ key: button.key ?? '' })
+  }
+  await $.turn.complete({ answer: 'done', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
+
+  const links = await drawn.findAll({ type: 'Link' })
+  expect(links.map(link => new URL(String(link.props.href)).pathname)).toEqual(['/p/TRELLIS/health'])
+  const acts = ran.filter(argv => argv.some(arg => ['promote', 'demote', 'verify'].includes(arg)))
+  expect(acts).toEqual([])
+})
