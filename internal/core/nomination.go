@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
@@ -21,9 +22,14 @@ type Nomination struct {
 	CreatedAt   int64  `db:"created_at" json:"created_at"`
 }
 
-// NominateEntry records a nominee for promotion. No threshold blocks
+// MaxWaitingNominations caps the entries one project has waiting for review,
+// so arrivals cannot outrun the person reviewing them.
+const MaxWaitingNominations = 10
+
+// NominateEntry records a nominee for promotion. No evidence threshold blocks
 // one: a genuinely new insight can deserve global status immediately, and a gate
-// that argues with the nominator is a gate nobody uses (§10.7).
+// that argues with the nominator is a gate nobody uses (§10.7). Only a full
+// queue refuses a new entry; re-nominating a waiting one always succeeds.
 func (c *Core) NominateEntry(ctx context.Context, projectID, slug, reason string) error {
 	if strings.TrimSpace(reason) == "" {
 		return ErrUsage("missing_reason", "a nomination carries evidence, not just an opinion",
@@ -36,6 +42,18 @@ func (c *Core) NominateEntry(ctx context.Context, projectID, slug, reason string
 		}
 		if entry.Global {
 			return ErrUsage("already_global", entry.Slug+" is already global", "trellis vault show "+entry.Slug)
+		}
+		var waiting int
+		if err := tx.Get(&waiting,
+			`SELECT COUNT(DISTINCT n.entry_id) FROM nomination n JOIN entry k ON k.id = n.entry_id
+			 WHERE k.project_id = ? AND k.global = 0 AND n.entry_id != ?`,
+			projectID, entry.ID); err != nil {
+			return err
+		}
+		if waiting >= MaxWaitingNominations {
+			return ErrPolicy("nomination_queue_full",
+				fmt.Sprintf("%d entries already wait for review in this project", waiting),
+				"trellis vault nominations")
 		}
 		if _, err := tx.Exec(
 			`INSERT INTO nomination (id, entry_id, actor, reason, created_at) VALUES (?, ?, ?, ?, ?)
