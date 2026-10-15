@@ -63,7 +63,13 @@ func TestJSONOutputUsesTheGlossary(t *testing.T) {
 	}
 
 	// A hit's kind is the event log's entity: card or entry, and nothing else.
-	for _, args := range [][]string{{"search", "wire"}, {"recall", "wire format"}} {
+	// Recall leaves out the global entry past its verify date; search keeps it
+	// (GATE-D5).
+	for _, tc := range []struct {
+		args    []string
+		entries int
+	}{{[]string{"search", "wire"}, 2}, {[]string{"recall", "wire format"}, 1}} {
+		args := tc.args
 		out := runCmd(t, append(args, "--json")...)
 		var hits struct {
 			Results []struct {
@@ -77,8 +83,8 @@ func TestJSONOutputUsesTheGlossary(t *testing.T) {
 		for _, h := range hits.Results {
 			kinds[h.Kind]++
 		}
-		if kinds["card"] != 1 || kinds["entry"] != 2 || len(kinds) != 2 {
-			t.Errorf("%v: kinds = %v, want one card and two entries\n%s", args, kinds, out)
+		if kinds["card"] != 1 || kinds["entry"] != tc.entries || len(kinds) != 2 {
+			t.Errorf("%v: kinds = %v, want one card and %d entries\n%s", args, kinds, tc.entries, out)
 		}
 	}
 }
