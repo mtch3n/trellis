@@ -118,10 +118,10 @@ func (w *writer) writeBoards() error {
 func (w *writer) writeCards() error {
 	for _, c := range w.s.Cards {
 		var id string
-		if err := w.get(&id, `INSERT INTO card (project_id, board_id, column_id, number, ref, title, body, position, version, created_by, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id::text`,
+		if err := w.get(&id, `INSERT INTO card (project_id, board_id, column_id, number, ref, title, body, position, version, created_by, created_at, updated_at, archived_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id::text`,
 			w.projectID, w.boards[c.BoardID], w.columns[c.ColumnID], c.Seq, c.Ref, c.Title, c.Body, c.Position, c.Version,
-			w.who.actor(), time.UnixMilli(c.CreatedAt), time.UnixMilli(c.UpdatedAt)); err != nil {
+			w.who.actor(), time.UnixMilli(c.CreatedAt), time.UnixMilli(c.UpdatedAt), nullMilli(c.ArchivedAt)); err != nil {
 			return fmt.Errorf("card %s: %w", c.Ref, err)
 		}
 		w.cards[c.ID] = id

@@ -386,3 +386,23 @@ func TestClient_CLIENT_C7_FailsAProjectWithAMissingEntryFileAndGoesOn(t *testing
 		t.Fatalf("cards = %d, want 0", n)
 	}
 }
+
+func TestClient_CLIENT_C1_KeepsArchivedCardsArchived(t *testing.T) {
+	db := clientServer(t)
+	h := newClientHome(t)
+	h.project("p1", "DEMO")
+	h.board("b1", "p1", "main")
+	h.card("c1", "p1", "b1", "backlog", "DEMO-1", 1)
+	h.card("c2", "p1", "b1", "done", "DEMO-2", 2)
+	h.exec(`UPDATE card SET archived_at = 1893456000000 WHERE id = 'c2'`)
+	h.exec(`INSERT INTO comment (id, card_id, actor, body_md, created_at) VALUES ('n1', 'c2', 'agent:x', 'old note', 1100)`)
+	rep := clientRun(t, db, h.dir)
+	clientWant(t, "cards", clientStrings(t, db, `SELECT ref || ':' || coalesce(to_char(archived_at AT TIME ZONE 'UTC', 'YYYY-MM-DD'), '-') FROM card ORDER BY ref`),
+		[]string{"DEMO-1:-", "DEMO-2:2030-01-01"})
+	if n := clientCount(t, db, `SELECT count(*) FROM comment`); n != 1 {
+		t.Fatalf("comments = %d, want 1", n)
+	}
+	if _, ok := rep.LeftOut["archived cards"]; ok {
+		t.Fatalf("left out = %v, archived cards are imported", rep.LeftOut)
+	}
+}

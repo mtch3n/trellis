@@ -38,17 +38,18 @@ type localColumn struct {
 }
 
 type localCard struct {
-	ID        string `db:"id"`
-	BoardID   string `db:"board_id"`
-	ColumnID  string `db:"column_id"`
-	Seq       int64  `db:"seq"`
-	Ref       string `db:"ref"`
-	Title     string `db:"title"`
-	Body      string `db:"body_md"`
-	Version   int64  `db:"version"`
-	CreatedAt int64  `db:"created_at"`
-	UpdatedAt int64  `db:"updated_at"`
-	Position  float64
+	ID         string `db:"id"`
+	BoardID    string `db:"board_id"`
+	ColumnID   string `db:"column_id"`
+	Seq        int64  `db:"seq"`
+	Ref        string `db:"ref"`
+	Title      string `db:"title"`
+	Body       string `db:"body_md"`
+	Version    int64  `db:"version"`
+	CreatedAt  int64  `db:"created_at"`
+	UpdatedAt  int64  `db:"updated_at"`
+	ArchivedAt *int64 `db:"archived_at"`
+	Position   float64
 }
 
 type localComment struct {
@@ -176,7 +177,6 @@ func (h *home) leftOut() (map[string]int64, error) {
 		"labels":         `SELECT count(*) FROM label`,
 		"tags":           `SELECT count(*) FROM tag`,
 		"trash":          `SELECT count(*) FROM trash`,
-		"archived cards": `SELECT count(*) FROM card WHERE archived_at IS NOT NULL`,
 		"card relations": `SELECT count(*) FROM link WHERE rel = 'relates_to'`,
 	} {
 		var n int64
@@ -240,10 +240,10 @@ func (h *home) snapshot(p localProject) (snapshot, error) {
 		{&s.Boards, `SELECT id, name, created_at FROM board WHERE project_id = ? ORDER BY name`},
 		{&s.Columns, `SELECT c.id, c.board_id, c.name, c.position, c.is_done FROM column_ c JOIN board b ON b.id = c.board_id
 			WHERE b.project_id = ? ORDER BY c.board_id, c.position`},
-		{&s.Cards, `SELECT id, board_id, column_id, seq, ref, title, body_md, version, created_at, updated_at FROM card
-			WHERE project_id = ? AND archived_at IS NULL ORDER BY column_id, priority, rank`},
+		{&s.Cards, `SELECT id, board_id, column_id, seq, ref, title, body_md, version, created_at, updated_at, archived_at FROM card
+			WHERE project_id = ? ORDER BY column_id, priority, rank`},
 		{&s.Comments, `SELECT n.card_id, n.body_md, n.created_at FROM comment n JOIN card c ON c.id = n.card_id
-			WHERE c.project_id = ? AND c.archived_at IS NULL ORDER BY n.created_at`},
+			WHERE c.project_id = ? ORDER BY n.created_at`},
 		{&s.Entries, `SELECT id, slug, title, template, summary, recap, global, private, verify_by, verified_at, version,
 			provenance, created_at, updated_at FROM entry WHERE project_id = ? ORDER BY slug`},
 		{&s.Pins, `SELECT p.entry_id, p.board_id, p.created_at FROM pin p JOIN entry e ON e.id = p.entry_id WHERE e.project_id = ?`},
@@ -253,7 +253,7 @@ func (h *home) snapshot(p localProject) (snapshot, error) {
 		{&s.Links, `SELECT l.from_type, l.from_id, l.to_type, l.to_id, l.to_raw, l.rel FROM link l
 			WHERE l.rel IN ('wikilink', 'cites', 'blocked_by', 'artifact') AND (
 				(l.from_type = 'entry' AND l.from_id IN (SELECT id FROM entry WHERE project_id = ?)) OR
-				(l.from_type = 'card' AND l.from_id IN (SELECT id FROM card WHERE project_id = ? AND archived_at IS NULL)))`},
+				(l.from_type = 'card' AND l.from_id IN (SELECT id FROM card WHERE project_id = ?)))`},
 	}
 	for _, q := range queries {
 		args := []any{p.ID}
