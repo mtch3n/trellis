@@ -66,13 +66,6 @@ web/COMPONENTS.md	kb	1
 web/index.html	document	1
 web/index.html	type-field	1
 web/scripts/ui-audit.js	doc	1
-web/src/components/wrappers/ActionRow.tsx	document	3
-web/src/components/wrappers/ArtifactList.tsx	document	3
-web/src/components/wrappers/EditInPlace.tsx	document	1
-web/src/components/wrappers/ForceGraph.tsx	owner	1
-web/src/components/wrappers/MarkdownEditorImpl.tsx	doc	1
-web/src/components/wrappers/MarkdownEditorImpl.tsx	document	1
 web/src/components/wrappers/ThemeToggle.tsx	document	2
-web/src/components/wrappers/VaultNav.tsx	document	1	# why: document.activeElement, the DOM API
 web/src/lib/format.ts	kb	1
 web/src/main.tsx	document	1
