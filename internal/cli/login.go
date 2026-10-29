@@ -18,7 +18,7 @@ func newLoginCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			url, token = strings.TrimSpace(url), strings.TrimSpace(token)
 			if url == "" || token == "" {
-				return adminErr(platform.ErrUsage("missing_field", "login needs --url and --token", "trellis login --url <server URL> --token <agent token>"))
+				return platform.ErrUsage("missing_field", "login needs --url and --token", "trellis login --url <server URL> --token <agent token>")
 			}
 			path, err := client.Save(client.Config{URL: url, Token: token})
 			if err != nil {

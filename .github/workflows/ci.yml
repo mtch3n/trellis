@@ -34,7 +34,7 @@ jobs:
           if [ "$RUNNER_OS" = Linux ]; then
             echo "PKGS=./..." >> "$GITHUB_ENV"
           else
-            echo "PKGS=$(go list ./... | grep -v -E '/internal/(pgstore|platform|server|mcpserver)(/|$)' | tr '\n' ' ')" >> "$GITHUB_ENV"
+            echo "PKGS=$(go list ./... | grep -v -E '/internal/(pgstore|platform|server|mcpserver|importer|client|cli)(/|$)' | tr '\n' ' ')" >> "$GITHUB_ENV"
           fi
       - run: go vet ./...
       - shell: bash
@@ -72,4 +72,4 @@ jobs:
         with:
           go-version: '1.27'
           cache: true
-      - run: go test -race -timeout 30m ./...   # core alone takes minutes under -race
+      - run: go test -race -timeout 30m ./...

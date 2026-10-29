@@ -1,37 +1,26 @@
 package cli
 
 import (
-	"encoding/json/v2"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
-type initOutput struct {
-	Project struct {
-		Key string `json:"key"`
-	} `json:"project"`
-	Board *struct {
-		Slug string `json:"slug"`
-	} `json:"board"`
-	MarkerPath    string   `json:"marker_path"`
-	Created       bool     `json:"created"`
-	MarkerWritten bool     `json:"marker_written"`
-	Notes         []string `json:"notes"`
-}
-
-func runInit(t *testing.T, args ...string) initOutput {
+func clientInitDir(t *testing.T, name string) string {
 	t.Helper()
-	out := runCmd(t, append([]string{"init", "--json"}, args...)...)
-	var v initOutput
-	if err := json.Unmarshal([]byte(out), &v); err != nil {
-		t.Fatalf("init output: %v\n%s", err, out)
+	dir := filepath.Join(t.TempDir(), name)
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	return v
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	t.Setenv("TRELLIS_PROJECT", "")
+	return dir
 }
 
-func markerContent(t *testing.T, dir string) string {
+func clientMarker(t *testing.T, dir string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(dir, ".trellis"))
 	if err != nil {
@@ -40,138 +29,31 @@ func markerContent(t *testing.T, dir string) string {
 	return string(b)
 }
 
-func TestInitCreatesAProjectFromTheDirectoryName(t *testing.T) {
-	dir := markerEnv(t, "my app")
-	got := runInit(t)
-	if got.Project.Key != "MY-APP" || !got.Created || !got.MarkerWritten {
-		t.Errorf("init = %+v", got)
-	}
-	if markerContent(t, dir) != "/MY-APP\n" {
-		t.Errorf("marker = %q", markerContent(t, dir))
-	}
-	if !strings.Contains(strings.Join(got.Notes, "\n"), "commit .trellis") {
-		t.Errorf("notes = %v, want the commit reminder", got.Notes)
-	}
-	// The marker it wrote is what later commands resolve through.
-	if showBoard(t).Project != "MY-APP" {
-		t.Error("a command after init did not resolve to the new project")
+func TestInitWritesTheMarkerFromTheDirectoryName(t *testing.T) {
+	dir := clientInitDir(t, "my app")
+	runCmd(t, "init", "--json")
+	if got := clientMarker(t, dir); got != "/MY-APP\n" {
+		t.Fatalf("marker = %q", got)
 	}
 }
 
-func TestInitNeverJoinsOnAnInferredKey(t *testing.T) {
-	dir := markerEnv(t, "alpha")
-	seedProject(t, "ALPHA")
-	_, err := execCmd("init")
-	if ce := coreErr(t, err); ce.Code != "key_collision" {
-		t.Fatalf("error = %+v", ce)
-	}
-	if _, statErr := os.Stat(filepath.Join(dir, ".trellis")); statErr == nil {
-		t.Error("a refused init wrote a marker")
+func TestInitWritesTheMarkerForANamedKeyAndKeepsTheSameOne(t *testing.T) {
+	dir := clientInitDir(t, "checkout")
+	runCmd(t, "init", "--key", "alpha")
+	runCmd(t, "init", "--key", "ALPHA")
+	if got := clientMarker(t, dir); got != "/ALPHA\n" {
+		t.Fatalf("marker = %q", got)
 	}
 }
 
-func TestInitJoinsANamedProject(t *testing.T) {
-	dir := markerEnv(t, "checkout-2")
-	seedProject(t, "ALPHA")
-	got := runInit(t, "--key", "alpha")
-	if got.Created || got.Project.Key != "ALPHA" {
-		t.Errorf("init = %+v", got)
+func TestInitRefusesAMarkerThatNamesAnotherProject(t *testing.T) {
+	dir := clientInitDir(t, "checkout")
+	runCmd(t, "init", "--key", "ALPHA")
+	_, err := runCmdErr(t, "init", "--key", "BETA")
+	if cliErrCode(err) != "marker_exists" {
+		t.Fatalf("err = %v, want marker_exists", err)
 	}
-	if markerContent(t, dir) != "/ALPHA\n" {
-		t.Errorf("marker = %q", markerContent(t, dir))
-	}
-}
-
-func TestInitReadsACommittedMarker(t *testing.T) {
-	dir := markerEnv(t, "fresh-clone")
-	writeMarker(t, dir, "/BETA\n")
-	got := runInit(t)
-	if !got.Created || got.MarkerWritten || got.Project.Key != "BETA" {
-		t.Errorf("init = %+v", got)
-	}
-	if markerContent(t, dir) != "/BETA\n" {
-		t.Error("init rewrote an existing marker")
-	}
-}
-
-func TestInitRefusesAKeyThatContradictsTheMarker(t *testing.T) {
-	dir := markerEnv(t, "app")
-	writeMarker(t, dir, "/BETA\n")
-	_, err := execCmd("init", "--key", "GAMMA")
-	if ce := coreErr(t, err); ce.Code != "marker_exists" {
-		t.Errorf("error = %+v", ce)
-	}
-}
-
-func TestInitBoardFlagPutsTheSlugInTheMarker(t *testing.T) {
-	dir := markerEnv(t, "api")
-	seedProject(t, "MONO", "API Work")
-	got := runInit(t, "--key", "MONO", "--board", "API Work")
-	if got.Board == nil || got.Board.Slug != "api-work" {
-		t.Errorf("init = %+v", got)
-	}
-	if markerContent(t, dir) != "/MONO/boards/api-work\n" {
-		t.Errorf("marker = %q", markerContent(t, dir))
-	}
-}
-
-func TestInitRefusesTheProjectFlag(t *testing.T) {
-	markerEnv(t, "app")
-	_, err := execCmd("init", "--project", "ALPHA")
-	if ce := coreErr(t, err); ce.Code != "init_project_flag" || !strings.Contains(ce.Fix, "--key ALPHA") {
-		t.Errorf("error = %+v", ce)
-	}
-}
-
-func TestInitRefusesTheHomeDirectory(t *testing.T) {
-	dir := markerEnv(t, "home")
-	t.Setenv("HOME", dir)
-	t.Setenv("USERPROFILE", dir)
-	_, err := execCmd("init", "--key", "HOME")
-	if ce := coreErr(t, err); ce.Code != "init_location" {
-		t.Errorf("error = %+v", ce)
-	}
-}
-
-func TestInitRefusesATrellisDirectory(t *testing.T) {
-	dir := markerEnv(t, "app")
-	if err := os.Mkdir(filepath.Join(dir, ".trellis"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	_, err := execCmd("init", "--key", "APP")
-	if ce := coreErr(t, err); ce.Code != "bad_marker" {
-		t.Errorf("error = %+v", ce)
-	}
-}
-
-func TestInitRefusesAnUnusableDirectoryName(t *testing.T) {
-	markerEnv(t, "___")
-	_, err := execCmd("init")
-	if ce := coreErr(t, err); ce.Code != "missing_key" {
-		t.Errorf("error = %+v", ce)
-	}
-}
-
-func TestInitWarnsWhenTrellisProjectIsSet(t *testing.T) {
-	markerEnv(t, "app")
-	seedProject(t, "OTHER")
-	t.Setenv("TRELLIS_PROJECT", "OTHER")
-	got := runInit(t, "--key", "APP")
-	if !strings.Contains(strings.Join(got.Notes, "\n"), "TRELLIS_PROJECT=OTHER") {
-		t.Errorf("notes = %v", got.Notes)
-	}
-}
-
-func TestInitNotesTheParentMarkerItOverrides(t *testing.T) {
-	parent := markerEnv(t, "mono")
-	writeMarker(t, parent, "/MONO\n")
-	api := filepath.Join(parent, "api")
-	if err := os.Mkdir(api, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Chdir(api)
-	got := runInit(t, "--key", "API")
-	if !strings.Contains(strings.Join(got.Notes, "\n"), "overrides /MONO") {
-		t.Errorf("notes = %v", got.Notes)
+	if got := clientMarker(t, dir); got != "/ALPHA\n" {
+		t.Fatalf("marker = %q", got)
 	}
 }

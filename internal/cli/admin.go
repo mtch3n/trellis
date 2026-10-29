@@ -2,12 +2,10 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
 
-	"github.com/mtch3n/trellis/internal/core"
 	"github.com/mtch3n/trellis/internal/pgstore"
 	"github.com/mtch3n/trellis/internal/platform"
 	"github.com/spf13/cobra"
@@ -26,31 +24,14 @@ func newAdminCmd() *cobra.Command {
 func adminRun(cmd *cobra.Command, fn func(ctx context.Context, p *platform.Platform) error) error {
 	url := os.Getenv("TRELLIS_DATABASE_URL")
 	if url == "" {
-		return core.ErrUsage("no_database", "TRELLIS_DATABASE_URL is not set", "export TRELLIS_DATABASE_URL=postgres://trellis@localhost:5432/trellis")
+		return platform.ErrUsage("no_database", "TRELLIS_DATABASE_URL is not set", "export TRELLIS_DATABASE_URL=postgres://trellis@localhost:5432/trellis")
 	}
 	db, err := pgstore.Open(cmd.Context(), url)
 	if err != nil {
-		return core.ErrUsage("no_database", "cannot open the database that TRELLIS_DATABASE_URL names: "+err.Error(), "check TRELLIS_DATABASE_URL")
+		return platform.ErrUsage("no_database", "cannot open the database that TRELLIS_DATABASE_URL names: "+err.Error(), "check TRELLIS_DATABASE_URL")
 	}
 	defer db.Close()
-	return adminErr(fn(cmd.Context(), platform.New(db)))
-}
-
-func adminErr(err error) error {
-	e, ok := errors.AsType[*platform.Error](err)
-	if !ok {
-		return err
-	}
-	switch e.Kind {
-	case platform.KindUsage:
-		return core.ErrUsage(e.Code, e.Msg, e.Fix)
-	case platform.KindNotFound:
-		return core.ErrNotFound(e.Code, e.Msg, e.Fix)
-	case platform.KindConflict:
-		return core.ErrConflict(e.Code, e.Msg, e.Fix)
-	default:
-		return core.ErrPolicy(e.Code, e.Msg, e.Fix)
-	}
+	return fn(cmd.Context(), platform.New(db))
 }
 
 func addOrgFlag(cmd *cobra.Command, org *string) {

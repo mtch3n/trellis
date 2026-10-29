@@ -20,8 +20,8 @@ func newCallCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := client.Load(os.Getenv)
 			if errors.Is(err, client.ErrNoServer) {
-				return adminErr(platform.ErrUsage("no_server", "no Trellis server: TRELLIS_URL and TRELLIS_TOKEN are not set and trellis login has not run",
-					"trellis login --url <server URL> --token <agent token>"))
+				return platform.ErrUsage("no_server", "no Trellis server: TRELLIS_URL and TRELLIS_TOKEN are not set and trellis login has not run",
+					"trellis login --url <server URL> --token <agent token>")
 			}
 			if err != nil {
 				return err
@@ -29,8 +29,8 @@ func newCallCmd() *cobra.Command {
 			var toolArgs map[string]any
 			if len(args) == 2 {
 				if err := json.Unmarshal([]byte(args[1]), &toolArgs); err != nil {
-					return adminErr(platform.ErrUsage("bad_json", "the arguments are not a JSON object: "+err.Error(),
-						`trellis call `+args[0]+` '{"field":"value"}'`))
+					return platform.ErrUsage("bad_json", "the arguments are not a JSON object: "+err.Error(),
+						`trellis call `+args[0]+` '{"field":"value"}'`)
 				}
 			}
 			dir, err := os.Getwd()
@@ -39,7 +39,7 @@ func newCallCmd() *cobra.Command {
 			}
 			project, err := client.ProjectKey(projectFlagKey, os.Getenv, dir)
 			if err != nil {
-				return adminErr(platform.ErrUsage("bad_marker", err.Error(), "fix the .trellis marker, or pass --project"))
+				return platform.ErrUsage("bad_marker", err.Error(), "fix the .trellis marker, or pass --project")
 			}
 			res, err := client.Call(cmd.Context(), cfg, client.Request{
 				Project: project, Session: os.Getenv("TRELLIS_SESSION"), Tool: args[0], Args: toolArgs,
