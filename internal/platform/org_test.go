@@ -85,7 +85,7 @@ func TestPlat_PLAT_C5_ProjectsAndCardRefsAreScopedToTheirOrg(t *testing.T) {
 		pr := projects[org]
 		var boardID, columnID, cardID string
 		mustDo(t, db.Get(&boardID, `SELECT id FROM board WHERE project_id = $1`, pr.ID.String()))
-		mustDo(t, db.Get(&columnID, `INSERT INTO board_column (board_id, name, position) VALUES ($1, 'backlog', 0) RETURNING id`, boardID))
+		mustDo(t, db.Get(&columnID, `SELECT id FROM board_column WHERE board_id = $1 AND name = 'backlog'`, boardID))
 		mustDo(t, db.Get(&cardID, `INSERT INTO card (project_id, board_id, column_id, number, ref, title, created_by)
 			VALUES ($1, $2, $3, 1, 'APP-1', 'first', 'test') RETURNING id`, pr.ID.String(), boardID, columnID))
 		cardIDs[org] = cardID

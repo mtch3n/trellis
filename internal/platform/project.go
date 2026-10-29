@@ -68,8 +68,12 @@ func (p *Platform) AddProjectMember(ctx context.Context, org, key, handle, role 
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO board (project_id, owner_id, name, scope) VALUES ($1, $2, $3, 'personal')
-			ON CONFLICT (project_id, owner_id, name) DO NOTHING`, pr.ID.String(), m.ID.String(), handle)
+		var kept bool
+		if err := tx.GetContext(ctx, &kept, `SELECT EXISTS (SELECT 1 FROM board WHERE project_id = $1 AND owner_id = $2 AND name = $3)`,
+			pr.ID, m.ID, handle); err != nil || kept {
+			return err
+		}
+		_, err = createBoard(tx, pr.ID, m.ID, handle)
 		return err
 	})
 }
