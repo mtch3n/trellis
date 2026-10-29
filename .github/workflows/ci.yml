@@ -28,15 +28,41 @@ jobs:
         with:
           go-version: '1.27'    # not 'stable'/'oldstable': this code needs
           cache: true           # uuid, encoding/json/v2 and strings.CutLast
+      - name: Pick the packages to test
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            echo "PKGS=./..." >> "$GITHUB_ENV"
+          else
+            echo "PKGS=$(go list ./... | grep -v -E '/internal/(pgstore|platform|server|mcpserver)(/|$)' | tr '\n' ' ')" >> "$GITHUB_ENV"
+          fi
       - run: go vet ./...
-      - run: go test ./...
+      - shell: bash
+        run: go test $PKGS
       - name: Verify the test run left the working tree clean
         shell: bash
         run: |
           git status --porcelain
           test -z "$(git status --porcelain)"
-      - run: go test -cover ./...
+      - shell: bash
+        run: go test -cover $PKGS
       - run: go build ./...
+
+  build:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          cache: true
+      - name: Build the binary for every release target
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null ./cmd/trellis
+          done
 
   race:
     runs-on: ubuntu-latest
