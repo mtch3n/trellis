@@ -245,3 +245,43 @@ func TestClient_CLIENT_C2_KeepsGlobalProjectAndPrivateScopes(t *testing.T) {
 		coalesce(to_char(verify_by AT TIME ZONE 'UTC', 'YYYY-MM-DD'), '-') || ':' || body FROM entry ORDER BY slug`),
 		[]string{"secret:personal:true::-:private body", "shared:project:false:import:-:project body", "wide:global:false::2030-01-01:global body"})
 }
+
+func TestClient_CLIENT_C3_LeavesOutEventsLabelsTagsAndTrashAndCountsThem(t *testing.T) {
+	db := clientServer(t)
+	h := newClientHome(t)
+	h.project("p1", "DEMO")
+	h.board("b1", "p1", "main")
+	h.card("c1", "p1", "b1", "backlog", "DEMO-1", 1)
+	h.entry("e1", "p1", "DEMO", "alpha", 1, "alpha body")
+	h.exec(`INSERT INTO label (id, project_id, name, description, created_at) VALUES ('l1', 'p1', 'bug', 'a bug', 1000), ('l2', 'p1', 'chore', '', 1000)`)
+	h.exec(`INSERT INTO card_label (card_id, label_id) VALUES ('c1', 'l1')`)
+	h.exec(`INSERT INTO entry_label (entry_id, label_id) VALUES ('e1', 'l1')`)
+	h.exec(`INSERT INTO tag (id, project_id, name, created_at) VALUES ('t1', 'p1', 'red', 1000)`)
+	h.exec(`INSERT INTO entry_tag (entry_id, tag_id) VALUES ('e1', 't1')`)
+	h.exec(`INSERT INTO event (ts, actor, entity_type, entity_id, action, project_id) VALUES (1, 'agent:x', 'card', 'c1', 'created', 'p1'),
+		(2, 'agent:x', 'card', 'c1', 'moved', 'p1'), (3, 'agent:x', 'entry', 'e1', 'created', 'p1')`)
+	h.exec(`INSERT INTO trash (id, project_id, project_key, kind, item_id, name, title, seq, trashed_at, trashed_by, rows)
+		VALUES ('tr1', 'p1', 'DEMO', 'card', 'c9', 'DEMO-9', 'gone card', 9, 1000, 'agent:x', '[]')`)
+	before := clientCount(t, db, `SELECT count(*) FROM event`)
+
+	rep := clientRun(t, db, h.dir)
+	if after := clientCount(t, db, `SELECT count(*) FROM event`); after != before {
+		t.Fatalf("events = %d, want %d", after, before)
+	}
+	clientWant(t, "labels and tags", clientStrings(t, db, `SELECT slug || ':' || array_to_string(labels, ',') || ':' || array_to_string(tags, ',') FROM entry`),
+		[]string{"alpha:import:"})
+	if n := clientCount(t, db, `SELECT count(*) FROM card WHERE ref = 'DEMO-9' OR title = 'gone card'`); n != 0 {
+		t.Fatalf("trashed cards = %d, want 0", n)
+	}
+	for kind, want := range map[string]int64{"events": 3, "labels": 2, "tags": 1, "trash": 1, "vectors": 0} {
+		if rep.LeftOut[kind] != want {
+			t.Errorf("left out %s = %d, want %d", kind, rep.LeftOut[kind], want)
+		}
+	}
+	text := rep.Text()
+	for _, line := range []string{"3 events", "2 labels", "1 tags", "1 trash"} {
+		if !strings.Contains(text, line) {
+			t.Errorf("output %q does not say %q", text, line)
+		}
+	}
+}

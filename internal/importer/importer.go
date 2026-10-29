@@ -5,8 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/mtch3n/trellis/internal/platform"
@@ -110,4 +113,23 @@ func importProject(ctx context.Context, pg *sqlx.DB, h *home, who member, p loca
 		return err
 	}
 	return tx.Commit()
+}
+
+func (r Report) Text() string {
+	var b strings.Builder
+	for _, k := range r.Imported {
+		fmt.Fprintf(&b, "imported %s\n", k)
+	}
+	for _, k := range r.Skipped {
+		fmt.Fprintf(&b, "skipped %s: the org already has this project\n", k)
+	}
+	for _, f := range r.Failed {
+		fmt.Fprintf(&b, "failed %s: %s\n", f.Project, f.Error)
+	}
+	parts := []string{}
+	for _, kind := range slices.Sorted(maps.Keys(r.LeftOut)) {
+		parts = append(parts, fmt.Sprintf("%d %s", r.LeftOut[kind], kind))
+	}
+	fmt.Fprintf(&b, "left out: %s", strings.Join(parts, ", "))
+	return b.String()
 }
