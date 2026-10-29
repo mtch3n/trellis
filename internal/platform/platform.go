@@ -8,7 +8,8 @@ import (
 )
 
 type Platform struct {
-	db *sqlx.DB
+	db       *sqlx.DB
+	embedder Embedder
 }
 
 func New(db *sqlx.DB) *Platform {
