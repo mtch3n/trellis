@@ -23,7 +23,7 @@ func TestRules(t *testing.T) {
 		{"escalate", []string{"escalate", "EscalateKnowledge", "escalation queue"}, []string{"promote"}},
 		{"review", []string{"unreviewed", "review_by", "reviewed_at", "ReviewBy", "review clock"}, []string{"Review column"}},
 		{"lease", []string{"lease_until", "RenewLease", "a lease", "Lease held"}, []string{"release", "Released", "please"}},
-		{"owner", []string{"owner", "ownership", "holder", "held by"}, []string{"household"}},
+		{"owner", []string{"ownership", "holder", "held by"}, []string{"household", "the board owner"}},
 		{"finding-umbrella", []string{"LintFinding", "no findings"}, []string{"template finding"}},
 		{"dangling", []string{"a dangling link"}, nil},
 		{"dupe", []string{"--dupes", "DupeCluster", "dupe"}, []string{"duplicate"}},
