@@ -17,7 +17,7 @@ type shareOut struct {
 	Pin    *platform.Pin         `json:"pin"`
 }
 
-func TestVault_VAULT_C65_ToolListHoldsTheSixteenToolsWithSchemas(t *testing.T) {
+func TestVault_VAULT_C65_ToolListHoldsTheSeventeenToolsWithSchemas(t *testing.T) {
 	e := newEnv(t)
 	cs := e.agent("ming", "claude-laptop", nil)
 	tools := listTools(t, cs)

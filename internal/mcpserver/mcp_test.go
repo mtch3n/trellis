@@ -66,14 +66,20 @@ func TestPlat_PLAT_C29_NewAndLegacyProtocolsListTheSameTools(t *testing.T) {
 	}
 }
 
-func TestPlat_PLAT_C31_ExactlyEightToolsWithSchemasAndReadOnlyHints(t *testing.T) {
+func TestPlat_PLAT_C31_TheEightPlatToolsHaveSchemasAndReadOnlyHints(t *testing.T) {
 	e := newEnv(t)
 	cs := e.agent("ming", "claude-laptop", nil)
 	tools := listTools(t, cs)
-	if got := names(tools); !slices.Equal(got, toolNames) {
-		t.Fatalf("tools = %v, want %v", got, toolNames)
+	got := names(tools)
+	for _, name := range toolNames {
+		if !slices.Contains(got, name) {
+			t.Fatalf("tools = %v, want all of %v", got, toolNames)
+		}
 	}
 	for _, tl := range tools {
+		if !slices.Contains(toolNames, tl.Name) {
+			continue
+		}
 		if tl.InputSchema == nil || tl.OutputSchema == nil {
 			t.Errorf("%s: input schema %v, output schema %v", tl.Name, tl.InputSchema != nil, tl.OutputSchema != nil)
 		}
