@@ -358,3 +358,31 @@ func TestClient_CLIENT_C6_SkipsAProjectTheOrgHasAndImportsTheRest(t *testing.T) 
 		t.Fatal("B wrote nothing")
 	}
 }
+
+func TestClient_CLIENT_C7_FailsAProjectWithAMissingEntryFileAndGoesOn(t *testing.T) {
+	db := clientServer(t)
+	h := newClientHome(t)
+	h.project("pa", "A")
+	h.board("ba", "pa", "main")
+	h.card("ca", "pa", "ba", "backlog", "A-1", 1)
+	h.entry("ea", "pa", "A", "present", 1, "present body")
+	h.entry("eg", "pa", "A", "ghost", 1, "ghost body")
+	if err := os.Remove(filepath.Join(h.dir, "projects", "A", "vault", "ghost.md")); err != nil {
+		t.Fatal(err)
+	}
+	h.project("pb", "B")
+	h.entry("eb", "pb", "B", "local-b", 1, "local b body")
+
+	rep := clientRun(t, db, h.dir)
+	if len(rep.Failed) != 1 || rep.Failed[0].Project != "A" || !strings.Contains(rep.Failed[0].Error, "ghost") {
+		t.Fatalf("failed = %+v, want A failed naming ghost", rep.Failed)
+	}
+	if !strings.Contains(rep.Text(), "ghost") {
+		t.Fatalf("output %q does not name ghost", rep.Text())
+	}
+	clientWant(t, "imported", rep.Imported, []string{"B"})
+	clientWant(t, "projects", clientStrings(t, db, `SELECT key FROM project ORDER BY key`), []string{"B"})
+	if n := clientCount(t, db, `SELECT count(*) FROM card`); n != 0 {
+		t.Fatalf("cards = %d, want 0", n)
+	}
+}
