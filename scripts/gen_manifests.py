@@ -29,6 +29,9 @@ def manifests(spec):
     for harness in spec["harnesses"].values():
         out.append((ROOT / harness["path"], {**shared, **harness.get("extra", {})}))
 
+    mcp = spec["mcp"]
+    out.append((ROOT / mcp["path"], {"mcpServers": mcp["servers"]}))
+
     market = spec["marketplace"]
     out.append((ROOT / market["path"], {
         "name": shared["name"],

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "trellis": {
+      "type": "http",
+      "url": "${TRELLIS_URL}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${TRELLIS_TOKEN}"
+      }
+    }
+  }
+}

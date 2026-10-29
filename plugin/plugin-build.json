@@ -2,8 +2,8 @@
   "_comment": "Single source for every manifest. Edit this, then run scripts/gen_manifests.py. The generated files are checked in so installs need no build step, and scripts/tests/test_manifests.py fails if they drift from this file.",
   "shared": {
     "name": "trellis",
-    "version": "0.0.6",
-    "description": "Local kanban boards and vaults for AI agents: board state at session start, cards with expiring claims, and a linked markdown vault.",
+    "version": "0.1.0",
+    "description": "Kanban boards and a vault for AI agents on a shared Trellis server: board state at session start, cards with expiring claims, and a linked vault, all through MCP.",
     "author": {
       "name": "mtchen"
     },
@@ -22,8 +22,8 @@
     "owner": {
       "name": "mtchen"
     },
-    "description": "Local kanban boards and vaults for AI agents. SessionStart hook injects board state and a command cheatsheet. The skills cover claiming work, recording progress, and when to write an entry.",
-    "pluginDescription": "Work with trellis board state, cards, and vault entries. SessionStart hook for adoption.",
+    "description": "Kanban boards and a vault for AI agents on a shared Trellis server. The plugin registers the server over MCP; hooks inject the board brief, recall entries for each prompt and remind about claimed cards. The skills teach the MCP tools.",
+    "pluginDescription": "Work with Trellis boards, cards and vault entries through the Trellis MCP server.",
     "otherPlugins": [
       {
         "name": "sdd",
@@ -45,8 +45,8 @@
         "skills": "./skills/",
         "interface": {
           "displayName": "Trellis",
-          "shortDescription": "Local kanban boards and vaults for AI agents",
-          "longDescription": "Trellis gives AI coding agents a local kanban board and a linked markdown vault. Use it to claim work safely, record progress, preserve what it learns, and recover context across sessions.",
+          "shortDescription": "Kanban boards and a vault for AI agents on a Trellis server",
+          "longDescription": "Trellis gives AI coding agents shared kanban boards and a linked vault on one server, through MCP. Use it to claim work safely, record progress, keep what it learns, and recover context across sessions.",
           "developerName": "mtchen",
           "category": "Productivity",
           "capabilities": [
@@ -58,6 +58,18 @@
             "Claim the next available Trellis card.",
             "Save what this session verified in Trellis."
           ]
+        }
+      }
+    }
+  },
+  "mcp": {
+    "path": "plugin/.mcp.json",
+    "servers": {
+      "trellis": {
+        "type": "http",
+        "url": "${TRELLIS_URL}/mcp",
+        "headers": {
+          "Authorization": "Bearer ${TRELLIS_TOKEN}"
         }
       }
     }

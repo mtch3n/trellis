@@ -3,12 +3,12 @@
   "owner": {
     "name": "mtchen"
   },
-  "description": "Local kanban boards and vaults for AI agents. SessionStart hook injects board state and a command cheatsheet. The skills cover claiming work, recording progress, and when to write an entry.",
+  "description": "Kanban boards and a vault for AI agents on a shared Trellis server. The plugin registers the server over MCP; hooks inject the board brief, recall entries for each prompt and remind about claimed cards. The skills teach the MCP tools.",
   "plugins": [
     {
       "name": "trellis",
       "source": "./plugin",
-      "description": "Work with trellis board state, cards, and vault entries. SessionStart hook for adoption."
+      "description": "Work with Trellis boards, cards and vault entries through the Trellis MCP server."
     },
     {
       "name": "sdd",
