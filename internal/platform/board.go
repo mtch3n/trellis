@@ -9,7 +9,6 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -73,11 +72,6 @@ func createBoard(tx *sqlx.Tx, projectID, ownerID uuid.UUID, name string) (Board,
 	var b Board
 	err = tx.Get(&b, boardSelect+` WHERE b.id = $1`, id)
 	return b, err
-}
-
-func isUniqueViolation(err error) bool {
-	e, ok := errors.AsType[*pgconn.PgError](err)
-	return ok && e.Code == "23505"
 }
 
 func visibleBoards(tx *sqlx.Tx, pr Principal, proj projectAccess) ([]Board, error) {

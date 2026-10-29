@@ -8,7 +8,6 @@ import (
 	"strings"
 	"uuid"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -40,11 +39,6 @@ func orgByName(ctx context.Context, tx *sqlx.Tx, name string) (Org, error) {
 		return Org{}, ErrNotFound("org_not_found", fmt.Sprintf("org %q not found", name), "trellis admin org new <name>")
 	}
 	return o, err
-}
-
-func isUniqueViolation(err error) bool {
-	pe, ok := errors.AsType[*pgconn.PgError](err)
-	return ok && pe.Code == "23505"
 }
 
 type uuidScanner struct{ dst *uuid.UUID }

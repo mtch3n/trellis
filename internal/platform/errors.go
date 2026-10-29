@@ -3,6 +3,8 @@ package platform
 import (
 	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type Kind string
@@ -48,4 +50,9 @@ func ErrPolicy(code, msg, fix string) *Error {
 func IsCode(err error, code string) bool {
 	e, ok := errors.AsType[*Error](err)
 	return ok && e.Code == code
+}
+
+func isUniqueViolation(err error) bool {
+	pe, ok := errors.AsType[*pgconn.PgError](err)
+	return ok && pe.Code == "23505"
 }
