@@ -432,13 +432,8 @@ func (p *Platform) EditEntry(ctx context.Context, pr Principal, project, slug st
 			in.Labels == nil && in.Sources == nil && len(in.Set) == 0 {
 			return ErrUsage("nothing_to_edit", "an edit needs a field to change", "vault_write edit with a title, summary, body or field")
 		}
-		if in.IfVersion == 0 {
-			return ErrUsage("version_required", "an edit needs the version you read",
-				fmt.Sprintf("vault_show %s, then pass if_version %d", e.Slug, e.Version))
-		}
-		if in.IfVersion != e.Version {
-			return ErrConflict("conflict", fmt.Sprintf("%s changed since you read it (you: v%d, now: v%d)", e.Slug, in.IfVersion, e.Version),
-				"vault_show "+e.Slug)
+		if err := checkVersion(e, in.IfVersion, "an edit"); err != nil {
+			return err
 		}
 		if err := checkSet(in.Set); err != nil {
 			return err
