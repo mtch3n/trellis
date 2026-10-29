@@ -2,7 +2,7 @@ package platform
 
 import "testing"
 
-func TestPLAT_C11_AdminStepsFromAnEmptyDatabaseGiveAWorkingTokenAndAPersonalBoard(t *testing.T) {
+func TestPlat_PLAT_C11_AdminStepsFromAnEmptyDatabaseGiveAWorkingTokenAndAPersonalBoard(t *testing.T) {
 	p, db := tenancyPlatform(t)
 	ctx := t.Context()
 	_, err := p.CreateOrg(ctx, "acme")
@@ -34,7 +34,7 @@ func TestPLAT_C11_AdminStepsFromAnEmptyDatabaseGiveAWorkingTokenAndAPersonalBoar
 	}
 }
 
-func TestPLAT_C12_AddingAMemberToAProjectOfAnotherOrgIsNotFound(t *testing.T) {
+func TestPlat_PLAT_C12_AddingAMemberToAProjectOfAnotherOrgIsNotFound(t *testing.T) {
 	p, db := tenancyPlatform(t)
 	ctx := t.Context()
 	for _, org := range []string{"A", "B"} {

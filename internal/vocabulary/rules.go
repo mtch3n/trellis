@@ -24,7 +24,7 @@ var Retired = []Rule{
 	{"escalate", regexp.MustCompile(`(?i)escalat`), "promote"},
 	{"review", regexp.MustCompile(`(?i)unreviewed|review_?by|reviewed_?at|review clock`), "verify, unverified, verify_by, verified_at"},
 	{"lease", regexp.MustCompile(`(?i)(?:^|[^ep])lease`), "claim"},
-	{"owner", regexp.MustCompile(`(?i)\bowner(ship)?\b|\bholder\b|\bheld\b`), "claimant, claimed_by"},
+	{"owner", regexp.MustCompile(`(?i)\bownership\b|\bholder\b|\bheld\b`), "claimant, claimed_by"},
 	{"finding-umbrella", regexp.MustCompile(`LintFinding|\bfindings\b`), "diagnostic"},
 	{"dangling", regexp.MustCompile(`(?i)\bdangling\b`), "stub"},
 	{"dupe", regexp.MustCompile(`(?i)\bdupes?\b|dupecluster`), "duplicate"},
