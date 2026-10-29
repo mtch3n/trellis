@@ -1,5 +1,5 @@
 {
-  "description": "trellis plugin hooks. SessionStart injects board state and agent identity; UserPromptSubmit recalls refs bearing on the prompt; Stop reminds about claimed cards with no comment. band.tsx draws the review queue above the prompt. Hook code lives in integrations/, one directory per harness.",
+  "description": "trellis plugin hooks. SessionStart writes TRELLIS_SESSION and injects the board brief from `trellis call board_brief`; UserPromptSubmit adds the entries `trellis call recall` finds; Stop reminds about claimed cards with no comment and entries not nominated, from `trellis call remind`. band.tsx draws the review queue above the prompt.",
   "hooks": {
     "UserPromptSubmit": [
       {
