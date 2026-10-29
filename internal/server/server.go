@@ -29,6 +29,7 @@ func New(p *platform.Platform) *Server {
 	s := &Server{Platform: p, Mux: http.NewServeMux()}
 	s.Mux.HandleFunc("GET /healthz", s.healthz)
 	s.Mux.Handle("/mcp", requireAgent(p, mcpserver.Handler(p)))
+	registerWeb(s.Mux, p)
 	return s
 }
 
