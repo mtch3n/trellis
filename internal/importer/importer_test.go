@@ -311,3 +311,50 @@ func TestClient_CLIENT_C4_RefusesADirectoryWithNoTrellisDB(t *testing.T) {
 		t.Fatalf("server rows %s, want %s", after, before)
 	}
 }
+
+func TestClient_CLIENT_C5_RefusesAMemberThatIsNotInTheOrg(t *testing.T) {
+	db := clientServer(t)
+	h := newClientHome(t)
+	h.project("p1", "DEMO")
+	h.entry("e1", "p1", "DEMO", "alpha", 1, "alpha body")
+	before := clientSnapshot(t, db)
+	_, err := Run(t.Context(), db, Options{Home: h.dir, Org: "acme", Member: "nobody"})
+	e, ok := errors.AsType[*platform.Error](err)
+	if !ok || !strings.Contains(e.Msg, "nobody") {
+		t.Fatalf("err = %v, want an error naming nobody", err)
+	}
+	if after := clientSnapshot(t, db); after != before {
+		t.Fatalf("server rows %s, want %s", after, before)
+	}
+}
+
+func TestClient_CLIENT_C6_SkipsAProjectTheOrgHasAndImportsTheRest(t *testing.T) {
+	db := clientServer(t)
+	p := platform.New(db)
+	if _, err := p.CreateProject(t.Context(), "acme", "A", "server A"); err != nil {
+		t.Fatal(err)
+	}
+	h := newClientHome(t)
+	h.project("pa", "A")
+	h.board("ba", "pa", "main")
+	h.card("ca", "pa", "ba", "backlog", "A-1", 1)
+	h.entry("ea", "pa", "A", "local-a", 1, "local a body")
+	h.project("pb", "B")
+	h.entry("eb", "pb", "B", "local-b", 1, "local b body")
+	before := clientSnapshot(t, db)
+
+	rep := clientRun(t, db, h.dir)
+	clientWant(t, "skipped", rep.Skipped, []string{"A"})
+	clientWant(t, "imported", rep.Imported, []string{"B"})
+	if !strings.Contains(rep.Text(), "skipped A") {
+		t.Fatalf("output %q does not report A as skipped", rep.Text())
+	}
+	clientWant(t, "A on the server", clientStrings(t, db, `SELECT p.name || ':' || p.card_counter || ':' ||
+		(SELECT count(*) FROM board WHERE project_id = p.id) || ':' || (SELECT count(*) FROM entry WHERE project_id = p.id)
+		FROM project p WHERE key = 'A'`), []string{"server A:0:0:0"})
+	clientWant(t, "entries", clientStrings(t, db, `SELECT p.key || ':' || e.slug FROM entry e JOIN project p ON p.id = e.project_id`),
+		[]string{"B:local-b"})
+	if before == clientSnapshot(t, db) {
+		t.Fatal("B wrote nothing")
+	}
+}
