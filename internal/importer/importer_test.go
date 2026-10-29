@@ -1,6 +1,7 @@
 package importer
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -283,5 +284,30 @@ func TestClient_CLIENT_C3_LeavesOutEventsLabelsTagsAndTrashAndCountsThem(t *test
 		if !strings.Contains(text, line) {
 			t.Errorf("output %q does not say %q", text, line)
 		}
+	}
+}
+
+func clientSnapshot(t *testing.T, db *sqlx.DB) string {
+	t.Helper()
+	var s string
+	if err := db.Get(&s, `SELECT concat_ws(',', (SELECT count(*) FROM project), (SELECT count(*) FROM project_member), (SELECT count(*) FROM board),
+		(SELECT count(*) FROM card), (SELECT count(*) FROM comment), (SELECT count(*) FROM entry), (SELECT count(*) FROM entry_revision),
+		(SELECT count(*) FROM artifact), (SELECT count(*) FROM pin), (SELECT count(*) FROM nomination), (SELECT count(*) FROM entry_link))`); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestClient_CLIENT_C4_RefusesADirectoryWithNoTrellisDB(t *testing.T) {
+	db := clientServer(t)
+	dir := t.TempDir()
+	before := clientSnapshot(t, db)
+	_, err := Run(t.Context(), db, Options{Home: dir, Org: "acme", Member: "ming"})
+	e, ok := errors.AsType[*platform.Error](err)
+	if !ok || e.Kind != platform.KindUsage || !strings.Contains(e.Msg, dir) {
+		t.Fatalf("err = %v, want a usage error naming %s", err, dir)
+	}
+	if after := clientSnapshot(t, db); after != before {
+		t.Fatalf("server rows %s, want %s", after, before)
 	}
 }
