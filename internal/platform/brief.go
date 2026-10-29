@@ -26,10 +26,11 @@ type Brief struct {
 	Boards  []BoardCounts `json:"boards"`
 	Claimed []Card        `json:"claimed"`
 	Next    *Card         `json:"next,omitempty"`
+	Pins    []Pin         `json:"pins"`
 }
 
 func (p *Platform) Brief(ctx context.Context, pr Principal, project string) (Brief, error) {
-	brief := Brief{Project: project, Boards: []BoardCounts{}, Claimed: []Card{}}
+	brief := Brief{Project: project, Boards: []BoardCounts{}, Claimed: []Card{}, Pins: []Pin{}}
 	err := p.Tx(ctx, func(tx *sqlx.Tx) error {
 		proj, err := enterProject(tx, pr, project, OpRead)
 		if err != nil {
@@ -50,6 +51,9 @@ func (p *Platform) Brief(ctx context.Context, pr Principal, project string) (Bri
 				return err
 			}
 			brief.Boards = append(brief.Boards, counts)
+		}
+		if brief.Pins, err = briefPins(tx, pr, proj, boards); err != nil {
+			return err
 		}
 		if pr.IsSystem() {
 			return nil
