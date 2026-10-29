@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/mtch3n/trellis/internal/mcpserver"
 	"github.com/mtch3n/trellis/internal/pgstore"
 	"github.com/mtch3n/trellis/internal/platform"
 )
@@ -23,6 +24,7 @@ type Server struct {
 func New(p *platform.Platform) *Server {
 	s := &Server{Platform: p, Mux: http.NewServeMux()}
 	s.Mux.HandleFunc("GET /healthz", s.healthz)
+	s.Mux.Handle("/mcp", requireAgent(p, mcpserver.Handler(p)))
 	return s
 }
 
