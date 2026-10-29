@@ -228,3 +228,20 @@ func TestClient_CLIENT_C1_CarriesBlockersCitesAndArtifactLinks(t *testing.T) {
 		LEFT JOIN card c ON c.id = al.card_id LEFT JOIN entry e ON e.id = al.entry_id ORDER BY al.card_id IS NULL`),
 		[]string{"DEMO-1", "alpha"})
 }
+
+func TestClient_CLIENT_C2_KeepsGlobalProjectAndPrivateScopes(t *testing.T) {
+	db := clientServer(t)
+	h := newClientHome(t)
+	h.project("p1", "DEMO")
+	h.entry("e1", "p1", "DEMO", "shared", 1, "project body")
+	h.entry("e2", "p1", "DEMO", "secret", 1, "private body")
+	h.exec(`UPDATE entry SET private = 1 WHERE id = 'e2'`)
+	h.exec(`INSERT INTO entry (id, project_id, slug, title, summary, content_hash, mtime, size, global, verify_by, version, created_at, updated_at)
+		VALUES ('g1', 'p1', 'wide', 'Wide', 'sum wide', 'h', 1, 1, 1, 1893456000000, 1, 1000, 2000)`)
+	h.file("global/vault/wide.md", entryFile("Wide", "sum wide", "global body"))
+
+	clientRun(t, db, h.dir)
+	clientWant(t, "entries", clientStrings(t, db, `SELECT slug || ':' || scope || ':' || private || ':' || array_to_string(labels, ',') || ':' ||
+		coalesce(to_char(verify_by AT TIME ZONE 'UTC', 'YYYY-MM-DD'), '-') || ':' || body FROM entry ORDER BY slug`),
+		[]string{"secret:personal:true::-:private body", "shared:project:false:import:-:project body", "wide:global:false::2030-01-01:global body"})
+}
