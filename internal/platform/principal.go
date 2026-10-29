@@ -6,6 +6,7 @@ type PrincipalKind string
 
 const (
 	PrincipalMemberAgent PrincipalKind = "member-agent"
+	PrincipalPerson      PrincipalKind = "person"
 	PrincipalSystem      PrincipalKind = "system"
 )
 
@@ -32,6 +33,9 @@ func (p Principal) IsSystem() bool { return p.Kind == PrincipalSystem }
 func (p Principal) Actor() string {
 	if p.IsSystem() {
 		return "system:" + p.Job
+	}
+	if p.Kind == PrincipalPerson {
+		return "person:" + p.Handle
 	}
 	actor := "agent:" + p.Handle + "/" + p.TokenName
 	if p.Session != "" {

@@ -100,6 +100,7 @@ func (t *tools) register(s *mcp.Server) {
 	t.add(s, &mcp.Tool{Name: "card_claim", Description: "Claim a card, claim the next one, renew or release a claim"}, claimActions, t.cardClaim)
 	t.registerVault(s)
 	t.registerRemind(s)
+	t.registerCoord(s)
 }
 
 func (t *tools) projectList(ctx context.Context, c call, _ ProjectListIn) (ProjectListOut, error) {

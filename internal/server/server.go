@@ -18,6 +18,7 @@ import (
 const (
 	DefaultAddr = "127.0.0.1:8080"
 	embedEvery  = 2 * time.Second
+	coordEvery  = 10 * time.Minute
 )
 
 type Server struct {
@@ -29,6 +30,7 @@ func New(p *platform.Platform) *Server {
 	s := &Server{Platform: p, Mux: http.NewServeMux()}
 	s.Mux.HandleFunc("GET /healthz", s.healthz)
 	s.Mux.Handle("/mcp", requireAgent(p, mcpserver.Handler(p)))
+	registerWeb(s.Mux, p)
 	return s
 }
 
@@ -63,6 +65,10 @@ func Run(ctx context.Context, getenv func(string) string, ready func(net.Addr)) 
 	if err != nil {
 		return err
 	}
+	coordInterval, err := coordIntervalFromEnv(getenv)
+	if err != nil {
+		return err
+	}
 	p := platform.New(db)
 	if embedder != nil {
 		p.UseEmbedder(embedder)
@@ -81,6 +87,7 @@ func Run(ctx context.Context, getenv func(string) string, ready func(net.Addr)) 
 	embedCtx, stopEmbed := context.WithCancel(ctx)
 	defer stopEmbed()
 	embedding.Go(func() { p.RunEmbedder(embedCtx, embedEvery) })
+	embedding.Go(func() { p.RunCoordinator(embedCtx, coordInterval) })
 	ready(ln.Addr())
 
 	select {
@@ -97,4 +104,16 @@ func Run(ctx context.Context, getenv func(string) string, ready func(net.Addr)) 
 		return err
 	}
 	return nil
+}
+
+func coordIntervalFromEnv(getenv func(string) string) (time.Duration, error) {
+	raw := getenv("TRELLIS_COORD_INTERVAL")
+	if raw == "" {
+		return coordEvery, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("TRELLIS_COORD_INTERVAL must be a positive duration such as 10m, not %q", raw)
+	}
+	return d, nil
 }
