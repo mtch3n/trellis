@@ -1,7 +1,9 @@
 package platform
 
 import (
+	"errors"
 	"slices"
+	"sync"
 	"testing"
 
 	"github.com/jmoiron/sqlx"
@@ -128,4 +130,87 @@ func TestCoord_COORD_C3_SameOwnerDoneColumnOrOtherProjectIsNoOverlap(t *testing.
 			t.Fatalf("%d notices, want 0", n)
 		}
 	})
+}
+
+func (w *world) coordPair() (ann, bob Principal, annCard, bobCard Card) {
+	w.t.Helper()
+	ann, bob = w.join("ann"), w.join("bob")
+	annCard = w.coordCard(ann, "Rotate the postgres backup credentials", "")
+	bobCard = w.coordCard(bob, "postgres backup credentials rotation script", "")
+	return ann, bob, annCard, bobCard
+}
+
+func TestCoord_COORD_C5_RerunsAndConcurrentRunsKeepOneNoticePerMember(t *testing.T) {
+	t.Run("run again", func(t *testing.T) {
+		w := newWorld(t)
+		ann, bob, _, _ := w.coordPair()
+		w.coordRun()
+		w.coordRun()
+		if a, b := w.coordNotices(ann), w.coordNotices(bob); len(a) != 1 || len(b) != 1 {
+			t.Fatalf("ann %+v, bob %+v", a, b)
+		}
+		if n := w.coordNoticeCount(); n != 2 {
+			t.Fatalf("%d notices, want 2", n)
+		}
+	})
+	t.Run("two runs at once", func(t *testing.T) {
+		w := newWorld(t)
+		ann, bob, _, _ := w.coordPair()
+		var wg sync.WaitGroup
+		errs := make([]error, 2)
+		for i := range errs {
+			wg.Go(func() { _, errs[i] = w.p.Coordinate(t.Context()) })
+		}
+		wg.Wait()
+		if err := errors.Join(errs...); err != nil {
+			t.Fatal(err)
+		}
+		if a, b := w.coordNotices(ann), w.coordNotices(bob); len(a) != 1 || len(b) != 1 {
+			t.Fatalf("ann %+v, bob %+v", a, b)
+		}
+		if n := w.coordNoticeCount(); n != 2 {
+			t.Fatalf("%d notices, want 2", n)
+		}
+	})
+}
+
+func TestCoord_COORD_C8_ACardMovedToDoneClosesBothNotices(t *testing.T) {
+	w := newWorld(t)
+	ann, bob, annCard, _ := w.coordPair()
+	w.coordRun()
+	w.must(w.p.MoveCard(t.Context(), ann, "APP", annCard.Ref, "done"))
+	w.coordRun()
+	if a, b := w.coordNotices(ann), w.coordNotices(bob); len(a) != 0 || len(b) != 0 {
+		t.Fatalf("ann %+v, bob %+v", a, b)
+	}
+	var open int
+	if err := w.db.Get(&open, `SELECT count(*) FROM coord_notice WHERE state <> 'closed'`); err != nil {
+		t.Fatal(err)
+	}
+	if open != 0 {
+		t.Fatalf("%d notices not closed", open)
+	}
+}
+
+func TestCoord_COORD_C9_AnArchivedOrDeletedCardClosesBothNoticesAndARestoreNoticesNothing(t *testing.T) {
+	for _, column := range []string{"archived_at", "deleted_at"} {
+		t.Run(column, func(t *testing.T) {
+			w := newWorld(t)
+			ann, bob, _, bobCard := w.coordPair()
+			w.coordRun()
+			w.exec(`UPDATE card SET `+column+` = now() WHERE id = $1`, bobCard.ID)
+			w.coordRun()
+			if a, b := w.coordNotices(ann), w.coordNotices(bob); len(a) != 0 || len(b) != 0 {
+				t.Fatalf("after %s: ann %+v, bob %+v", column, a, b)
+			}
+			w.exec(`UPDATE card SET `+column+` = NULL WHERE id = $1`, bobCard.ID)
+			w.coordRun()
+			if a, b := w.coordNotices(ann), w.coordNotices(bob); len(a) != 0 || len(b) != 0 {
+				t.Fatalf("after restore: ann %+v, bob %+v", a, b)
+			}
+			if n := w.coordNoticeCount(); n != 2 {
+				t.Fatalf("%d notices, want the 2 closed ones", n)
+			}
+		})
+	}
 }

@@ -72,3 +72,41 @@ func coordPrincipal(t *testing.T, e *env, handle string) platform.Principal {
 	}
 	return platform.MemberAgent(m.OrgID, m.ID, handle, "laptop", "")
 }
+
+func TestCoord_COORD_C6_BriefListsANoticeUntilItIsDismissedForGood(t *testing.T) {
+	e := newEnv(t)
+	ann, _, annCard, _ := coordPair(t, e)
+
+	brief := ok[platform.Brief](t, ann, "board_brief", nil)
+	if len(brief.Notices) != 1 || brief.Notices[0].Card != annCard.Ref {
+		t.Fatalf("brief notices = %+v", brief.Notices)
+	}
+	left := ok[coordOut](t, ann, "coordination", map[string]any{"action": "dismiss", "id": brief.Notices[0].ID.String()}).Notices
+	if len(left) != 0 {
+		t.Fatalf("after dismiss = %+v", left)
+	}
+	if brief := ok[platform.Brief](t, ann, "board_brief", nil); len(brief.Notices) != 0 {
+		t.Fatalf("brief after dismiss = %+v", brief.Notices)
+	}
+	e.coordRun()
+	e.coordRun()
+	if brief := ok[platform.Brief](t, ann, "board_brief", nil); len(brief.Notices) != 0 {
+		t.Fatalf("brief after later runs = %+v", brief.Notices)
+	}
+}
+
+func TestCoord_COORD_C7_DismissingAnotherMembersNoticeIsNotFound(t *testing.T) {
+	e := newEnv(t)
+	ann, bob, _, _ := coordPair(t, e)
+	bobNotice := ok[coordOut](t, bob, "coordination", map[string]any{"action": "list"}).Notices[0]
+
+	got := fails(t, ann, "coordination", map[string]any{"action": "dismiss", "id": bobNotice.ID.String()})
+	missing := fails(t, ann, "coordination", map[string]any{"action": "dismiss", "id": "01a18867-6984-7e14-a048-252908d33801"})
+	if got.Code != "notice_not_found" || got != missing {
+		t.Fatalf("foreign dismiss = %+v, missing dismiss = %+v", got, missing)
+	}
+	still := ok[coordOut](t, bob, "coordination", map[string]any{"action": "list"}).Notices
+	if len(still) != 1 || still[0].ID != bobNotice.ID {
+		t.Fatalf("bob notices = %+v", still)
+	}
+}
