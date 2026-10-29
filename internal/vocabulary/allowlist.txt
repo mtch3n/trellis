@@ -41,6 +41,9 @@ internal/core/purge.go	corpus	1	# why: the set of entries offered to the vector 
 internal/core/search.go	corpus	2	# why: the set of entries offered to the vector index, distinct from the index itself
 internal/core/search_test.go	doc	1	# why: a card titled "Update docs"
 internal/core/template_resolve.go	attach	1	# why: an anchor left attached to a reference, not an artifact
+internal/platform/artifact.go	document	1	# why: the artifact kind `document`, a file type such as a PDF
+internal/platform/gate_test.go	doc	1	# why: a fixture URL path https://example.com/doc
+internal/platform/vault_e2e_test.go	escalate	3	# why: a pager escalation ladder, the fixture body of an entry, not promotion
 internal/service/launchd.go	type-field	1	# why: the plist <!DOCTYPE> declaration
 internal/store/db_test.go	owner	1	# why: a write held until after another commits, not a card claimant
 internal/ui/artifacts.go	attach	2	# why: the HTTP Content-Disposition: attachment header
