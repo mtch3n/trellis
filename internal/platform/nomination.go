@@ -38,7 +38,7 @@ func (p *Platform) Nominate(ctx context.Context, pr Principal, project, slug, re
 		if _, err := tx.Exec(`SELECT 1 FROM project WHERE id = $1 FOR UPDATE`, proj.ID); err != nil {
 			return err
 		}
-		r, err := findShared(tx, pr, proj, slug, []string{ScopeProject, "global", ScopePersonal}, false)
+		r, err := findEntry(tx, pr, proj, slug, OpRead, false, false)
 		if err != nil {
 			return err
 		}

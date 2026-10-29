@@ -18,7 +18,7 @@ func (p *Platform) Verify(ctx context.Context, pr Principal, project, slug strin
 		if err := refuseSystem(pr); err != nil {
 			return err
 		}
-		r, err := findShared(tx, pr, proj, slug, []string{"global", ScopeProject, ScopePersonal}, true)
+		r, err := findShared(tx, pr, proj, slug)
 		if err != nil {
 			return err
 		}

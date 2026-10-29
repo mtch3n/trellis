@@ -3,9 +3,7 @@ package platform
 import (
 	"cmp"
 	"context"
-	"database/sql"
 	"encoding/json/v2"
-	"errors"
 	"strings"
 	"time"
 	"uuid"
@@ -21,15 +19,6 @@ type Pin struct {
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
-type pinEntry struct {
-	ID      uuid.UUID `db:"id"`
-	Slug    string    `db:"slug"`
-	Title   string    `db:"title"`
-	Summary string    `db:"summary"`
-	Body    string    `db:"body"`
-	Private bool      `db:"private"`
-}
-
 const pinVisibleSQL = `e.deleted_at IS NULL AND (
 	(e.scope = 'personal' AND e.project_id = $1 AND ($3 OR e.owner_id = $2))
 	OR (e.scope = 'project' AND e.project_id = $1)
@@ -37,24 +26,6 @@ const pinVisibleSQL = `e.deleted_at IS NULL AND (
 
 func pinVisibleArgs(pr Principal, proj projectAccess) []any {
 	return []any{proj.ID, pr.MemberID, pr.IsSystem(), proj.OrgID}
-}
-
-func findPinEntry(tx *sqlx.Tx, pr Principal, proj projectAccess, ref string) (pinEntry, error) {
-	ref = strings.TrimSpace(ref)
-	match := `e.slug = $5`
-	var key any = ref
-	if id, err := uuid.Parse(ref); err == nil {
-		match, key = `e.id = $5`, id
-	}
-	var e pinEntry
-	err := tx.Get(&e, `SELECT e.id, e.slug, e.title, e.summary, e.body, e.private FROM entry e
-		WHERE `+match+` AND `+pinVisibleSQL+`
-		ORDER BY CASE e.scope WHEN 'personal' THEN 0 WHEN 'project' THEN 1 ELSE 2 END LIMIT 1`,
-		append(pinVisibleArgs(pr, proj), key)...)
-	if errors.Is(err, sql.ErrNoRows) {
-		return e, errEntryNotFound(ref)
-	}
-	return e, err
 }
 
 func firstParagraph(body string) string {
@@ -86,7 +57,7 @@ func (p *Platform) PinEntry(ctx context.Context, pr Principal, project, ref, rec
 		if err != nil {
 			return err
 		}
-		e, err := findPinEntry(tx, pr, proj, ref)
+		e, err := findEntry(tx, pr, proj, ref, OpRead, false, false)
 		if err != nil {
 			return err
 		}
@@ -121,7 +92,7 @@ func (p *Platform) UnpinEntry(ctx context.Context, pr Principal, project, ref st
 		if err != nil {
 			return err
 		}
-		e, err := findPinEntry(tx, pr, proj, ref)
+		e, err := findEntry(tx, pr, proj, ref, OpRead, false, false)
 		if err != nil {
 			return err
 		}
@@ -144,7 +115,7 @@ func briefPins(tx *sqlx.Tx, pr Principal, proj projectAccess, boards []Board) ([
 	if err := tx.Select(&rows, `SELECT e.slug, e.title, COALESCE(p.recap, e.summary) AS recap,
 		b.name AS board, p.board_id, p.created_at
 		FROM pin p JOIN entry e ON e.id = p.entry_id LEFT JOIN board b ON b.id = p.board_id
-		WHERE p.project_id = $1 AND NOT e.private AND (e.verify_by IS NULL OR e.verify_by > now())
+		WHERE p.project_id = $1 AND `+entryRecallable+`
 		  AND `+pinVisibleSQL+`
 		ORDER BY p.created_at DESC, e.slug`, pinVisibleArgs(pr, proj)...); err != nil {
 		return nil, err

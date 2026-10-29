@@ -104,8 +104,7 @@ func (p *Platform) Recall(ctx context.Context, pr Principal, project, text strin
 		if err := tx.Select(&candidates, `SELECT `+entryHitColumns+`, COALESCE(NULLIF(e.recap, ''), e.summary) AS recap
 			FROM entry e JOIN member m ON m.id = e.owner_id
 			WHERE `+visibleEntrySQL+`
-			  AND NOT e.private
-			  AND NOT (e.scope = 'global' AND e.verify_by < now())
+			  AND `+entryRecallable+`
 			  AND (COALESCE(cardinality($5::text[]), 0) = 0 OR e.template = ANY ($5))
 			  AND (COALESCE(cardinality($6::text[]), 0) = 0 OR e.provenance = ANY ($6))
 			  AND e.search @@ (`+match+`)

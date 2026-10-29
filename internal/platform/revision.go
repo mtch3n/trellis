@@ -19,7 +19,7 @@ type Revision struct {
 
 func saveRevision(tx *sqlx.Tx, pr Principal, e Entry) error {
 	meta, err := json.Marshal(map[string]any{
-		"template": e.Template, "provenance": e.Provenance, "private": e.Private,
+		"scope": e.Scope, "template": e.Template, "provenance": e.Provenance, "private": e.Private,
 		"tags": e.Tags, "labels": e.Labels, "sources": e.Sources, "fields": e.Fields,
 	})
 	if err != nil {

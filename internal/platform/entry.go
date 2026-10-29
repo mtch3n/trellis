@@ -75,6 +75,7 @@ type Entry struct {
 }
 
 type NewEntry struct {
+	Scope      string
 	Slug       string
 	Title      string
 	Summary    string
@@ -89,6 +90,7 @@ type NewEntry struct {
 }
 
 type EntryEdit struct {
+	Scope     *string
 	Title     *string
 	Summary   *string
 	Body      *string
@@ -243,6 +245,13 @@ func cleanList(in []string) []string {
 	return out
 }
 
+func checkScope(scope string) error {
+	if !slices.Contains([]string{ScopePersonal, ScopeProject, ScopeGlobal}, scope) {
+		return ErrUsage("bad_scope", `scope must be personal, project or global, not "`+scope+`"`, "omit scope for a personal entry")
+	}
+	return nil
+}
+
 func checkSet(set map[string]string) error {
 	for _, name := range slices.Sorted(maps.Keys(set)) {
 		if slices.Contains(reservedFields, name) {
@@ -280,6 +289,13 @@ func (p *Platform) CreateEntry(ctx context.Context, pr Principal, project string
 		e.Slug = cmp.Or(strings.TrimSpace(in.Slug), slugify(e.Title))
 		if !address.ValidEntrySlug(e.Slug) {
 			return ErrUsage("bad_slug", `"`+e.Slug+`" is not a valid slug: use lower-case letters, digits and hyphens, with / between directories`, "vault_write new with another slug")
+		}
+		scope := cmp.Or(strings.TrimSpace(in.Scope), ScopePersonal)
+		if err := checkScope(scope); err != nil {
+			return err
+		}
+		if err := gateEntryWrite(tx, pr, proj, nil, gateEntry{Scope: scope, Slug: e.Slug}); err != nil {
+			return err
 		}
 		e.Provenance = cmp.Or(in.Provenance, "authored")
 		if !slices.Contains(provenances, e.Provenance) {
@@ -412,7 +428,7 @@ func (p *Platform) EditEntry(ctx context.Context, pr Principal, project, slug st
 		if err != nil {
 			return err
 		}
-		if in.Title == nil && in.Summary == nil && in.Body == nil && in.Private == nil && in.Tags == nil &&
+		if in.Scope == nil && in.Title == nil && in.Summary == nil && in.Body == nil && in.Private == nil && in.Tags == nil &&
 			in.Labels == nil && in.Sources == nil && len(in.Set) == 0 {
 			return ErrUsage("nothing_to_edit", "an edit needs a field to change", "vault_write edit with a title, summary, body or field")
 		}
@@ -427,6 +443,7 @@ func (p *Platform) EditEntry(ctx context.Context, pr Principal, project, slug st
 		if err := checkSet(in.Set); err != nil {
 			return err
 		}
+		before := e.gate()
 		if in.Title != nil {
 			if e.Title = strings.TrimSpace(*in.Title); e.Title == "" {
 				return ErrUsage("title_required", "an entry needs a title", "vault_write edit with a title")
@@ -471,6 +488,19 @@ func (p *Platform) EditEntry(ctx context.Context, pr Principal, project, slug st
 			if warnings, err = applyTemplate(tx, w, t, e, in.Body != nil); err != nil {
 				return err
 			}
+		}
+		after := e.gate()
+		if in.Scope != nil {
+			after.Scope = strings.TrimSpace(*in.Scope)
+			if err := checkScope(after.Scope); err != nil {
+				return err
+			}
+		}
+		if err := gateEntryWrite(tx, pr, proj, &before, after); err != nil {
+			return err
+		}
+		if after.Scope != before.Scope {
+			return ErrUsage("scope_change", "an edit does not change an entry's scope", "vault_share demote "+e.Slug)
 		}
 		fields, err := json.Marshal(e.Fields)
 		if err != nil {

@@ -24,7 +24,7 @@ func (p *Platform) Promote(ctx context.Context, pr Principal, project, slug, rea
 		if err := refuseSystem(pr); err != nil {
 			return err
 		}
-		r, err := findShared(tx, pr, proj, slug, []string{ScopeProject, "global", ScopePersonal}, true)
+		r, err := findShared(tx, pr, proj, slug)
 		if err != nil {
 			return err
 		}
@@ -41,7 +41,7 @@ func (p *Platform) Promote(ctx context.Context, pr Principal, project, slug, rea
 				"vault_write edit with private false")
 		}
 		taken, err := execUnique(tx, `UPDATE entry SET scope = 'global', verify_by = now() + `+verifyInterval+`,
-			verified_at = now(), promoted_by = $2, promote_reason = $3, promoted_at = now(), updated_at = now()
+			verified_at = now(), promoted_by = $2, promote_reason = $3, promoted_at = now(), updated_at = now(), version = version + 1
 			WHERE id = $1`, r.ID, pr.Actor(), reason)
 		if err != nil {
 			return err
@@ -55,7 +55,7 @@ func (p *Platform) Promote(ctx context.Context, pr Principal, project, slug, rea
 		if err := shareEvent(tx, pr, r, "entry.promoted", map[string]any{"slug": slug, "reason": reason}); err != nil {
 			return err
 		}
-		out, err = reloadShared(tx, r.ID)
+		out, err = keepShareRevision(tx, pr, r.ID)
 		return err
 	})
 	return out, err
@@ -71,7 +71,7 @@ func (p *Platform) Demote(ctx context.Context, pr Principal, project, slug strin
 		if err := refuseSystem(pr); err != nil {
 			return err
 		}
-		r, err := findShared(tx, pr, proj, slug, []string{ScopeProject, "global", ScopePersonal}, true)
+		r, err := findShared(tx, pr, proj, slug)
 		if err != nil {
 			return err
 		}
@@ -86,13 +86,13 @@ func (p *Platform) Demote(ctx context.Context, pr Principal, project, slug strin
 		if err != nil {
 			return err
 		}
-		out, err = reloadShared(tx, r.ID)
+		out, err = keepShareRevision(tx, pr, r.ID)
 		return err
 	})
 	return out, err
 }
 
-func demoteProject(tx *sqlx.Tx, pr Principal, proj projectAccess, r shareRow) error {
+func demoteProject(tx *sqlx.Tx, pr Principal, proj projectAccess, r Entry) error {
 	var maintainer bool
 	if err := tx.Get(&maintainer, `SELECT EXISTS (SELECT 1 FROM project_member
 		WHERE project_id = $1 AND member_id = $2 AND role = 'maintainer')`, proj.ID, pr.MemberID); err != nil {
@@ -103,7 +103,7 @@ func demoteProject(tx *sqlx.Tx, pr Principal, proj projectAccess, r shareRow) er
 			"ask a maintainer of "+proj.Key)
 	}
 	taken, err := execUnique(tx, `UPDATE entry SET scope = 'personal', labels = array_remove(labels, 'gate'),
-		updated_at = now() WHERE id = $1`, r.ID)
+		updated_at = now(), version = version + 1 WHERE id = $1`, r.ID)
 	if err != nil {
 		return err
 	}
@@ -114,7 +114,7 @@ func demoteProject(tx *sqlx.Tx, pr Principal, proj projectAccess, r shareRow) er
 	return shareEvent(tx, pr, r, "entry.demoted", map[string]any{"slug": r.Slug, "to": ScopePersonal})
 }
 
-func demoteGlobal(tx *sqlx.Tx, pr Principal, r shareRow) error {
+func demoteGlobal(tx *sqlx.Tx, pr Principal, r Entry) error {
 	var admin bool
 	if err := tx.Get(&admin, `SELECT EXISTS (SELECT 1 FROM member WHERE id = $1 AND role = 'admin')`, pr.MemberID); err != nil {
 		return err
@@ -122,7 +122,7 @@ func demoteGlobal(tx *sqlx.Tx, pr Principal, r shareRow) error {
 	if !admin {
 		return ErrPolicy("not_admin", "only an org admin demotes a global entry", "ask an admin of the org")
 	}
-	taken, err := execUnique(tx, `UPDATE entry SET scope = 'project', verify_by = NULL, updated_at = now() WHERE id = $1`, r.ID)
+	taken, err := execUnique(tx, `UPDATE entry SET scope = 'project', verify_by = NULL, updated_at = now(), version = version + 1 WHERE id = $1`, r.ID)
 	if err != nil {
 		return err
 	}

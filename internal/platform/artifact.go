@@ -305,7 +305,7 @@ func (p *Platform) LinkArtifact(ctx context.Context, pr Principal, project, ref 
 			}
 			cardID, data = &c.ID, map[string]any{"card": c.Ref}
 		case to.Entry != "" && to.Card == "":
-			e, err := findPinEntry(tx, pr, proj, to.Entry)
+			e, err := findEntry(tx, pr, proj, to.Entry, OpRead, false, false)
 			if err != nil {
 				return err
 			}

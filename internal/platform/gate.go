@@ -6,6 +6,8 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -45,72 +47,38 @@ type gateEntry struct {
 	Template string
 	Private  bool
 	Sources  []string
-	Fields   map[string]any
+	Fields   map[string]string
 }
 
-type shareRow struct {
-	ID        uuid.UUID  `db:"id"`
-	OrgID     uuid.UUID  `db:"org_id"`
-	ProjectID uuid.UUID  `db:"project_id"`
-	OwnerID   uuid.UUID  `db:"owner_id"`
-	Scope     string     `db:"scope"`
-	Slug      string     `db:"slug"`
-	Title     string     `db:"title"`
-	Summary   string     `db:"summary"`
-	Body      string     `db:"body"`
-	Template  string     `db:"template"`
-	Private   bool       `db:"private"`
-	Sources   []byte     `db:"sources"`
-	Fields    []byte     `db:"fields"`
-	Labels    []byte     `db:"labels"`
-	VerifyBy  *time.Time `db:"verify_by"`
+func (e Entry) gate() gateEntry {
+	return gateEntry{ID: e.ID, OwnerID: e.OwnerID, Scope: e.Scope, Slug: e.Slug, Title: e.Title, Summary: e.Summary,
+		Body: e.Body, Template: e.Template, Private: e.Private, Sources: slices.Clone(e.Sources), Fields: maps.Clone(e.Fields)}
 }
 
-const shareSelect = `SELECT e.id, e.org_id, e.project_id, e.owner_id, e.scope, e.slug, e.title, e.summary, e.body,
-	e.template, e.private, to_jsonb(e.sources) AS sources, e.fields, to_jsonb(e.labels) AS labels, e.verify_by
-	FROM entry e`
-
-func (r shareRow) gate() (gateEntry, error) {
-	e := gateEntry{ID: r.ID, OwnerID: r.OwnerID, Scope: r.Scope, Slug: r.Slug, Title: r.Title, Summary: r.Summary,
-		Body: r.Body, Template: r.Template, Private: r.Private}
-	if err := json.Unmarshal(r.Sources, &e.Sources); err != nil {
-		return e, err
+func (e Entry) shareResult() ShareResult {
+	labels := []string(e.Labels)
+	if labels == nil {
+		labels = []string{}
 	}
-	return e, json.Unmarshal(r.Fields, &e.Fields)
+	return ShareResult{ID: e.ID, Slug: e.Slug, Scope: e.Scope, Labels: labels, VerifyBy: e.VerifyBy}
 }
 
-func (r shareRow) result() (ShareResult, error) {
-	out := ShareResult{ID: r.ID, Slug: r.Slug, Scope: r.Scope, VerifyBy: r.VerifyBy}
-	return out, json.Unmarshal(r.Labels, &out.Labels)
-}
-
-func errEntryMissing(slug string) *Error {
-	return ErrNotFound("entry_not_found", "no entry "+slug+" in this project", "vault_list")
-}
-
-func findShared(tx *sqlx.Tx, pr Principal, proj projectAccess, slug string, order []string, lock bool) (shareRow, error) {
-	q := shareSelect + ` WHERE e.deleted_at IS NULL AND e.slug = $1 AND (
-		(e.project_id = $2 AND e.scope = 'project') OR
-		(e.project_id = $2 AND e.scope = 'personal' AND (e.owner_id = $3 OR $4)) OR
-		(e.org_id = $5 AND e.scope = 'global'))
-		ORDER BY array_position($6::text[], e.scope) LIMIT 1`
-	if lock {
-		q += ` FOR UPDATE OF e`
-	}
-	var r shareRow
-	err := tx.Get(&r, q, slug, proj.ID, pr.MemberID, pr.IsSystem(), proj.OrgID, order)
-	if errors.Is(err, sql.ErrNoRows) {
-		return r, errEntryMissing(slug)
-	}
-	return r, err
+func findShared(tx *sqlx.Tx, pr Principal, proj projectAccess, slug string) (Entry, error) {
+	return findEntry(tx, pr, proj, slug, OpRead, true, false)
 }
 
 func reloadShared(tx *sqlx.Tx, id uuid.UUID) (ShareResult, error) {
-	var r shareRow
-	if err := tx.Get(&r, shareSelect+` WHERE e.id = $1`, id); err != nil {
+	var e Entry
+	err := tx.Get(&e, entrySelect+` WHERE e.id = $1`, id)
+	return e.shareResult(), err
+}
+
+func keepShareRevision(tx *sqlx.Tx, pr Principal, id uuid.UUID) (ShareResult, error) {
+	var e Entry
+	if err := tx.Get(&e, entrySelect+` WHERE e.id = $1`, id); err != nil {
 		return ShareResult{}, err
 	}
-	return r.result()
+	return e.shareResult(), saveRevision(tx, pr, e)
 }
 
 func refuseSystem(pr Principal) error {
@@ -132,14 +100,14 @@ func execUnique(tx *sqlx.Tx, q string, args ...any) (bool, error) {
 	return false, err
 }
 
-func shareEvent(tx *sqlx.Tx, pr Principal, r shareRow, kind string, data map[string]any) error {
+func shareEvent(tx *sqlx.Tx, pr Principal, e Entry, kind string, data map[string]any) error {
 	raw, err := json.Marshal(data)
 	if err != nil {
 		return err
 	}
 	_, err = tx.Exec(`INSERT INTO event (org_id, project_id, entry_id, kind, actor, member_id, data)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		r.OrgID, r.ProjectID, r.ID, kind, pr.Actor(), pr.MemberID, raw)
+		e.OrgID, e.ProjectID, e.ID, kind, pr.Actor(), pr.MemberID, raw)
 	return err
 }
 
@@ -164,17 +132,14 @@ func (p *Platform) Publish(ctx context.Context, pr Principal, project, slug stri
 		if err := refuseSystem(pr); err != nil {
 			return err
 		}
-		r, err := findShared(tx, pr, proj, slug, []string{ScopePersonal, ScopeProject, "global"}, true)
+		r, err := findShared(tx, pr, proj, slug)
 		if err != nil {
 			return err
 		}
 		if r.Scope != ScopePersonal {
 			return ErrUsage("already_published", slug+" is already a "+r.Scope+" entry", "vault_show "+slug)
 		}
-		e, err := r.gate()
-		if err != nil {
-			return err
-		}
+		e := r.gate()
 		failed, err := runGate(tx, pr, proj, e)
 		if err != nil {
 			return err
@@ -183,7 +148,8 @@ func (p *Platform) Publish(ctx context.Context, pr Principal, project, slug stri
 			return gateFailed(slug, failed)
 		}
 		taken, err := execUnique(tx, `UPDATE entry SET scope = 'project', updated_at = now(),
-			labels = CASE WHEN 'gate' = ANY (labels) THEN labels ELSE array_append(labels, 'gate') END
+			labels = CASE WHEN 'gate' = ANY (labels) THEN labels ELSE array_append(labels, 'gate') END,
+			version = version + 1
 			WHERE id = $1`, r.ID)
 		if err != nil {
 			return err
@@ -201,7 +167,7 @@ func (p *Platform) Publish(ctx context.Context, pr Principal, project, slug stri
 		if err := shareEvent(tx, pr, r, "entry.published", map[string]any{"slug": slug, "checks": gateCheckNames}); err != nil {
 			return err
 		}
-		out, err = reloadShared(tx, r.ID)
+		out, err = keepShareRevision(tx, pr, r.ID)
 		return err
 	})
 	return out, err
@@ -315,15 +281,7 @@ func templateCheck(tx *sqlx.Tx, proj projectAccess, e gateEntry) ([]GateCheck, e
 	}
 	values := map[string][]string{"title": {e.Title}, "summary": {e.Summary}, "sources": e.Sources}
 	for k, v := range e.Fields {
-		switch v := v.(type) {
-		case nil:
-		case []any:
-			for _, item := range v {
-				values[k] = append(values[k], fmt.Sprint(item))
-			}
-		default:
-			values[k] = append(values[k], fmt.Sprint(v))
-		}
+		values[k] = append(values[k], v)
 	}
 	var failed []GateCheck
 	for _, name := range rules.Required {
