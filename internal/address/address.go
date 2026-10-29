@@ -111,9 +111,8 @@ func projectKey(seg string) (string, error) {
 // check reservation: GLOBAL is well-formed and reserved.
 func ValidKey(key string) bool { return keyRE.MatchString(key) }
 
-// ValidSlug reports whether s has the shape createBoard gives a slug:
-// lower-case letters and digits, in runs joined by single hyphens. Letters
-// are Unicode letters, matching slugify in internal/core/board.go.
+// ValidSlug reports whether s is lower-case letters and digits, in runs
+// joined by single hyphens. Letters are Unicode letters.
 func ValidSlug(s string) bool {
 	if s == "" || strings.HasPrefix(s, "-") || strings.HasSuffix(s, "-") || strings.Contains(s, "--") {
 		return false
