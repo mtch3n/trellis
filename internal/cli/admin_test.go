@@ -38,7 +38,7 @@ func adminCounts(t *testing.T, db *sqlx.DB) string {
 	return s
 }
 
-func TestPLAT_C6_AdminCLIAnswersProjectExists(t *testing.T) {
+func TestPlat_PLAT_C6_AdminCLIAnswersProjectExists(t *testing.T) {
 	db := adminDB(t)
 	admin(t, "org", "new", "A")
 	admin(t, "project", "new", "--org", "A", "APP")
@@ -53,7 +53,7 @@ func TestPLAT_C6_AdminCLIAnswersProjectExists(t *testing.T) {
 	}
 }
 
-func TestPLAT_C8_AdminCLIAnswersBadRoleWithTheAllowedValues(t *testing.T) {
+func TestPlat_PLAT_C8_AdminCLIAnswersBadRoleWithTheAllowedValues(t *testing.T) {
 	db := adminDB(t)
 	admin(t, "org", "new", "A")
 	admin(t, "member", "add", "--org", "A", "ming")
@@ -65,7 +65,7 @@ func TestPLAT_C8_AdminCLIAnswersBadRoleWithTheAllowedValues(t *testing.T) {
 		args    []string
 		allowed []string
 	}{
-		{[]string{"member", "role", "--org", "A", "ming", "owner"}, platform.OrgRoles},
+		{[]string{"member", "role", "--org", "A", "ming", "lead"}, platform.OrgRoles},
 		{[]string{"project", "role", "--org", "A", "APP", "ming", "admin"}, platform.ProjectRoles},
 	} {
 		_, err := runCmdErr(t, append([]string{"--json", "admin"}, c.args...)...)
@@ -90,7 +90,7 @@ func TestPLAT_C8_AdminCLIAnswersBadRoleWithTheAllowedValues(t *testing.T) {
 	}
 }
 
-func TestPLAT_C11_AdminCLIBootstrapsAnEmptyDatabase(t *testing.T) {
+func TestPlat_PLAT_C11_AdminCLIBootstrapsAnEmptyDatabase(t *testing.T) {
 	db := adminDB(t)
 	admin(t, "org", "new", "acme")
 	admin(t, "member", "add", "--org", "acme", "ming")
@@ -122,7 +122,7 @@ func TestPLAT_C11_AdminCLIBootstrapsAnEmptyDatabase(t *testing.T) {
 	}
 }
 
-func TestPLAT_C12_AdminCLIAnswersNotFoundAcrossOrgs(t *testing.T) {
+func TestPlat_PLAT_C12_AdminCLIAnswersNotFoundAcrossOrgs(t *testing.T) {
 	db := adminDB(t)
 	admin(t, "org", "new", "A")
 	admin(t, "org", "new", "B")

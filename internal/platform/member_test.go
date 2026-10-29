@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestPLAT_C7_AdminSetsTheOrgRoleAndTheProjectRole(t *testing.T) {
+func TestPlat_PLAT_C7_AdminSetsTheOrgRoleAndTheProjectRole(t *testing.T) {
 	p, db := tenancyPlatform(t)
 	ctx := t.Context()
 	_, err := p.CreateOrg(ctx, "A")
@@ -27,7 +27,7 @@ func TestPLAT_C7_AdminSetsTheOrgRoleAndTheProjectRole(t *testing.T) {
 	}
 }
 
-func TestPLAT_C8_ARoleThatIsNotAllowedIsRefused(t *testing.T) {
+func TestPlat_PLAT_C8_ARoleThatIsNotAllowedIsRefused(t *testing.T) {
 	p, db := tenancyPlatform(t)
 	ctx := t.Context()
 	_, err := p.CreateOrg(ctx, "A")
@@ -50,7 +50,7 @@ func TestPLAT_C8_ARoleThatIsNotAllowedIsRefused(t *testing.T) {
 		allowed []string
 	}{
 		{"org role", func() error { return p.SetMemberRole(ctx, "A", "ming", "maintainer") }, OrgRoles},
-		{"project role", func() error { return p.SetProjectRole(ctx, "A", "APP", "ming", "owner") }, ProjectRoles},
+		{"project role", func() error { return p.SetProjectRole(ctx, "A", "APP", "ming", "lead") }, ProjectRoles},
 		{"join with role", func() error { return p.AddProjectMember(ctx, "A", "APP", "ming", "root") }, ProjectRoles},
 	}
 	for _, c := range cases {
