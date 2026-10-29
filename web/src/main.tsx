@@ -6,16 +6,13 @@ import '@fontsource-variable/geist-mono'
 import './index.css'
 import App from './App.tsx'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { LiveStatusProvider } from '@/components/wrappers/LiveStatus'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <LiveStatusProvider>
-        <TooltipProvider delay={400}>
-          <App />
-        </TooltipProvider>
-      </LiveStatusProvider>
+      <TooltipProvider delay={400}>
+        <App />
+      </TooltipProvider>
     </BrowserRouter>
   </StrictMode>,
 )

@@ -1,107 +1,61 @@
-import { Fragment } from 'react'
-import { Routes, Route, Link, useParams } from 'react-router-dom'
-import { RootRedirect } from './pages/RootRedirect'
-import { ProjectsPage } from './pages/ProjectsPage'
-import { BoardPage } from './pages/BoardPage'
-import { VaultPage } from './pages/VaultPage'
-import { HealthPage } from './pages/HealthPage'
-import { GraphPage } from './pages/GraphPage'
-import { OverviewPage } from './pages/OverviewPage'
-import { CardPage } from './pages/CardPage'
-import { SearchPage } from './pages/SearchPage'
-import { EventLogPage } from './pages/EventLogPage'
-import { SettingsPage } from './pages/SettingsPage'
-import { TrashPage } from './pages/TrashPage'
+import { Link, Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { Toaster } from '@/components/ui/toast'
-import { AppShell, type Section } from '@/components/wrappers/AppShell'
-import { NavigationGuardProvider } from '@/components/wrappers/NavigationGuard'
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { buttonVariants } from '@/components/ui/button'
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
+import { AppShell } from '@/components/wrappers/AppShell'
+import { RequireSession } from '@/components/wrappers/RequireSession'
+import { BoardPage, BoardRedirect } from './pages/BoardPage'
+import { CardPage } from './pages/CardPage'
+import { LoginPage } from './pages/LoginPage'
+import { ProjectsPage } from './pages/ProjectsPage'
+import { ReviewPage } from './pages/ReviewPage'
+import { SearchPage } from './pages/SearchPage'
+import { VaultPage } from './pages/VaultPage'
 
-/**
- * Every screen inside the shell needs the project it is scoped to. The child is
- * keyed on the project, so switching projects starts clean while moving between
- * entries or cards inside one keeps the tree, the filter and the loaded data.
- * Keying on the full path remounted the vault page on every click.
- */
-function Shelled({ section, children }: { section: Section; children: React.ReactNode }) {
-  const { projectKey } = useParams<{ projectKey: string }>()
+function Signed() {
   return (
-    <AppShell projectKey={projectKey} section={section}>
-      <Fragment key={`${section}:${projectKey}`}>{children}</Fragment>
-    </AppShell>
+    <RequireSession>
+      <AppShell>
+        <Outlet />
+      </AppShell>
+    </RequireSession>
+  )
+}
+
+function NotFound() {
+  return (
+    <Empty className="min-h-svh">
+      <EmptyHeader>
+        <EmptyTitle>Page not found</EmptyTitle>
+        <EmptyDescription>That page does not exist.</EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Link to="/projects" className={buttonVariants({ variant: 'outline', size: 'sm' })}>Go to the projects</Link>
+      </EmptyContent>
+    </Empty>
   )
 }
 
 function App() {
   return (
-    <NavigationGuardProvider>
+    <>
       <Toaster />
       <Routes>
-        <Route path="/" element={<RootRedirect />} />
-        <Route path="/projects" element={<AppShell><ProjectsPage /></AppShell>} />
-
-        <Route
-          path="/p/:projectKey"
-          element={<Shelled section="overview"><OverviewPage /></Shelled>}
-        />
-        <Route
-          path="/p/:projectKey/b/:boardSlug"
-          element={<Shelled section="board"><BoardPage /></Shelled>}
-        />
-        <Route
-          path="/p/:projectKey/card/:cardRef"
-          element={<Shelled section="board"><CardPage /></Shelled>}
-        />
-        <Route
-          path="/p/:projectKey/vault"
-          element={<Shelled section="vault"><VaultPage /></Shelled>}
-        />
-        <Route
-          path="/p/:projectKey/vault/:slug"
-          element={<Shelled section="vault"><VaultPage /></Shelled>}
-        />
-        {/* A walk from one card, entry or artifact: its controls live in the
-            URL, so a walk worth showing someone is a link. */}
-        <Route
-          path="/p/:projectKey/graph/:entity"
-          element={<Shelled section="board"><GraphPage /></Shelled>}
-        />
-        {/* The vault's own state, under the Vault section: health, what wants
-            promoting, and whether recall is paying off. */}
-        <Route
-          path="/p/:projectKey/health"
-          element={<Shelled section="vault"><HealthPage /></Shelled>}
-        />
-        <Route
-          path="/p/:projectKey/trash"
-          element={<Shelled section="trash"><TrashPage /></Shelled>}
-        />
-
-        <Route path="/search" element={<AppShell><SearchPage /></AppShell>} />
-        <Route path="/event-log" element={<AppShell><EventLogPage /></AppShell>} />
-        {/* Settings belong to the machine, not a project. The page routes its
-            own sections, so the shell stays mounted while moving between them. */}
-        <Route path="/settings/*" element={<AppShell section="settings"><SettingsPage /></AppShell>} />
-
-        <Route
-          path="*"
-          element={
-            <Empty className="min-h-svh">
-              <EmptyHeader>
-                <EmptyTitle>Page not found</EmptyTitle>
-                <EmptyDescription>
-                  That route does not exist in this workspace.
-                </EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                <Link to="/" className={buttonVariants({ variant: 'outline', size: 'sm' })}>Go to the overview</Link>
-              </EmptyContent>
-            </Empty>
-          }
-        />
+        <Route path="/" element={<Navigate to="/projects" replace />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route element={<Signed />}>
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/p/:projectKey" element={<Navigate to="board" replace />} />
+          <Route path="/p/:projectKey/board" element={<BoardRedirect />} />
+          <Route path="/p/:projectKey/b/:boardName" element={<BoardPage />} />
+          <Route path="/p/:projectKey/card/:cardRef" element={<CardPage />} />
+          <Route path="/p/:projectKey/vault/*" element={<VaultPage />} />
+          <Route path="/p/:projectKey/search" element={<SearchPage />} />
+          <Route path="/p/:projectKey/review" element={<ReviewPage />} />
+        </Route>
+        <Route path="*" element={<NotFound />} />
       </Routes>
-    </NavigationGuardProvider>
+    </>
   )
 }
 
