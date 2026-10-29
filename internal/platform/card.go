@@ -34,6 +34,7 @@ type Card struct {
 	BlockedBy  []string   `db:"-" json:"blocked_by,omitempty"`
 	Comments   []Comment  `db:"-" json:"comments,omitempty"`
 	Events     []Event    `db:"-" json:"events,omitempty"`
+	Artifacts  []Artifact `db:"-" json:"artifacts,omitempty"`
 }
 
 type NewCard struct {
@@ -184,6 +185,9 @@ func (p *Platform) ShowCard(ctx context.Context, pr Principal, project, ref stri
 			return err
 		}
 		if card.Comments, err = cardComments(tx, card.ID); err != nil {
+			return err
+		}
+		if card.Artifacts, err = cardArtifacts(tx, pr, proj, card.ID); err != nil {
 			return err
 		}
 		card.Events, err = cardEvents(tx, card.ID)
