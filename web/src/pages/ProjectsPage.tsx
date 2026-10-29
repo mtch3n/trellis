@@ -1,241 +1,39 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { Ellipsis } from 'lucide-react'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { toast } from '@/components/ui/toast'
-import type { ProjectSummary } from '@/components/wrappers/AppShell'
-import { DeleteProjectDialog } from '@/components/wrappers/DeleteProjectDialog'
-import { Lamp } from '@/components/wrappers/Lamp'
+import { Link } from 'react-router-dom'
+import { api, errorText } from '@/lib/api'
+import { useLoad } from '@/lib/use-load'
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
+import { Spinner } from '@/components/ui/spinner'
 import { PageHeader } from '@/components/wrappers/PageHeader'
-import { Paged } from '@/components/wrappers/Paged'
-import { TrashTable } from '@/components/wrappers/TrashTable'
-import { readError } from '@/lib/api'
-import { defaultBoard } from '@/lib/boards'
-import { readTrash, type TrashItem } from '@/lib/trash'
 
-function cards(project: ProjectSummary) {
-  return project.columns.reduce((total, column) => total + column.card_count, 0)
-}
-
-function column(project: ProjectSummary, name: string) {
-  return project.columns.find((item) => item.name === name)?.card_count ?? 0
-}
-
-/**
- * Every project on this machine, and the one place a project is trashed or
- * restored. Trashing is kept off the switcher on purpose: it is a management
- * act, not something to reach while moving between projects.
- */
 export function ProjectsPage() {
-  const [projects, setProjects] = useState<ProjectSummary[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [deleting, setDeleting] = useState<ProjectSummary | null>(null)
-  const [trashed, setTrashed] = useState<TrashItem[]>([])
-
-  const load = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const response = await fetch('/api/projects', { signal })
-      if (!response.ok) throw new Error(await readError(response))
-      setProjects(await response.json())
-      setTrashed(await readTrash('/api/trash/projects', signal))
-      setError(null)
-    } catch (err) {
-      if (signal?.aborted) return
-      setError(err instanceof Error ? err.message : 'Could not load projects')
-      setProjects([])
-    }
-  }, [])
-
-  useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
-  }, [load])
-
-  if (!projects) {
-    return (
-      <main className="px-6 pb-24 lg:px-8">
-        <div className="flex min-h-16 items-center py-4">
-          <Skeleton className="h-7 w-44" />
-        </div>
-        <div className="mt-10 flex flex-col gap-3">
-          <Skeleton className="h-16 w-full" />
-          <Skeleton className="h-16 w-full" />
-        </div>
-      </main>
-    )
-  }
-
-  const live = projects.filter((project) => cards(project) > 0).sort((a, b) => cards(b) - cards(a))
-  const untouched = projects.filter((project) => cards(project) === 0)
-  const stale = projects.reduce((total, project) => total + project.expired_claims, 0)
+  const projects = useLoad(() => api.projects(), [])
 
   return (
-    <main className="px-6 pb-24 lg:px-8">
-      <PageHeader
-        title="Projects"
-        facts={[
-          { label: 'Expired claims', value: stale, tone: 'claimed' },
-        ]}
-      />
-
-      {error && (
-        <Alert variant="destructive" className="mt-6">
-          <AlertTitle>Could not load projects</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
+    <>
+      <PageHeader title="Projects" />
+      {projects.loading && !projects.data && <Spinner />}
+      {Boolean(projects.error) && <p className="text-sm text-danger">{errorText(projects.error)}</p>}
+      {projects.data?.length === 0 && (
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>No projects</EmptyTitle>
+            <EmptyDescription>An admin adds you to a project with <code>trellis admin project add-member</code>.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       )}
-
-      <Group title="Live" projects={live} empty="No project has a card yet." onDelete={setDeleting} />
-      <Group title="Initialised, never used" projects={untouched} empty="Every project has been written to." onDelete={setDeleting} />
-
-      {trashed.length > 0 && (
-        <section className="mt-10">
-          <h2 className="flex items-baseline gap-3 text-heading">
-            In the trash
-            <span className="text-xs font-normal text-muted-foreground">{trashed.length}</span>
-          </h2>
-          <TrashTable items={trashed} projectKey={null} label="Trashed project pages" onRestored={() => void load()} />
-        </section>
-      )}
-
-      <DeleteProjectDialog
-        projectKey={deleting?.key ?? null}
-        cards={deleting ? cards(deleting) : 0}
-        onOpenChange={(open) => { if (!open) setDeleting(null) }}
-        onDeleted={(key) => {
-          setDeleting(null)
-          toast.add({ title: `Moved ${key} to the trash`, type: 'success' })
-          void load()
-        }}
-      />
-    </main>
-  )
-}
-
-function Group({
-  title,
-  projects,
-  empty,
-  onDelete,
-}: {
-  title: string
-  projects: ProjectSummary[]
-  empty: string
-  onDelete: (project: ProjectSummary) => void
-}) {
-  return (
-    <section className="mt-10">
-      <h2 className="flex items-baseline gap-3 text-heading">
-        {title}
-        <span className="text-xs font-normal text-muted-foreground">{projects.length}</span>
-      </h2>
-
-      {projects.length === 0 ? (
-        <p className="mt-3 text-sm text-muted-foreground">{empty}</p>
-      ) : (
-        <Paged items={projects} label={`${title} pages`}>
-          {(page) => (
-            <Table className="mt-3">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-7" aria-label="State" />
-                  <TableHead className="w-56">Project</TableHead>
-                  <TableHead>Board</TableHead>
-                  <TableHead className="w-24 text-right">Backlog</TableHead>
-                  <TableHead className="w-24 text-right">Review</TableHead>
-                  <TableHead className="w-20 text-right">Done</TableHead>
-                  <TableHead className="w-36">State</TableHead>
-                  <TableHead className="w-10" aria-label="Actions" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {page.map((project) => {
-                  const board = defaultBoard(project.boards)
-                  return (
-                    <TableRow key={project.key}>
-                      <TableCell><Lamp state={project.expired_claims > 0 ? 'claimed' : 'idle'} /></TableCell>
-                      <TableCell>
-                        <Link to={`/p/${project.key}`} className="underline-offset-4 hover:underline">
-                          {project.key}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        {board ? (
-                          <Link to={`/p/${project.key}/b/${board.slug}`} className="underline-offset-4 hover:underline">
-                            {board.name}
-                          </Link>
-                        ) : (
-                          <span className="text-muted-foreground">No board</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right text-muted-foreground">{column(project, 'backlog')}</TableCell>
-                      <TableCell className="text-right text-muted-foreground">{column(project, 'review')}</TableCell>
-                      <TableCell className="text-right text-muted-foreground">{column(project, 'done')}</TableCell>
-                      <TableCell>
-                        {project.expired_claims > 0 ? (
-                          <span className="text-claimed">{project.expired_claims} expired</span>
-                        ) : (
-                          <span className="text-muted-foreground">{cards(project) === 0 ? 'Empty' : 'Clear'}</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <ProjectActions project={project} onDelete={() => onDelete(project)} />
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </Paged>
-      )}
-    </section>
-  )
-}
-
-function ProjectActions({ project, onDelete }: { project: ProjectSummary; onDelete: () => void }) {
-  const navigate = useNavigate()
-  const board = defaultBoard(project.boards)
-  return (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <DropdownMenuTrigger
-              render={<Button variant="ghost" size="icon-sm" aria-label={`Actions for ${project.key}`} />}
-            />
-          }
-        >
-          <Ellipsis />
-        </TooltipTrigger>
-        <TooltipContent side="bottom">Actions</TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="end" className="w-48">
-        <DropdownMenuItem onClick={() => navigate(`/p/${project.key}`)}>
-          Overview
-        </DropdownMenuItem>
-        {board && (
-          <DropdownMenuItem onClick={() => navigate(`/p/${project.key}/b/${board.slug}`)}>
-            Board
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onClick={onDelete}>
-          Move to the trash
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {projects.data?.map((project) => (
+          <Link key={project.id} to={`/p/${encodeURIComponent(project.key)}/board`}>
+            <Card className="transition-colors hover:bg-muted/50">
+              <CardHeader>
+                <CardTitle className="font-mono">{project.key}</CardTitle>
+                <CardDescription>{project.name || 'No name'}</CardDescription>
+              </CardHeader>
+            </Card>
+          </Link>
+        ))}
+      </div>
+    </>
   )
 }
