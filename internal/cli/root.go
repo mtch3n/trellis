@@ -1,306 +1,84 @@
-// Package cli is a thin shell over internal/core. No policy lives here.
 package cli
 
 import (
-	"cmp"
-	"context"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
-	"time"
 
-	"github.com/jmoiron/sqlx"
-	"github.com/mtch3n/trellis/internal/config"
-	"github.com/mtch3n/trellis/internal/core"
-	"github.com/mtch3n/trellis/internal/home"
-	"github.com/mtch3n/trellis/internal/retrieval"
-	"github.com/mtch3n/trellis/internal/store"
+	"github.com/mtch3n/trellis/internal/platform"
 	"github.com/spf13/cobra"
 )
 
-type appCtx struct {
-	Core    *core.Core
-	Project core.Project
-	Board   core.Board
-	db      *sqlx.DB
-	cfg     config.Config
-}
-
-// boardFlag holds --board; empty means "apply the selection rules".
-var boardFlag string
-
-// actorSuffix holds --as, distinguishing parallel subagents that share a
-// session id. It is not a persistent flag: it is registered on the commands
-// where a claim is at stake, so it does not crowd every unrelated command's
-// help with a flag that has no effect there.
-var actorSuffix string
-
-// projectFlagKey holds --project; empty means "resolve from the nearest
-// .trellis marker". An agent working across several repositories in one
-// session would otherwise have to cd before every call.
 var projectFlagKey string
 
-// ensureTrashRetention is config.EnsureTrashRetention; a test swaps it to make
-// the write fail.
-var ensureTrashRetention = config.EnsureTrashRetention
+type errExit struct{ code int }
 
-func openCore() (*core.Core, *sqlx.DB, error) {
-	root, err := home.Root()
-	if err != nil {
-		return nil, nil, err
-	}
-	path := filepath.Join(root, "trellis.db")
-	db, err := store.Open(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	c := core.New(db, core.RealClock{}, cliActor(), root)
-	if err := c.SyncEntrySearch(context.Background()); err != nil {
-		db.Close()
-		return nil, nil, fmt.Errorf("rebuild entry search: %w", err)
-	}
-	cfg, cfgErr := config.Load(root)
-	if cfgErr != nil {
-		cfg = config.Defaults()
-	}
-	c.ApplyConfig(cfg)
-	// A failed config write or purge must not stop the command it rode in
-	// on; the next command, or the daemon, tries again.
-	if err := ensureTrashRetention(root); err != nil {
-		fmt.Fprintln(os.Stderr, "trellis: writing trash.retention to config.yaml:", err)
-	}
-	if _, err := c.SweepTrash(context.Background(), c.TrashRetention()); err != nil {
-		fmt.Fprintln(os.Stderr, "trellis: purging the trash:", err)
-	}
-	search := retrieval.NewService(c, db, path, cfg, root)
-	c.SetEntryChanged(search.ReconcileProject)
-	c.SetDropDerived(search.DropProject)
-	return c, db, nil
-}
-
-// cliActor is the principal a command writes as.
-func cliActor() string {
-	actor := os.Getenv("TRELLIS_AGENT")
-	if actor == "" {
-		actor = fmt.Sprintf("cli:%d", os.Getpid())
-	}
-	// Every subagent in one Claude Code session shares the session id (§8.5),
-	// so without a suffix two of them are the same principal and can claim the
-	// same card twice. --as wins over TRELLIS_ACTOR because it is per command.
-	if sub := cmp.Or(actorSuffix, os.Getenv("TRELLIS_ACTOR")); sub != "" {
-		actor += "/" + sub
-	}
-	return actor
-}
-
-// currentBoard resolves the project and then the board. Standing where no
-// marker applies exits 2 rather than creating anything.
-func currentBoard() (*appCtx, error) {
-	c, db, err := openCore()
-	if err != nil {
-		return nil, err
-	}
-	return boardForCore(context.Background(), c, db)
-}
-
-// boardForCore resolves the project and board for an already-open Core, and
-// layers the repository config over the global one. It is shared by
-// currentBoard and, for the branch of targetContext that resolves the marker's
-// project, targetContext itself: a qualified card ref or address naming the
-// same project a marker would have chosen must not skip the repository file
-// that a bare reference reads. It closes db on any error.
-func boardForCore(ctx context.Context, c *core.Core, db *sqlx.DB) (*appCtx, error) {
-	r, err := resolveProject(ctx, c)
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-	b, err := selectBoard(ctx, c, r)
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-	effective, err := applyRepoConfig(c, r)
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-	return &appCtx{Core: c, Project: r.Project, Board: b, db: db, cfg: effective}, nil
-}
-
-// applyRepoConfig loads the repository file beside r's marker, if any, layers
-// it over the global config, applies the effective settings to c, and returns
-// the effective config for app.cfg.
-//
-// openCore already applied the Core's claim TTL, default columns, label/tag
-// requirements and history retention from the global file alone. Once the
-// marker that chose the project (if any) is known, this re-derives the same
-// settings with the repository file beside it layered in, and re-applies
-// them with the same c.ApplyConfig openCore used: a repo-safe key wins over
-// the global file. history.keep is not repo-safe, so ApplyConfig's call here
-// re-applies the value the global file already gave -- a no-op, not a second
-// source of truth. A project named by --project or TRELLIS_PROJECT has no
-// marker and reads no repository file.
-func applyRepoConfig(c *core.Core, r resolvedProject) (config.Config, error) {
-	var repoDir string
-	if r.Marker != nil {
-		repoDir = filepath.Dir(r.Marker.Path)
-	}
-	cfg := config.Defaults()
-	if root, rootErr := home.Root(); rootErr == nil {
-		if loaded, _, cfgErr := config.LoadWithPresence(root); cfgErr == nil {
-			cfg = loaded
-		}
-	}
-	repo, _, _, repoErr := config.LoadRepo(repoDir)
-	if repoErr != nil {
-		return config.Config{}, core.ErrUsage("bad_repo_config", repoErr.Error(), "fix the file .trellis.yaml/.trellis.yml names")
-	}
-	effective := config.ApplyRepoOverrides(cfg, repo)
-	c.ApplyConfig(effective)
-	return effective, nil
-}
+func (errExit) Error() string { return "" }
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "trellis",
-		Short:         "Local kanban boards and vaults for AI agents",
+		Short:         "The Trellis server and its thin client",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 	root.SetUsageTemplate(agentUsageTemplate)
-	// `completion` is shell plumbing cobra generates, not a Trellis capability;
-	// it still works when invoked. Every actual command stays listed: an agent
-	// only discovers what `--help` shows it.
 	root.CompletionOptions.HiddenDefaultCmd = true
 	root.PersistentFlags().BoolVar(&forceJSON, "json", false, "force JSON output")
-	root.PersistentFlags().StringVar(&boardFlag, "board", "", "board to act on")
 	root.PersistentFlags().StringVar(&projectFlagKey, "project", "", "project key to act on, instead of the working directory")
-	// All commands registered here once; each lives in its own file so later
-	// parallel tasks never edit root.go.
-	root.AddCommand(newInitCmd(), newProjectCmd(), newCardCmd(), newBoardCmd(), newColumnCmd(), newLabelCmd(), newUICmd(), newSearchCmd(), newRecallCmd(), newConfigCmd(), newAgentCmd(), newBackupCmd(), newVersionCmd(), newUpdateCmd(),
-		newVaultCmd(), newTemplateCmd(), newArtifactCmd(), newLinkCmd(), newGraphCmd(), newVectorCmd(), newDaemonCmd(), newDoctorCmd(), newMaintenanceCmd(), newTUICmd(), newEventsCmd(), newExtensionCmd(), newServeCmd(), newAdminCmd(), newImportCmd(), newLoginCmd(), newCallCmd())
+	root.AddCommand(newServeCmd(), newAdminCmd(), newImportCmd(), newLoginCmd(), newCallCmd(), newInitCmd(), newUpdateCmd(), newVersionCmd())
 	return root
 }
 
-// Execute runs the CLI and returns the process exit code.
 func Execute() int {
-	started := time.Now()
-	code := run()
-	logInvocation(os.Args[1:], code, started)
-	return code
-}
-
-func run() int {
 	root := newRootCmd()
 	err := root.Execute()
 	if err == nil {
 		return 0
 	}
-
-	// Handle unknown command errors specially: get suggestions programmatically
-	// and emit them through the structured error path so they parse as JSON.
-	if isUnknownCommandError(err) {
-		cmd, suggestions := extractCommandAndSuggestions(root, err)
-		msg := fmt.Sprintf("unknown command %q", cmd)
-		if len(suggestions) > 0 {
-			msg += fmt.Sprintf(" (did you mean: %s?)", suggestions[0])
-		}
-		err = core.ErrUsage("unknown_command", msg, "trellis --help")
+	if strings.HasPrefix(err.Error(), "unknown command") {
+		err = unknownCommand(root, err)
 	}
-
-	// doctor already printed its report; it only needs the exit code.
 	if ee, ok := errors.AsType[errExit](err); ok {
 		return ee.code
 	}
-
-	if te, ok := errors.AsType[*core.Error](err); ok {
+	if pe, ok := errors.AsType[*platform.Error](err); ok {
 		if forceJSON || !isTTY() {
-			b, _ := json.Marshal(map[string]any{"error": errorBody(te)})
+			b, _ := json.Marshal(map[string]any{"error": pe})
 			fmt.Fprintln(os.Stderr, string(b))
 		} else {
-			fmt.Fprintln(os.Stderr, "error: "+te.Error())
+			fmt.Fprintln(os.Stderr, "error: "+pe.Error())
 		}
-		return te.Exit
+		return exitCode(pe.Kind)
 	}
-	// Unknown error type - print as-is and exit 1
 	fmt.Fprintln(os.Stderr, "error: "+err.Error())
 	return 1
 }
 
-// errorBody is a core error as the JSON error path writes it. Detail rides
-// along when the error has one, such as who claims a contended card.
-func errorBody(te *core.Error) map[string]any {
-	body := map[string]any{"code": te.Code, "message": te.Msg, "fix": te.Fix}
-	if len(te.Problems) > 0 {
-		body["problems"] = te.Problems
+func exitCode(k platform.Kind) int {
+	switch k {
+	case platform.KindUsage:
+		return 2
+	case platform.KindNotFound:
+		return 3
+	case platform.KindConflict:
+		return 4
+	default:
+		return 5
 	}
-	if te.Detail != nil {
-		body["detail"] = te.Detail
-	}
-	return body
 }
 
-// isUnknownCommandError checks if the error is cobra's unknown command error.
-func isUnknownCommandError(err error) bool {
-	if err == nil {
-		return false
+func unknownCommand(root *cobra.Command, err error) error {
+	name := "unknown"
+	if _, rest, ok := strings.Cut(err.Error(), `unknown command "`); ok {
+		name, _, _ = strings.Cut(rest, `"`)
 	}
-	// Cobra includes suggestions in the error message, so check prefix
-	return strings.HasPrefix(err.Error(), "unknown command")
-}
-
-// extractCommandAndSuggestions extracts the command name from an unknown command
-// error and returns it along with any suggestions from the root command.
-func extractCommandAndSuggestions(root *cobra.Command, err error) (string, []string) {
-	errMsg := err.Error()
-	// Error format: unknown command "NAME" for "trellis"
-	start := len("unknown command \"")
-	if len(errMsg) > start {
-		end := start
-		for end < len(errMsg) && errMsg[end] != '"' {
-			end++
-		}
-		if end < len(errMsg) {
-			cmd := errMsg[start:end]
-			// Set minimum distance to allow suggestions
-			if root.SuggestionsMinimumDistance <= 0 {
-				root.SuggestionsMinimumDistance = 2
-			}
-			suggestions := root.SuggestionsFor(cmd)
-			return cmd, suggestions
-		}
+	msg := fmt.Sprintf("unknown command %q", name)
+	root.SuggestionsMinimumDistance = 2
+	if s := root.SuggestionsFor(name); len(s) > 0 {
+		msg += fmt.Sprintf(" (did you mean: %s?)", s[0])
 	}
-	return "unknown", nil
-}
-
-// configInt reads a project-effective integer setting, falling back to def when
-// the value is missing or unparseable: a bad setting must not break a listing.
-func configInt(ctx context.Context, app *appCtx, key string, def int) int {
-	raw, _, err := config.EffectiveValue(ctx, app.cfg, map[string]bool{}, config.RepoFile{}, app.db, app.Project.ID, key)
-	if err != nil {
-		return def
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
-		return def
-	}
-	return n
-}
-
-// projectNamed reports whether --project or $TRELLIS_PROJECT names the
-// project, rather than a marker in the working directory.
-func projectNamed() bool {
-	return projectFlagKey != "" || os.Getenv("TRELLIS_PROJECT") != ""
-}
-
-// addActorFlag registers --as on a command whose effect depends on who is
-// acting: claiming, releasing, commenting and editing all record or check a claimant.
-func addActorFlag(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&actorSuffix, "as", "",
-		"act as this subagent, distinct from others in the same session")
+	return platform.ErrUsage("unknown_command", msg, "trellis --help")
 }
