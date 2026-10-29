@@ -3,57 +3,10 @@
 brand/verification/build-boards.py	knowledge-ident	2	# why: the brand tagline drawn on the boards, a word about the idea, not a name for an entry or the vault
 brand/verification/imagegen-prompts.md	knowledge-ident	1	# why: the same tagline, quoted in the prompt that generated the board
 internal/address/address.go	vpath	1	# why: spec file path
-internal/cli/daemon.go	attach	1	# why: workers attaching to a running daemon process
-internal/cli/daemon_control.go	attach	4	# why: a detached child process, not an artifact
-internal/cli/daemon_lifecycle_test.go	attach	1	# why: a detached child process, not an artifact
-internal/cli/daemon_spawn_unix.go	attach	2	# why: detach(cmd), which puts the daemon in its own session
-internal/cli/daemon_spawn_windows.go	attach	3	# why: detach(cmd) and Windows DETACHED_PROCESS
-internal/cli/events_cmd_test.go	card-note	2	# why: a regression test that `events --entity note` is refused
-internal/cli/link_test.go	vpath	1	# why: spec file path
-internal/cli/vault_dir_cmd_test.go	doc	2	# why: a vault directory literally named docs
-internal/cli/vault_template_test.go	card-note	1	# why: asserts that `note` is not among the shipped templates
-internal/config/config.go	document	2	# why: a YAML document tree
-internal/core/artifact.go	document	1	# why: the artifact kind `document`, a file type such as a PDF
-internal/core/artifact_mime_test.go	doc	1	# why: the fixture filename doc.pdf
-internal/core/artifact_mime_test.go	document	2	# why: the artifact kind `document`, a file type such as a PDF
-internal/core/card.go	owner	1	# why: the SQLite write lock, not a card claimant
-internal/core/claim.go	owner	1	# why: the SQLite write lock, not a card claimant
-internal/core/comment.go	attach	1	# why: a comment attached to a card, ordinary English, not an artifact
-internal/core/entry.go	owner	1	# why: holder of a cached entry version, not a card claimant
-internal/core/entry_dir_test.go	attach	1	# why: a moved entry detaching its revision directory
-internal/core/entry_dir_test.go	doc	6	# why: a vault directory literally named docs
-internal/core/entry_mv.go	owner	1	# why: what a replaced file held before the write, not a card claimant
-internal/core/entry_path_test.go	doc	2	# why: the docs/dogs pair, a look-alike-directory fixture
-internal/core/entry_race_test.go	attach	1	# why: attaching a test Policy to a Core, not an artifact
-internal/core/entry_race_test.go	owner	1	# why: the SQLite write lock, not a card claimant
-internal/core/entry_template_edit_test.go	owner	1	# why: an example template field name, not a card claimant
-internal/core/event_log.go	card-note	1	# why: names the pre-migration entity value so an old query fails loudly
-internal/core/event_log_test.go	card-note	3	# why: a regression test that the entity `note` is refused
-internal/core/label.go	doc	1	# why: the seeded label "docs", user vocabulary for documentation
-internal/core/label_test.go	doc	1	# why: the seeded label "docs", user vocabulary for documentation
-internal/core/lint.go	owner	1	# why: a wikilink held by an entry, ordinary English, not a card claimant
-internal/core/markdown_test.go	doc	2	# why: the fixture wikilink [[design-doc]]
-internal/core/merge_artifacts_test.go	doc	2	# why: the fixture body "design doc"
-internal/core/policy.go	attach	2	# why: attaching a policy to a Core, not an artifact
-internal/core/policy_test.go	attach	1	# why: attaching a policy to a Core, not an artifact
-internal/core/private_test.go	corpus	7	# why: the set of entries offered to the vector index, distinct from the index itself
-internal/core/purge.go	corpus	1	# why: the set of entries offered to the vector index, distinct from the index itself
-internal/core/search.go	corpus	2	# why: the set of entries offered to the vector index, distinct from the index itself
-internal/core/search_test.go	doc	1	# why: a card titled "Update docs"
-internal/core/template_resolve.go	attach	1	# why: an anchor left attached to a reference, not an artifact
 internal/importer/importer_test.go	card-note	1	# why: the local template name note in an import fixture, not a card comment
 internal/platform/artifact.go	document	1	# why: the artifact kind `document`, a file type such as a PDF
 internal/platform/gate_test.go	doc	1	# why: a fixture URL path https://example.com/doc
 internal/platform/vault_e2e_test.go	escalate	3	# why: a pager escalation ladder, the fixture body of an entry, not promotion
-internal/service/launchd.go	type-field	1	# why: the plist <!DOCTYPE> declaration
-internal/store/db_test.go	owner	1	# why: a write held until after another commits, not a card claimant
-internal/ui/artifacts.go	attach	2	# why: the HTTP Content-Disposition: attachment header
-internal/ui/artifacts.go	document	3	# why: a browser document, the CSP unit a response renders as
-internal/ui/artifacts_test.go	attach	1	# why: the HTTP Content-Disposition: attachment header
-internal/ui/artifacts_test.go	kb	1	# why: KB, kilobytes, in a preview size cap
-internal/ui/artifacts_test.go	type-field	1	# why: a <!DOCTYPE html> payload in an XSS fixture
-internal/ui/templates_test.go	card-note	1	# why: asserts that `note` is not among the shipped templates
-internal/vector/index.go	doc	1	# why: sqlite-vec module column doc_id
 plugin/integrations/README.md	knowledge-ident	1	# why: knowledge as a mass noun, capitalised at the start of a sentence
 plugin/skills/using-glossary/SKILL.md	kb	1	# why: the worked example quotes "kb" as a Not word the glossary forbids
 plugin/skills/writing-knowledge/SKILL.md	finding-umbrella	1	# why: the `research` template's own Findings section
