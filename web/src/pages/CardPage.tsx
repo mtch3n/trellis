@@ -43,7 +43,8 @@ export function CardPage() {
 
   const act = async (run: () => Promise<Card>, done?: string) => {
     try {
-      loaded.set(await run())
+      await run()
+      loaded.reload()
       if (done) notifyDone(done)
       return true
     } catch (err) {
@@ -58,10 +59,7 @@ export function CardPage() {
 
   const addComment = async (event: FormEvent) => {
     event.preventDefault()
-    if (await act(() => api.commentCard(projectKey, card.ref, comment.trim()))) {
-      setComment('')
-      loaded.reload()
-    }
+    if (await act(() => api.commentCard(projectKey, card.ref, comment.trim()))) setComment('')
   }
 
   return (

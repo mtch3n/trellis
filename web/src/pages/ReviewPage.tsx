@@ -28,7 +28,7 @@ function NominationRow({ projectKey, nomination, onDone }: { projectKey: string;
         <Link to={vaultPath(projectKey, nomination.slug)} className="font-medium hover:underline">{nomination.title}</Link>
         <span className="font-mono text-xs text-muted-foreground">{nomination.slug}</span>
         <span className="ml-auto text-xs text-muted-foreground">
-          {nomination.nominations} nominations · cited {nomination.cited} · pinned {nomination.pinned}
+          {nomination.nominations} {nomination.nominations === 1 ? 'nomination' : 'nominations'} · cited {nomination.cited} · pinned {nomination.pinned}
         </span>
       </div>
       <p className="text-sm">
