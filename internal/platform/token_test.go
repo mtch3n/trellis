@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestPLAT_C9_AnIssuedAgentTokenVerifiesAndOnlyItsHashIsStored(t *testing.T) {
+func TestPlat_PLAT_C9_AnIssuedAgentTokenVerifiesAndOnlyItsHashIsStored(t *testing.T) {
 	p, db := tenancyPlatform(t)
 	ctx := t.Context()
 	_, err := p.CreateOrg(ctx, "acme")
@@ -33,7 +33,7 @@ func TestPLAT_C9_AnIssuedAgentTokenVerifiesAndOnlyItsHashIsStored(t *testing.T) 
 	}
 }
 
-func TestPLAT_C10_AWrongRevokedOrPersonTokenDoesNotVerifyAsAnAgent(t *testing.T) {
+func TestPlat_PLAT_C10_AWrongRevokedOrPersonTokenDoesNotVerifyAsAnAgent(t *testing.T) {
 	p, _ := tenancyPlatform(t)
 	ctx := t.Context()
 	_, err := p.CreateOrg(ctx, "acme")

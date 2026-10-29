@@ -57,7 +57,7 @@ func assertCode(t *testing.T, err error, code string, kind Kind) *Error {
 	return e
 }
 
-func TestPLAT_C5_ProjectsAndCardRefsAreScopedToTheirOrg(t *testing.T) {
+func TestPlat_PLAT_C5_ProjectsAndCardRefsAreScopedToTheirOrg(t *testing.T) {
 	p, db := tenancyPlatform(t)
 	ctx := t.Context()
 	var projects = map[string]Project{}
@@ -95,7 +95,7 @@ func TestPLAT_C5_ProjectsAndCardRefsAreScopedToTheirOrg(t *testing.T) {
 	}
 }
 
-func TestPLAT_C6_CreatingAnExistingProjectKeyConflicts(t *testing.T) {
+func TestPlat_PLAT_C6_CreatingAnExistingProjectKeyConflicts(t *testing.T) {
 	p, db := tenancyPlatform(t)
 	ctx := t.Context()
 	_, err := p.CreateOrg(ctx, "A")
