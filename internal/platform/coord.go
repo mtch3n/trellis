@@ -120,3 +120,33 @@ func openNotices(tx *sqlx.Tx, pr Principal, proj projectAccess) ([]Notice, error
 	}
 	return notices, nil
 }
+
+func errNoticeNotFound() *Error {
+	return ErrNotFound("notice_not_found", "no open notice with this id for you in this project", "coordination list")
+}
+
+func (p *Platform) DismissNotice(ctx context.Context, pr Principal, project, id string) error {
+	return p.Tx(ctx, func(tx *sqlx.Tx) error {
+		proj, err := enterProject(tx, pr, project, OpRead)
+		if err != nil {
+			return err
+		}
+		noticeID, err := uuid.Parse(strings.TrimSpace(id))
+		if err != nil {
+			return errNoticeNotFound()
+		}
+		res, err := tx.Exec(`UPDATE coord_notice SET state = 'dismissed', ended_at = now()
+			WHERE id = $1 AND project_id = $2 AND member_id = $3 AND state = 'open'`, noticeID, proj.ID, pr.MemberID)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return errNoticeNotFound()
+		}
+		return nil
+	})
+}

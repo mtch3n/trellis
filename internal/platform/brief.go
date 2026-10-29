@@ -27,10 +27,11 @@ type Brief struct {
 	Claimed []Card        `json:"claimed"`
 	Next    *Card         `json:"next,omitempty"`
 	Pins    []Pin         `json:"pins"`
+	Notices []Notice      `json:"notices"`
 }
 
 func (p *Platform) Brief(ctx context.Context, pr Principal, project string) (Brief, error) {
-	brief := Brief{Project: project, Boards: []BoardCounts{}, Claimed: []Card{}, Pins: []Pin{}}
+	brief := Brief{Project: project, Boards: []BoardCounts{}, Claimed: []Card{}, Pins: []Pin{}, Notices: []Notice{}}
 	err := p.Tx(ctx, func(tx *sqlx.Tx) error {
 		proj, err := enterProject(tx, pr, project, OpRead)
 		if err != nil {
@@ -57,6 +58,9 @@ func (p *Platform) Brief(ctx context.Context, pr Principal, project string) (Bri
 		}
 		if pr.IsSystem() {
 			return nil
+		}
+		if brief.Notices, err = openNotices(tx, pr, proj); err != nil {
+			return err
 		}
 		var claimed []cardRow
 		if err := tx.Select(&claimed, cardSelect+` WHERE c.project_id = $1 AND c.claimed_member_id = $2 AND c.claim_until > now()
