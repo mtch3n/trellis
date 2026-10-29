@@ -39,10 +39,6 @@ func pinVisibleArgs(pr Principal, proj projectAccess) []any {
 	return []any{proj.ID, pr.MemberID, pr.IsSystem(), proj.OrgID}
 }
 
-func errEntryNotFound(ref string) *Error {
-	return ErrNotFound("entry_not_found", "no entry "+ref+" in this project", "vault_list")
-}
-
 func findPinEntry(tx *sqlx.Tx, pr Principal, proj projectAccess, ref string) (pinEntry, error) {
 	ref = strings.TrimSpace(ref)
 	match := `e.slug = $5`
