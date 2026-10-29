@@ -24,6 +24,7 @@ var sessionPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 var schemaOptions = &jsonschema.ForOptions{TypeSchemas: map[reflect.Type]*jsonschema.Schema{
 	reflect.TypeFor[uuid.UUID](): {Type: "string", Format: "uuid"},
+	reflect.TypeFor[[]byte]():    {Type: "string", ContentEncoding: "base64"},
 }}
 
 type call struct {

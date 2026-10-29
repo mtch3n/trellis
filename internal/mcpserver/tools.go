@@ -98,6 +98,7 @@ func (t *tools) register(s *mcp.Server) {
 	t.add(s, &mcp.Tool{Name: "card_show", Description: "Show one card with its comments and events", Annotations: readOnly}, nil, t.cardShow)
 	t.add(s, &mcp.Tool{Name: "card_write", Description: "Create, edit, move, comment on or block a card"}, cardActions, t.cardWrite)
 	t.add(s, &mcp.Tool{Name: "card_claim", Description: "Claim a card, claim the next one, renew or release a claim"}, claimActions, t.cardClaim)
+	t.registerVault(s)
 }
 
 func (t *tools) projectList(ctx context.Context, c call, _ ProjectListIn) (ProjectListOut, error) {
