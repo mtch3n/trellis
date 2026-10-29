@@ -244,7 +244,7 @@ func TestClient_CLIENT_C2_KeepsGlobalProjectAndPrivateScopes(t *testing.T) {
 	clientRun(t, db, h.dir)
 	clientWant(t, "entries", clientStrings(t, db, `SELECT slug || ':' || scope || ':' || private || ':' || array_to_string(labels, ',') || ':' ||
 		coalesce(to_char(verify_by AT TIME ZONE 'UTC', 'YYYY-MM-DD'), '-') || ':' || body FROM entry ORDER BY slug`),
-		[]string{"secret:personal:true::-:private body", "shared:project:false:import:-:project body", "wide:global:false::2030-01-01:global body"})
+		[]string{"secret:project:true:import:-:private body", "shared:project:false:import:-:project body", "wide:global:false::2030-01-01:global body"})
 }
 
 func TestClient_CLIENT_C3_LeavesOutEventsLabelsTagsAndTrashAndCountsThem(t *testing.T) {
@@ -404,5 +404,53 @@ func TestClient_CLIENT_C1_KeepsArchivedCardsArchived(t *testing.T) {
 	}
 	if _, ok := rep.LeftOut["archived cards"]; ok {
 		t.Fatalf("left out = %v, archived cards are imported", rep.LeftOut)
+	}
+}
+
+func TestClient_CLIENT_C2_MovesAnEntryWithAnEarlierBodyToPersonal(t *testing.T) {
+	db := clientServer(t)
+	h := newClientHome(t)
+	h.project("p1", "DEMO")
+	h.entry("e1", "p1", "DEMO", "zeta", 1, "Same  Body\n")
+	h.entry("e2", "p1", "DEMO", "alpha", 1, "same body")
+	h.entry("e3", "p1", "DEMO", "other", 1, "other body")
+
+	rep := clientRun(t, db, h.dir)
+	clientWant(t, "imported", rep.Imported, []string{"DEMO"})
+	clientWant(t, "moved to personal", rep.MovedToPersonal, []string{"DEMO/alpha"})
+	if !strings.Contains(rep.Text(), "alpha") || !strings.Contains(rep.Text(), "personal") {
+		t.Fatalf("output %q does not name alpha as moved to personal", rep.Text())
+	}
+	clientWant(t, "entries", clientStrings(t, db, `SELECT e.slug || ':' || e.scope || ':' || m.handle || ':' || array_to_string(e.labels, ',')
+		FROM entry e JOIN member m ON m.id = e.owner_id ORDER BY e.slug`),
+		[]string{"alpha:personal:ming:import", "other:project:ming:import", "zeta:project:ming:import"})
+}
+
+func TestClient_CLIENT_C2_KeepsAPrivateProjectEntryInTheProject(t *testing.T) {
+	db := clientServer(t)
+	h := newClientHome(t)
+	h.project("p1", "DEMO")
+	h.entry("e1", "p1", "DEMO", "secret", 1, "private body")
+	h.exec(`UPDATE entry SET private = 1 WHERE id = 'e1'`)
+	clientRun(t, db, h.dir)
+	clientWant(t, "entries", clientStrings(t, db, `SELECT slug || ':' || scope || ':' || private || ':' || array_to_string(labels, ',') FROM entry`),
+		[]string{"secret:project:true:import"})
+}
+
+func TestClient_CLIENT_C3_CountsCardsWithAPriorityAsLeftOut(t *testing.T) {
+	db := clientServer(t)
+	h := newClientHome(t)
+	h.project("p1", "DEMO")
+	h.board("b1", "p1", "main")
+	h.card("c1", "p1", "b1", "backlog", "DEMO-1", 1)
+	h.card("c2", "p1", "b1", "backlog", "DEMO-2", 2)
+	h.card("c3", "p1", "b1", "backlog", "DEMO-3", 3)
+	h.exec(`UPDATE card SET priority = 2 WHERE id = 'c3'`)
+	rep := clientRun(t, db, h.dir)
+	if rep.LeftOut["priority"] != 2 {
+		t.Fatalf("left out priority = %d, want 2", rep.LeftOut["priority"])
+	}
+	if !strings.Contains(rep.Text(), "2 priority") {
+		t.Fatalf("output %q does not say 2 priority", rep.Text())
 	}
 }

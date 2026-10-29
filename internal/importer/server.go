@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -25,6 +26,7 @@ type writer struct {
 	cards     map[string]string
 	entries   map[string]string
 	artifacts map[string]string
+	moved     []string
 }
 
 func (w *writer) get(dst any, q string, args ...any) error {
@@ -59,8 +61,25 @@ func (w *writer) write() error {
 }
 
 func (w *writer) writeEntries() error {
+	byID := slices.SortedFunc(slices.Values(w.s.Entries), func(a, b localEntry) int { return strings.Compare(a.ID, b.ID) })
+	first := map[string]bool{}
+	personal := map[string]bool{}
+	for _, e := range byID {
+		if e.Global {
+			continue
+		}
+		key := strings.Join(strings.Fields(strings.ToLower(e.Body)), " ")
+		if first[key] {
+			personal[e.ID] = true
+			continue
+		}
+		first[key] = true
+	}
 	for _, e := range w.s.Entries {
-		if err := w.writeEntry(e); err != nil {
+		if personal[e.ID] {
+			w.moved = append(w.moved, w.s.Project.Key+"/"+e.Slug)
+		}
+		if err := w.writeEntry(e, personal[e.ID]); err != nil {
 			return fmt.Errorf("entry %s: %w", e.Slug, err)
 		}
 	}
@@ -135,13 +154,13 @@ func (w *writer) writeCards() error {
 	return nil
 }
 
-func (w *writer) writeEntry(e localEntry) error {
+func (w *writer) writeEntry(e localEntry, personal bool) error {
 	scope, labels := "project", []string{"import"}
 	switch {
 	case e.Global:
 		scope, labels = "global", []string{}
-	case e.Private:
-		scope, labels = "personal", []string{}
+	case personal:
+		scope = "personal"
 	}
 	var verifyBy any
 	if e.Global {

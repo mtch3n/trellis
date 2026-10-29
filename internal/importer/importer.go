@@ -22,10 +22,11 @@ type Options struct {
 }
 
 type Report struct {
-	Imported []string         `json:"imported"`
-	Skipped  []string         `json:"skipped"`
-	Failed   []Failure        `json:"failed"`
-	LeftOut  map[string]int64 `json:"left_out"`
+	Imported        []string         `json:"imported"`
+	Skipped         []string         `json:"skipped"`
+	Failed          []Failure        `json:"failed"`
+	LeftOut         map[string]int64 `json:"left_out"`
+	MovedToPersonal []string         `json:"moved_to_personal"`
 }
 
 type Failure struct {
@@ -34,7 +35,7 @@ type Failure struct {
 }
 
 func Run(ctx context.Context, pg *sqlx.DB, opt Options) (Report, error) {
-	rep := Report{Imported: []string{}, Skipped: []string{}, Failed: []Failure{}}
+	rep := Report{Imported: []string{}, Skipped: []string{}, Failed: []Failure{}, MovedToPersonal: []string{}}
 	h, err := openHome(opt.Home)
 	if err != nil {
 		path := filepath.Join(opt.Home, "trellis.db")
@@ -65,11 +66,13 @@ func Run(ctx context.Context, pg *sqlx.DB, opt Options) (Report, error) {
 			rep.Skipped = append(rep.Skipped, p.Key)
 			continue
 		}
-		if err := importProject(ctx, pg, h, who, p); err != nil {
+		moved, err := importProject(ctx, pg, h, who, p)
+		if err != nil {
 			rep.Failed = append(rep.Failed, Failure{Project: p.Key, Error: err.Error()})
 			continue
 		}
 		rep.Imported = append(rep.Imported, p.Key)
+		rep.MovedToPersonal = append(rep.MovedToPersonal, moved...)
 	}
 	return rep, nil
 }
@@ -99,20 +102,21 @@ func findMember(ctx context.Context, pg *sqlx.DB, org, handle string) (member, e
 	return m, err
 }
 
-func importProject(ctx context.Context, pg *sqlx.DB, h *home, who member, p localProject) error {
+func importProject(ctx context.Context, pg *sqlx.DB, h *home, who member, p localProject) ([]string, error) {
 	s, err := h.snapshot(p)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	tx, err := pg.BeginTxx(ctx, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := (&writer{tx: tx, who: who, s: s}).write(); err != nil {
+	w := &writer{tx: tx, who: who, s: s}
+	if err := w.write(); err != nil {
 		tx.Rollback()
-		return err
+		return nil, err
 	}
-	return tx.Commit()
+	return w.moved, tx.Commit()
 }
 
 func (r Report) Text() string {
@@ -122,6 +126,9 @@ func (r Report) Text() string {
 	}
 	for _, k := range r.Skipped {
 		fmt.Fprintf(&b, "skipped %s: the org already has this project\n", k)
+	}
+	for _, slug := range r.MovedToPersonal {
+		fmt.Fprintf(&b, "moved to personal %s: an earlier project entry has the same body\n", slug)
 	}
 	for _, f := range r.Failed {
 		fmt.Fprintf(&b, "failed %s: %s\n", f.Project, f.Error)

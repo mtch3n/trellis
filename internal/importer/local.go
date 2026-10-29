@@ -178,6 +178,7 @@ func (h *home) leftOut() (map[string]int64, error) {
 		"tags":           `SELECT count(*) FROM tag`,
 		"trash":          `SELECT count(*) FROM trash`,
 		"card relations": `SELECT count(*) FROM link WHERE rel = 'relates_to'`,
+		"priority":       `SELECT count(*) FROM card WHERE priority <> 2`,
 	} {
 		var n int64
 		if err := h.db.Get(&n, q); err != nil {
