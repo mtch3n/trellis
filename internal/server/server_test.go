@@ -25,10 +25,14 @@ type running struct {
 
 func startServe(t *testing.T, dbURL string) running {
 	t.Helper()
+	return startServeEnv(t, map[string]string{"TRELLIS_DATABASE_URL": dbURL, "TRELLIS_ADDR": "127.0.0.1:0"})
+}
+
+func startServeEnv(t *testing.T, env map[string]string) running {
+	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	ready := make(chan net.Addr, 1)
 	done := make(chan error, 1)
-	env := map[string]string{"TRELLIS_DATABASE_URL": dbURL, "TRELLIS_ADDR": "127.0.0.1:0"}
 	go func() {
 		done <- Run(ctx, func(k string) string { return env[k] }, func(a net.Addr) { ready <- a })
 	}()

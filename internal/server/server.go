@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/mtch3n/trellis/internal/mcpserver"
@@ -14,7 +15,10 @@ import (
 	"github.com/mtch3n/trellis/internal/platform"
 )
 
-const DefaultAddr = "127.0.0.1:8080"
+const (
+	DefaultAddr = "127.0.0.1:8080"
+	embedEvery  = 2 * time.Second
+)
 
 type Server struct {
 	Platform *platform.Platform
@@ -51,14 +55,32 @@ func Run(ctx context.Context, getenv func(string) string, ready func(net.Addr)) 
 	}
 	defer db.Close()
 
+	embedConfig, err := platform.EmbedConfigFromEnv(getenv)
+	if err != nil {
+		return err
+	}
+	embedder, err := platform.NewEmbedder(embedConfig)
+	if err != nil {
+		return err
+	}
+	p := platform.New(db)
+	if embedder != nil {
+		p.UseEmbedder(embedder)
+	}
+
 	addr := cmp.Or(getenv("TRELLIS_ADDR"), DefaultAddr)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("cannot listen on TRELLIS_ADDR %s: %w", addr, err)
 	}
-	srv := &http.Server{Handler: New(platform.New(db)), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: New(p), ReadHeaderTimeout: 10 * time.Second}
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
+	var embedding sync.WaitGroup
+	defer embedding.Wait()
+	embedCtx, stopEmbed := context.WithCancel(ctx)
+	defer stopEmbed()
+	embedding.Go(func() { p.RunEmbedder(embedCtx, embedEvery) })
 	ready(ln.Addr())
 
 	select {
