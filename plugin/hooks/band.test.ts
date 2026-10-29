@@ -13,7 +13,7 @@ const PROMPT = {
   view: {},
 }
 
-const DAEMON = 'http://127.0.0.1:7788/?token=T'
+const SERVER = 'http://127.0.0.1:7788'
 
 type World = {
   nominations: number
@@ -33,6 +33,7 @@ function fakeTrellis(on: On, world: World): string[][] {
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   on('ui.render', { component: 'AbovePrompt' }, ($, e) => $.ui.resolve(e).Box({ key: 'engine' }))
+  on('env.get', (_$, e) => ({ value: e.name === 'TRELLIS_URL' && world.isServing ? SERVER : undefined }))
   on('process.run', async (_$, e) => {
     ran.push([...e.argv])
     if (e.argv[0] !== 'trellis' || world.cli === 'missing') {
@@ -43,17 +44,14 @@ function fakeTrellis(on: On, world: World): string[][] {
     }
     const args = e.argv.slice(1).join(' ')
     const out = (reply: unknown) => ({ value: exited(0, JSON.stringify(reply), '') })
-    if (args === 'vault nominations --json') {
+    if (args === 'call vault_check {"action":"nominations"}') {
       return out({ nominations: Array.from({ length: world.nominations }, (_, i) => ({ slug: `n${i}` })) })
     }
-    if (args === 'vault ls --unverified --json') {
+    if (args === 'call vault_list {"unverified":true}') {
       return out({ entries: Array.from({ length: world.unverified }, (_, i) => ({ slug: `u${i}` })) })
     }
-    if (args === 'daemon status --json') {
-      return out(world.isServing ? { running: true, url: DAEMON } : { running: false })
-    }
-    if (args === 'board show --json') {
-      return out({ project: 'TRELLIS', board: 'trellis', columns: [] })
+    if (args === 'call board_brief {}') {
+      return out({ project: 'TRELLIS', boards: [], claimed: [], pins: [] })
     }
     return { value: exited(2, '', `unknown command: ${args}`) }
   })
@@ -68,14 +66,14 @@ function startSession($: Engine, surface: RenderSurface) {
   return $.session.start({ cwd: '/work/repo', surface, isInteractive: true })
 }
 
-test('GATE-C15 one nomination reads "1 nomination" with a Review link; no daemon, no link', async ($, on) => {
+test('GATE-C15 one nomination reads "1 nomination" with a Review link; no TRELLIS_URL, no link', async ($, on) => {
   const world: World = { nominations: 1, unverified: 0, isServing: true, cli: 'present' }
   fakeTrellis(on, world)
   await startSession($, 'terminal')
   const served = await band($, 'terminal')
   expect((await served.find({ type: 'Text' }))?.text).toBe('Trellis: 1 nomination')
   const link = await served.find({ type: 'Link' })
-  expect(link?.props.href).toBe('http://127.0.0.1:7788/p/TRELLIS/health?token=T')
+  expect(link?.props.href).toBe('http://127.0.0.1:7788/p/TRELLIS/review')
   expect(link?.text).toBe('Review')
 
   const remote = await band($, 'desktop')
@@ -132,7 +130,7 @@ test('GATE-C18 no button or link of the band runs promote, demote or verify', as
   await $.turn.complete({ answer: 'done', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
 
   const links = await drawn.findAll({ type: 'Link' })
-  expect(links.map(link => new URL(String(link.props.href)).pathname)).toEqual(['/p/TRELLIS/health'])
+  expect(links.map(link => new URL(String(link.props.href)).pathname)).toEqual(['/p/TRELLIS/review'])
   const acts = ran.filter(argv => argv.some(arg => ['promote', 'demote', 'verify'].includes(arg)))
   expect(acts).toEqual([])
 })

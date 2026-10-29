@@ -1,7 +1,7 @@
 {
   "name": "trellis",
-  "version": "0.0.6",
-  "description": "Local kanban boards and vaults for AI agents: board state at session start, cards with expiring claims, and a linked markdown vault.",
+  "version": "0.1.0",
+  "description": "Kanban boards and a vault for AI agents on a shared Trellis server: board state at session start, cards with expiring claims, and a linked vault, all through MCP.",
   "author": {
     "name": "mtchen"
   },
@@ -16,8 +16,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Trellis",
-    "shortDescription": "Local kanban boards and vaults for AI agents",
-    "longDescription": "Trellis gives AI coding agents a local kanban board and a linked markdown vault. Use it to claim work safely, record progress, preserve what it learns, and recover context across sessions.",
+    "shortDescription": "Kanban boards and a vault for AI agents on a Trellis server",
+    "longDescription": "Trellis gives AI coding agents shared kanban boards and a linked vault on one server, through MCP. Use it to claim work safely, record progress, keep what it learns, and recover context across sessions.",
     "developerName": "mtchen",
     "category": "Productivity",
     "capabilities": [

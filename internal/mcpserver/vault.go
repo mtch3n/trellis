@@ -8,6 +8,11 @@ import (
 	"github.com/mtch3n/trellis/internal/platform"
 )
 
+type VaultListIn struct {
+	Project    string `json:"project,omitempty" jsonschema:"the project key; defaults to the X-Trellis-Project header"`
+	Unverified bool   `json:"unverified,omitempty" jsonschema:"only global entries whose verify_by has passed"`
+}
+
 type VaultListOut struct {
 	Entries []platform.Entry `json:"entries"`
 }
@@ -140,12 +145,16 @@ func (t *tools) registerVault(s *mcp.Server) {
 	t.add(s, &mcp.Tool{Name: "template", Description: "List, show, create or edit an entry template"}, templateActions, t.template)
 }
 
-func (t *tools) vaultList(ctx context.Context, c call, in ProjectIn) (VaultListOut, error) {
+func (t *tools) vaultList(ctx context.Context, c call, in VaultListIn) (VaultListOut, error) {
 	project, err := c.project(in.Project)
 	if err != nil {
 		return VaultListOut{}, err
 	}
-	entries, err := t.p.ListEntries(ctx, c.pr, project)
+	list := t.p.ListEntries
+	if in.Unverified {
+		list = t.p.UnverifiedEntries
+	}
+	entries, err := list(ctx, c.pr, project)
 	return VaultListOut{Entries: entries}, err
 }
 

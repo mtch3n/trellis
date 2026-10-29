@@ -26,6 +26,16 @@ class ManifestTests(unittest.TestCase):
                 path.read_text(encoding="utf-8"), GEN.render(content),
                 f"{rel} is out of date; run python3 scripts/gen_manifests.py")
 
+    def test_CLIENT_C18_mcp_json_registers_the_http_server_with_the_bearer_header(self):
+        generated = {path.relative_to(ROOT).as_posix(): content for path, content in GEN.manifests(self.spec)}
+        self.assertIn("plugin/.mcp.json", generated)
+        server = generated["plugin/.mcp.json"]["mcpServers"]["trellis"]
+        self.assertEqual(server["type"], "http")
+        self.assertEqual(server["url"], "${TRELLIS_URL}/mcp")
+        self.assertEqual(server["headers"], {"Authorization": "Bearer ${TRELLIS_TOKEN}"})
+        checked_in = (ROOT / "plugin/.mcp.json").read_text(encoding="utf-8")
+        self.assertEqual(checked_in, GEN.render(generated["plugin/.mcp.json"]))
+
     def test_every_harness_carries_the_same_shared_metadata(self):
         shared = self.spec["shared"]
         for name, harness in self.spec["harnesses"].items():

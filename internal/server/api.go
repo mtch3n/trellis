@@ -341,16 +341,9 @@ func (a *webAPI) nominations(c webCall) (any, error) {
 }
 
 func (a *webAPI) unverified(c webCall) (any, error) {
-	all, err := a.p.ListEntries(c.r.Context(), c.pr(), c.key())
+	entries, err := a.p.UnverifiedEntries(c.r.Context(), c.pr(), c.key())
 	if err != nil {
 		return nil, err
-	}
-	now := time.Now()
-	entries := []platform.Entry{}
-	for _, e := range all {
-		if e.Scope == platform.ScopeGlobal && e.VerifyBy != nil && e.VerifyBy.Before(now) {
-			entries = append(entries, e)
-		}
 	}
 	return map[string]any{"entries": entries}, nil
 }

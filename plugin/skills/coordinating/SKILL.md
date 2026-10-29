@@ -1,6 +1,6 @@
 ---
 name: coordinating
-description: Use when another actor has claimed a Trellis card, when several agents or sessions work one board at the same time, or when deciding whether a quiet claim may be stolen. Covers reading the claimant's state, when stealing is justified, and keeping parallel workers from overwriting each other. Commands are in trellis:trellis.
+description: Use when another actor has claimed a Trellis card, when several agents or sessions work one board at the same time, or when deciding whether a quiet claim may be stolen. Covers reading the claimant's state, when stealing is justified, and keeping parallel workers from overwriting each other. Tools are in trellis:trellis.
 ---
 
 # Coordinating on one board
@@ -10,28 +10,28 @@ one working the board, claim and carry on — none of this is needed.
 
 ## Read the claim before acting
 
-`trellis agent ls` shows each registered actor's handle and when it was last
-seen. Combine that with the card's claim:
+`card_show` gives the card's claimant, `agent:<handle>/<token>/<session>`,
+its `claim_until`, and its comments and events, which show when the claimant
+last wrote. Combine that with the claim:
 
 | Claimant state | Do this |
 |---|---|
 | Active, reachable handle | Coordinate through the harness when messaging is authorized |
-| Active, no handle | Leave a `card comment` if useful, then take other work |
+| Active, no handle | Leave a `card_write` `comment` if useful, then take other work |
 | Quiet, claim expiring soon | Take other work and revisit — do not race the clock |
-| Quiet, long idle | Confirm takeover is appropriate, then `claim --steal --reason "..."` |
+| Quiet, long idle | Confirm takeover is appropriate, then `card_claim` `claim` with `steal` and a `reason` |
 | Claim expired | Claim normally |
 
-A claim that is merely quiet is not abandoned. Only `card renew` and the
-claimant's own `card edit` push the expiry out — a comment does not, and neither
+A claim that is merely quiet is not abandoned. Only `card_claim` `renew` pushes
+the expiry out — a comment does not, and neither
 does coding, running tests or reading files — so a working agent looks idle, and
 one that only comments looks idle too. Prefer waiting or taking other work over
-stealing; the `--reason` is read by the displaced actor and should say what made
+stealing; the `reason` is read by the displaced actor and should say what made
 takeover necessary.
 
 Trellis tells the two cases apart for you. A write refused with `contention`
 means another actor's claim is live: its message names the claimant, and the
-JSON error's `detail` carries the claimant's agent record (`claimed_by`, with
-its handle and last-seen time) and a `recommended_action`. One
+JSON error's `detail` carries `claimed_by` and `claim_until`. One
 refused with `not_yours` means nobody holds the card, or the claim has already
 expired, so claiming it is enough.
 
@@ -44,16 +44,18 @@ else has claimed.
 
 ## Parallel workers
 
-Workers sharing one `TRELLIS_AGENT` must each use a distinct, stable `--as`
-suffix on every command that records or checks a claimant — `claim`, `next`,
-`release`, `renew`, `comment`, `edit`, `move`. A worker that uses its suffix
-inconsistently will appear as two actors and can steal from itself.
+The claimant is the token and the session. Workers that share one token must
+each send a distinct, stable `X-Trellis-Session` (`TRELLIS_SESSION` for
+`trellis call`) on every call. A worker that changes its session will appear as
+two actors and can steal from itself, and a claim made under one session does
+not release cleanly under another.
 
-Preserve the suffix when finishing or parking work, or the claim will not
-release cleanly.
+The `coordination` tool lists your notices about work that overlaps another
+member's. Read them before you start overlapping work, and dismiss one only
+when you have dealt with it.
 
 ## Handing off
 
 Park unfinished work with a comment that a cold reader can act on — what is done,
-what is left, the next action — then `card release`. A released card with no
+what is left, the next action — then `card_claim` `release`. A released card with no
 comment is worse than no card: it says the work exists but not where it stands.

@@ -7,42 +7,45 @@ const gate = atom({ plugin: 'trellis', key: 'gate' } as const, null)
 
 type Reply = Record<string, unknown>
 
-async function trellis($: EngineInterface, args: string[]): Promise<Reply | null> {
+async function call($: EngineInterface, tool: string, args: Reply): Promise<Reply | null> {
   try {
-    const { exitCode, stdout } = await $.process.run(['trellis', ...args, '--json'])
+    const { exitCode, stdout } = await $.process.run(['trellis', 'call', tool, JSON.stringify(args)])
     return exitCode === 0 ? (JSON.parse(stdout) as Reply) : null
   } catch {
     return null
   }
 }
 
-function count(reply: Reply | null, field: string): number | null {
-  const list = reply?.[field]
-  return Array.isArray(list) ? list.length : null
+function list(reply: Reply | null, field: string): unknown[] | null {
+  const items = reply?.[field]
+  return Array.isArray(items) ? items : null
 }
 
 async function reviewPage($: EngineInterface): Promise<string | null> {
-  const daemon = await trellis($, ['daemon', 'status'])
-  if (daemon?.running !== true || typeof daemon.url !== 'string' || daemon.url === '') {
+  const server = await $.env.get('TRELLIS_URL')
+  if (server === undefined || server === '') {
     return null
   }
-  const board = await trellis($, ['board', 'show'])
-  if (typeof board?.project !== 'string') {
+  const brief = await call($, 'board_brief', {})
+  if (typeof brief?.project !== 'string' || brief.project === '') {
     return null
   }
-  // The daemon's URL carries the UI's token as its query, which the page needs.
-  const page = new URL(daemon.url)
-  page.pathname = `/p/${encodeURIComponent(board.project)}/health`
-  return page.toString()
+  try {
+    const page = new URL(server)
+    page.pathname = `${page.pathname.replace(/\/$/, '')}/p/${encodeURIComponent(brief.project)}/review`
+    return page.toString()
+  } catch {
+    return null
+  }
 }
 
 async function readGate($: EngineInterface): Promise<Gate | null> {
-  const nominations = count(await trellis($, ['vault', 'nominations']), 'nominations')
-  const unverified = count(await trellis($, ['vault', 'ls', '--unverified']), 'entries')
-  if (nominations === null || unverified === null || nominations + unverified === 0) {
+  const nominations = list(await call($, 'vault_check', { action: 'nominations' }), 'nominations')
+  const unverified = list(await call($, 'vault_list', { unverified: true }), 'entries')
+  if (nominations === null || unverified === null || nominations.length + unverified.length === 0) {
     return null
   }
-  return { nominations, unverified, review: await reviewPage($) }
+  return { nominations: nominations.length, unverified: unverified.length, review: await reviewPage($) }
 }
 
 async function refresh($: EngineInterface): Promise<void> {
@@ -81,9 +84,8 @@ export const register: Register = on => {
     }
 
     const { Box, Link, Text } = $.ui.resolve(e)
-    // A remote surface draws only an https: link, and the daemon serves plain
-    // http on this machine, so only the terminal can open the review page.
-    const review = e.surface === 'terminal' ? waiting.review : null
+    const review =
+      waiting.review !== null && (e.surface === 'terminal' || waiting.review.startsWith('https:')) ? waiting.review : null
 
     return (
       <Box gap={1}>

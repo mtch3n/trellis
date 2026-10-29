@@ -6,7 +6,7 @@ description: Use when deciding whether a finding is worth recording and where it
 # Writing knowledge
 
 Two questions, in order: does this deserve to be written down at all, and where
-does it go. Most candidates fail the first. Commands are in `trellis:trellis`.
+does it go. Most candidates fail the first. Tools are in `trellis:trellis`.
 
 ## Does it deserve an entry
 
@@ -25,7 +25,7 @@ session will trust it.
 | Durable fact about *this* repo — a decision, a trap, a measurement | The project vault | Searchable, linkable, survives a clear |
 | Progress, evidence, what is left on a specific task | A card comment | Belongs to the work, not the vault |
 | How the user wants to work, across every project | Project memory / CLAUDE.md | Already the working store; do not migrate it |
-| Fact useful in several repos | The project vault, then `vault nominate` | You nominate; a human promotes |
+| Fact useful in several repos | The project vault, then `vault_share` `nominate` | You nominate; the owner promotes when the user agrees |
 | Still a hypothesis | Nowhere yet | Wait until it is verified |
 
 Project memory already holds hundreds of working entries. Do not copy them onto
@@ -35,7 +35,7 @@ to it when the finding belongs there.
 
 ## What each template asks for
 
-`trellis template ls` is the live list; `template show <name>` gives
+The tool `template` `list` is the live list; `show` with a `name` gives
 one template's rules and skeleton. What ships:
 
 | Template | Must include |
@@ -49,7 +49,7 @@ one template's rules and skeleton. What ships:
 
 `decision`, `finding` and `glossary` refuse a write that does not meet them, so
 choose the template that fits what you actually have. An entry created without
-`--template` has no shape to keep, which is the right choice for a note that
+a `template` has no shape to keep, which is the right choice for a note that
 belongs to none of the six.
 
 Prefer evidence and constraints over a transcription of structure. Separate what
@@ -65,7 +65,7 @@ tells it whether to open the entry.
 
 Write `[[wikilinks]]` to related entries as you go, including ones that do not
 exist yet. An unresolved link is a stub, not an error — it marks the gap, and
-`vault lint` reports it later. This is how a vault accumulates without anyone
+`vault_check` `lint` reports it later. This is how a vault accumulates without anyone
 planning it.
 
 A bare `[[slug]]` means this project, and it may name a directory:

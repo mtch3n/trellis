@@ -11,21 +11,19 @@ concept under `## Terms` — **Term**, **Means**, **Not**.
 
 ## Starting one
 
-1. Run `trellis vault ls --template glossary`. A project keeps one, so if it
-   exists, change it instead. If `glossary` is not a known template, run
-   `trellis template reinstall glossary`.
+1. Call `vault_list` and look for an entry whose `template` is `glossary`. A
+   project keeps one, so if it exists, change it instead.
 2. Take rows only from words the user or the project already defines. Invent no
    meanings.
 3. **If any row needed a choice** — which of two words is the Term, or what a
    word means — show the proposed rows and ask before creating the entry.
-4. Create it, passing the body on stdin:
+4. Create it, then publish it so the project sees it:
 
-       trellis vault new --template glossary --title "Glossary" --body - <<'MD'
-       ...
-       MD
+       vault_write  {"action": "new", "template": "glossary", "title": "Glossary", "body": "..."}
+       vault_share  {"action": "publish", "slug": "glossary"}
 
 5. Ask whether to pin it. Pin only on a yes, with a one-line recap:
-   `trellis vault pin <entry> --recap "..."`.
+   `vault_share` `{"action": "pin", "slug": "<entry>", "recap": "..."}`.
 
 ## The table
 
@@ -45,13 +43,11 @@ it, on every Trellis write.
 
 ## Changing it
 
-Read the entry, change one row, then write the whole body back on stdin, with
-the version you read:
+Read the entry, change one row, then write the whole body back with the
+version you read:
 
-    trellis vault show <entry> --json
-    trellis vault edit <entry> --if-version <version> --body - <<'MD'
-    ...
-    MD
+    vault_show   {"slug": "<entry>"}
+    vault_write  {"action": "edit", "slug": "<entry>", "if_version": <version>, "body": "..."}
 
 | Situation | Do |
 |---|---|
