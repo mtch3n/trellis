@@ -121,6 +121,23 @@ class ToolErrorTests(QueueTest):
 
 
 class RobustnessTests(QueueTest):
+    def test_SDD_C136_an_empty_transcript_cursor_is_read_as_new_and_rewritten(self):
+        transcript = self.repo.root.parent / (self.repo.root.name + ".c136.jsonl")
+        use = {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_3",
+               "name": "AskUserQuestion", "input": {"questions": [{"question": "Torn?", "options": []}]}}]}}
+        result = {"type": "user", "toolUseResult": "User rejected tool use", "message": {"content": [
+                  {"type": "tool_result", "tool_use_id": "toolu_3", "is_error": True, "content": "rejected"}]}}
+        transcript.write_text(json.dumps(use) + "\n" + json.dumps(result) + "\n", encoding="utf-8")
+        cursor = self.repo.root / ".sdd/transcripts.json"
+        cursor.parent.mkdir(exist_ok=True)
+        cursor.write_text("", encoding="utf-8")
+        out = HOOK.stop({"cwd": str(self.repo.root), "session_id": "s7", "transcript_path": str(transcript),
+                         "last_assistant_message": "Stopped."})
+        self.assertNotIn("sdd hook skipped", json.dumps(out))
+        self.assertEqual([i["text"] for i in self.open_items()], ["Torn?"])
+        self.assertEqual(json.loads(cursor.read_text(encoding="utf-8")), {"s7": transcript.stat().st_size})
+        self.assertEqual(list(cursor.parent.glob("transcripts.json.*.tmp")), [])
+
     def test_SDD_C103_a_row_missing_fields_crashes_nothing(self):
         self.stop(REPLY)
         with open(self.repo.root / ".sdd/queue.jsonl", "a", encoding="utf-8") as stream:

@@ -147,7 +147,12 @@ def declined_questions(root, event):
     if not isinstance(path, str) or not pathlib.Path(path).is_file():
         return []
     marks_path = state.folder(root) / "transcripts.json"
-    marks = json.loads(marks_path.read_text(encoding="utf-8")) if marks_path.is_file() else {}
+    try:
+        marks = json.loads(marks_path.read_text(encoding="utf-8")) if marks_path.is_file() else {}
+    except ValueError:
+        marks = {}
+    if not isinstance(marks, dict):
+        marks = {}
     start = marks.get(session or path, 0)
     asked_by_id, declined = {}, []
     with open(path, "rb") as stream:
@@ -172,7 +177,9 @@ def declined_questions(root, event):
     if declined or (state.folder(root).is_dir() and marks.get(session or path) != start + len(data)):
         state.ensure(root)
         marks[session or path] = start + len(data)
-        marks_path.write_text(json.dumps(marks), encoding="utf-8")
+        tmp = marks_path.with_suffix(f".json.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(marks), encoding="utf-8")
+        os.replace(tmp, marks_path)
     return declined
 
 
