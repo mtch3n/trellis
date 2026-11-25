@@ -11,6 +11,7 @@ session-start  One line when open items are waiting; nothing otherwise.
 None of them runs the test suite. Requires Python 3 and git.
 """
 
+import fnmatch
 import json
 import os
 import pathlib
@@ -209,6 +210,49 @@ def last_reply(event):
     return reply
 
 
+def _match_path(rel, pattern):
+    pat = pattern.strip().lstrip("./")
+    if not pat:
+        return False
+    if pat.endswith("/"):
+        return rel.startswith(pat)
+    if pat.startswith("**/"):
+        return fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(rel, pat[3:]) or fnmatch.fnmatch(pathlib.PurePosixPath(rel).name, pat[3:])
+    return rel == pat or rel.startswith(pat + "/") or fnmatch.fnmatch(rel, pat)
+
+
+def enforced_changes(root, top, cfg):
+    """True when changed files intersect enforce_paths (minus ignore_paths).
+
+    Returns True when neither enforce_paths nor ignore_paths is set, keeping
+    existing repo-wide behavior unchanged.
+    """
+    enforce = cfg.get("enforce_paths") or []
+    ignore = cfg.get("ignore_paths") or []
+    if not enforce and not ignore:
+        return True
+    status = git(["status", "--porcelain"], top) or ""
+    files = []
+    for line in status.splitlines():
+        if len(line) >= 4:
+            p = line[3:].split(" -> ")[-1].strip().strip('"')
+            if p:
+                files.append(p)
+    if not files:
+        default = state.default_branch(root)
+        if default:
+            diff = git(["diff", "--name-only", f"{default}...HEAD"], top) or ""
+            files = [x.strip() for x in diff.splitlines() if x.strip()]
+    if not files:
+        return False
+    for rel in files:
+        if any(_match_path(rel, pat) for pat in ignore):
+            continue
+        if not enforce or any(_match_path(rel, pat) for pat in enforce):
+            return True
+    return False
+
+
 def stop(event):
     cwd = event.get("cwd")
     if not isinstance(cwd, str):
@@ -219,7 +263,9 @@ def stop(event):
     queue_questions(cwd, found + declined_questions(root, event), event.get("session_id") or "")
     top = git(["rev-parse", "--show-toplevel"], cwd)
     top = pathlib.Path(top.strip()) if top else root
-    if not found and follow_through.asks_to_continue(reply):
+    cfg = load_config(root)
+    scoped = enforced_changes(root, top, cfg)
+    if scoped and not found and follow_through.asks_to_continue(reply):
         left = follow_through.work_left(root, top)
         if left:
             listing = "\n- ".join(left)
@@ -227,7 +273,7 @@ def stop(event):
                 return {"systemMessage": f"sdd: the agent asked to continue while probes show work left:\n- {listing}"}
             return {"decision": "block", "reason": "sdd: do not ask; the probes say the work is not done:\n- "
                     + listing + "\nContinue. If something blocks you, say what it is."}
-    if not found and follow_through.claims_done(reply) and load_config(root).get("test"):
+    if scoped and not found and follow_through.claims_done(reply) and cfg.get("test"):
         if not follow_through.verified(root, top):
             ask = "run verify.py before saying the work is done or the tests pass; report what it prints."
             if event.get("stop_hook_active"):
