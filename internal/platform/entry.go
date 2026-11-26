@@ -268,6 +268,9 @@ func applyTemplate(tx *sqlx.Tx, w linkWriter, t Template, e Entry, checkSections
 		return nil, err
 	}
 	problems = append(problems, unresolved...)
+	if checkSections {
+		problems = append(problems, checkKnowledgeQuality(e.Template, e.Summary, e.Body)...)
+	}
 	return problems, t.enforce(problems)
 }
 
